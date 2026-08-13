@@ -5711,76 +5711,106 @@ export class WorkspaceDatabase {
     input: SessionTranscriptSearchInput,
     context: { registryWorkspaceId: string; workspacePath: string; workspaceName: string }
   ): SessionTranscriptSearchResponse {
+    return this.searchTranscriptMessagesAcrossWorkspaces(input, [{
+      databaseWorkspaceId: this.workspaceId,
+      ...context
+    }]);
+  }
+
+  public searchTranscriptMessagesAcrossWorkspaces(
+    input: SessionTranscriptSearchInput,
+    contexts: readonly {
+      databaseWorkspaceId: string;
+      registryWorkspaceId: string;
+      workspacePath: string;
+      workspaceName: string;
+    }[]
+  ): SessionTranscriptSearchResponse {
     const query = input.query.trim();
     if (!query) return emptyTranscriptSearchResponse();
     const terms = transcriptSearchTerms(query);
     if (!terms.length) return emptyTranscriptSearchResponse();
+    const contextByWorkspaceId = new Map(
+      contexts.map((context) => [context.databaseWorkspaceId, context] as const)
+    );
+    if (contextByWorkspaceId.size === 0) return emptyTranscriptSearchResponse();
     const requestedLimit = Math.floor(input.limit ?? 24);
     const limit = Number.isFinite(requestedLimit) ? Math.max(1, requestedLimit) : 24;
     const conditions = terms.map(() => "LOWER(tm.content_markdown) LIKE ? ESCAPE '\\'").join(' AND ');
     const parameters = terms.map((term) => `%${escapeLike(term.toLowerCase())}%`);
-    const countRow = rowOrUndefined(
+    const workspaceIdsJson = JSON.stringify([...contextByWorkspaceId.keys()]);
+    const countRows = rows(
       this.db
         .prepare(
-          `SELECT COUNT(*) AS total_matches
+          `SELECT p.workspace_id AS workspace_id, COUNT(*) AS total_matches
            FROM transcript_messages tm
            JOIN runs r ON r.id = tm.run_id
            JOIN scope_versions p ON p.id = r.scope_version_id
-           WHERE p.workspace_id = ? AND ${conditions}`
+           WHERE p.workspace_id IN (SELECT value FROM json_each(?)) AND ${conditions}
+           GROUP BY p.workspace_id`
         )
-        .get(this.workspaceId, ...parameters)
+        .all(workspaceIdsJson, ...parameters)
     );
-    const resultRows = this.db
-      .prepare(
-        `SELECT
-           tm.id AS transcript_message_id,
-           tm.run_id AS run_id,
-           tm.trace_event_id AS trace_event_id,
-           tm.role AS role,
-           tm.source AS source,
-           tm.content_markdown AS content_markdown,
-           tm.created_at AS created_at,
-           r.title AS session_title,
-           p.workspace_name AS workspace_name
-         FROM transcript_messages tm
-         JOIN runs r ON r.id = tm.run_id
-         JOIN scope_versions p ON p.id = r.scope_version_id
-         WHERE p.workspace_id = ? AND ${conditions}
-         ORDER BY tm.created_at DESC, tm.rowid DESC
-         LIMIT ?`
-      )
-      .all(this.workspaceId, ...parameters, limit);
+    const resultRows = rows(
+      this.db
+        .prepare(
+          `SELECT
+             p.workspace_id AS workspace_id,
+             tm.id AS transcript_message_id,
+             tm.run_id AS run_id,
+             tm.trace_event_id AS trace_event_id,
+             tm.role AS role,
+             tm.source AS source,
+             tm.content_markdown AS content_markdown,
+             tm.created_at AS created_at,
+             r.title AS session_title
+           FROM transcript_messages tm
+           JOIN runs r ON r.id = tm.run_id
+           JOIN scope_versions p ON p.id = r.scope_version_id
+           WHERE p.workspace_id IN (SELECT value FROM json_each(?)) AND ${conditions}
+           ORDER BY tm.created_at DESC, tm.rowid DESC
+           LIMIT ?`
+        )
+        .all(workspaceIdsJson, ...parameters, limit)
+    );
 
-    const results = rows(resultRows).map((row) => ({
-      registryWorkspaceId: context.registryWorkspaceId,
-      workspacePath: context.workspacePath,
-      runId: text(row, 'run_id'),
-      transcriptMessageId: text(row, 'transcript_message_id'),
-      traceEventId: nullableText(row, 'trace_event_id'),
-      role: text(row, 'role') as SessionTranscriptSearchResult['role'],
-      source: text(row, 'source'),
-      sessionTitle: text(row, 'session_title'),
-      workspaceName: context.workspaceName,
-      contentPreview: transcriptSearchPreview(text(row, 'content_markdown'), terms),
-      createdAt: text(row, 'created_at')
-    }));
-    const totalTranscriptMatches = countRow ? numberValue(countRow, 'total_matches') : results.length;
-    const workspaceName = context.workspaceName;
+    const results = resultRows.flatMap((row): SessionTranscriptSearchResult[] => {
+      const context = contextByWorkspaceId.get(text(row, 'workspace_id'));
+      if (!context) return [];
+      return [{
+        registryWorkspaceId: context.registryWorkspaceId,
+        workspacePath: context.workspacePath,
+        runId: text(row, 'run_id'),
+        transcriptMessageId: text(row, 'transcript_message_id'),
+        traceEventId: nullableText(row, 'trace_event_id'),
+        role: text(row, 'role') as SessionTranscriptSearchResult['role'],
+        source: text(row, 'source'),
+        sessionTitle: text(row, 'session_title'),
+        workspaceName: context.workspaceName,
+        contentPreview: transcriptSearchPreview(text(row, 'content_markdown'), terms),
+        createdAt: text(row, 'created_at')
+      }];
+    });
+    const totalsByWorkspaceId = new Map(
+      countRows.map((row) => [text(row, 'workspace_id'), numberValue(row, 'total_matches')] as const)
+    );
+    const workspaces = [...contextByWorkspaceId.values()].flatMap((context) => {
+      const totalTranscriptMatches = totalsByWorkspaceId.get(context.databaseWorkspaceId) ?? 0;
+      return totalTranscriptMatches > 0
+        ? [{
+            registryWorkspaceId: context.registryWorkspaceId,
+            workspacePath: context.workspacePath,
+            workspaceName: context.workspaceName,
+            totalTranscriptMatches
+          }]
+        : [];
+    });
+
     return {
       results,
-      totalTranscriptMatches,
-      workspaceCount: totalTranscriptMatches > 0 ? 1 : 0,
-      workspaces:
-        totalTranscriptMatches > 0
-          ? [
-              {
-                registryWorkspaceId: context.registryWorkspaceId,
-                workspacePath: context.workspacePath,
-                workspaceName,
-                totalTranscriptMatches
-              }
-            ]
-          : []
+      totalTranscriptMatches: workspaces.reduce((total, workspace) => total + workspace.totalTranscriptMatches, 0),
+      workspaceCount: workspaces.length,
+      workspaces
     };
   }
 
@@ -7578,173 +7608,17 @@ export class WorkspaceDatabase {
     const startedAt = performance.now();
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
-
-    const parts = [
-      [
-        'run',
-        run.id,
-        run.status,
-        run.title,
-        run.summary,
-        run.mode,
-        run.shellSafetyMode,
-        run.model,
-        run.reasoningEffort,
-        run.attemptStrategy,
-        run.sandboxProfile,
-        run.targetAssetId ?? '',
-        run.targetPath ?? '',
-        run.startedAt ?? '',
-        run.endedAt ?? '',
-        JSON.stringify(run.finalDisposition),
-        JSON.stringify(run.budget),
-        JSON.stringify(this.getSessionNextStepSuggestions(runId))
-      ].join(':'),
-      this.aggregateVersionPart(
-        'attempts',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(started_at), '') AS max_started,
-                COALESCE(MAX(COALESCE(ended_at, '')), '') AS max_ended,
-                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || short_state || ':' || COALESCE(ended_at, ''), '|'), '') AS rows
-         FROM (SELECT * FROM attempts WHERE run_id = ? ORDER BY started_at ASC, id ASC)`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'trace_events',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(sequence), 0) AS max_sequence,
-                COALESCE(MAX(created_at), '') AS max_created,
-                COALESCE(SUM(LENGTH(summary) + LENGTH(payload_json)), 0) AS content_size
-         FROM trace_events WHERE run_id = ?`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'transcript_messages',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(created_at), '') AS max_created,
-                COALESCE(SUM(LENGTH(content_markdown) + LENGTH(metadata_json)), 0) AS content_size
-         FROM transcript_messages WHERE run_id = ?`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'breakout_rooms',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(COALESCE(closed_at, created_at)), '') AS max_updated,
-                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || COALESCE(closed_at, '') || ':' || LENGTH(COALESCE(outcome_markdown, '')), '|'), '') AS rows
-         FROM (SELECT * FROM breakout_rooms WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'breakout_room_members',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(COALESCE(ended_at, started_at, '')), '') AS max_updated,
-                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || provider || ':' || model || ':' || COALESCE(ended_at, ''), '|'), '') AS rows
-         FROM (SELECT * FROM breakout_room_members WHERE run_id = ? ORDER BY COALESCE(started_at, ''), id ASC)`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'breakout_room_messages',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(created_at), '') AS max_created,
-                COALESCE(SUM(LENGTH(content_markdown) + LENGTH(metadata_json)), 0) AS content_size
-         FROM breakout_room_messages WHERE run_id = ?`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'artifacts',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(created_at), '') AS max_created,
-                COALESCE(SUM(LENGTH(id) + LENGTH(relative_path) + LENGTH(kind) + LENGTH(metadata_json)), 0) AS content_size
-         FROM (
-           SELECT DISTINCT a.* FROM artifacts a
-           JOIN trace_events t ON t.artifact_id = a.id
-           WHERE t.run_id = ?
-         )`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'verifier_contracts',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(updated_at), '') AS max_updated,
-                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || updated_at, '|'), '') AS rows
-         FROM (SELECT * FROM verifier_contracts WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'verifier_runs',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(started_at), '') AS max_started,
-                COALESCE(MAX(COALESCE(ended_at, '')), '') AS max_ended,
-                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || COALESCE(ended_at, '') || ':' || LENGTH(result_json), '|'), '') AS rows
-         FROM (SELECT * FROM verifier_runs WHERE run_id = ? ORDER BY started_at ASC, id ASC)`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'vm_contexts',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(created_at), '') AS max_created,
-                COALESCE(MAX(COALESCE(destroyed_at, '')), '') AS max_destroyed,
-                COALESCE(GROUP_CONCAT(id || ':' || state || ':' || COALESCE(destroyed_at, '') || ':' || LENGTH(metadata_json), '|'), '') AS rows
-         FROM (
-           SELECT DISTINCT v.* FROM vm_contexts v
-           LEFT JOIN attempts a ON a.vm_context_id = v.id
-           WHERE a.run_id = ? OR v.id IN (SELECT vm_context_id FROM trace_events WHERE run_id = ? AND vm_context_id IS NOT NULL)
-           ORDER BY v.created_at ASC, v.id ASC
-         )`,
-        runId,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'model_sessions',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(updated_at), '') AS max_updated,
-                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || updated_at || ':' || LENGTH(metadata_json), '|'), '') AS rows
-         FROM (SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'context_compactions',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(created_at), '') AS max_created,
-                COALESCE(MAX(trace_high_water_mark), 0) AS max_trace_high_water_mark,
-                COALESCE(SUM(serialized_size_bytes + LENGTH(token_pressure_json)), 0) AS content_size
-         FROM context_compactions WHERE run_id = ?`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'policy_events',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(created_at), '') AS max_created,
-                COALESCE(MAX(COALESCE(decided_at, '')), '') AS max_decided,
-                COALESCE(GROUP_CONCAT(id || ':' || decision || ':' || reason || ':' || COALESCE(decided_at, ''), '|'), '') AS rows
-         FROM (SELECT * FROM approvals WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'exports',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(created_at), '') AS max_created,
-                COALESCE(MAX(COALESCE(reviewed_at, '')), '') AS max_reviewed,
-                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || COALESCE(review_decision, '') || ':' || COALESCE(reviewed_at, ''), '|'), '') AS rows
-         FROM (SELECT * FROM exports WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
-        runId
-      )
-    ];
+    const revisionRow = rowOrUndefined(
+      this.db.prepare('SELECT revision FROM run_detail_revisions WHERE run_id = ?').get(runId)
+    );
+    if (!revisionRow) throw new Error(`Run detail revision not found: ${runId}`);
 
     return {
       runId,
-      version: createHash('sha256').update(parts.join('\n')).digest('hex'),
+      version: `revision:${numberValue(revisionRow, 'revision')}`,
       generatedAt: nowIso(),
       databaseMs: roundMetricMs(performance.now() - startedAt)
     };
-  }
-
-  private aggregateVersionPart(label: string, sql: string, ...params: SqlPrimitive[]): string {
-    const row = rowOrUndefined(this.db.prepare(sql).get(...params)) ?? {};
-    return `${label}:${Object.keys(row)
-      .sort()
-      .map((key) => `${key}=${String(row[key] ?? '')}`)
-      .join(';')}`;
   }
 
   public getRun(runId: string): RunRecord | null {
@@ -8558,6 +8432,72 @@ export class WorkspaceDatabase {
         name: 'durable_breakout_rooms',
         up: (database) => {
           database.exec(BREAKOUT_ROOMS_SCHEMA_SQL);
+        }
+      },
+      {
+        version: 21,
+        name: 'run_detail_revisions',
+        up: (database) => {
+          database.exec(`
+            CREATE TABLE IF NOT EXISTS run_detail_revisions (
+              run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+              revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0)
+            );
+            INSERT OR IGNORE INTO run_detail_revisions (run_id, revision)
+            SELECT id, 1 FROM runs;
+
+            CREATE TRIGGER IF NOT EXISTS run_detail_revision_runs_insert
+            AFTER INSERT ON runs BEGIN
+              INSERT INTO run_detail_revisions (run_id, revision) VALUES (NEW.id, 1)
+              ON CONFLICT(run_id) DO UPDATE SET revision = revision + 1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS run_detail_revision_runs_update
+            AFTER UPDATE ON runs BEGIN
+              INSERT INTO run_detail_revisions (run_id, revision) VALUES (NEW.id, 1)
+              ON CONFLICT(run_id) DO UPDATE SET revision = revision + 1;
+            END;
+          `);
+          for (const table of [
+            'attempts',
+            'trace_events',
+            'transcript_messages',
+            'breakout_rooms',
+            'breakout_room_members',
+            'breakout_room_messages',
+            'verifier_contracts',
+            'verifier_runs',
+            'model_sessions',
+            'context_compactions',
+            'approvals',
+            'exports'
+          ]) {
+            database.exec(`
+              CREATE TRIGGER IF NOT EXISTS run_detail_revision_${table}_insert
+              AFTER INSERT ON ${table} BEGIN
+                UPDATE run_detail_revisions SET revision = revision + 1 WHERE run_id = NEW.run_id;
+              END;
+              CREATE TRIGGER IF NOT EXISTS run_detail_revision_${table}_update
+              AFTER UPDATE ON ${table} BEGIN
+                UPDATE run_detail_revisions SET revision = revision + 1 WHERE run_id = NEW.run_id;
+              END;
+              CREATE TRIGGER IF NOT EXISTS run_detail_revision_${table}_delete
+              AFTER DELETE ON ${table} BEGIN
+                UPDATE run_detail_revisions SET revision = revision + 1 WHERE run_id = OLD.run_id;
+              END;
+            `);
+          }
+          for (const table of ['artifacts', 'vm_contexts']) {
+            const linkedRunIds = table === 'artifacts'
+              ? 'SELECT DISTINCT run_id FROM trace_events WHERE artifact_id = NEW.id'
+              : `SELECT run_id FROM attempts WHERE vm_context_id = NEW.id
+                 UNION SELECT run_id FROM trace_events WHERE vm_context_id = NEW.id`;
+            database.exec(`
+              CREATE TRIGGER IF NOT EXISTS run_detail_revision_${table}_update
+              AFTER UPDATE ON ${table} BEGIN
+                UPDATE run_detail_revisions SET revision = revision + 1 WHERE run_id IN (${linkedRunIds});
+              END;
+            `);
+          }
         }
       }
     ]);

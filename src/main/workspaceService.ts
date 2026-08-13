@@ -644,9 +644,14 @@ export class WorkspaceService {
     return this.getWorkspaceRegistry().setProviderPreferredAuthenticationMethod(providerId, method);
   }
 
-  public getResearchProfiles(): ResolvedResearchProfile[] {
+  public async getResearchProfiles(): Promise<ResolvedResearchProfile[]> {
     const workspacePath = this.workspacePath ?? process.cwd();
-    return RESEARCH_PROFILE_IDS.map((profileId) => this.resolveResearchProfile(workspacePath, profileId));
+    if (this.options.researchProfileResolver) {
+      return RESEARCH_PROFILE_IDS.map((profileId) => this.options.researchProfileResolver!(workspacePath, profileId));
+    }
+    return Promise.all(
+      RESEARCH_PROFILE_IDS.map((profileId) => this.researchProfileService.resolveAsync(workspacePath, profileId))
+    );
   }
 
   public getMemorySettings(): MemorySettings {
@@ -1795,54 +1800,56 @@ export class WorkspaceService {
       return foreground.db.searchTranscriptMessages({ ...input, limit }, searchWorkspaceContext(foreground.workspacePath, workspace));
     }
 
-    const registry = this.getWorkspaceRegistry();
+    const profileWorkspaces = new Map<ResearchProfileId, WorkspaceRegistryEntry[]>();
+    const searchedWorkspacePaths = new Set<string>();
+    for (const workspace of this.getWorkspaceRegistry().getState().workspaces) {
+      const resolvedPath = resolve(workspace.workspacePath);
+      if (searchedWorkspacePaths.has(resolvedPath) || !isExistingWorkspace(resolvedPath)) continue;
+      searchedWorkspacePaths.add(resolvedPath);
+      const entries = profileWorkspaces.get(workspace.researchProfileId) ?? [];
+      entries.push(workspace);
+      profileWorkspaces.set(workspace.researchProfileId, entries);
+    }
+
     const results: SessionTranscriptSearchResult[] = [];
     const workspaces: SessionTranscriptSearchResponse['workspaces'] = [];
     let totalTranscriptMatches = 0;
-    let workspaceCount = 0;
-    const searchedWorkspacePaths = new Set<string>();
-    const searchWorkspace = (workspacePath: string, workspace: WorkspaceRegistryEntry): void => {
-      const resolvedPath = resolve(workspacePath);
-      if (searchedWorkspacePaths.has(resolvedPath) || !isExistingWorkspace(resolvedPath)) return;
-      searchedWorkspacePaths.add(resolvedPath);
-
-      const runtime = this.runtimeForWorkspacePath(resolvedPath);
-      if (runtime) {
-        const response = runtime.db.searchTranscriptMessages({ ...input, limit }, searchWorkspaceContext(resolvedPath, workspace));
-        results.push(...response.results);
-        workspaces.push(...response.workspaces);
-        totalTranscriptMatches += response.totalTranscriptMatches;
-        workspaceCount += response.workspaceCount;
-        return;
-      }
-
-      const bealeDir = join(resolvedPath, '.beale');
-      const db = new WorkspaceDatabase(
-        this.globalHoneycrispDatabasePath(workspace.researchProfileId),
-        join(bealeDir, 'artifacts'), {
-        workspacePath: resolvedPath,
-        workspaceId: workspace.workspaceId
-      });
-      try {
+    for (const [profileId, entries] of profileWorkspaces) {
+      const contexts = entries.map((workspace) => searchWorkspaceContext(workspace.workspacePath, workspace));
+      const runtime = entries
+        .map((workspace) => this.runtimeForWorkspacePath(workspace.workspacePath))
+        .find((candidate): candidate is WorkspaceRuntime => candidate !== null);
+      let db = runtime?.db ?? null;
+      let closeDatabase = false;
+      if (!db) {
+        const firstWorkspace = entries[0];
+        if (!firstWorkspace) continue;
+        const resolvedPath = resolve(firstWorkspace.workspacePath);
+        db = new WorkspaceDatabase(
+          this.globalHoneycrispDatabasePath(profileId),
+          join(resolvedPath, '.beale', 'artifacts'), {
+          workspacePath: resolvedPath,
+          workspaceId: firstWorkspace.workspaceId
+        });
         db.initialize();
-        const response = db.searchTranscriptMessages({ ...input, limit }, searchWorkspaceContext(resolvedPath, workspace));
+        closeDatabase = true;
+      }
+      try {
+        const response = db.searchTranscriptMessagesAcrossWorkspaces({ ...input, limit }, contexts);
         results.push(...response.results);
         workspaces.push(...response.workspaces);
         totalTranscriptMatches += response.totalTranscriptMatches;
-        workspaceCount += response.workspaceCount;
       } finally {
-        db.close();
+        if (closeDatabase) db.close();
       }
-    };
-
-    for (const workspace of registry.getState().workspaces) {
-      searchWorkspace(workspace.workspacePath, workspace);
     }
 
     return {
-      results: results.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt)),
+      results: results
+        .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+        .slice(0, limit),
       totalTranscriptMatches,
-      workspaceCount,
+      workspaceCount: workspaces.length,
       workspaces
     };
   }
@@ -5111,8 +5118,14 @@ function isExistingWorkspace(path: string): boolean {
   }
 }
 
-function searchWorkspaceContext(workspacePath: string, workspace: WorkspaceRegistryEntry): { registryWorkspaceId: string; workspacePath: string; workspaceName: string } {
+function searchWorkspaceContext(workspacePath: string, workspace: WorkspaceRegistryEntry): {
+  databaseWorkspaceId: string;
+  registryWorkspaceId: string;
+  workspacePath: string;
+  workspaceName: string;
+} {
   return {
+    databaseWorkspaceId: workspace.workspaceId,
     registryWorkspaceId: workspace.id,
     workspacePath: resolve(workspacePath),
     workspaceName: workspace.workspaceName

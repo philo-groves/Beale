@@ -20,6 +20,7 @@
 
 ### Changed
 
+- Research profile catalogs now resolve through asynchronous parallel Honeycrisp processes and cache duplicate workspace/profile requests, avoiding main-process stalls when opening Profiles.
 - Agent Settings now presents research profiles in a two-level Profiles view, with the selected profile description between the profile and memory-type tabs and each memory type expanded into a full-width definition and session-heat panel.
 - Research profiles are now selected per workspace during onboarding, defaulting to Cybersecurity. Existing workspaces retain the previously active profile during registry migration, and workspace and session lists remain visible across profiles.
 - Provider subscription sign-in and API-key configuration now remain disabled until the provider's cybersecurity acknowledgement is confirmed, with an inline risk-acknowledgement prompt beside each action. Unauthenticated and unhealthy provider views now expose a compact removal control that cancels in-progress authentication and shows removal progress.
@@ -72,6 +73,9 @@
 
 ### Fixed
 
+- Active-session detail polling now uses a trigger-maintained per-run revision introduced by workbench migration 21 instead of rescanning complete trace and transcript content.
+- Cross-workspace transcript search now queries each profile database once and applies the requested result limit globally while preserving complete workspace and match totals.
+- Workspace actions now treat their returned snapshot as authoritative and rely on change broadcasts for registry synchronization instead of immediately reloading both resources.
 - Removing a provider's final authentication method now clears its cybersecurity policy acknowledgement, while removing one of two configured methods preserves the acknowledgement and selects the remaining method.
 - Provider Settings now shows an explicit loading state until provider statuses and saved settings are both available, instead of briefly reporting that no providers are configured.
 - Provider Settings now waits for provider status and saved settings before choosing its initial view, then opens the available default provider without switching tabs during ordinary status refreshes.

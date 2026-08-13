@@ -73,6 +73,52 @@ describe('research profile host integration', () => {
     expect(() => decodeResearchProfileCatalogEnvelope({ ...envelope, hash: '0'.repeat(64) })).toThrow(/hash mismatch/);
   });
 
+  it('resolves profile catalogs asynchronously in parallel and caches duplicate requests', async () => {
+    const securityProfile = testResearchProfile();
+    const mathematicsProfile: ResearchProfile = {
+      ...testResearchProfile('1.0.0', 'Mathematics'),
+      id: 'mathematics'
+    };
+    let calls = 0;
+    let active = 0;
+    let maxActive = 0;
+    const service = new ResearchProfileService({
+      resolveInvocation: () => ({
+        command: 'honeycrisp-test',
+        prefixArgs: ['cli.js'],
+        cwd: 'C:\\honeycrisp',
+        configuredBy: 'env_command',
+        usesNodeRuntime: true
+      }),
+      runCommandAsync: async (_command, args) => {
+        calls += 1;
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+        active -= 1;
+        const profileId = args[args.indexOf('--profile-id') + 1];
+        const profile = profileId === 'mathematics' ? mathematicsProfile : securityProfile;
+        return { status: 0, stdout: JSON.stringify(testResearchProfileCatalogEnvelope(profile)), stderr: '' };
+      }
+    });
+
+    const [security, mathematics, duplicateSecurity] = await Promise.all([
+      service.resolveAsync('C:\\workspace', 'security-research'),
+      service.resolveAsync('C:\\workspace', 'mathematics'),
+      service.resolveAsync('C:\\workspace', 'security-research')
+    ]);
+
+    expect([security.profile.id, mathematics.profile.id, duplicateSecurity.profile.id]).toEqual([
+      'security-research',
+      'mathematics',
+      'security-research'
+    ]);
+    expect(calls).toBe(2);
+    expect(maxActive).toBe(2);
+    await service.resolveAsync('C:\\workspace', 'security-research');
+    expect(calls).toBe(2);
+  });
+
   it('derives active recommendation memory from the profile status catalog', () => {
     const base = generalResearchProfile();
     const profile: ResearchProfile = {

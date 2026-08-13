@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -21,6 +21,7 @@ interface ResearchProfileCommandResult {
 export interface ResearchProfileServiceOptions {
   resolveInvocation?: () => HoneycrispInvocation;
   runCommand?: (command: string, args: readonly string[], invocation: HoneycrispInvocation) => ResearchProfileCommandResult;
+  runCommandAsync?: (command: string, args: readonly string[], invocation: HoneycrispInvocation) => Promise<ResearchProfileCommandResult>;
 }
 
 export interface ResearchProfileCatalogEnvelope {
@@ -30,26 +31,59 @@ export interface ResearchProfileCatalogEnvelope {
 }
 
 export class ResearchProfileService {
+  private readonly cache = new Map<string, ResolvedResearchProfile>();
+  private readonly pending = new Map<string, Promise<ResolvedResearchProfile>>();
+
   public constructor(private readonly options: ResearchProfileServiceOptions = {}) {}
 
   public resolve(workspaceRoot: string, profileId: ResearchProfileId): ResolvedResearchProfile {
+    const request = this.createRequest(workspaceRoot, profileId);
+    const cached = this.cache.get(request.key);
+    if (cached) return cached;
+    const result = (this.options.runCommand ?? runResearchProfileCommand)(request.invocation.command, request.args, request.invocation);
+    const resolvedProfile = resolvedProfileFromCommandResult(result);
+    this.cache.set(request.key, resolvedProfile);
+    return resolvedProfile;
+  }
+
+  public resolveAsync(workspaceRoot: string, profileId: ResearchProfileId): Promise<ResolvedResearchProfile> {
+    const request = this.createRequest(workspaceRoot, profileId);
+    const cached = this.cache.get(request.key);
+    if (cached) return Promise.resolve(cached);
+    const pending = this.pending.get(request.key);
+    if (pending) return pending;
+    const resolution = (this.options.runCommandAsync ?? runResearchProfileCommandAsync)(request.invocation.command, request.args, request.invocation)
+      .then((result) => {
+        const resolvedProfile = resolvedProfileFromCommandResult(result);
+        this.cache.set(request.key, resolvedProfile);
+        return resolvedProfile;
+      })
+      .finally(() => this.pending.delete(request.key));
+    this.pending.set(request.key, resolution);
+    return resolution;
+  }
+
+  private createRequest(workspaceRoot: string, profileId: ResearchProfileId): {
+    key: string;
+    invocation: HoneycrispInvocation;
+    args: string[];
+  } {
+    const resolvedWorkspaceRoot = resolve(workspaceRoot);
     const invocation = (this.options.resolveInvocation ?? resolveHoneycrispProfileInvocation)();
-    const args = [
-      ...invocation.prefixArgs,
-      'profile',
-      'resolve',
-      '--workspace-root',
-      resolve(workspaceRoot),
-      '--profile-id',
-      profileId,
-      '--json'
-    ];
-    const result = (this.options.runCommand ?? runResearchProfileCommand)(invocation.command, args, invocation);
-    if (result.error || result.status !== 0) {
-      const detail = redactForModelText(result.stderr || result.stdout || result.error?.message || 'Honeycrisp profile resolution failed.');
-      throw new Error(`Honeycrisp research profile resolution failed: ${detail.slice(0, 1_000)}`);
-    }
-    return decodeResearchProfileCatalogEnvelope(parseJsonCommandOutput(result.stdout)).resolvedProfile;
+    return {
+      key: `${resolvedWorkspaceRoot}\0${profileId}`,
+      invocation,
+      args: [
+        ...invocation.prefixArgs,
+        'profile',
+        'resolve',
+        '--workspace-root',
+        resolvedWorkspaceRoot,
+        '--profile-id',
+        profileId,
+        '--json'
+      ]
+    };
   }
 }
 
@@ -138,6 +172,14 @@ export function resolveHoneycrispProfileInvocation(options: { defaultRoot?: stri
   };
 }
 
+function resolvedProfileFromCommandResult(result: ResearchProfileCommandResult): ResolvedResearchProfile {
+  if (result.error || result.status !== 0) {
+    const detail = redactForModelText(result.stderr || result.stdout || result.error?.message || 'Honeycrisp profile resolution failed.');
+    throw new Error(`Honeycrisp research profile resolution failed: ${detail.slice(0, 1_000)}`);
+  }
+  return decodeResearchProfileCatalogEnvelope(parseJsonCommandOutput(result.stdout)).resolvedProfile;
+}
+
 function runResearchProfileCommand(
   command: string,
   args: readonly string[],
@@ -157,6 +199,50 @@ function runResearchProfileCommand(
     stderr: String(result.stderr ?? ''),
     ...(result.error ? { error: result.error } : {})
   };
+}
+
+function runResearchProfileCommandAsync(
+  command: string,
+  args: readonly string[],
+  invocation: HoneycrispInvocation
+): Promise<ResearchProfileCommandResult> {
+  return new Promise((resolveResult) => {
+    let stdout = '';
+    let stderr = '';
+    let outputBytes = 0;
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const child = spawn(command, args, {
+      cwd: invocation.cwd,
+      env: { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' },
+      windowsHide: true
+    });
+    const finish = (status: number | null, error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      resolveResult({ status, stdout, stderr, ...(error ? { error } : {}) });
+    };
+    const appendOutput = (stream: 'stdout' | 'stderr', chunk: Buffer): void => {
+      outputBytes += chunk.byteLength;
+      if (outputBytes > RESEARCH_PROFILE_RESOLUTION_MAX_BYTES) {
+        child.kill();
+        finish(null, new Error('Honeycrisp research profile catalog output exceeded the host limit.'));
+        return;
+      }
+      if (stream === 'stdout') stdout += chunk.toString('utf8');
+      else stderr += chunk.toString('utf8');
+    };
+    child.stdout.on('data', (chunk: Buffer) => appendOutput('stdout', chunk));
+    child.stderr.on('data', (chunk: Buffer) => appendOutput('stderr', chunk));
+    child.once('error', (error) => finish(null, error));
+    child.once('close', (status) => finish(status));
+    timeout = setTimeout(() => {
+      child.kill();
+      finish(null, new Error(`Honeycrisp research profile resolution timed out after ${RESEARCH_PROFILE_RESOLUTION_TIMEOUT_MS}ms.`));
+    }, RESEARCH_PROFILE_RESOLUTION_TIMEOUT_MS);
+    timeout.unref?.();
+  });
 }
 
 function parseJsonCommandOutput(stdout: string): unknown {

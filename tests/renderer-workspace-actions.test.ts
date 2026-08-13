@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { WorkspaceSnapshot } from '@shared/types';
 import { researchSessionNeedsLoading } from '../src/renderer/hooks/useWorkspaceActions';
@@ -13,5 +14,19 @@ describe('renderer workspace actions', () => {
     expect(researchSessionNeedsLoading(snapshot, 'run_selected', workspace, session)).toBe(false);
     expect(researchSessionNeedsLoading(snapshot, 'run_other', workspace, session)).toBe(true);
     expect(researchSessionNeedsLoading(snapshot, 'run_selected', { workspacePath: 'C:\\research\\other' }, session)).toBe(true);
+  });
+
+  it('uses an action response as the authoritative snapshot without immediate reloads', () => {
+    const source = readFileSync(
+      new URL('../src/renderer/App.tsx', import.meta.url),
+      'utf8'
+    );
+    const start = source.indexOf('  const runAction = useCallback(');
+    const end = source.indexOf('  const openNotification = useCallback(', start);
+    const runActionSource = source.slice(start, end);
+
+    expect(runActionSource).toContain('if (next) applySnapshot(next);');
+    expect(runActionSource).toContain('else await loadSnapshot();');
+    expect(runActionSource).not.toContain('loadWorkspaceRegistry');
   });
 });

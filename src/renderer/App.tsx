@@ -226,15 +226,14 @@ export function App(): JSX.Element {
       try {
         const next = await action();
         if (next) applySnapshot(next);
-        await loadSnapshot();
-        await loadWorkspaceRegistry();
+        else await loadSnapshot();
       } catch (caught) {
         setError(errorMessage(caught));
       } finally {
         setBusy(false);
       }
     },
-    [applySnapshot, loadWorkspaceRegistry, loadSnapshot]
+    [applySnapshot, loadSnapshot]
   );
 
   const openNotification = useCallback(
@@ -735,8 +734,6 @@ export function App(): JSX.Element {
           decision
         });
         if (next) applySnapshot(next);
-        await loadSnapshot();
-        await loadWorkspaceRegistry();
       } catch (caught) {
         shellApprovalDecisionRef.current = null;
         setShellApprovalDecisionInFlight(null);
@@ -745,7 +742,7 @@ export function App(): JSX.Element {
         setBusy(false);
       }
     })();
-  }, [applySnapshot, loadSnapshot, loadWorkspaceRegistry]);
+  }, [applySnapshot]);
   const activeWorkspaceEntry = useMemo(() => {
     if (!snapshot || !workspaceRegistry) return null;
     return (

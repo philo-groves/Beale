@@ -255,6 +255,12 @@ describe('Beale workbench skeleton', () => {
     expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 19").get()).toEqual({
       name: 'session_run_activity_ownership'
     });
+    expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 20").get()).toEqual({
+      name: 'durable_breakout_rooms'
+    });
+    expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 21").get()).toEqual({
+      name: 'run_detail_revisions'
+    });
     verifiedWorkbench.close();
 
     const verifiedRegistry = new DatabaseSync(registryPath);
@@ -1010,7 +1016,7 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
-  it('keeps research profiles workspace-local without clearing the workspace or session lists', () => {
+  it('keeps research profiles workspace-local without clearing the workspace or session lists', async () => {
     const securityWorkspace = tempWorkspace();
     const mathematicsWorkspace = tempWorkspace();
     const registryDir = tempWorkspace();
@@ -1026,7 +1032,7 @@ describe('Beale workbench skeleton', () => {
       )
     });
 
-    expect(service.getResearchProfiles().map((profile) => profile.profile.id)).toEqual([
+    expect((await service.getResearchProfiles()).map((profile) => profile.profile.id)).toEqual([
       'security-research',
       'mathematics'
     ]);
@@ -3059,6 +3065,7 @@ describe('Beale workbench skeleton', () => {
     const initial = service.getRunDetailVersion(runId);
     const unchanged = service.getRunDetailVersion(runId);
     expect(initial.version).toBe(unchanged.version);
+    expect(initial.version).toMatch(/^revision:\d+$/);
     expect(initial.databaseMs).toBeGreaterThanOrEqual(0);
 
     const detail = service.getRunDetail(runId);
@@ -3164,7 +3171,18 @@ describe('Beale workbench skeleton', () => {
     );
     expect(new Set(acrossLoaded.results.map((result) => result.workspaceName))).toEqual(new Set(['First Workspace', 'Second Workspace']));
     expect(acrossLoaded.results.every((result) => result.workspacePath === firstWorkspace || result.workspacePath === secondWorkspace)).toBe(true);
+    const globallyLimited = service.searchSessionTranscripts({ query: 'sharedneedle', limit: 1, currentWorkspaceOnly: false });
+    expect(globallyLimited.results).toHaveLength(1);
+    expect(globallyLimited.totalTranscriptMatches).toBe(2);
+    expect(globallyLimited.workspaceCount).toBe(2);
     service.close();
+    const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    expect(reopened.openLastWorkspaceIfAvailable()?.workspace.workspacePath).toBe(secondWorkspace);
+    const acrossUnloaded = reopened.searchSessionTranscripts({ query: 'sharedneedle', limit: 10, currentWorkspaceOnly: false });
+    expect(acrossUnloaded.totalTranscriptMatches).toBe(2);
+    expect(acrossUnloaded.results).toHaveLength(2);
+    expect(acrossUnloaded.workspaceCount).toBe(2);
+    reopened.close();
   });
 
   it('keeps workspace sidebar order stable when workspaces are opened', () => {
