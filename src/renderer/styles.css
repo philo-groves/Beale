@@ -9228,6 +9228,11 @@ button.research-goal-choice:focus-visible {
   left: 0;
 }
 
+.provider-settings-picker-icon {
+  flex: 0 0 auto;
+  color: var(--muted-strong);
+}
+
 .provider-settings-default-control {
   display: inline-flex;
   align-items: center;

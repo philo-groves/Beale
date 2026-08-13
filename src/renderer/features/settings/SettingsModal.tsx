@@ -984,7 +984,12 @@ function ProviderSettingsTabs({
                     setPickerOpen(false);
                   }}
                 >
-                  <KeyRound size={15} aria-hidden="true" />
+                  <ProviderIcon
+                    className="provider-settings-picker-icon"
+                    provider={provider.id}
+                    size={15}
+                    aria-hidden="true"
+                  />
                   <span>{provider.name}{provider.authenticationRunning ? ' — authenticating' : ''}</span>
                 </button>
               ))}
