@@ -17,9 +17,9 @@
 - The workspace dashboard now has a compact and detailed right sidenav for workspace-scoped Runbooks and Memories; shared detail views default to Workspace scope and do not offer Session scope from the workspace view.
 - Completed sessions now show three session-grounded next-step suggestions in a compact three-row loading surface; selecting one opens New Research and streams an expanded prompt from that goal.
 - Commentary and other Markdown trace prose now render inline and display LaTeX notation locally with KaTeX, including both dollar and `\\(...\\)` / `\\[...\\]` delimiters.
-- Added Cybersecurity and Mathematics selectors to General Settings. Mathematics includes domain-specific memory for problems, definitions, conjectures, proof components, counterexamples, formalizations, computations, literature, and research trajectories, plus exploration, proof, verification, and synthesis workflows.
 
 ### Changed
+- Research profiles are now selected per workspace during onboarding, defaulting to Cybersecurity. Existing workspaces retain the previously active profile during registry migration, and workspace and session lists remain visible across profiles.
 
 - Main-session Commentary now places intermediate commentary and tool activity beneath a live `Working for` duration header and horizontal divider, then collapses that history behind an expandable `Worked for` header whenever the run is no longer active while keeping the prompt and final result visible.
 - Provider policy acknowledgements become read-only after authentication, serving as one-time proof of risk review until the provider is removed.

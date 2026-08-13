@@ -13,7 +13,6 @@ import type {
   ProviderAuthenticationMethod,
   ProviderModelDefaults,
   ResearchProfileSnapshot,
-  ResearchProfileId,
   ResearchModelProviderId,
   ResearchModelEffortLevel,
   ResearchProviderModel,
@@ -92,7 +91,6 @@ export function SettingsView({
   section,
   researchProfile,
   chatView,
-  activeResearchProfileId,
   openAiStatus,
   openAiOAuthResult,
   researchProviderOAuthResults,
@@ -103,7 +101,6 @@ export function SettingsView({
   sessionHeatPreferences = {},
   busy,
   onChangeChatView,
-  onSetResearchProfile,
   onRefreshOpenAi,
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
@@ -120,7 +117,6 @@ export function SettingsView({
   section: SettingsSection;
   researchProfile: ResearchProfileSnapshot | null;
   chatView: ChatView;
-  activeResearchProfileId: ResearchProfileId;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
@@ -131,7 +127,6 @@ export function SettingsView({
   sessionHeatPreferences?: SessionHeatPreferenceOverrides;
   busy: boolean;
   onChangeChatView: (chatView: ChatView) => void;
-  onSetResearchProfile: (profileId: ResearchProfileId) => Promise<void>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
@@ -162,11 +157,8 @@ export function SettingsView({
       <section className="settings-view settings-main-view" aria-label={`${settingsSectionLabel(activeSection)} settings`}>
         {activeSection === 'general' ? (
           <GeneralSettingsView
-            activeResearchProfileId={activeResearchProfileId}
-            busy={busy}
             chatView={chatView}
             onChangeChatView={onChangeChatView}
-            onSetResearchProfile={onSetResearchProfile}
           />
         ) : activeSection === 'providers' ? (
           <ProvidersSettingsView
@@ -289,17 +281,11 @@ function sessionHeatLabel(heat: SessionHeat): string {
 }
 
 export function GeneralSettingsView({
-  activeResearchProfileId,
-  busy,
   chatView,
-  onChangeChatView,
-  onSetResearchProfile
+  onChangeChatView
 }: {
-  activeResearchProfileId: ResearchProfileId;
-  busy: boolean;
   chatView: ChatView;
   onChangeChatView: (chatView: ChatView) => void;
-  onSetResearchProfile: (profileId: ResearchProfileId) => Promise<void>;
 }): JSX.Element {
   return (
     <div className="settings-page general-settings-page">
@@ -331,40 +317,6 @@ export function GeneralSettingsView({
             <span>
               <strong>Traces</strong>
               <small>Inspect the detailed agent event timeline and tool activity.</small>
-            </span>
-          </label>
-        </div>
-      </fieldset>
-      <fieldset className="provider-card chat-view-settings research-profile-settings">
-        <legend>Research Profile</legend>
-        <p>Choose the research domain. Each profile uses its own memory and session database.</p>
-        <div className="chat-view-options">
-          <label className={`chat-view-option ${activeResearchProfileId === 'security-research' ? 'selected' : ''}`}>
-            <input
-              type="radio"
-              name="research-profile"
-              value="security-research"
-              checked={activeResearchProfileId === 'security-research'}
-              disabled={busy}
-              onChange={() => void onSetResearchProfile('security-research')}
-            />
-            <span>
-              <strong>Cybersecurity</strong>
-              <small>Vulnerability discovery, verification, exploit chains, and security evidence.</small>
-            </span>
-          </label>
-          <label className={`chat-view-option ${activeResearchProfileId === 'mathematics' ? 'selected' : ''}`}>
-            <input
-              type="radio"
-              name="research-profile"
-              value="mathematics"
-              checked={activeResearchProfileId === 'mathematics'}
-              disabled={busy}
-              onChange={() => void onSetResearchProfile('mathematics')}
-            />
-            <span>
-              <strong>Mathematics</strong>
-              <small>Conjectures, proofs, counterexamples, formalization, computation, and literature synthesis.</small>
             </span>
           </label>
         </div>

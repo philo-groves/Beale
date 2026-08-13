@@ -66,8 +66,7 @@ describe('renderer dialog surfaces', () => {
     });
     const render = (researchProfileId: 'security-research' | 'mathematics'): string => renderToStaticMarkup(
       createElement(WorkspaceOnboardingModal, {
-        form,
-        researchProfileId,
+        form: { ...form, researchProfileId },
         busy: false,
         progress: null,
         onChange: () => undefined,
@@ -82,10 +81,14 @@ describe('renderer dialog surfaces', () => {
     const securityHtml = render('security-research');
     const mathematicsHtml = render('mathematics');
     expect(securityHtml).toContain('aria-label="Workspace template"');
+    expect(securityHtml).toContain('<select');
+    expect(securityHtml).toContain('<option value="security-research" selected="">Cybersecurity</option>');
+    expect(securityHtml).not.toContain('Authorization owner');
     expect(securityHtml).toContain('>HackerOne</button>');
     expect(securityHtml).toContain('>Apple</button>');
     expect(securityHtml).toContain('>MSRC</button>');
     expect(mathematicsHtml).not.toContain('aria-label="Workspace template"');
+    expect(mathematicsHtml).toContain('<option value="mathematics" selected="">Mathematics</option>');
     expect(mathematicsHtml).not.toContain('>HackerOne</button>');
     expect(mathematicsHtml).not.toContain('>Apple</button>');
     expect(mathematicsHtml).not.toContain('>MSRC</button>');
@@ -360,6 +363,7 @@ describe('renderer dialog surfaces', () => {
       workspaceId: 'workspace_one',
       workspaceName: 'Parser Research',
       scopeOwner: 'Example Org',
+      researchProfileId: 'security-research',
       descriptionMarkdown: '',
       rulesMarkdown: '',
       expiresAt: null,

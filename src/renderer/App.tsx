@@ -15,7 +15,6 @@ import type {
   PolicyReviewDecision,
   ResearchModelSelection,
   ResearchModelProviderId,
-  ResearchProfileId,
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
   ResearchProviderModelCatalog,
@@ -618,7 +617,6 @@ export function App(): JSX.Element {
   } = useWorkspaceActions({
     snapshot,
     selectedRunId,
-    researchProfileId: workspaceRegistry?.activeResearchProfileId ?? 'security-research',
     workspaceDraft,
     runWorkspaceAction,
     applySnapshot,
@@ -669,19 +667,6 @@ export function App(): JSX.Element {
       ? hasResearchProfileDetailFeatures(activeResearchProfile)
       : activeResearchFeatures.memory || activeResearchFeatures.runbooks || activeResearchFeatures.reports);
 
-  const setActiveResearchProfile = useCallback(async (profileId: ResearchProfileId): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      applySnapshot(await window.beale.setActiveResearchProfile(profileId));
-      setSelectedRunId(null);
-      await loadWorkspaceRegistry();
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  }, [applySnapshot, loadWorkspaceRegistry, setSelectedRunId]);
   const activeShellApproval = useMemo(() => {
     if (!snapshot) return pendingShellApproval(activeRunDetail);
     return snapshot.pendingShellApprovals.find((approval) => approval.runId === selectedRunId)
@@ -983,7 +968,6 @@ export function App(): JSX.Element {
             section={settingsSection}
             researchProfile={snapshot?.researchProfile ?? null}
             chatView={chatView}
-            activeResearchProfileId={workspaceRegistry?.activeResearchProfileId ?? 'security-research'}
             openAiOAuthResult={openAiOAuthResult}
             openAiStatus={openAiStatus ?? snapshot?.openAi ?? null}
             researchProviderOAuthResults={researchProviderOAuthResults}
@@ -994,7 +978,6 @@ export function App(): JSX.Element {
             sessionHeatPreferences={sessionHeatPreferences}
             busy={busy}
             onChangeChatView={setChatView}
-            onSetResearchProfile={setActiveResearchProfile}
             onRefreshOpenAi={refreshOpenAiProvider}
             onStartOpenAiOAuth={startOpenAiOAuth}
             onStartResearchProviderOAuth={startResearchProviderOAuth}
@@ -1079,7 +1062,6 @@ export function App(): JSX.Element {
         activeNotification={activeNotification}
         activeRunDetail={activeRunDetail}
         activeWorkspaceName={snapshot?.activeScope.workspaceName ?? 'current workspace'}
-        activeResearchProfileId={workspaceRegistry?.activeResearchProfileId ?? 'security-research'}
         busy={busy}
         newResearchOpen={newResearchOpen}
         newResearchInitialGoal={newResearchInitialGoal}

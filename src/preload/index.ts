@@ -5,7 +5,6 @@ import type {
   DeveloperSettings,
   ProviderSettings,
   ProviderAuthenticationMethod,
-  ResearchProfileId,
   ProviderModelDefaults,
   MemorySettings,
   MemoryTypeDescriptions,
@@ -60,9 +59,6 @@ const api: BealeApi = {
   },
   getWorkspaceRegistry() {
     return ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceRegistry);
-  },
-  setActiveResearchProfile(profileId: ResearchProfileId): Promise<WorkspaceSnapshot | null> {
-    return ipcRenderer.invoke(IPC_CHANNELS.setActiveResearchProfile, profileId);
   },
   getDeveloperSettings(): Promise<DeveloperSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.getDeveloperSettings);

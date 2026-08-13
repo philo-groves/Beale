@@ -113,8 +113,8 @@ describe('Beale workbench skeleton', () => {
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
     const registry = new DatabaseSync(join(process.env.BEALE_WORKSPACE_REGISTRY_DIR ?? '', 'workspace-registry.sqlite'));
     expect(registry.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_registry' ORDER BY version DESC LIMIT 1").get()).toEqual({
-      version: 5,
-      name: 'breakout_room_session_summaries'
+      version: 6,
+      name: 'workspace_local_research_profiles'
     });
     expect(registry.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_registry' AND version = 2").get()).toEqual({
       name: 'structured_session_final_disposition'
@@ -970,7 +970,7 @@ describe('Beale workbench skeleton', () => {
       expiresAt: '   '
     });
     expect(snapshot.activeScope.workspaceName).toBe('Acme Bug Bounty');
-    expect(snapshot.activeScope.scopeOwner).toBe('');
+    expect(snapshot.activeScope.scopeOwner).toBe('Acme Bug Bounty');
     expect(snapshot.activeScope.expiresAt).toBeNull();
     expect(existsSync(join(registryDir, 'honeycrisp', 'profiles', 'security-research', 'memory.sqlite'))).toBe(true);
 
@@ -980,7 +980,8 @@ describe('Beale workbench skeleton', () => {
     expect(registered.workspaces[0]).toMatchObject({
       workspacePath: workspace,
       workspaceName: 'Acme Bug Bounty',
-      scopeOwner: '',
+      scopeOwner: 'Acme Bug Bounty',
+      researchProfileId: 'security-research',
       runCount: 0
     });
     expect(service.inspectWorkspaceDirectory(workspace).knownWorkspace?.id).toBe(registered.workspaces[0].id);
@@ -1009,8 +1010,9 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
-  it('switches between isolated research-profile databases without mixing sessions', () => {
-    const workspace = tempWorkspace();
+  it('keeps research profiles workspace-local without clearing the workspace or session lists', () => {
+    const securityWorkspace = tempWorkspace();
+    const mathematicsWorkspace = tempWorkspace();
     const registryDir = tempWorkspace();
     const mathematicsProfile = {
       ...testResearchProfile('1.0.0', 'Mathematics'),
@@ -1024,28 +1026,42 @@ describe('Beale workbench skeleton', () => {
       )
     });
 
-    const securitySnapshot = service.createWorkspace(workspace);
+    const securitySnapshot = service.createWorkspace(securityWorkspace);
     expect(securitySnapshot.workspace.databasePath).toBe(
       join(registryDir, 'honeycrisp', 'profiles', 'security-research', 'memory.sqlite')
     );
     service.startRun(runInput('verifier_pass'), 'complete');
     expect(service.getWorkspaceRegistryState().researchSessions).toHaveLength(1);
 
-    const mathematicsSnapshot = service.setActiveResearchProfile('mathematics');
-    expect(mathematicsSnapshot?.researchProfile.profileId).toBe('mathematics');
-    expect(mathematicsSnapshot?.workspace.databasePath).toBe(
+    const mathematicsSnapshot = service.createScopedWorkspace({
+      workspacePath: mathematicsWorkspace,
+      workspaceName: 'Mathematics',
+      researchSubjectName: 'Erdos-Straus Conjecture',
+      researchProfileId: 'mathematics',
+      scopeOwner: '',
+      descriptionMarkdown: '',
+      rulesMarkdown: '',
+      expiresAt: null
+    });
+    expect(mathematicsSnapshot.researchProfile.profileId).toBe('mathematics');
+    expect(mathematicsSnapshot.workspace.databasePath).toBe(
       join(registryDir, 'honeycrisp', 'profiles', 'mathematics', 'memory.sqlite')
     );
-    expect(mathematicsSnapshot?.runs).toHaveLength(0);
-    expect(service.getWorkspaceRegistryState().researchSessions).toHaveLength(0);
+    expect(mathematicsSnapshot.runs).toHaveLength(0);
+    expect(mathematicsSnapshot.activeScope.scopeOwner).toBe('Erdos-Straus Conjecture');
 
     service.startRun(runInput('verifier_pass'), 'complete');
-    expect(service.getWorkspaceRegistryState().researchSessions).toHaveLength(1);
+    const registry = service.getWorkspaceRegistryState();
+    expect(registry.workspaces).toHaveLength(2);
+    expect(registry.researchSessions).toHaveLength(2);
+    expect(registry.workspaces.find((workspace) => workspace.workspacePath === securityWorkspace)?.researchProfileId).toBe('security-research');
+    expect(registry.workspaces.find((workspace) => workspace.workspacePath === mathematicsWorkspace)?.researchProfileId).toBe('mathematics');
 
-    const restoredSecuritySnapshot = service.setActiveResearchProfile('security-research');
-    expect(restoredSecuritySnapshot?.workspace.databasePath).toBe(securitySnapshot.workspace.databasePath);
-    expect(restoredSecuritySnapshot?.runs).toHaveLength(1);
-    expect(service.getWorkspaceRegistryState().researchSessions).toHaveLength(1);
+    const securityEntry = registry.workspaces.find((workspace) => workspace.workspacePath === securityWorkspace);
+    expect(securityEntry).toBeTruthy();
+    expect(service.openRegisteredWorkspace(securityEntry!.id).researchProfile.profileId).toBe('security-research');
+    expect(service.getWorkspaceRegistryState().workspaces).toHaveLength(2);
+    expect(service.getWorkspaceRegistryState().researchSessions).toHaveLength(2);
     service.close();
   });
 

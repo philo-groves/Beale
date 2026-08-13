@@ -37,10 +37,7 @@ describe('renderer Chat View preference', () => {
   it('renders Commentary and Traces choices in General settings', () => {
     const html = renderToStaticMarkup(createElement(GeneralSettingsView, {
       chatView: 'commentary',
-      activeResearchProfileId: 'security-research',
-      busy: false,
       onChangeChatView: () => undefined,
-      onSetResearchProfile: async () => undefined
     }));
 
     expect(html).toContain('<legend>Chat View</legend>');
@@ -48,8 +45,5 @@ describe('renderer Chat View preference', () => {
     expect(html).toContain('<strong>Commentary</strong>');
     expect(html).toContain('value="traces"');
     expect(html).toContain('<strong>Traces</strong>');
-    expect(html).toContain('<legend>Research Profile</legend>');
-    expect(html).toContain('<strong>Cybersecurity</strong>');
-    expect(html).toContain('<strong>Mathematics</strong>');
   });
 });

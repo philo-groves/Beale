@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { JSX } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { ResearchProfileId, WorkspaceOnboardingProgressUpdate, WorkspaceOnboardingRepositoryProgress } from '@shared/types';
+import type { WorkspaceOnboardingProgressUpdate, WorkspaceOnboardingRepositoryProgress } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { errorMessage } from '../../lib/errors';
 import { emptyDateClass } from '../../lib/formatting';
@@ -9,6 +9,7 @@ import {
   addRepositoryToOnboardingForm,
   hasIndexNowRepository,
   onboardingRepositories,
+  workspaceOnboardingFormForProfile,
   removeRepositoryFromOnboardingForm,
   setRepositoryIndexNow,
   templateLabel,
@@ -19,7 +20,6 @@ import {
 
 export function WorkspaceOnboardingModal({
   form,
-  researchProfileId,
   busy,
   progress,
   onChange,
@@ -30,7 +30,6 @@ export function WorkspaceOnboardingModal({
   onSubmit
 }: {
   form: WorkspaceOnboardingFormState;
-  researchProfileId: ResearchProfileId;
   busy: boolean;
   progress: WorkspaceOnboardingProgressUpdate | null;
   onChange: (next: WorkspaceOnboardingFormState) => void;
@@ -111,7 +110,7 @@ export function WorkspaceOnboardingModal({
             Workspace directory
             <input value={form.workspacePath} readOnly />
           </label>
-          {researchProfileId === 'security-research' ? (
+          {form.researchProfileId === 'security-research' ? (
             <div className="template-toggle-row" role="group" aria-label="Workspace template">
               {(['manual', 'hackerone', 'apple', 'msrc'] as WorkspaceTemplateKind[]).map((templateKind) => (
                 <button
@@ -149,8 +148,18 @@ export function WorkspaceOnboardingModal({
             </label>
           </div>
           <label>
-            Authorization owner (optional)
-            <input value={form.scopeOwner} disabled={submitting} onChange={(event) => update('scopeOwner', event.target.value)} />
+            Research Profile
+            <select
+              value={form.researchProfileId}
+              disabled={submitting}
+              onChange={(event) => onChange(workspaceOnboardingFormForProfile(
+                { ...form, researchProfileId: event.target.value as 'security-research' | 'mathematics' },
+                event.target.value as 'security-research' | 'mathematics'
+              ))}
+            >
+              <option value="security-research">Cybersecurity</option>
+              <option value="mathematics">Mathematics</option>
+            </select>
           </label>
           <label>
             Description

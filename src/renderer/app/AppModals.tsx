@@ -2,7 +2,6 @@ import type { JSX } from 'react';
 import type {
   NotificationRecord,
   OpenAiAccountStatus,
-  ResearchProfileId,
   ResearchModelProviderId,
   ProviderModelDefaults,
   ProviderSettings,
@@ -38,7 +37,6 @@ export function AppModals({
   activeNotification,
   activeRunDetail,
   activeWorkspaceName,
-  activeResearchProfileId,
   busy,
   newResearchOpen,
   newResearchInitialGoal,
@@ -95,7 +93,6 @@ export function AppModals({
   activeNotification: NotificationRecord | null;
   activeRunDetail: RunDetail | null;
   activeWorkspaceName: string;
-  activeResearchProfileId: ResearchProfileId;
   busy: boolean;
   newResearchOpen: boolean;
   newResearchInitialGoal: ResearchGoalSeed | null;
@@ -155,7 +152,6 @@ export function AppModals({
         <WorkspaceOnboardingModal
           busy={busy}
           form={workspaceDraft}
-          researchProfileId={activeResearchProfileId}
           progress={workspaceOnboardingProgress}
           onCancel={onCancelWorkspaceOnboarding}
           onChange={onChangeWorkspaceDraft}

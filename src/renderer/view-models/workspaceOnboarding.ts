@@ -9,9 +9,9 @@ import type {
 export interface WorkspaceOnboardingFormState {
   templateKind: WorkspaceTemplateKind;
   workspacePath: string;
+  researchProfileId: ResearchProfileId;
   workspaceName: string;
   researchSubjectName: string;
-  scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
   expiresAt: string;
@@ -106,10 +106,10 @@ const MSRC_SCOPE_AND_RULES = [
 export function onboardingFormFromDefaults(defaults: WorkspaceOnboardingDefaults): WorkspaceOnboardingFormState {
   return {
     templateKind: 'manual',
+    researchProfileId: 'security-research',
     workspacePath: defaults.workspacePath,
     workspaceName: defaults.workspaceName,
     researchSubjectName: defaults.researchSubjectName ?? (defaults.scopeOwner || defaults.workspaceName),
-    scopeOwner: defaults.scopeOwner,
     descriptionMarkdown: defaults.descriptionMarkdown,
     rulesMarkdown: defaults.rulesMarkdown,
     expiresAt: defaults.expiresAt ? defaults.expiresAt.slice(0, 10) : '',
@@ -121,8 +121,9 @@ export function onboardingInputFromForm(form: WorkspaceOnboardingFormState): Wor
   return {
     workspacePath: form.workspacePath,
     workspaceName: form.workspaceName,
+    researchProfileId: form.researchProfileId,
     researchSubjectName: form.researchSubjectName,
-    scopeOwner: form.scopeOwner,
+    scopeOwner: form.researchSubjectName.trim() || form.workspaceName.trim(),
     descriptionMarkdown: form.descriptionMarkdown,
     rulesMarkdown: form.rulesMarkdown,
     expiresAt: optionalDateOrNever(form.expiresAt),
@@ -212,7 +213,6 @@ export function onboardingFormFromHackerOneLookup(
     templateKind: 'hackerone',
     workspaceName: lookup.workspaceName,
     researchSubjectName: lookup.researchSubjectName ?? lookup.workspaceName,
-    scopeOwner: lookup.scopeOwner,
     descriptionMarkdown: lookup.descriptionMarkdown,
     rulesMarkdown: lookup.rulesMarkdown,
     expiresAt: lookup.expiresAt ? lookup.expiresAt.slice(0, 10) : '',
@@ -243,7 +243,6 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
       templateKind,
       workspaceName: 'Apple Security Bounty',
       researchSubjectName: 'Apple',
-      scopeOwner: 'Apple',
       descriptionMarkdown: APPLE_SCOPE_DESCRIPTION,
       rulesMarkdown: APPLE_SCOPE_AND_RULES,
       expiresAt: '',
@@ -255,7 +254,6 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
     templateKind,
     workspaceName: 'Microsoft Security Response Center',
     researchSubjectName: 'Microsoft',
-    scopeOwner: 'Microsoft',
     descriptionMarkdown: MSRC_SCOPE_DESCRIPTION,
     rulesMarkdown: MSRC_SCOPE_AND_RULES,
     expiresAt: '',

@@ -26,7 +26,6 @@ describe('renderer workspace display view models', () => {
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
       vmPreference: { enabled: false, backendKind: null, updatedAt: null },
-      activeResearchProfileId: 'security-research',
       workspaces: [first, second],
       researchSessions: [firstSession, secondSession]
     };
@@ -92,7 +91,6 @@ describe('renderer workspace display view models', () => {
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
       vmPreference: { enabled: false, backendKind: null, updatedAt: null },
-      activeResearchProfileId: 'security-research',
       workspaces: [registeredWorkspace],
       researchSessions: [selectedSession]
     };
@@ -144,7 +142,6 @@ describe('renderer workspace display view models', () => {
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
       vmPreference: { enabled: false, backendKind: null, updatedAt: null },
-      activeResearchProfileId: 'security-research',
       workspaces: [registeredWorkspace],
       researchSessions: Array.from({ length: 5 }, (_, index) => session({
         id: `session_${index}`,
@@ -205,7 +202,6 @@ describe('renderer workspace display view models', () => {
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
       vmPreference: { enabled: false, backendKind: null, updatedAt: null },
-      activeResearchProfileId: 'security-research',
       workspaces: [registeredWorkspace],
       researchSessions: [selectedSession, previousSession]
     };
@@ -247,7 +243,6 @@ describe('renderer workspace display view models', () => {
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
       vmPreference: { enabled: false, backendKind: null, updatedAt: null },
-      activeResearchProfileId: 'security-research',
       workspaces: [registeredWorkspace],
       researchSessions: [activeSession]
     };
@@ -286,7 +281,6 @@ describe('renderer workspace display view models', () => {
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
       vmPreference: { enabled: false, backendKind: null, updatedAt: null },
-      activeResearchProfileId: 'security-research',
       workspaces: [registeredWorkspace],
       researchSessions: [selectedSession]
     };
@@ -333,6 +327,7 @@ function workspace(id: string, workspacePath: string): WorkspaceRegistryEntry {
     workspaceId: id.replace('workspace_', 'workspace_'),
     workspaceName: id,
     scopeOwner: '',
+    researchProfileId: 'security-research',
     descriptionMarkdown: '',
     rulesMarkdown: '',
     expiresAt: null,

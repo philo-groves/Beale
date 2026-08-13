@@ -18,6 +18,7 @@ describe('renderer workspace onboarding view model', () => {
 
     expect(form.templateKind).toBe('manual');
     expect(form.workspacePath).toBe('/bounty/example');
+    expect(form.researchProfileId).toBe('security-research');
     expect(form.expiresAt).toBe('2026-05-30');
   });
 
@@ -28,6 +29,8 @@ describe('renderer workspace onboarding view model', () => {
     });
 
     expect(input.expiresAt).toBeNull();
+    expect(input.researchProfileId).toBe('security-research');
+    expect(input.scopeOwner).toBe('Example');
   });
 
   it('tracks onboarding repository index requests on submitted scope assets', () => {

@@ -278,6 +278,7 @@ export interface WorkspaceRegistryEntry {
   workspacePath: string;
   workspaceId: string;
   workspaceName: string;
+  researchProfileId: ResearchProfileId;
   scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
@@ -872,7 +873,6 @@ export interface ProjectSearchResult {
 export interface WorkspaceRegistryState {
   registryPath: string;
   vmPreference: VmPreference;
-  activeResearchProfileId: ResearchProfileId;
   workspaces: WorkspaceRegistryEntry[];
   researchSessions: ResearchSessionSummary[];
 }
@@ -950,6 +950,7 @@ export interface WorkspaceOnboardingDefaults {
 }
 
 export interface WorkspaceOnboardingInput extends Omit<WorkspaceOnboardingDefaults, 'assets'> {
+  researchProfileId?: ResearchProfileId;
   assets?: ScopeAssetInput[];
   onboardingRequestId?: string;
 }
@@ -1657,7 +1658,6 @@ export interface BealeApi {
   selectWorkspace(mode: WorkspacePickerMode): Promise<WorkspacePickerResult>;
   selectWorkspaceDirectory(): Promise<WorkspaceDirectorySelection>;
   getWorkspaceRegistry(): Promise<WorkspaceRegistryState>;
-  setActiveResearchProfile(profileId: ResearchProfileId): Promise<WorkspaceSnapshot | null>;
   getDeveloperSettings(): Promise<DeveloperSettings>;
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings>;
   getProviderSettings(): Promise<ProviderSettings>;

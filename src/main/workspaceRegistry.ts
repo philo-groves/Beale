@@ -77,7 +77,6 @@ export class WorkspaceRegistry {
     return {
       registryPath: this.registryPath,
       vmPreference: this.getVmPreference(),
-      activeResearchProfileId: this.getActiveResearchProfileId(),
       workspaces: this.listWorkspaces(),
       researchSessions: this.listResearchSessions()
     };
@@ -85,15 +84,6 @@ export class WorkspaceRegistry {
 
   public getVmPreference(): VmPreference {
     return DEFAULT_VM_PREFERENCE;
-  }
-
-  public getActiveResearchProfileId(): ResearchProfileId {
-    const value = this.getMeta('active_research_profile_id');
-    return isResearchProfileId(value) ? value : DEFAULT_RESEARCH_PROFILE_ID;
-  }
-
-  public setActiveResearchProfileId(profileId: ResearchProfileId): void {
-    this.setMeta('active_research_profile_id', profileId);
   }
 
   public getProfilingEnabled(): boolean {
@@ -330,8 +320,10 @@ export class WorkspaceRegistry {
     snapshot: WorkspaceSnapshot,
     options: { rememberLast?: boolean; researchProfileId?: ResearchProfileId } = {}
   ): void {
-    const researchProfileId = options.researchProfileId ?? this.getActiveResearchProfileId();
-    const workspace = this.upsertWorkspaceFromSnapshot(snapshot);
+    const researchProfileId = options.researchProfileId
+      ?? (isResearchProfileId(snapshot.researchProfile.profileId)
+        ? snapshot.researchProfile.profileId : DEFAULT_RESEARCH_PROFILE_ID);
+    const workspace = this.upsertWorkspaceFromSnapshot(snapshot, researchProfileId);
     if (options.rememberLast ?? true) {
       this.rememberLastKnownWorkspace(workspace);
     }
@@ -447,6 +439,23 @@ export class WorkspaceRegistry {
           database.exec("ALTER TABLE research_sessions ADD COLUMN breakout_rooms_json TEXT NOT NULL DEFAULT '[]';");
         }
       }
+    }, {
+      version: 6,
+      name: 'workspace_local_research_profiles',
+      up: (database) => {
+        const workspaceColumns = database.prepare('PRAGMA table_info(workspaces)').all() as Array<{ name?: unknown }>;
+        if (!workspaceColumns.some((column) => column.name === 'research_profile_id')) {
+          database.exec("ALTER TABLE workspaces ADD COLUMN research_profile_id TEXT NOT NULL DEFAULT 'security-research';");
+        }
+        database.exec(`
+          UPDATE workspaces
+          SET research_profile_id = COALESCE(
+            (SELECT value FROM registry_meta WHERE key = 'active_research_profile_id'),
+            research_profile_id
+          );
+          DELETE FROM registry_meta WHERE key = 'active_research_profile_id';
+        `);
+      }
     }]);
   }
 
@@ -466,8 +475,8 @@ export class WorkspaceRegistry {
   }
 
   private listResearchSessions(limit = 200): ResearchSessionSummary[] {
-    return rows(this.db.prepare('SELECT * FROM research_sessions WHERE research_profile_id = ? ORDER BY updated_at DESC LIMIT ?')
-      .all(this.getActiveResearchProfileId(), limit)).map((row) => this.mapResearchSession(row));
+    return rows(this.db.prepare('SELECT * FROM research_sessions ORDER BY updated_at DESC LIMIT ?')
+      .all(limit)).map((row) => this.mapResearchSession(row));
   }
 
   private getMeta(key: string): string | null {
@@ -494,7 +503,7 @@ export class WorkspaceRegistry {
     this.setMeta('last_workspace_path', workspace.workspacePath);
   }
 
-  private upsertWorkspaceFromSnapshot(snapshot: WorkspaceSnapshot): WorkspaceRegistryEntry {
+  private upsertWorkspaceFromSnapshot(snapshot: WorkspaceSnapshot, researchProfileId: ResearchProfileId): WorkspaceRegistryEntry {
     const now = nowIso();
     const scope = snapshot.activeScope;
     const workspacePath = resolve(snapshot.workspace.workspacePath);
@@ -505,6 +514,7 @@ export class WorkspaceRegistry {
           `UPDATE workspaces SET
             workspace_id = ?,
             workspace_name = ?,
+            research_profile_id = ?,
             scope_owner = ?,
             description_markdown = ?,
             rules_markdown = ?,
@@ -516,6 +526,7 @@ export class WorkspaceRegistry {
         .run(
           snapshot.workspace.workspaceId,
           scope.workspaceName,
+          researchProfileId,
           scope.scopeOwner,
           scope.descriptionMarkdown,
           scope.rulesMarkdown,
@@ -533,15 +544,16 @@ export class WorkspaceRegistry {
     this.db
       .prepare(
         `INSERT INTO workspaces (
-          id, workspace_path, workspace_id, workspace_name, scope_owner, description_markdown,
-          rules_markdown, expires_at, created_at, updated_at, last_opened_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          id, workspace_path, workspace_id, workspace_name, research_profile_id, scope_owner,
+          description_markdown, rules_markdown, expires_at, created_at, updated_at, last_opened_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
         workspacePath,
         snapshot.workspace.workspaceId,
         scope.workspaceName,
+        researchProfileId,
         scope.scopeOwner,
         scope.descriptionMarkdown,
         scope.rulesMarkdown,
@@ -634,14 +646,15 @@ export class WorkspaceRegistry {
   private mapWorkspace(row: SqlRow): WorkspaceRegistryEntry {
     const workspacePath = text(row, 'workspace_path');
     const runSummary = rowOrUndefined(this.db.prepare(
-      'SELECT COUNT(*) AS run_count, MAX(created_at) AS last_run_at FROM research_sessions WHERE research_profile_id = ? AND workspace_path = ?'
-    ).get(this.getActiveResearchProfileId(), workspacePath));
+      'SELECT COUNT(*) AS run_count, MAX(created_at) AS last_run_at FROM research_sessions WHERE workspace_path = ?'
+    ).get(workspacePath));
     return {
       id: text(row, 'id'),
       workspacePath,
       workspaceId: text(row, 'workspace_id'),
       workspaceName: text(row, 'workspace_name'),
       scopeOwner: text(row, 'scope_owner'),
+      researchProfileId: isResearchProfileId(row.research_profile_id) ? row.research_profile_id : DEFAULT_RESEARCH_PROFILE_ID,
       descriptionMarkdown: text(row, 'description_markdown'),
       rulesMarkdown: text(row, 'rules_markdown'),
       expiresAt: nullableText(row, 'expires_at'),

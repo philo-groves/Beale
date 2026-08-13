@@ -2,7 +2,6 @@ export const IPC_CHANNELS = {
   selectWorkspace: 'beale:select-workspace',
   selectWorkspaceDirectory: 'beale:select-workspace-directory',
   getWorkspaceRegistry: 'beale:get-workspace-registry',
-  setActiveResearchProfile: 'beale:set-active-research-profile',
   getDeveloperSettings: 'beale:get-developer-settings',
   setDeveloperModeEnabled: 'beale:set-developer-mode-enabled',
   getProviderSettings: 'beale:get-provider-settings',
