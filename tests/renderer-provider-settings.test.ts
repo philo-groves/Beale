@@ -37,7 +37,8 @@ describe('renderer provider settings', () => {
 
     expect(html).toContain('state-preferred');
     expect(html).toContain('Preferred');
-    expect(html.match(/Mark as Preferred/gu)).toHaveLength(1);
+    expect(html.indexOf('Preferred')).toBeLessThan(html.indexOf('Configured'));
+    expect(html.match(/>Prefer<\/button>/gu)).toHaveLength(1);
   });
 
   it('uses the shared white theme accent for all checkbox and radio controls', () => {
@@ -204,8 +205,8 @@ describe('renderer provider settings', () => {
     expect(html).not.toContain('<span>Source</span>');
     expect(html).not.toContain('<span>Transport</span>');
     expect(html).not.toContain('<span>Boundary</span>');
-    expect(html).toContain('aria-label="Lead Provider"');
-    expect(html).toContain('<span>Lead Provider</span>');
+    expect(html).toContain('aria-label="Lead"');
+    expect(html).toContain('<span>Lead</span>');
     expect(html).not.toContain('Default: Anthropic');
     expect(html).not.toContain('(Codex)');
     expect(html).not.toContain('(Claude)');
@@ -213,12 +214,13 @@ describe('renderer provider settings', () => {
     expect(html).toContain('<h3>Acknowledgment</h3>');
     expect(html).toContain('<h3>Authentication</h3>');
     expect(html).toContain('<strong>Subscription</strong>');
-    expect(html).toContain('<strong>API key</strong>');
+    expect(html).toContain('<strong>API Key</strong>');
     expect(html).toContain('provider-authentication-status state-configured');
     expect(html).toContain('provider-authentication-status state-not-configured');
+    expect(html).toContain('>Missing</span>');
     expect(html).toContain('>Forget</button>');
     expect(html).toContain('>Configure</button>');
-    expect(html).toContain('>Remove</button>');
+    expect(html).not.toContain('>Remove</button>');
     expect(html).not.toContain('>Sign in</button>');
     expect(html).not.toContain('Re-authenticate');
     expect(html).not.toContain('Host credential');
@@ -261,6 +263,8 @@ describe('renderer provider settings', () => {
 
     expect(html.match(/provider-authentication-status state-configured/gu)).toHaveLength(2);
     expect(html.match(/>Configured<\/span>/gu)).toHaveLength(2);
+    expect(html).toContain('>Remove</button>');
+    expect(html).not.toContain('>Configure</button>');
     expect(html).not.toContain('Host credential');
     expect(html).not.toContain('OPENAI_API_KEY');
   });
@@ -574,8 +578,8 @@ describe('renderer provider settings', () => {
     expect(html).toContain('No providers configured');
     expect(html).toContain('aria-label="Add provider"');
     expect(html).not.toContain('role="tabpanel"');
-    expect(html).toContain('aria-label="Lead Provider"');
-    expect(html).toContain('<span>Lead Provider</span>');
+    expect(html).toContain('aria-label="Lead"');
+    expect(html).toContain('<span>Lead</span>');
     expect(html).toContain('<option value="" selected="">None</option>');
   });
 });

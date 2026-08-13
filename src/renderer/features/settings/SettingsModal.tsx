@@ -408,19 +408,19 @@ function ProviderAuthenticationStatus({ state, preferred = false }: { state: Pro
         ? 'Needs attention'
         : state === 'unavailable'
           ? 'Unavailable'
-          : 'Not configured';
+          : 'Missing';
   return (
     <span className="provider-authentication-statuses">
-      <span className={`provider-authentication-status state-${state}`}>
-        <span aria-hidden="true" />
-        {label}
-      </span>
       {preferred ? (
         <span className="provider-authentication-status state-preferred">
           <span aria-hidden="true" />
           Preferred
         </span>
       ) : null}
+      <span className={`provider-authentication-status state-${state}`}>
+        <span aria-hidden="true" />
+        {label}
+      </span>
     </span>
   );
 }
@@ -480,7 +480,7 @@ function ProviderAuthenticationSection({
             )}
             {showPreferenceControls && preferredMethod !== 'subscription' ? (
               <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={() => onMarkPreferred('subscription')}>
-                Mark as Preferred
+                Prefer
               </button>
             ) : null}
           </div>
@@ -488,19 +488,22 @@ function ProviderAuthenticationSection({
         </div>
         <div className="provider-authentication-option">
           <div className="provider-authentication-option-heading">
-            <strong>API key</strong>
+            <strong>API Key</strong>
             <ProviderAuthenticationStatus state={apiKeyConfigured ? 'configured' : 'not-configured'} preferred={showPreferenceControls && preferredMethod === 'api_key'} />
           </div>
           <div className="provider-authentication-actions">
-            <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={() => onConfigureApiKey(providerId)}>
-              Configure
-            </button>
-            <button className="secondary-button provider-authentication-action" type="button" disabled={busy || !apiKeyConfigured} onClick={onRemoveApiKey}>
-              Remove
-            </button>
+            {apiKeyConfigured ? (
+              <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={onRemoveApiKey}>
+                Remove
+              </button>
+            ) : (
+              <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={() => onConfigureApiKey(providerId)}>
+                Configure
+              </button>
+            )}
             {showPreferenceControls && preferredMethod !== 'api_key' ? (
               <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={() => onMarkPreferred('api_key')}>
-                Mark as Preferred
+                Prefer
               </button>
             ) : null}
           </div>
@@ -990,12 +993,12 @@ function ProviderSettingsTabs({
         </div>
       ) : null}
       <label className="research-side-view-trailing provider-settings-default-control">
-        <span>Lead Provider</span>
+        <span>Lead</span>
         <select
           value={configuredProviders.some((provider) => provider.id === defaultProviderId) ? defaultProviderId ?? '' : ''}
           disabled={busy}
-          title="Lead Provider"
-          aria-label="Lead Provider"
+          title="Lead"
+          aria-label="Lead"
           onChange={(event) => onSetDefaultProviderId(event.target.value ? event.target.value as ResearchModelProviderId : null)}
         >
           {defaultProviderPickerOptions(configuredProviders).map((option) => (
