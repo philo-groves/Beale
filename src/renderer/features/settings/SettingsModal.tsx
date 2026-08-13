@@ -22,11 +22,11 @@ import type {
   ResearchProviderStatus
 } from '@shared/types';
 import { ProviderIcon } from '../../app/ProviderIcon';
-import { StatusPill } from '../../app/StatusPill';
-import { FloatingTextPicker, type FloatingTextPickerOption } from '../../app/FloatingTextPicker';
+import type { FloatingTextPickerOption } from '../../app/FloatingTextPicker';
 import { researchModelNameLabel, stateClass } from '../../lib/formatting';
 import {
   filterEnabledProviderModelCatalogs,
+  isOptionalProviderModelEnabled,
   OPTIONAL_PROVIDER_MODELS
 } from '../../../shared/optionalProviderModels';
 import type { ChatView } from '../../view-models/chatView';
@@ -359,6 +359,30 @@ interface ProviderSettingsOption {
   authenticationUnavailable: boolean;
 }
 
+function providerCompanyName(providerId: ResearchModelProviderId): string {
+  if (providerId === 'openai-codex') return 'OpenAI';
+  if (providerId === 'anthropic') return 'Anthropic';
+  return 'xAI';
+}
+
+type ProviderHealthState = 'healthy' | 'unhealthy' | 'authenticating';
+
+function ProviderHealthIndicator({ state }: { state: ProviderHealthState }): JSX.Element {
+  const label = state === 'healthy'
+    ? 'Healthy'
+    : state === 'authenticating'
+      ? 'Authentication in progress'
+      : 'Unhealthy';
+  return (
+    <span
+      className={`provider-health-indicator state-${state}`}
+      role="img"
+      aria-label={label}
+      title={label}
+    />
+  );
+}
+
 export function providerSettingsOptions(
   openAiStatus: OpenAiAccountStatus | null,
   researchProviderStatuses: readonly ResearchProviderStatus[]
@@ -366,14 +390,14 @@ export function providerSettingsOptions(
   return [
     {
       id: 'openai-codex',
-      name: 'OpenAI (Codex)',
+      name: providerCompanyName('openai-codex'),
       configured: openAiStatus?.configured ?? false,
       authenticationRunning: false,
       authenticationUnavailable: openAiStatus?.codexCliAvailable === false
     },
     ...researchProviderStatuses.map((provider) => ({
       id: provider.id,
-      name: provider.name,
+      name: providerCompanyName(provider.id),
       configured: provider.configured,
       authenticationRunning: provider.loginInProgress,
       authenticationUnavailable: provider.readiness === 'unavailable'
@@ -571,6 +595,7 @@ export function ProvidersSettingsView({
           modelDefaults={activeModelDefaults}
           onSetModelDefaults={(defaults) => void onSetProviderModelDefaults('openai-codex', defaults)}
           enabledOptionalModelIds={providerSettings?.enabledOptionalModels?.['openai-codex'] ?? []}
+          disabledOptionalModelIds={providerSettings?.disabledOptionalModels?.['openai-codex'] ?? []}
           onSetOptionalModelEnabled={(modelId, enabled) =>
             void onSetProviderOptionalModelEnabled('openai-codex', modelId, enabled)}
           policyRiskAcknowledged={providerSettings?.cyberPolicyRiskAcknowledgements?.['openai-codex'] === true}
@@ -584,8 +609,13 @@ export function ProvidersSettingsView({
           result={researchProviderOAuthResults[activeProvider.id] ?? null}
           onAuthenticate={() => authenticateProvider(activeProvider.id)}
           modelCatalog={activeEnabledModelCatalog}
+          fullModelCatalog={activeModelCatalog}
           modelDefaults={activeModelDefaults}
           onSetModelDefaults={(defaults) => void onSetProviderModelDefaults(activeProvider.id, defaults)}
+          enabledOptionalModelIds={providerSettings?.enabledOptionalModels?.[activeProvider.id] ?? []}
+          disabledOptionalModelIds={providerSettings?.disabledOptionalModels?.[activeProvider.id] ?? []}
+          onSetOptionalModelEnabled={(modelId, enabled) =>
+            void onSetProviderOptionalModelEnabled(activeProvider.id, modelId, enabled)}
           policyRiskAcknowledged={providerSettings?.cyberPolicyRiskAcknowledgements?.[activeProvider.id] === true}
           onSetPolicyRiskAcknowledged={(acknowledged) =>
             void onSetProviderCyberPolicyRiskAcknowledged(activeProvider.id, acknowledged)}
@@ -720,18 +750,20 @@ function ProviderSettingsTabs({
           ) : null}
         </div>
       ) : null}
-      <div className="research-side-view-trailing provider-settings-default-control">
-        <FloatingTextPicker
-          className="provider-settings-default-picker"
+      <label className="research-side-view-trailing provider-settings-default-control">
+        <span>Default provider</span>
+        <select
           value={configuredProviders.some((provider) => provider.id === defaultProviderId) ? defaultProviderId ?? '' : ''}
-          options={defaultProviderPickerOptions(configuredProviders)}
           disabled={busy}
-          selectedLabelPrefix="Default: "
           title="Default provider"
-          ariaLabel="Default provider"
-          onChange={(value) => onSetDefaultProviderId(value ? value as ResearchModelProviderId : null)}
-        />
-      </div>
+          aria-label="Default provider"
+          onChange={(event) => onSetDefaultProviderId(event.target.value ? event.target.value as ResearchModelProviderId : null)}
+        >
+          {defaultProviderPickerOptions(configuredProviders).map((option) => (
+            <option value={option.value} key={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </label>
     </header>
   );
 }
@@ -745,13 +777,13 @@ function ProviderAuthenticationCard({
 }): JSX.Element {
   return (
     <section className="provider-card provider-authentication-card readiness-not_configured" aria-label={`${provider.name} authentication`}>
-      <div className="provider-heading">
-        <div className="status-icon"><KeyRound size={18} /></div>
-        <div>
+      <div className="provider-heading provider-settings-provider-heading">
+        <ProviderIcon className="provider-settings-heading-icon" provider={provider.id} size={18} aria-hidden="true" />
+        <div className="provider-settings-heading-title">
           <h4>Authenticate {provider.name}</h4>
+          <ProviderHealthIndicator state="authenticating" />
           <p>{provider.authenticationRunning ? 'Waiting for provider sign-in' : 'Complete provider authentication to add its tab.'}</p>
         </div>
-        <StatusPill status={provider.authenticationRunning ? 'active' : 'not_configured'} />
       </div>
       {result ? <ProviderOAuthResult result={result} /> : <p className="provider-detail">Starting provider authentication…</p>}
     </section>
@@ -768,6 +800,7 @@ function OpenAiProviderCard({
   modelDefaults,
   onSetModelDefaults,
   enabledOptionalModelIds,
+  disabledOptionalModelIds,
   onSetOptionalModelEnabled,
   policyRiskAcknowledged,
   onSetPolicyRiskAcknowledged
@@ -781,6 +814,7 @@ function OpenAiProviderCard({
   modelDefaults: ProviderModelDefaults | null;
   onSetModelDefaults: (defaults: ProviderModelDefaults) => void;
   enabledOptionalModelIds: readonly string[];
+  disabledOptionalModelIds: readonly string[];
   onSetOptionalModelEnabled: (modelId: string, enabled: boolean) => void;
   policyRiskAcknowledged: boolean;
   onSetPolicyRiskAcknowledged: (acknowledged: boolean) => void;
@@ -788,37 +822,33 @@ function OpenAiProviderCard({
   const readiness = openAiStatus?.readiness ?? 'not_configured';
   const authenticateLabel = readiness === 'oauth_ready' ? 'Re-authenticate' : 'Authenticate';
   return (
-    <section className={`provider-card readiness-${stateClass(readiness)}`} role="tabpanel" aria-label="OpenAI (Codex) provider settings">
-      <div className="provider-heading">
-        <div className="status-icon"><KeyRound size={18} /></div>
-        <div>
-          <h4>OpenAI (Codex)</h4>
+    <section className={`provider-card readiness-${stateClass(readiness)}`} role="tabpanel" aria-label="OpenAI provider settings">
+      <div className="provider-heading provider-settings-provider-heading">
+        <ProviderIcon className="provider-settings-heading-icon" provider="openai-codex" size={18} aria-hidden="true" />
+        <div className="provider-settings-heading-title">
+          <h4>OpenAI</h4>
+          <ProviderHealthIndicator state={openAiStatus?.configured && (readiness === 'oauth_ready' || readiness === 'development_fallback') ? 'healthy' : 'unhealthy'} />
         </div>
-        <StatusPill status={readiness} />
+        <ProviderModelDefaultsControls
+          busy={busy}
+          catalog={modelCatalog}
+          defaults={modelDefaults}
+          onChange={onSetModelDefaults}
+        />
       </div>
-      <div className="provider-grid">
-        <div><span>Source</span><strong>{openAiStatus?.source ?? 'unknown'}</strong></div>
-        <div><span>Transport</span><strong>{openAiStatus?.preferredTransport ?? 'sse_http'}</strong></div>
-        <div><span>Boundary</span><strong>{openAiStatus?.credentialsHostOnly ? 'host only' : 'review'}</strong></div>
-      </div>
-      <ProviderModelDefaultsControls
-        busy={busy}
-        catalog={modelCatalog}
-        defaults={modelDefaults}
-        onChange={onSetModelDefaults}
-      />
-      <ProviderOptionalModelsControls
-        busy={busy}
-        catalog={fullModelCatalog}
-        enabledModelIds={enabledOptionalModelIds}
-        providerId="openai-codex"
-        onChange={onSetOptionalModelEnabled}
-      />
       <ProviderCyberPolicyAcknowledgement
         providerId="openai-codex"
         acknowledged={policyRiskAcknowledged}
         busy={busy}
         onChange={onSetPolicyRiskAcknowledged}
+      />
+      <ProviderOptionalModelsControls
+        busy={busy}
+        catalog={fullModelCatalog}
+        enabledModelIds={enabledOptionalModelIds}
+        disabledModelIds={disabledOptionalModelIds}
+        providerId="openai-codex"
+        onChange={onSetOptionalModelEnabled}
       />
       {openAiOAuthResult ? <ProviderOAuthResult result={openAiOAuthResult} /> : null}
       <div className="provider-actions">
@@ -838,12 +868,14 @@ function ProviderOptionalModelsControls({
   busy,
   catalog,
   enabledModelIds,
+  disabledModelIds,
   providerId,
   onChange
 }: {
   busy: boolean;
   catalog: ResearchProviderModelCatalog | null;
   enabledModelIds: readonly string[];
+  disabledModelIds: readonly string[];
   providerId: ResearchModelProviderId;
   onChange: (modelId: string, enabled: boolean) => void;
 }): JSX.Element | null {
@@ -852,20 +884,23 @@ function ProviderOptionalModelsControls({
   if (optionalModels.length === 0) return null;
   return (
     <div className="provider-optional-models" aria-label="Optional models">
-      <span>Optional models</span>
+      <h3>Optional models</h3>
       {optionalModels.map((model) => {
         const available = availableModelIds.has(model.modelId);
         return (
           <label key={model.modelId}>
             <input
               type="checkbox"
-              checked={enabledModelIds.includes(model.modelId)}
+              checked={isOptionalProviderModelEnabled({
+                enabledOptionalModels: { [providerId]: [...enabledModelIds] },
+                disabledOptionalModels: { [providerId]: [...disabledModelIds] }
+              }, providerId, model.modelId)}
               disabled={busy || !available}
               onChange={(event) => onChange(model.modelId, event.target.checked)}
             />
-            <span>
+            <span className="provider-optional-model-copy">
               <strong>{model.name}</strong>
-              <small>{available ? model.accessNote : 'Not available in the installed Honeycrisp model catalog.'}</small>
+              <small>{model.accessNote}{available ? '' : ' Not available in the installed Honeycrisp model catalog.'}</small>
             </span>
           </label>
         );
@@ -880,8 +915,12 @@ function ResearchProviderCard({
   busy,
   onAuthenticate,
   modelCatalog,
+  fullModelCatalog,
   modelDefaults,
   onSetModelDefaults,
+  enabledOptionalModelIds,
+  disabledOptionalModelIds,
+  onSetOptionalModelEnabled,
   policyRiskAcknowledged,
   onSetPolicyRiskAcknowledged
 }: {
@@ -890,63 +929,51 @@ function ResearchProviderCard({
   busy: boolean;
   onAuthenticate: () => void;
   modelCatalog: ResearchProviderModelCatalog | null;
+  fullModelCatalog: ResearchProviderModelCatalog | null;
   modelDefaults: ProviderModelDefaults | null;
   onSetModelDefaults: (defaults: ProviderModelDefaults) => void;
+  enabledOptionalModelIds: readonly string[];
+  disabledOptionalModelIds: readonly string[];
+  onSetOptionalModelEnabled: (modelId: string, enabled: boolean) => void;
   policyRiskAcknowledged: boolean;
   onSetPolicyRiskAcknowledged: (acknowledged: boolean) => void;
 }): JSX.Element {
+  const providerName = providerCompanyName(provider.id);
   const authenticateLabel = provider.loginInProgress
     ? 'Authentication Running'
     : provider.configured
       ? 'Re-authenticate'
       : 'Authenticate';
-  const authLabel = provider.credentialType === 'api_key'
-    ? 'API key'
-    : provider.credentialType === 'oauth'
-      ? 'OAuth'
-      : provider.configured
-        ? 'Host environment'
-        : 'Not configured';
-
   return (
-    <section className={`provider-card readiness-${stateClass(provider.readiness)}`} role="tabpanel" aria-label={`${provider.name} provider settings`}>
-      <div className="provider-heading">
-        <div className="status-icon">
-          <KeyRound size={18} />
+    <section className={`provider-card readiness-${stateClass(provider.readiness)}`} role="tabpanel" aria-label={`${providerName} provider settings`}>
+      <div className="provider-heading provider-settings-provider-heading">
+        <ProviderIcon className="provider-settings-heading-icon" provider={provider.id} size={18} aria-hidden="true" />
+        <div className="provider-settings-heading-title">
+          <h4>{providerName}</h4>
+          <ProviderHealthIndicator state={provider.loginInProgress ? 'authenticating' : provider.configured && provider.readiness === 'ready' ? 'healthy' : 'unhealthy'} />
         </div>
-        <div>
-          <h4>{provider.name}</h4>
-        </div>
-        <StatusPill status={provider.readiness} />
+        <ProviderModelDefaultsControls
+          busy={busy}
+          catalog={modelCatalog}
+          defaults={modelDefaults}
+          onChange={onSetModelDefaults}
+        />
       </div>
-
-      <div className="provider-grid">
-        <div>
-          <span>Source</span>
-          <strong>{provider.source ?? 'not configured'}</strong>
-        </div>
-        <div>
-          <span>Authentication</span>
-          <strong>{authLabel}</strong>
-        </div>
-        <div>
-          <span>Boundary</span>
-          <strong>{provider.credentialsHostOnly ? 'host only' : 'review'}</strong>
-        </div>
-      </div>
-
-      <ProviderModelDefaultsControls
-        busy={busy}
-        catalog={modelCatalog}
-        defaults={modelDefaults}
-        onChange={onSetModelDefaults}
-      />
 
       <ProviderCyberPolicyAcknowledgement
         providerId={provider.id}
         acknowledged={policyRiskAcknowledged}
         busy={busy || provider.loginInProgress}
         onChange={onSetPolicyRiskAcknowledged}
+      />
+
+      <ProviderOptionalModelsControls
+        busy={busy || provider.loginInProgress}
+        catalog={fullModelCatalog}
+        enabledModelIds={enabledOptionalModelIds}
+        disabledModelIds={disabledOptionalModelIds}
+        providerId={provider.id}
+        onChange={onSetOptionalModelEnabled}
       />
 
       {result ? <ProviderOAuthResult result={result} /> : null}
@@ -1025,7 +1052,7 @@ function ProviderModelDefaultsControls({
   return (
     <div className="provider-model-defaults" aria-label="Provider model defaults">
       <label>
-        <span>Default large model</span>
+        <span>Default large</span>
         <select
           value={defaults?.largeModel ?? ''}
           disabled={disabled}
@@ -1043,7 +1070,7 @@ function ProviderModelDefaultsControls({
         </select>
       </label>
       <label>
-        <span>Default small model</span>
+        <span>Default small</span>
         <select
           value={defaults?.smallModel ?? ''}
           disabled={disabled}
@@ -1053,7 +1080,7 @@ function ProviderModelDefaultsControls({
         </select>
       </label>
       <label>
-        <span>Default reasoning level</span>
+        <span>Default reasoning</span>
         <select
           value={defaults?.reasoningEffort ?? ''}
           disabled={disabled || effortLevels.length === 0}
@@ -1067,8 +1094,7 @@ function ProviderModelDefaultsControls({
 }
 
 function providerModelOptionLabel(providerId: ResearchModelProviderId | undefined, model: ResearchProviderModel): string {
-  const name = providerId ? researchModelNameLabel(providerId, model.name) : model.name;
-  return name === model.id ? name : `${name} — ${model.id}`;
+  return providerId ? researchModelNameLabel(providerId, model.name) : model.name;
 }
 
 function normalizeReasoningEffort(value: string | null): ResearchModelEffortLevel | null {

@@ -21,6 +21,15 @@
 
 ### Changed
 
+- Claude Fable 5 is now an optional Anthropic model enabled by default, while access-restricted Claude Mythos 5 can be enabled explicitly in Provider Settings; explicit Fable disablement is persisted.
+- Provider Settings now labels providers by company name only, uses provider logos in view headings, and gives inactive provider tabs a clearer contrasting surface.
+- Provider Settings model and provider default selectors now match the compact inline styling used by New Research, use concise labels, and show model display names without appended IDs.
+- Provider views now place model defaults in their headings and replace text status pills with compact healthy, unhealthy, or authenticating indicators.
+- Provider Settings content now uses a flat, unpadded surface instead of an outer card.
+- Provider views now place their policy description and acknowledgement directly below the heading instead of showing redundant source, transport, authentication, and boundary tiles.
+- Provider policy acknowledgement checkboxes now use compact left-aligned rows.
+- Optional provider models now use a flat, single-line checkbox list with detailed-sidenav heading typography.
+- Daybreak Blue is now an optional OpenAI model enabled by default for expected Trusted Access for Cyber availability, with explicit disablement persisted separately from opt-in models such as Daybreak Red.
 - New Research no longer exposes an independent-first-pass toggle; collaborative sessions always require independent room-member investigation before peer conclusions are shared.
 - New Research collaboration settings now use a single right-aligned compact row with descriptive label tooltips and borderless, consistently sized dropdowns.
 - Anthropic model labels now omit the implied leading `Claude` prefix, matching the existing compact OpenAI model labels.

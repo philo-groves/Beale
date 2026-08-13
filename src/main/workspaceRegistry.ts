@@ -26,7 +26,7 @@ import type {
 } from '@shared/types';
 import type { ResearchProfileId } from '@shared/types';
 import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, isResearchProfileId, MEMORY_NODE_TYPES } from '../shared/types';
-import { isOptionalProviderModel } from '../shared/optionalProviderModels';
+import { isOptionalProviderModel, isOptionalProviderModelEnabled } from '../shared/optionalProviderModels';
 
 interface SqlRow {
   [key: string]: unknown;
@@ -121,6 +121,7 @@ export class WorkspaceRegistry {
   public getProviderSettings(): ProviderSettings {
     const cyberPolicyRiskAcknowledgements: Partial<Record<ResearchModelProviderId, true>> = {};
     const enabledOptionalModels = normalizeEnabledOptionalModelsRecord(this.getMeta('provider_optional_models_json'));
+    const disabledOptionalModels = normalizeEnabledOptionalModelsRecord(this.getMeta('provider_disabled_optional_models_json'));
     if (this.getMeta('openai_trusted_access_cyber_risk_acknowledged') === '1') {
       cyberPolicyRiskAcknowledgements['openai-codex'] = true;
     }
@@ -134,6 +135,7 @@ export class WorkspaceRegistry {
       defaultProviderId: normalizeDefaultProviderId(this.getMeta('default_provider_id')),
       modelDefaults: normalizeProviderModelDefaultsRecord(this.getMeta('provider_model_defaults_json')),
       ...(Object.keys(enabledOptionalModels).length > 0 ? { enabledOptionalModels } : {}),
+      ...(Object.keys(disabledOptionalModels).length > 0 ? { disabledOptionalModels } : {}),
       ...(Object.keys(cyberPolicyRiskAcknowledgements).length > 0 ? { cyberPolicyRiskAcknowledgements } : {})
     };
   }
@@ -166,12 +168,25 @@ export class WorkspaceRegistry {
     }
     const settings = this.getProviderSettings();
     const current = new Set(settings.enabledOptionalModels?.[providerId] ?? []);
-    if (enabled) current.add(modelId);
-    else current.delete(modelId);
+    const disabledCurrent = new Set(settings.disabledOptionalModels?.[providerId] ?? []);
+    const enabledByDefault = isOptionalProviderModelEnabled(null, providerId, modelId);
+    if (enabled) {
+      disabledCurrent.delete(modelId);
+      if (enabledByDefault) current.delete(modelId);
+      else current.add(modelId);
+    } else {
+      current.delete(modelId);
+      if (enabledByDefault) disabledCurrent.add(modelId);
+      else disabledCurrent.delete(modelId);
+    }
     const enabledOptionalModels = { ...settings.enabledOptionalModels };
+    const disabledOptionalModels = { ...settings.disabledOptionalModels };
     if (current.size > 0) enabledOptionalModels[providerId] = [...current];
     else delete enabledOptionalModels[providerId];
+    if (disabledCurrent.size > 0) disabledOptionalModels[providerId] = [...disabledCurrent];
+    else delete disabledOptionalModels[providerId];
     this.setMeta('provider_optional_models_json', JSON.stringify(enabledOptionalModels));
+    this.setMeta('provider_disabled_optional_models_json', JSON.stringify(disabledOptionalModels));
     if (!enabled) {
       const defaults = settings.modelDefaults[providerId];
       if (defaults && (defaults.largeModel === modelId || defaults.smallModel === modelId)) {

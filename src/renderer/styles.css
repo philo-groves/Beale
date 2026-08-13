@@ -9185,8 +9185,19 @@ button.research-goal-choice:focus-visible {
   gap: 12px;
 }
 
+.provider-settings-page > .provider-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
 .provider-settings-tab-header {
   min-height: 32px;
+}
+
+.provider-settings-tab:not(.active) {
+  background: var(--panel-strong);
 }
 
 .provider-settings-tab .research-side-view-tab-activate {
@@ -9201,45 +9212,35 @@ button.research-goal-choice:focus-visible {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.provider-settings-heading-icon {
+  color: var(--muted-strong);
+}
+
 .provider-settings-picker-menu {
   min-width: 220px;
 }
 
 .provider-settings-default-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding-right: 0;
-}
-
-.provider-settings-default-picker {
-  position: relative;
-  z-index: 9;
-  max-width: 240px;
   color: var(--muted);
-  font-size: var(--steer-control-font-size);
-  line-height: 1.25;
+  font-size: var(--steer-control-font-size, 13px);
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
 }
 
-.provider-settings-default-picker .floating-text-picker-trigger {
-  gap: 7px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 0 8px;
-  font-size: inherit;
-  line-height: inherit;
+.provider-settings-default-control select {
+  width: 120px;
+  max-width: 120px;
+  border: 0;
+  font-weight: 400;
 }
 
-.provider-settings-default-picker .floating-text-picker-trigger:hover:not(:disabled),
-.provider-settings-default-picker .floating-text-picker-trigger:focus-visible,
-.provider-settings-default-picker.is-open .floating-text-picker-trigger {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: #242424;
-  color: var(--muted-strong);
-}
-
-.provider-settings-default-picker .floating-text-picker-menu {
-  right: 0;
-  bottom: auto;
-  left: auto;
-  top: calc(100% + 6px);
+.provider-settings-default-control select:focus {
+  border-color: transparent;
 }
 
 .provider-settings-empty {
@@ -9508,6 +9509,57 @@ button.research-goal-choice:focus-visible {
   align-items: center;
 }
 
+.provider-settings-provider-heading {
+  grid-template-columns: auto auto minmax(0, 1fr);
+}
+
+.provider-settings-heading-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.provider-settings-heading-title > p {
+  flex-basis: 100%;
+}
+
+.provider-settings-provider-heading > .provider-model-defaults {
+  max-width: 100%;
+  justify-self: end;
+}
+
+.provider-health-indicator {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.provider-health-indicator.state-healthy {
+  background: var(--green);
+}
+
+.provider-health-indicator.state-unhealthy {
+  background: var(--red);
+}
+
+.provider-health-indicator.state-authenticating {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #a8a8a8;
+  background: transparent;
+  animation: provider-health-spin 800ms linear infinite;
+}
+
+@keyframes provider-health-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .provider-heading h4 {
   font-size: 0.98rem;
 }
@@ -9550,51 +9602,92 @@ button.research-goal-choice:focus-visible {
 
 .provider-model-defaults {
   min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 
 .provider-model-defaults label {
   min-width: 0;
-  display: grid;
+  display: inline-flex;
+  align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-size: var(--steer-control-font-size, 13px);
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
 }
 
 .provider-model-defaults select {
-  width: 100%;
-  min-width: 0;
-  text-transform: none;
+  width: 120px;
+  max-width: 120px;
+  border: 0;
+  font-weight: 400;
+}
+
+.provider-model-defaults select:focus {
+  border-color: transparent;
 }
 
 .provider-optional-models {
   display: grid;
   gap: 7px;
+  background: transparent;
+}
+
+.provider-optional-models > h3 {
+  margin: 0;
+  padding: 0 2px 7px;
+  border-bottom: 1px solid var(--panel-border);
   color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.3;
 }
 
 .provider-optional-models label {
-  display: flex;
-  align-items: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
   gap: 8px;
-  padding: 8px 9px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.025);
+  padding: 0 2px;
+  background: transparent;
   color: var(--text);
   font-size: 12px;
   font-weight: 400;
-  text-transform: none;
 }
 
 .provider-optional-models input {
-  margin-top: 2px;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  flex: 0 0 14px;
+  margin: 0;
+  padding: 0;
+}
+
+.provider-optional-model-copy {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.provider-optional-model-copy strong,
+.provider-optional-model-copy small {
+  font: inherit;
+}
+
+.provider-optional-model-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
 }
 
 .provider-optional-models label > span {
@@ -9847,8 +9940,11 @@ button.research-goal-choice:focus-visible {
 }
 
 .provider-risk-acknowledgement {
-  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
   align-items: flex-start;
+  justify-content: flex-start;
   gap: 8px;
   color: var(--muted);
   font-size: 12px;
@@ -9856,7 +9952,12 @@ button.research-goal-choice:focus-visible {
 }
 
 .provider-risk-acknowledgement input {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  flex: 0 0 14px;
   margin-top: 2px;
+  padding: 0;
 }
 
 .collaboration-settings {
@@ -11049,6 +11150,10 @@ button.research-goal-choice:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .provider-health-indicator.state-authenticating {
+    animation: none;
+  }
+
   .app-background-pulse {
     animation: none;
     opacity: 0;

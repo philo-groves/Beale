@@ -1,4 +1,5 @@
 import { createElement } from 'react';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { OpenAiAccountStatus, ResearchProviderModel, ResearchProviderModelCatalog, ResearchProviderStatus } from '../src/shared/types';
@@ -11,6 +12,72 @@ import {
 } from '../src/renderer/features/settings/SettingsModal';
 
 describe('renderer provider settings', () => {
+  it('gives inactive provider tabs a contrasting surface', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const inactiveTabStyles = styles.match(/\.provider-settings-tab:not\(\.active\)\s*\{([^}]*)\}/)?.[1] ?? '';
+    const providerContentStyles = styles.match(/\.provider-settings-page > \.provider-card\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(inactiveTabStyles).toContain('background: var(--panel-strong)');
+    expect(providerContentStyles).toContain('border: 0');
+    expect(providerContentStyles).toContain('border-radius: 0');
+    expect(providerContentStyles).toContain('background: transparent');
+    expect(providerContentStyles).toContain('padding: 0');
+  });
+
+  it('uses compact New Research styling for provider defaults', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const defaultsStyles = styles.match(/^\.provider-model-defaults\s*\{([^}]*)\}/m)?.[1] ?? '';
+    const labelStyles = styles.match(/\.provider-model-defaults label\s*\{([^}]*)\}/)?.[1] ?? '';
+    const selectStyles = styles.match(/\.provider-model-defaults select\s*\{([^}]*)\}/)?.[1] ?? '';
+    const providerControlStyles = styles.match(/\.provider-settings-default-control\s*\{([^}]*)\}/)?.[1] ?? '';
+    const providerSelectStyles = styles.match(/\.provider-settings-default-control select\s*\{([^}]*)\}/)?.[1] ?? '';
+    const healthyStyles = styles.match(/\.provider-health-indicator\.state-healthy\s*\{([^}]*)\}/)?.[1] ?? '';
+    const unhealthyStyles = styles.match(/\.provider-health-indicator\.state-unhealthy\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticatingStyles = styles.match(/\.provider-health-indicator\.state-authenticating\s*\{([^}]*)\}/)?.[1] ?? '';
+    const acknowledgementStyles = styles.match(/\.provider-risk-acknowledgement\s*\{([^}]*)\}/)?.[1] ?? '';
+    const acknowledgementInputStyles = styles.match(/\.provider-risk-acknowledgement input\s*\{([^}]*)\}/)?.[1] ?? '';
+    const optionalModelsStyles = styles.match(/\.provider-optional-models\s*\{([^}]*)\}/)?.[1] ?? '';
+    const optionalHeadingStyles = styles.match(/\.provider-optional-models > h3\s*\{([^}]*)\}/)?.[1] ?? '';
+    const optionalLabelStyles = styles.match(/\.provider-optional-models label\s*\{([^}]*)\}/)?.[1] ?? '';
+    const optionalInputStyles = styles.match(/\.provider-optional-models input\s*\{([^}]*)\}/)?.[1] ?? '';
+    const optionalCopyStyles = styles.match(/\.provider-optional-model-copy\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(defaultsStyles).toContain('justify-content: flex-end');
+    expect(labelStyles).toContain('display: inline-flex');
+    expect(labelStyles).toContain('gap: 5px');
+    expect(labelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(labelStyles).toContain('font-weight: 400');
+    expect(selectStyles).toContain('max-width: 120px');
+    expect(selectStyles).toContain('border: 0');
+    expect(selectStyles).toContain('font-weight: 400');
+    expect(providerControlStyles).toContain('display: inline-flex');
+    expect(providerControlStyles).toContain('gap: 5px');
+    expect(providerControlStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(providerControlStyles).toContain('font-weight: 400');
+    expect(providerSelectStyles).toContain('max-width: 120px');
+    expect(providerSelectStyles).toContain('border: 0');
+    expect(providerSelectStyles).toContain('font-weight: 400');
+    expect(healthyStyles).toContain('background: var(--green)');
+    expect(unhealthyStyles).toContain('background: var(--red)');
+    expect(authenticatingStyles).toContain('border: 1.5px solid rgba(255, 255, 255, 0.28)');
+    expect(authenticatingStyles).toContain('animation: provider-health-spin 800ms linear infinite');
+    expect(acknowledgementStyles).toContain('width: fit-content');
+    expect(acknowledgementStyles).toContain('display: inline-flex');
+    expect(acknowledgementStyles).toContain('justify-content: flex-start');
+    expect(acknowledgementInputStyles).toContain('width: 14px');
+    expect(acknowledgementInputStyles).toContain('flex: 0 0 14px');
+    expect(optionalModelsStyles).toContain('background: transparent');
+    expect(optionalHeadingStyles).toContain('font-size: 1rem');
+    expect(optionalHeadingStyles).toContain('font-weight: 400');
+    expect(optionalHeadingStyles).toContain('border-bottom: 1px solid var(--panel-border)');
+    expect(optionalLabelStyles).toContain('display: inline-flex');
+    expect(optionalLabelStyles).toContain('background: transparent');
+    expect(optionalInputStyles).toContain('width: 14px');
+    expect(optionalInputStyles).toContain('flex: 0 0 14px');
+    expect(optionalCopyStyles).toContain('display: inline-flex');
+    expect(optionalCopyStyles).toContain('white-space: nowrap');
+  });
+
   it('separates configured provider tabs from providers available through the add menu', () => {
     const options = providerSettingsOptions(configuredOpenAiStatus(), researchProviderStatuses());
 
@@ -41,17 +108,30 @@ describe('renderer provider settings', () => {
     expect(html).toContain('role="tablist" aria-label="Provider views"');
     expect(html.match(/role="tab"/gu)).toHaveLength(2);
     expect(html.match(/class="provider-settings-tab-icon"/gu)).toHaveLength(2);
-    expect(html).toContain('<span>OpenAI (Codex)</span>');
-    expect(html).toContain('<span>Anthropic (Claude)</span>');
+    expect(html).toContain('<span>OpenAI</span>');
+    expect(html).toContain('<span>Anthropic</span>');
     expect(html).toContain('aria-label="Add provider"');
-    expect(html).toContain('aria-label="Refresh OpenAI (Codex)"');
-    expect(html).toContain('aria-label="Refresh Anthropic (Claude)"');
+    expect(html).toContain('aria-label="Refresh OpenAI"');
+    expect(html).toContain('aria-label="Refresh Anthropic"');
     expect(html).not.toContain('>Refresh</button>');
     expect(html.match(/role="tabpanel"/gu)).toHaveLength(1);
-    expect(html).toContain('aria-label="OpenAI (Codex) provider settings"');
-    expect(html).not.toContain('aria-label="Anthropic (Claude) provider settings"');
+    expect(html).toContain('aria-label="OpenAI provider settings"');
+    expect(html).not.toContain('aria-label="Anthropic provider settings"');
+    expect(html.match(/class="provider-settings-heading-icon"/gu)).toHaveLength(1);
+    expect(html).not.toContain('class="status-icon"');
+    expect(html).not.toContain('class="status-pill');
+    expect(html).toContain('class="provider-health-indicator state-healthy"');
+    expect(html).toContain('aria-label="Healthy"');
+    expect(html.indexOf('aria-label="Provider model defaults"')).toBeLessThan(html.indexOf('class="provider-policy-warning"'));
+    expect(html).not.toContain('class="provider-grid"');
+    expect(html).not.toContain('<span>Source</span>');
+    expect(html).not.toContain('<span>Transport</span>');
+    expect(html).not.toContain('<span>Boundary</span>');
     expect(html).toContain('aria-label="Default provider"');
-    expect(html).toContain('>Default: Anthropic (Claude)</span>');
+    expect(html).toContain('<span>Default provider</span>');
+    expect(html).not.toContain('Default: Anthropic');
+    expect(html).not.toContain('(Codex)');
+    expect(html).not.toContain('(Claude)');
   });
 
   it('renders an in-progress authentication as its own active provider tab and panel', () => {
@@ -86,8 +166,33 @@ describe('renderer provider settings', () => {
 
     expect(html.match(/role="tab"/gu)).toHaveLength(3);
     expect(html).toContain('aria-busy="true"');
-    expect(html).toContain('aria-label="xAI (Grok/X) authentication"');
+    expect(html).toContain('aria-label="xAI authentication"');
+    expect(html.match(/class="provider-settings-heading-icon"/gu)).toHaveLength(1);
+    expect(html).toContain('class="provider-health-indicator state-authenticating"');
+    expect(html).toContain('aria-label="Authentication in progress"');
+    expect(html).not.toContain('aria-label="Provider model defaults"');
     expect(html).toContain('Complete authentication in the browser.');
+  });
+
+  it('marks an unavailable configured provider as unhealthy', () => {
+    const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {
+      openAiStatus: { ...configuredOpenAiStatus(), readiness: 'oauth_command_failed' },
+      openAiOAuthResult: null,
+      researchProviderOAuthResults: {},
+      researchProviderStatuses: researchProviderStatuses(),
+      researchProviderModelCatalog: modelCatalogs(),
+      providerSettings: { defaultProviderId: 'openai-codex', modelDefaults: {} },
+      providerStatusesLoaded: true,
+      busy: false,
+      onRefreshOpenAi: async () => undefined,
+      onStartOpenAiOAuth: async () => undefined,
+      onStartResearchProviderOAuth: async () => undefined,
+      onSetDefaultProviderId: async () => undefined,
+      onSetProviderModelDefaults: async () => undefined
+    }));
+
+    expect(html).toContain('class="provider-health-indicator state-unhealthy"');
+    expect(html).toContain('aria-label="Unhealthy"');
   });
 
   it('offers only authenticated providers as default choices and None when there are none', () => {
@@ -95,8 +200,8 @@ describe('renderer provider settings', () => {
       .filter((provider) => provider.configured);
 
     expect(defaultProviderPickerOptions(configured)).toEqual([
-      { value: 'openai-codex', label: 'OpenAI (Codex)' },
-      { value: 'anthropic', label: 'Anthropic (Claude)' }
+      { value: 'openai-codex', label: 'OpenAI' },
+      { value: 'anthropic', label: 'Anthropic' }
     ]);
     expect(defaultProviderPickerOptions([])).toEqual([{ value: '', label: 'None' }]);
     expect(resolvedDefaultProviderId(configured, null)).toBe('openai-codex');
@@ -157,9 +262,61 @@ describe('renderer provider settings', () => {
     expect(html).not.toContain('Anthropic is ready.');
     expect(html).not.toContain('API-key authentication is also available');
     expect(html).not.toContain('OAuth ready');
-    expect(html).toContain('Default large model');
-    expect(html).toContain('Default small model');
-    expect(html).toContain('Default reasoning level');
+    expect(html).toContain('Default large');
+    expect(html).toContain('Default small');
+    expect(html).toContain('Default reasoning');
+    expect(html).not.toContain('Default large model');
+    expect(html).not.toContain('Default small model');
+    expect(html).not.toContain('Default reasoning level');
+    expect(html).not.toMatch(/<option[^>]*>[^<]* — [^<]*<\/option>/u);
+  });
+
+  it('offers Fable by default and Mythos as an access-restricted Anthropic opt-in', () => {
+    const render = (settings: { mythos?: boolean; fableDisabled?: boolean }): string => {
+      const statuses = researchProviderStatuses().map((provider) => ({
+        ...provider,
+        configured: provider.id === 'anthropic',
+        readiness: provider.id === 'anthropic' ? 'ready' as const : 'not_configured' as const
+      }));
+      return renderToStaticMarkup(createElement(ProvidersSettingsView, {
+        openAiStatus: { ...configuredOpenAiStatus(), configured: false, readiness: 'not_configured', source: 'not_configured' },
+        openAiOAuthResult: null,
+        researchProviderOAuthResults: {},
+        researchProviderStatuses: statuses,
+        researchProviderModelCatalog: modelCatalogs(),
+        providerSettings: {
+          defaultProviderId: 'anthropic',
+          modelDefaults: {},
+          ...(settings.mythos ? { enabledOptionalModels: { anthropic: ['claude-mythos-5'] } } : {}),
+          ...(settings.fableDisabled ? { disabledOptionalModels: { anthropic: ['claude-fable-5'] } } : {})
+        },
+        providerStatusesLoaded: true,
+        busy: false,
+        onRefreshOpenAi: async () => undefined,
+        onStartOpenAiOAuth: async () => undefined,
+        onStartResearchProviderOAuth: async () => undefined,
+        onSetDefaultProviderId: async () => undefined,
+        onSetProviderModelDefaults: async () => undefined,
+        onSetProviderOptionalModelEnabled: async () => undefined
+      }));
+    };
+
+    const defaultHtml = render({});
+    expect(defaultHtml).toContain('<strong>Fable 5</strong>');
+    expect(defaultHtml).toContain('may decline cybersecurity requests even for Cyber Verification Program members');
+    expect(defaultHtml).toMatch(/<label><input type="checkbox" checked=""\/><span class="provider-optional-model-copy"><strong>Fable 5<\/strong>/u);
+    expect(defaultHtml).toContain('<strong>Mythos 5</strong>');
+    expect(defaultHtml).toContain('primarily available to approved commercial users');
+    expect(defaultHtml).toMatch(/<label><input type="checkbox"\/><span class="provider-optional-model-copy"><strong>Mythos 5<\/strong>/u);
+    expect(defaultHtml).not.toContain('value="claude-mythos-5"');
+
+    const mythosHtml = render({ mythos: true });
+    expect(mythosHtml).toMatch(/<label><input type="checkbox" checked=""\/><span class="provider-optional-model-copy"><strong>Mythos 5<\/strong>/u);
+    expect(mythosHtml).toContain('<option value="claude-mythos-5">Mythos 5</option>');
+
+    const fableDisabledHtml = render({ fableDisabled: true });
+    expect(fableDisabledHtml).toMatch(/<label><input type="checkbox"\/><span class="provider-optional-model-copy"><strong>Fable 5<\/strong>/u);
+    expect(fableDisabledHtml).not.toContain('value="claude-fable-5"');
   });
 
   it('shows the OpenAI Trusted Access for Cyber and policy-use acknowledgement', () => {
@@ -192,8 +349,8 @@ describe('renderer provider settings', () => {
     expect(html).toMatch(/type="checkbox" checked=""/u);
   });
 
-  it('offers Daybreak Red as an access-restricted OpenAI opt-in without enabling it by default', () => {
-    const render = (enabled: boolean): string => renderToStaticMarkup(createElement(ProvidersSettingsView, {
+  it('offers Daybreak Blue by default and Daybreak Red as an access-restricted opt-in', () => {
+    const render = (settings: { red?: boolean; blueDisabled?: boolean }): string => renderToStaticMarkup(createElement(ProvidersSettingsView, {
       openAiStatus: configuredOpenAiStatus(),
       openAiOAuthResult: null,
       researchProviderOAuthResults: {},
@@ -202,7 +359,8 @@ describe('renderer provider settings', () => {
       providerSettings: {
         defaultProviderId: 'openai-codex',
         modelDefaults: {},
-        ...(enabled ? { enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] } } : {})
+        ...(settings.red ? { enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] } } : {}),
+        ...(settings.blueDisabled ? { disabledOptionalModels: { 'openai-codex': ['gpt-daybreak-blue-latest'] } } : {})
       },
       providerStatusesLoaded: true,
       busy: false,
@@ -214,15 +372,22 @@ describe('renderer provider settings', () => {
       onSetProviderOptionalModelEnabled: async () => undefined
     }));
 
-    const disabledHtml = render(false);
+    const disabledHtml = render({});
     expect(disabledHtml).toContain('aria-label="Optional models"');
+    expect(disabledHtml).toContain('<h3>Optional models</h3>');
+    expect(disabledHtml).toContain('class="provider-optional-model-copy"');
+    expect(disabledHtml).toContain('<strong>Daybreak Blue</strong>');
+    expect(disabledHtml).toContain('Expected, but not guaranteed, for Trusted Access for Cyber members.');
+    expect(disabledHtml).toMatch(/<label><input type="checkbox"[^>]*checked=""\/><span class="provider-optional-model-copy"><strong>Daybreak Blue<\/strong>/u);
     expect(disabledHtml).toContain('<strong>Daybreak Red</strong>');
     expect(disabledHtml).toContain('primarily available to approved commercial users');
-    expect(disabledHtml).toMatch(/aria-label="Optional models"[\s\S]*?<input type="checkbox"\/>[\s\S]*?<strong>Daybreak Red<\/strong>/u);
+    expect(disabledHtml).toMatch(/<label><input type="checkbox"\/><span class="provider-optional-model-copy"><strong>Daybreak Red<\/strong>/u);
     expect(disabledHtml).not.toContain('gpt-daybreak-red-latest');
-    const enabledHtml = render(true);
-    expect(enabledHtml).toMatch(/aria-label="Optional models"[\s\S]*?<input type="checkbox" checked=""\/>[\s\S]*?<strong>Daybreak Red<\/strong>/u);
+    const enabledHtml = render({ red: true });
+    expect(enabledHtml).toMatch(/<label><input type="checkbox" checked=""\/><span class="provider-optional-model-copy"><strong>Daybreak Red<\/strong>/u);
     expect(enabledHtml).toContain('gpt-daybreak-red-latest');
+    const blueDisabledHtml = render({ blueDisabled: true });
+    expect(blueDisabledHtml).toMatch(/<label><input type="checkbox" disabled=""\/><span class="provider-optional-model-copy"><strong>Daybreak Blue<\/strong>/u);
   });
 
   it('shows the xAI policy-use risk acknowledgement without a program-membership claim', () => {
@@ -278,7 +443,8 @@ describe('renderer provider settings', () => {
     expect(html).toContain('aria-label="Add provider"');
     expect(html).not.toContain('role="tabpanel"');
     expect(html).toContain('aria-label="Default provider"');
-    expect(html).toContain('>Default: None</span>');
+    expect(html).toContain('<span>Default provider</span>');
+    expect(html).toContain('<option value="" selected="">None</option>');
   });
 });
 
@@ -301,7 +467,16 @@ function modelCatalogs(): ResearchProviderModelCatalog[] {
         model('gpt-daybreak-red-latest', 'Daybreak Red')
       ]
     },
-    { providerId: 'anthropic', providerName: 'Anthropic (Claude)', models: [model('claude-sonnet-4-6', 'Claude Sonnet 4.6'), model('claude-haiku-4-5', 'Claude Haiku 4.5')] },
+    {
+      providerId: 'anthropic',
+      providerName: 'Anthropic (Claude)',
+      models: [
+        model('claude-sonnet-4-6', 'Claude Sonnet 4.6'),
+        model('claude-haiku-4-5', 'Claude Haiku 4.5'),
+        model('claude-fable-5', 'Claude Fable 5'),
+        model('claude-mythos-5', 'Claude Mythos 5')
+      ]
+    },
     { providerId: 'xai', providerName: 'xAI (Grok/X)', models: [model('grok-4', 'Grok 4'), model('grok-4.3', 'Grok 4.3')] }
   ];
 }

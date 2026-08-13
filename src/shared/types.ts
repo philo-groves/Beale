@@ -885,6 +885,7 @@ export interface ProviderSettings {
   defaultProviderId: ResearchModelProviderId | null;
   modelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>>;
   enabledOptionalModels?: Partial<Record<ResearchModelProviderId, string[]>>;
+  disabledOptionalModels?: Partial<Record<ResearchModelProviderId, string[]>>;
   cyberPolicyRiskAcknowledgements?: Partial<Record<ResearchModelProviderId, true>>;
 }
 

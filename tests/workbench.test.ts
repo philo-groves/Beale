@@ -2941,8 +2941,51 @@ describe('Beale workbench skeleton', () => {
     expect(() => reopened.setProviderOptionalModelEnabled('openai-codex', 'gpt-unlisted-model', true)).toThrow(
       'Invalid optional provider model.'
     );
+    expect(reopened.setProviderOptionalModelEnabled('openai-codex', 'gpt-daybreak-blue-latest', false)).toEqual({
+      defaultProviderId: null,
+      modelDefaults: {
+        anthropic: {
+          largeModel: 'claude-opus-4-6',
+          smallModel: 'claude-haiku-4-5',
+          reasoningEffort: 'xhigh'
+        }
+      },
+      disabledOptionalModels: { 'openai-codex': ['gpt-daybreak-blue-latest'] }
+    });
     expect(reopened.getProfilingState().enabled).toBe(false);
     reopened.close();
+
+    const reopenedWithBlueDisabled = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    expect(reopenedWithBlueDisabled.getProviderSettings().disabledOptionalModels).toEqual({
+      'openai-codex': ['gpt-daybreak-blue-latest']
+    });
+    expect(reopenedWithBlueDisabled.setProviderOptionalModelEnabled('openai-codex', 'gpt-daybreak-blue-latest', true)).toEqual({
+      defaultProviderId: null,
+      modelDefaults: {
+        anthropic: {
+          largeModel: 'claude-opus-4-6',
+          smallModel: 'claude-haiku-4-5',
+          reasoningEffort: 'xhigh'
+        }
+      }
+    });
+    expect(reopenedWithBlueDisabled.setProviderOptionalModelEnabled('anthropic', 'claude-mythos-5', true).enabledOptionalModels).toEqual({
+      anthropic: ['claude-mythos-5']
+    });
+    expect(reopenedWithBlueDisabled.setProviderOptionalModelEnabled('anthropic', 'claude-fable-5', false)).toMatchObject({
+      enabledOptionalModels: { anthropic: ['claude-mythos-5'] },
+      disabledOptionalModels: { anthropic: ['claude-fable-5'] }
+    });
+    reopenedWithBlueDisabled.close();
+
+    const reopenedWithAnthropicPreferences = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    expect(reopenedWithAnthropicPreferences.getProviderSettings()).toMatchObject({
+      enabledOptionalModels: { anthropic: ['claude-mythos-5'] },
+      disabledOptionalModels: { anthropic: ['claude-fable-5'] }
+    });
+    expect(reopenedWithAnthropicPreferences.setProviderOptionalModelEnabled('anthropic', 'claude-fable-5', true).disabledOptionalModels).toBeUndefined();
+    expect(reopenedWithAnthropicPreferences.setProviderOptionalModelEnabled('anthropic', 'claude-mythos-5', false).enabledOptionalModels).toBeUndefined();
+    reopenedWithAnthropicPreferences.close();
   });
 
   it('rejects Daybreak Red at the host boundary until its provider opt-in is enabled', () => {
@@ -2958,6 +3001,22 @@ describe('Beale workbench skeleton', () => {
     );
     service.setProviderOptionalModelEnabled('openai-codex', 'gpt-daybreak-red-latest', true);
     expect(service.startRun(input, 'complete').runs[0]?.run.model).toBe('gpt-daybreak-red-latest');
+    service.close();
+  });
+
+  it('rejects Mythos at the host boundary until its Anthropic opt-in is enabled', () => {
+    const service = openService();
+    const input = {
+      ...runInput('source_review'),
+      provider: 'anthropic' as const,
+      model: 'claude-mythos-5'
+    };
+
+    expect(() => service.startRun(input, 'complete')).toThrow(
+      'Enable it in Settings > Providers before continuing.'
+    );
+    service.setProviderOptionalModelEnabled('anthropic', 'claude-mythos-5', true);
+    expect(service.startRun(input, 'complete').runs[0]?.run.model).toBe('claude-mythos-5');
     service.close();
   });
 
