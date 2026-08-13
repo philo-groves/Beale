@@ -5,14 +5,29 @@ import { describe, expect, it } from 'vitest';
 import type { OpenAiAccountStatus, ResearchProviderModel, ResearchProviderModelCatalog, ResearchProviderStatus } from '../src/shared/types';
 import {
   ProvidersSettingsView,
+  ProviderRemoveControl,
   ProviderApiKeyDialog,
   defaultProviderPickerOptions,
   providerSettingsOptions,
   resolvedDefaultProviderId,
+  nextConfiguredProviderIdAfterRemoval,
   resolvedProviderModelDefaults
 } from '../src/renderer/features/settings/SettingsModal';
 
 describe('renderer provider settings', () => {
+  it('replaces the provider removal control with progress text while removing', () => {
+    const html = renderToStaticMarkup(createElement(ProviderRemoveControl, {
+      providerName: 'OpenAI',
+      disabled: false,
+      removing: true,
+      onRemove: () => undefined
+    }));
+
+    expect(html).toContain('role="status"');
+    expect(html).toContain('Removing provider...');
+    expect(html).not.toContain('<button');
+  });
+
   it('marks the preferred authentication source and offers the alternate action', () => {
     const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {
       openAiStatus: { ...configuredOpenAiStatus(), apiKeyConfigured: true },
@@ -125,6 +140,8 @@ describe('renderer provider settings', () => {
     expect(providerSelectStyles).toContain('font-weight: 400');
     expect(healthyStyles).toContain('background: var(--green)');
     expect(removeProviderStyles).toContain('width: 18px');
+    expect(removeProviderStyles).toContain('min-height: 18px');
+    expect(removeProviderStyles).toContain('max-height: 18px');
     expect(removeProviderStyles).toContain('border-radius: 50%');
     expect(removeProviderStyles).toContain('background: #383838');
     expect(removeProviderStyles).toContain('color: #b8b8b8');
@@ -389,6 +406,13 @@ describe('renderer provider settings', () => {
     expect(resolvedDefaultProviderId(configured, null)).toBe('openai-codex');
     expect(resolvedDefaultProviderId(configured, 'anthropic')).toBe('anthropic');
     expect(resolvedDefaultProviderId([], 'anthropic')).toBeNull();
+    expect(nextConfiguredProviderIdAfterRemoval(
+      ['openai-codex', 'anthropic'],
+      'anthropic',
+      'anthropic'
+    )).toBe('openai-codex');
+    expect(nextConfiguredProviderIdAfterRemoval(['anthropic'], 'anthropic', 'anthropic')).toBeNull();
+
   });
 
   it('resolves stored provider model defaults against the available catalog', () => {

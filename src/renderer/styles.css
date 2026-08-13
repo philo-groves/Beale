@@ -9698,6 +9698,11 @@ button.research-goal-choice:focus-visible {
 .provider-remove-button {
   width: 18px;
   height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  max-width: 18px;
+  max-height: 18px;
+  box-sizing: border-box;
   padding: 0;
   display: inline-grid;
   place-items: center;
@@ -9716,6 +9721,13 @@ button.research-goal-choice:focus-visible {
 .provider-remove-button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.provider-removing-status {
+  color: var(--muted);
+  font-size: var(--steer-control-font-size, 13px);
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .provider-health-indicator.state-healthy {

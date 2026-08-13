@@ -362,15 +362,20 @@ function ProviderHealthIndicator({ state }: { state: ProviderHealthState }): JSX
   );
 }
 
-function ProviderRemoveButton({
+export function ProviderRemoveControl({
   providerName,
   disabled,
+  removing = false,
   onRemove
 }: {
   providerName: string;
   disabled: boolean;
+  removing?: boolean;
   onRemove: () => void;
 }): JSX.Element {
+  if (removing) {
+    return <span className="provider-removing-status" role="status" aria-live="polite">Removing provider...</span>;
+  }
   return (
     <button
       className="provider-remove-button"
@@ -605,6 +610,17 @@ export function resolvedDefaultProviderId(
     : configuredProviders[0]?.id ?? null;
 }
 
+export function nextConfiguredProviderIdAfterRemoval(
+  configuredProviderIds: readonly ResearchModelProviderId[],
+  removedProviderId: ResearchModelProviderId,
+  defaultProviderId: ResearchModelProviderId | null
+): ResearchModelProviderId | null {
+  const remainingProviderIds = configuredProviderIds.filter((providerId) => providerId !== removedProviderId);
+  return remainingProviderIds.includes(defaultProviderId as ResearchModelProviderId)
+    ? defaultProviderId
+    : remainingProviderIds[0] ?? null;
+}
+
 export function resolvedProviderModelDefaults(
   providerId: ResearchModelProviderId,
   catalog: ResearchProviderModelCatalog | null,
@@ -703,6 +719,7 @@ export function ProvidersSettingsView({
   );
   const [authenticationProviderId, setAuthenticationProviderId] = useState<ProviderSettingsId | null>(initialAuthenticationProviderId);
   const [apiKeyDialogProviderId, setApiKeyDialogProviderId] = useState<ResearchModelProviderId | null>(null);
+  const [removingProviderId, setRemovingProviderId] = useState<ResearchModelProviderId | null>(null);
   const defaultProviderUpdateRef = useRef<ResearchModelProviderId | null | undefined>(undefined);
 
   useEffect(() => {
@@ -772,10 +789,20 @@ export function ProvidersSettingsView({
     }
   };
   const removeProvider = async (providerId: ProviderSettingsId): Promise<void> => {
-    await onRemoveProvider(providerId);
-    setAuthenticationProviderId((current) => current === providerId ? null : current);
-    setActiveProviderId((current) => current === providerId ? null : current);
-    setApiKeyDialogProviderId((current) => current === providerId ? null : current);
+    setRemovingProviderId(providerId);
+    const nextProviderId = nextConfiguredProviderIdAfterRemoval(
+      configuredProviders.map((provider) => provider.id),
+      providerId,
+      providerSettings?.defaultProviderId ?? null
+    );
+    try {
+      await onRemoveProvider(providerId);
+      setAuthenticationProviderId((current) => current === providerId ? null : current);
+      setActiveProviderId((current) => current === providerId ? nextProviderId : current);
+      setApiKeyDialogProviderId((current) => current === providerId ? null : current);
+    } finally {
+      setRemovingProviderId((current) => current === providerId ? null : current);
+    }
   };
   const showProvider = (providerId: ProviderSettingsId): void => {
     setAuthenticationProviderId(providerId);
@@ -813,6 +840,7 @@ export function ProvidersSettingsView({
       {activeProvider?.id === 'openai-codex' ? (
         <OpenAiProviderCard
           busy={busy}
+          removing={removingProviderId === 'openai-codex'}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
           onAuthenticate={() => authenticateProvider('openai-codex')}
@@ -838,6 +866,7 @@ export function ProvidersSettingsView({
       ) : activeProvider ? (
         <ResearchProviderCard
           busy={busy}
+          removing={removingProviderId === activeProvider.id}
           provider={researchProviderStatuses.find((provider) => provider.id === activeProvider.id)!}
           result={researchProviderOAuthResults[activeProvider.id] ?? null}
           onAuthenticate={() => authenticateProvider(activeProvider.id)}
@@ -1026,6 +1055,7 @@ function ProviderSettingsTabs({
 
 function OpenAiProviderCard({
   busy,
+  removing,
   openAiOAuthResult,
   openAiStatus,
   onAuthenticate,
@@ -1045,6 +1075,7 @@ function OpenAiProviderCard({
   preferredAuthenticationMethod,
   onSetPreferredAuthenticationMethod
 }: {
+  removing: boolean;
   busy: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
@@ -1083,7 +1114,7 @@ function OpenAiProviderCard({
         <div className="provider-settings-heading-title">
           <h4>OpenAI</h4>
           <ProviderHealthIndicator state={healthState} />
-          {healthState !== 'healthy' ? <ProviderRemoveButton providerName="OpenAI" disabled={busy && healthState !== 'authenticating'} onRemove={onRemoveProvider} /> : null}
+          {healthState !== 'healthy' || removing ? <ProviderRemoveControl providerName="OpenAI" disabled={busy && healthState !== 'authenticating'} removing={removing} onRemove={onRemoveProvider} /> : null}
         </div>
         <ProviderModelDefaultsControls
           busy={busy}
@@ -1174,6 +1205,7 @@ function ProviderOptionalModelsControls({
 function ResearchProviderCard({
   provider,
   result,
+  removing,
   busy,
   onAuthenticate,
   onForgetSubscription,
@@ -1193,6 +1225,7 @@ function ResearchProviderCard({
   onSetPreferredAuthenticationMethod
 }: {
   provider: ResearchProviderStatus;
+  removing: boolean;
   result: ResearchProviderOAuthStartResult | null;
   busy: boolean;
   onAuthenticate: () => void;
@@ -1228,7 +1261,7 @@ function ResearchProviderCard({
         <div className="provider-settings-heading-title">
           <h4>{providerName}</h4>
           <ProviderHealthIndicator state={healthState} />
-          {healthState !== 'healthy' ? <ProviderRemoveButton providerName={providerName} disabled={busy && healthState !== 'authenticating'} onRemove={onRemoveProvider} /> : null}
+          {healthState !== 'healthy' || removing ? <ProviderRemoveControl providerName={providerName} disabled={busy && healthState !== 'authenticating'} removing={removing} onRemove={onRemoveProvider} /> : null}
         </div>
         <ProviderModelDefaultsControls
           busy={busy}
