@@ -58,6 +58,7 @@ import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../shared/modelDefaults';
 import { resolveGoalObjective } from '../shared/goalObjective';
+import { normalizeResearchCollaboration } from '../shared/collaboration';
 import { DEFAULT_SHELL_SAFETY_MODE } from '../shared/shellSafety';
 import type {
   ApprovalRecord,
@@ -1583,11 +1584,18 @@ export class WorkspaceService {
     }
     const normalizedInput: StartRunInput = {
       ...input,
-      shellSafetyMode: requestedShellSafetyMode ?? DEFAULT_SHELL_SAFETY_MODE
+      shellSafetyMode: requestedShellSafetyMode ?? DEFAULT_SHELL_SAFETY_MODE,
+      ...(input.collaboration ? { collaboration: normalizeResearchCollaboration(input.collaboration) } : {})
     };
     const runtime = this.getForegroundRuntime();
     if (!runtime) throw new Error('No Beale workspace is open');
     const researchProfile = this.refreshResearchProfile(runtime);
+    if (researchProfile.profile.id === 'security-research' && normalizedInput.collaboration?.mode !== 'solo') {
+      requireCollaborationPolicyAcknowledgements(
+        normalizedInput.collaboration?.providers.filter((provider) => provider.enabled).map((provider) => provider.provider) ?? [],
+        this.getWorkspaceRegistry().getProviderSettings()
+      );
+    }
     if (normalizedInput.runEngine === 'honeycrisp') {
       this.requireHoneycrispEngine().startRun(normalizedInput, researchProfile);
     } else if (normalizedInput.runEngine === 'fixture') {
@@ -1995,6 +2003,7 @@ export class WorkspaceService {
           attemptStrategy: run.attemptStrategy,
           model: run.model,
           reasoningEffort: run.reasoningEffort,
+          ...(run.budget.collaboration ? { collaboration: normalizeResearchCollaboration(run.budget.collaboration) } : {}),
           sandboxProfile: run.sandboxProfile,
           targetAssetId: run.targetAssetId,
           targetPath: run.targetPath,
@@ -5019,6 +5028,20 @@ function fixtureScenarioFromBudget(budget: Record<string, unknown>): FixtureScen
 
 function isShellSafetyMode(value: unknown): value is StartRunInput['shellSafetyMode'] {
   return value === 'manual_approval' || value === 'auto_review' || value === 'danger';
+}
+
+function requireCollaborationPolicyAcknowledgements(
+  providers: readonly ResearchModelProviderId[],
+  settings: ProviderSettings
+): void {
+  const missing = [...new Set(providers)].filter((provider) => settings.cyberPolicyRiskAcknowledgements?.[provider] !== true);
+  if (missing.length === 0) return;
+  const labels = missing.map((provider) => provider === 'openai-codex'
+    ? 'OpenAI Trusted Access for Cyber and policy-use risk'
+    : provider === 'anthropic'
+      ? 'Anthropic Cyber Verification Program usage-risk'
+      : 'xAI policy-use risk');
+  throw new Error(`Breakout-room collaboration requires acknowledgement for ${labels.join(', ')}. Accept it in Settings > Providers before continuing.`);
 }
 
 function requireFixtureRunEngineEnabled(): void {

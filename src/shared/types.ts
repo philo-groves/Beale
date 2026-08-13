@@ -309,6 +309,7 @@ export interface ResearchSessionSummary {
   startedAt: string | null;
   endedAt: string | null;
   updatedAt: string;
+  breakoutRooms?: BreakoutRoomSummary[];
 }
 
 export interface SessionTranscriptSearchInput {
@@ -1089,6 +1090,25 @@ export interface ResearchModelSelection {
   reasoningEffort: ResearchModelEffortLevel;
 }
 
+export type ResearchCollaborationMode = 'solo' | 'adaptive' | 'always';
+
+export type ResearchCollaborationIntensity = 'focused' | 'balanced' | 'deep';
+
+export interface ResearchCollaborationProviderPreference extends ResearchModelSelection {
+  enabled: boolean;
+}
+
+export interface ResearchCollaborationPreferences {
+  mode: ResearchCollaborationMode;
+  intensity: ResearchCollaborationIntensity;
+  providers: ResearchCollaborationProviderPreference[];
+  independentFirstPass: boolean;
+  peerChallengeRounds: number;
+  maxConcurrentRooms: number;
+  maxMembersPerRoom: number;
+  maxTotalInvocations: number;
+}
+
 export type ResearchProviderReadiness = 'ready' | 'not_configured' | 'unavailable';
 
 export interface ResearchProviderStatus {
@@ -1128,6 +1148,7 @@ export interface StartRunInput {
   attemptStrategy: string;
   model: string;
   reasoningEffort: string;
+  collaboration?: ResearchCollaborationPreferences;
   sandboxProfile: string;
   targetAssetId?: string | null;
   targetPath?: string | null;
@@ -1267,6 +1288,73 @@ export interface TranscriptMessageRecord {
   source: string;
   metadata: Record<string, unknown>;
   createdAt: string;
+}
+
+export type BreakoutRoomKind = 'exploration' | 'validation' | 'proving' | 'synthesis' | 'general';
+
+export type BreakoutRoomStatus = 'active' | 'completed' | 'interrupted' | 'errored';
+
+export type BreakoutRoomMemberStatus = 'pending' | 'active' | 'completed' | 'interrupted' | 'errored';
+
+export type BreakoutRoomMessageKind = 'task' | 'commentary' | 'challenge' | 'evidence' | 'response' | 'outcome' | 'system';
+
+export interface BreakoutRoomRecord {
+  id: string;
+  runId: string;
+  attemptId: string | null;
+  name: string;
+  title: string;
+  purpose: string;
+  kind: BreakoutRoomKind;
+  status: BreakoutRoomStatus;
+  outcomeMarkdown: string | null;
+  createdAt: string;
+  closedAt: string | null;
+}
+
+export interface BreakoutRoomMemberRecord {
+  id: string;
+  roomId: string;
+  runId: string;
+  attemptId: string | null;
+  agentId: string;
+  agentPath: string;
+  provider: string;
+  model: string;
+  reasoningEffort: string | null;
+  role: string;
+  status: BreakoutRoomMemberStatus;
+  startedAt: string | null;
+  endedAt: string | null;
+  error: string | null;
+}
+
+export interface BreakoutRoomMessageRecord {
+  id: string;
+  roomId: string;
+  runId: string;
+  attemptId: string | null;
+  memberId: string | null;
+  senderAgentPath: string;
+  recipientAgentPath: string | null;
+  kind: BreakoutRoomMessageKind;
+  contentMarkdown: string;
+  evidenceRefs: string[];
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface BreakoutRoomSummary {
+  id: string;
+  runId: string;
+  name: string;
+  title: string;
+  kind: BreakoutRoomKind;
+  status: BreakoutRoomStatus;
+  providers: string[];
+  memberCount: number;
+  unreadCount: number;
+  updatedAt: string;
 }
 
 export type NotificationStatus = 'unread' | 'opened' | 'dismissed';
@@ -1425,6 +1513,7 @@ export interface RunRow {
   run: RunRecord;
   engine: RunEngineKind;
   sessionRuns: SessionRunActivity[];
+  breakoutRooms?: BreakoutRoomSummary[];
 }
 
 export interface SessionRunActivity {
@@ -1451,6 +1540,9 @@ export interface RunDetail {
   attempts: AttemptRecord[];
   traceEvents: TraceEventRecord[];
   transcriptMessages: TranscriptMessageRecord[];
+  breakoutRooms?: BreakoutRoomRecord[];
+  breakoutRoomMembers?: BreakoutRoomMemberRecord[];
+  breakoutRoomMessages?: BreakoutRoomMessageRecord[];
   artifacts: ArtifactRecord[];
   verifierContracts: VerifierContractRecord[];
   verifierRuns: VerifierRunRecord[];
@@ -1482,6 +1574,9 @@ export interface RunDetailUpdate {
   attempts: AttemptRecord[];
   traceEvents: TraceEventRecord[];
   transcriptMessages: TranscriptMessageRecord[];
+  breakoutRooms?: BreakoutRoomRecord[];
+  breakoutRoomMembers?: BreakoutRoomMemberRecord[];
+  breakoutRoomMessages?: BreakoutRoomMessageRecord[];
   artifacts: ArtifactRecord[];
   verifierContracts: VerifierContractRecord[];
   verifierRuns: VerifierRunRecord[];

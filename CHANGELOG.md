@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added durable multi-provider breakout rooms for research sessions. New Research now configures adaptive collaboration, provider/model preferences, independent first passes, challenge rounds, and bounded team intensity; room membership and transcripts remain available under each session in the workspace sidebar.
 - Added Grok 4.6 to the xAI research-model options with its supported low-through-xhigh reasoning levels.
 - Added workspace Dejunk housekeeping beside Dream. Dejunk tracks files created since its last baseline, uses 10/50/200/1,000-file heat thresholds, organizes recognizable loose notes, PoCs, evidence, scripts, and scratch material under `research/`, and removes only large rebuildable trees or recognizable IPSW extractions outside `.beale`, symlinks, and detected Git repositories.
 - Added a compact Research Surface to the workspace dashboard with authorized repositories and references, scope direction, index readiness, directly targeted session coverage, linked Memory counts, and last-researched recency.
@@ -18,6 +19,7 @@
 
 ### Changed
 
+- Breakout-room agents now retain provider-attributed commentary and evidence-oriented outcomes in a dedicated session view, while policy acknowledgements are checked for every enabled cybersecurity provider before a collaborative run starts.
 - Cybersecurity sessions now carry provider-specific policy-risk acknowledgements into Honeycrisp's authorization preflight: OpenAI requires Trusted Access for Cyber membership, Anthropic requires Cyber Verification Program membership, and xAI requires policy-use risk acceptance.
 - Provider Settings now persists explicit cybersecurity policy-use acknowledgements for OpenAI, Anthropic, and xAI; Anthropic subscription authentication continues to require its Cyber Verification Program acknowledgement before sign-in.
 - Cybersecurity reports now require an explicit confirmed vulnerability chain with reachability, impact, and proof evidence, preventing reports from being created directly from observations, hypotheses, or primitives.
@@ -35,6 +37,9 @@
 
 ### Fixed
 
+- Repository searches across large multi-repository workspaces now use a bounded native Git path and respond to session interruption instead of leaving low-match scans running indefinitely.
+- Anthropic lead and breakout agents now receive readable bounded evidence from governed tools instead of status-only result summaries.
+- Git repository preparation now enables Git for Windows long-path checkout support, retries transient checkout publication and temporary-tree cleanup, reclaims abandoned partial checkouts, waits for terminated clone processes to close, safely reuses a concurrent checkout, and preserves the original Git failure when cleanup also fails.
 - Persisted the Anthropic Cyber Verification Program risk acknowledgement across Settings navigation and made configured-account re-authentication perform a fresh official Claude CLI login instead of silently retaining the existing session.
 - Session continuation now passes reconstructed fallback context through a private run-local file, preventing Windows `spawn ENAMETOOLONG` failures on long session histories.
 - Subagents left unresolved by a parent session interruption are now reconciled as interrupted after workspace recovery instead of remaining active indefinitely; later intentional pauses still preserve genuinely active subagents.

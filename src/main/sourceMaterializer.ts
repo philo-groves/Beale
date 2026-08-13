@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { readdir as readdirAsync, rename as renameAsync, rm as rmAsync, stat as statAsync } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { WorkspaceScopeVersion, ScopeAsset } from '@shared/types';
@@ -32,6 +33,11 @@ export interface MaterializedSourceRepository {
 }
 
 const GIT_TIMEOUT_MS = 180_000;
+const TEMPORARY_CHECKOUT_REMOVE_RETRIES = 8;
+const TEMPORARY_CHECKOUT_REMOVE_RETRY_DELAY_MS = 250;
+const CHECKOUT_PUBLISH_RETRIES = 8;
+const CHECKOUT_PUBLISH_RETRY_DELAY_MS = 250;
+const STALE_TEMPORARY_CHECKOUT_AGE_MS = GIT_TIMEOUT_MS + 60_000;
 const SOURCE_REPOSITORY_RE = /\b(?:https?:\/\/)?(?:github\.com|gitlab\.com)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+(?:\.git)?(?:[/?#][^\s<>)\]]*)?/gi;
 const SSH_SOURCE_REPOSITORY_RE = /\bgit@(?:github\.com|gitlab\.com):[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+(?:\.git)?\b/gi;
 const SOURCE_REPOSITORY_HOSTS = new Set(['github.com', 'gitlab.com']);
@@ -97,6 +103,7 @@ export function materializeGitRepository(
   const cleanRef = ref.trim();
   const localPath = join(managedRoot, slug, repositoryCheckoutKey(cleanRef));
   mkdirSync(dirname(localPath), { recursive: true });
+  removeStaleTemporaryCheckouts(localPath, cleanRef);
 
   if (existsSync(join(localPath, '.git'))) {
     materializeRequestedRef(localPath, cleanRef);
@@ -113,23 +120,25 @@ export function materializeGitRepository(
     throw new Error(`Managed source path already exists and is not a git checkout: ${stat.isDirectory() ? localPath : dirname(localPath)}`);
   }
 
-  const tempPath = join(dirname(localPath), `.${repositoryCheckoutKey(cleanRef)}.tmp-${process.pid}-${Date.now()}`);
-  rmSync(tempPath, { recursive: true, force: true });
+  const tempPath = temporaryCheckoutPath(localPath, cleanRef);
+  const initialCleanupError = removeTemporaryCheckout(tempPath);
+  if (initialCleanupError) throw initialCleanupError;
+  let cloned = true;
   try {
-    runGit(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath]);
+    runGit(gitCloneArgs(candidate.url, tempPath));
     if (cleanRef) {
       materializeRequestedRef(tempPath, cleanRef);
     }
-    renameSync(tempPath, localPath);
+    cloned = publishTemporaryCheckout(tempPath, localPath);
+    if (!cloned) removeTemporaryCheckout(tempPath);
   } catch (error) {
-    rmSync(tempPath, { recursive: true, force: true });
-    throw error;
+    throw sourceMaterializationError(error, tempPath, removeTemporaryCheckout(tempPath));
   }
 
   return {
     repositoryUrl: candidate.url,
     localPath,
-    cloned: true,
+    cloned,
     ref: cleanRef || null,
     ...gitCheckoutMetadata(localPath, cleanRef)
   };
@@ -145,6 +154,7 @@ export async function materializeGitRepositoryAsync(
   const cleanRef = ref.trim();
   const localPath = join(managedRoot, slug, repositoryCheckoutKey(cleanRef));
   mkdirSync(dirname(localPath), { recursive: true });
+  await removeStaleTemporaryCheckoutsAsync(localPath, cleanRef);
 
   if (existsSync(join(localPath, '.git'))) {
     await materializeRequestedRefAsync(localPath, cleanRef, options);
@@ -161,23 +171,25 @@ export async function materializeGitRepositoryAsync(
     throw new Error(`Managed source path already exists and is not a git checkout: ${stat.isDirectory() ? localPath : dirname(localPath)}`);
   }
 
-  const tempPath = join(dirname(localPath), `.${repositoryCheckoutKey(cleanRef)}.tmp-${process.pid}-${Date.now()}`);
-  rmSync(tempPath, { recursive: true, force: true });
+  const tempPath = temporaryCheckoutPath(localPath, cleanRef);
+  const initialCleanupError = await removeTemporaryCheckoutAsync(tempPath);
+  if (initialCleanupError) throw initialCleanupError;
+  let cloned = true;
   try {
-    await runGitAsync(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath], options.signal);
+    await runGitAsync(gitCloneArgs(candidate.url, tempPath), options.signal);
     if (cleanRef) {
       await materializeRequestedRefAsync(tempPath, cleanRef, options);
     }
-    renameSync(tempPath, localPath);
+    cloned = await publishTemporaryCheckoutAsync(tempPath, localPath);
+    if (!cloned) await removeTemporaryCheckoutAsync(tempPath);
   } catch (error) {
-    rmSync(tempPath, { recursive: true, force: true });
-    throw error;
+    throw sourceMaterializationError(error, tempPath, await removeTemporaryCheckoutAsync(tempPath));
   }
 
   return {
     repositoryUrl: candidate.url,
     localPath,
-    cloned: true,
+    cloned,
     ref: cleanRef || null,
     ...gitCheckoutMetadata(localPath, cleanRef)
   };
@@ -314,7 +326,8 @@ function gitOutput(localPath: string, args: string[]): string | null {
 }
 
 function runGit(args: string[]): { stdout: string; stderr: string } {
-  const invocation = gitInvocation(args);
+  const effectiveArgs = gitPlatformArgs(args);
+  const invocation = gitInvocation(effectiveArgs);
   const result = spawnSync(invocation.command, invocation.args, {
     encoding: 'utf8',
     env: gitEnv(),
@@ -323,13 +336,14 @@ function runGit(args: string[]): { stdout: string; stderr: string } {
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    throw new Error(`git ${args.join(' ')} failed with exit ${result.status}: ${String(result.stderr || result.stdout).slice(0, 800)}`);
+    throw new Error(`git ${effectiveArgs.join(' ')} failed with exit ${result.status}: ${gitErrorOutput(result.stderr || result.stdout)}`);
   }
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 
 function runGitAsync(args: string[], signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
-  const invocation = gitInvocation(args);
+  const effectiveArgs = gitPlatformArgs(args);
+  const invocation = gitInvocation(effectiveArgs);
   return new Promise((resolvePromise, reject) => {
     if (signal?.aborted) {
       reject(new Error('git operation aborted'));
@@ -341,13 +355,14 @@ function runGitAsync(args: string[], signal?: AbortSignal): Promise<{ stdout: st
     });
     let stdout = '';
     let stderr = '';
+    let terminationError: Error | null = null;
     const timer = setTimeout(() => {
+      terminationError = new Error(`git ${effectiveArgs.join(' ')} timed out after ${GIT_TIMEOUT_MS}ms`);
       child.kill('SIGTERM');
-      reject(new Error(`git ${args.join(' ')} timed out after ${GIT_TIMEOUT_MS}ms`));
     }, GIT_TIMEOUT_MS);
     const abort = (): void => {
+      terminationError = new Error('git operation aborted');
       child.kill('SIGTERM');
-      reject(new Error('git operation aborted'));
     };
     signal?.addEventListener('abort', abort, { once: true });
     child.stdout?.setEncoding('utf8');
@@ -366,13 +381,162 @@ function runGitAsync(args: string[], signal?: AbortSignal): Promise<{ stdout: st
     child.on('close', (code) => {
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
+      if (terminationError) {
+        reject(terminationError);
+        return;
+      }
       if (code !== 0) {
-        reject(new Error(`git ${args.join(' ')} failed with exit ${code}: ${String(stderr || stdout).slice(0, 800)}`));
+        reject(new Error(`git ${effectiveArgs.join(' ')} failed with exit ${code}: ${gitErrorOutput(stderr || stdout)}`));
         return;
       }
       resolvePromise({ stdout, stderr });
     });
   });
+}
+
+function temporaryCheckoutPath(localPath: string, ref: string): string {
+  return join(
+    dirname(localPath),
+    `.${repositoryCheckoutKey(ref)}.tmp-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`
+  );
+}
+
+function temporaryCheckoutPrefix(ref: string): string {
+  return `.${repositoryCheckoutKey(ref)}.tmp-`;
+}
+
+function removeStaleTemporaryCheckouts(localPath: string, ref: string): void {
+  const parent = dirname(localPath);
+  const prefix = temporaryCheckoutPrefix(ref);
+  for (const entry of readdirSync(parent, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith(prefix)) continue;
+    const candidate = join(parent, entry.name);
+    try {
+      if (Date.now() - statSync(candidate).mtimeMs < STALE_TEMPORARY_CHECKOUT_AGE_MS) continue;
+      removeTemporaryCheckout(candidate);
+    } catch {
+      // A stale checkout that remains locked must not block a fresh, uniquely named clone.
+    }
+  }
+}
+
+async function removeStaleTemporaryCheckoutsAsync(localPath: string, ref: string): Promise<void> {
+  const parent = dirname(localPath);
+  const prefix = temporaryCheckoutPrefix(ref);
+  const entries = await readdirAsync(parent, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(prefix)) continue;
+    const candidate = join(parent, entry.name);
+    try {
+      if (Date.now() - (await statAsync(candidate)).mtimeMs < STALE_TEMPORARY_CHECKOUT_AGE_MS) continue;
+      await removeTemporaryCheckoutAsync(candidate);
+    } catch {
+      // A stale checkout that remains locked must not block a fresh, uniquely named clone.
+    }
+  }
+}
+
+function gitCloneArgs(repositoryUrl: string, destinationPath: string): string[] {
+  return [
+    '-c',
+    'protocol.ext.allow=never',
+    '-c',
+    'core.hooksPath=/dev/null',
+    'clone',
+    '--depth',
+    '1',
+    '--filter=blob:none',
+    '--',
+    repositoryUrl,
+    destinationPath
+  ];
+}
+
+function gitPlatformArgs(args: string[]): string[] {
+  return process.platform === 'win32' ? ['-c', 'core.longpaths=true', ...args] : args;
+}
+
+function publishTemporaryCheckout(tempPath: string, localPath: string): boolean {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      renameSync(tempPath, localPath);
+      return true;
+    } catch (error) {
+      if (existsSync(join(localPath, '.git'))) return false;
+      if (!retryableRepositoryFsError(error) || attempt >= CHECKOUT_PUBLISH_RETRIES) throw error;
+      waitSynchronously(CHECKOUT_PUBLISH_RETRY_DELAY_MS);
+    }
+  }
+}
+
+async function publishTemporaryCheckoutAsync(tempPath: string, localPath: string): Promise<boolean> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await renameAsync(tempPath, localPath);
+      return true;
+    } catch (error) {
+      if (existsSync(join(localPath, '.git'))) return false;
+      if (!retryableRepositoryFsError(error) || attempt >= CHECKOUT_PUBLISH_RETRIES) throw error;
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, CHECKOUT_PUBLISH_RETRY_DELAY_MS));
+    }
+  }
+}
+
+function removeTemporaryCheckout(path: string): Error | null {
+  try {
+    rmSync(path, {
+      recursive: true,
+      force: true,
+      maxRetries: TEMPORARY_CHECKOUT_REMOVE_RETRIES,
+      retryDelay: TEMPORARY_CHECKOUT_REMOVE_RETRY_DELAY_MS
+    });
+    return null;
+  } catch (error) {
+    return asError(error);
+  }
+}
+
+async function removeTemporaryCheckoutAsync(path: string): Promise<Error | null> {
+  try {
+    await rmAsync(path, {
+      recursive: true,
+      force: true,
+      maxRetries: TEMPORARY_CHECKOUT_REMOVE_RETRIES,
+      retryDelay: TEMPORARY_CHECKOUT_REMOVE_RETRY_DELAY_MS
+    });
+    return null;
+  } catch (error) {
+    return asError(error);
+  }
+}
+
+function sourceMaterializationError(error: unknown, tempPath: string, cleanupError: Error | null): Error {
+  const original = asError(error);
+  if (!cleanupError) return original;
+  return new Error(
+    `${original.message} Temporary checkout cleanup also failed at ${tempPath}: ${cleanupError.message}`,
+    { cause: original }
+  );
+}
+
+function gitErrorOutput(value: unknown): string {
+  const normalized = String(value ?? '').trim();
+  return normalized.slice(-1_600);
+}
+
+function asError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
+function retryableRepositoryFsError(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const code = (value as { code?: unknown }).code;
+  return code === 'EACCES' || code === 'EBUSY' || code === 'ENOTEMPTY' || code === 'EPERM';
+}
+
+function waitSynchronously(milliseconds: number): void {
+  const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+  Atomics.wait(signal, 0, 0, milliseconds);
 }
 
 function gitInvocation(args: string[]): { command: string; args: string[] } {

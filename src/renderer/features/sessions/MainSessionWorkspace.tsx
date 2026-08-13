@@ -4,6 +4,7 @@ import type { HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispRepor
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
+import { BreakoutRoomView } from './BreakoutRoomView';
 import { TraceView } from '../traces/TraceView';
 import { isEndedResearchRunStatus, SessionNextSteps, type ResearchGoalSeed } from './SessionNextSteps';
 import type { TraceCategoryId } from '../../traceClassification';
@@ -28,6 +29,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   workspaceName,
   runs,
   selectedRunId,
+  selectedBreakoutRoomId = null,
   researchDetailsOpen,
   selectedRunbookId,
   selectedRunbook,
@@ -61,6 +63,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSelectTraceEvent,
   onSelectSubagent,
   onSelectNextStep,
+  onBackToSession = () => undefined,
   onSessionAction,
   onSteerInstruction
 }: {
@@ -77,6 +80,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   workspaceName: string;
   runs: RunRow[];
   selectedRunId: string | null;
+  selectedBreakoutRoomId?: string | null;
   researchDetailsOpen: boolean;
   selectedRunbookId: string | null;
   selectedRunbook: HoneycrispRunbookSummary | null;
@@ -110,6 +114,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
   onSelectNextStep: (goal: ResearchGoalSeed) => void;
+  onBackToSession?: () => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
@@ -149,6 +154,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onRunWorkspaceDejunk={onRunWorkspaceDejunk}
           onRunMemoryDreaming={onRunMemoryDreaming}
         />
+      ) : selectedBreakoutRoomId ? (
+        <BreakoutRoomView detail={detail} roomId={selectedBreakoutRoomId} onBack={onBackToSession} />
       ) : chatView === 'commentary' ? (
         <CommentaryView
           busy={busy}

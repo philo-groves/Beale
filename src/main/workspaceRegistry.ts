@@ -17,6 +17,7 @@ import type {
   WorkspaceRegistryEntry,
   WorkspaceRegistryState,
   ResearchSessionSummary,
+  BreakoutRoomSummary,
   SessionFinalDisposition,
   RunEngineKind,
   RunStatus,
@@ -329,6 +330,7 @@ export class WorkspaceRegistry {
         started_at TEXT,
         ended_at TEXT,
         updated_at TEXT NOT NULL,
+        breakout_rooms_json TEXT NOT NULL DEFAULT '[]',
         UNIQUE(workspace_path, run_id)
       );
 
@@ -371,6 +373,15 @@ export class WorkspaceRegistry {
         const sessionColumns = database.prepare('PRAGMA table_info(research_sessions)').all() as Array<{ name?: unknown }>;
         if (sessionColumns.some((column) => column.name === 'network_profile')) {
           database.exec('ALTER TABLE research_sessions DROP COLUMN network_profile;');
+        }
+      }
+    }, {
+      version: 5,
+      name: 'breakout_room_session_summaries',
+      up: (database) => {
+        const sessionColumns = database.prepare('PRAGMA table_info(research_sessions)').all() as Array<{ name?: unknown }>;
+        if (!sessionColumns.some((column) => column.name === 'breakout_rooms_json')) {
+          database.exec("ALTER TABLE research_sessions ADD COLUMN breakout_rooms_json TEXT NOT NULL DEFAULT '[]';");
         }
       }
     }]);
@@ -512,7 +523,8 @@ export class WorkspaceRegistry {
       run.createdAt,
       run.startedAt,
       run.endedAt,
-      updatedAt
+      updatedAt,
+      JSON.stringify(row.breakoutRooms ?? [])
     ];
 
     if (existing) {
@@ -537,7 +549,8 @@ export class WorkspaceRegistry {
             created_at = ?,
             started_at = ?,
             ended_at = ?,
-            updated_at = ?
+            updated_at = ?,
+            breakout_rooms_json = ?
            WHERE id = ?`
         )
         .run(...values, text(existing, 'id'));
@@ -549,8 +562,8 @@ export class WorkspaceRegistry {
         `INSERT INTO research_sessions (
           id, research_profile_id, registry_workspace_id, workspace_path, workspace_id, run_id, title, status, run_engine,
           mode, prompt_markdown, summary, final_disposition_json, model, reasoning_effort,
-          sandbox_profile, created_at, started_at, ended_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          sandbox_profile, created_at, started_at, ended_at, updated_at, breakout_rooms_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(`session_${randomUUID()}`, ...values);
   }
@@ -597,8 +610,29 @@ export class WorkspaceRegistry {
       createdAt: text(row, 'created_at'),
       startedAt: nullableText(row, 'started_at'),
       endedAt: nullableText(row, 'ended_at'),
-      updatedAt: text(row, 'updated_at')
+      updatedAt: text(row, 'updated_at'),
+      breakoutRooms: parseBreakoutRoomSummaries(row.breakout_rooms_json)
     };
+  }
+}
+
+function parseBreakoutRoomSummaries(value: unknown): BreakoutRoomSummary[] {
+  if (typeof value !== 'string' || !value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is BreakoutRoomSummary => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+      const room = entry as Partial<BreakoutRoomSummary>;
+      return typeof room.id === 'string'
+        && typeof room.runId === 'string'
+        && typeof room.title === 'string'
+        && typeof room.status === 'string'
+        && typeof room.memberCount === 'number'
+        && Array.isArray(room.providers);
+    });
+  } catch {
+    return [];
   }
 }
 

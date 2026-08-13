@@ -93,8 +93,8 @@ describe('Beale workbench skeleton', () => {
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
     const registry = new DatabaseSync(join(process.env.BEALE_WORKSPACE_REGISTRY_DIR ?? '', 'workspace-registry.sqlite'));
     expect(registry.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_registry' ORDER BY version DESC LIMIT 1").get()).toEqual({
-      version: 4,
-      name: 'remove_app_network_profiles'
+      version: 5,
+      name: 'breakout_room_session_summaries'
     });
     expect(registry.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_registry' AND version = 2").get()).toEqual({
       name: 'structured_session_final_disposition'
@@ -211,7 +211,7 @@ describe('Beale workbench skeleton', () => {
     legacyRegistry.exec(`
       ALTER TABLE workspaces ADD COLUMN network_profile TEXT;
       ALTER TABLE research_sessions ADD COLUMN network_profile TEXT;
-      DELETE FROM schema_migrations WHERE component = 'beale_registry' AND version = 4;
+      DELETE FROM schema_migrations WHERE component = 'beale_registry' AND version >= 4;
     `);
     legacyRegistry.close();
 

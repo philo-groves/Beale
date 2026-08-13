@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowLeft, Play, RefreshCw, ShieldAlert, Sparkles } from 'lucide-react';
+import { ArrowLeft, MessagesSquare, Play, RefreshCw, ShieldAlert, Sparkles } from 'lucide-react';
 import type {
   OpenAiAccountStatus,
   ResearchGoalPhase,
@@ -9,6 +9,9 @@ import type {
   ResearchModelEffortLevel,
   ResearchModelProviderId,
   ProviderModelDefaults,
+  ProviderSettings,
+  ResearchCollaborationIntensity,
+  ResearchCollaborationMode,
   ResearchProfileWorkflow,
   ResearchProviderModel,
   ResearchProviderModelCatalog,
@@ -17,6 +20,7 @@ import type {
   WorkspaceSnapshot
 } from '@shared/types';
 import { resolveGoalObjective } from '../../../shared/goalObjective';
+import { collaborationLimits, normalizeResearchCollaboration } from '../../../shared/collaboration';
 import { BottomSheet } from '../../app/Modal';
 import { userFacingErrorMessage } from '../../lib/errors';
 import { researchModelNameLabel } from '../../lib/formatting';
@@ -88,6 +92,7 @@ export function StartRunForm({
   openAiStatus,
   defaultProviderId,
   providerModelDefaults,
+  providerPolicyRiskAcknowledgements = undefined,
   researchProviderStatuses,
   providerModelCatalog,
   researchGoalSuggestions,
@@ -104,6 +109,7 @@ export function StartRunForm({
   openAiStatus: OpenAiAccountStatus | null;
   defaultProviderId: ResearchModelProviderId | null | undefined;
   providerModelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> | undefined;
+  providerPolicyRiskAcknowledgements?: ProviderSettings['cyberPolicyRiskAcknowledgements'];
   researchProviderStatuses: ResearchProviderStatus[];
   providerModelCatalog: ResearchProviderModelCatalog[];
   researchGoalSuggestions: ResearchGoalSuggestionsByPhase;
@@ -326,6 +332,41 @@ export function StartRunForm({
     });
   }, [defaultProviderId, openAiStatus, providerModelDefaults, researchProviderStatuses, selectedProvider]);
 
+  useEffect(() => {
+    if (providerModelDefaults === undefined || providerPolicyRiskAcknowledgements === undefined || providerOptions.length === 0) return;
+    setInput((current) => {
+      const currentCollaboration = normalizeResearchCollaboration(current.collaboration);
+      const existing = new Map(currentCollaboration.providers.map((preference) => [preference.provider, preference]));
+      const initializingProviders = currentCollaboration.providers.length === 0;
+      const readyAlternatives = providerOptions.filter((provider) =>
+        provider.id !== selectedProviderId
+        && provider.configured
+        && providerPolicyRiskAcknowledgements[provider.id] === true
+      );
+      const providers = providerOptions.flatMap((provider) => {
+        const preferredModelId = providerDefaultModel(provider.id, openAiStatus, researchProviderStatuses, providerModelDefaults);
+        const model = provider.models.find((candidate) => candidate.id === preferredModelId) ?? provider.models[0];
+        if (!model) return [];
+        const stored = existing.get(provider.id);
+        const defaultEffort = providerModelDefaults[provider.id]?.reasoningEffort ?? 'high';
+        const ready = provider.configured && providerPolicyRiskAcknowledgements[provider.id] === true;
+        const enabledByDefault = readyAlternatives.length > 0
+          ? readyAlternatives.some((candidate) => candidate.id === provider.id)
+          : provider.id === selectedProviderId && ready;
+        return [{
+          provider: provider.id,
+          model: stored && provider.models.some((candidate) => candidate.id === stored.model) ? stored.model : model.id,
+          reasoningEffort: stored?.reasoningEffort ?? preferredEffort(model.effortLevels, defaultEffort),
+          enabled: ready && (initializingProviders ? enabledByDefault : stored?.enabled === true)
+        }];
+      });
+      const collaboration = { ...currentCollaboration, providers };
+      const next = { ...current, collaboration };
+      inputRef.current = next;
+      return next;
+    });
+  }, [openAiStatus, providerModelDefaults, providerOptions, providerPolicyRiskAcknowledgements, researchProviderStatuses, selectedProviderId]);
+
   useLayoutEffect(() => {
     if (!generatingPrompt || !promptStreamAutoScrollRef.current) return;
     const promptBox = promptBoxRef.current;
@@ -354,7 +395,18 @@ export function StartRunForm({
   const minuteLimitValue = input.budget.maxMinutes >= UNBOUNDED_MINUTES ? '' : String(input.budget.maxMinutes);
   const hasPromptDraft = input.promptMarkdown.trim().length > 0;
   const selectedEffort = effortLevelFromInput(input.reasoningEffort);
-  const canStart = hasPromptDraft && Boolean(selectedModel?.effortLevels.includes(selectedEffort));
+  const collaboration = normalizeResearchCollaboration(input.collaboration);
+  const enabledCollaborators = collaboration.providers.filter((provider) => provider.enabled);
+  const collaborationReady = collaboration.mode === 'solo' || (
+    enabledCollaborators.length > 0
+    && enabledCollaborators.every((preference) => {
+      const provider = providerOptions.find((candidate) => candidate.id === preference.provider);
+      return provider?.configured === true
+        && provider.models.some((model) => model.id === preference.model && model.effortLevels.includes(preference.reasoningEffort))
+        && providerPolicyRiskAcknowledgements?.[preference.provider] === true;
+    })
+  );
+  const canStart = hasPromptDraft && Boolean(selectedModel?.effortLevels.includes(selectedEffort)) && collaborationReady;
 
   const startWithInput = (startInput: StartRunInput): void => {
     if (startingRun) return;
@@ -407,6 +459,26 @@ export function StartRunForm({
 
   const selectEffort = (effort: ResearchModelEffortLevel): void => {
     update('reasoningEffort', inputValueForEffort(effort));
+  };
+
+  const selectCollaborationMode = (mode: ResearchCollaborationMode): void => {
+    update('collaboration', { ...collaboration, mode });
+  };
+
+  const selectCollaborationIntensity = (intensity: ResearchCollaborationIntensity): void => {
+    update('collaboration', { ...collaboration, intensity, ...collaborationLimits(intensity) });
+  };
+
+  const updateCollaborator = (
+    providerId: ResearchModelProviderId,
+    patch: Partial<(typeof collaboration.providers)[number]>
+  ): void => {
+    update('collaboration', {
+      ...collaboration,
+      providers: collaboration.providers.map((preference) => preference.provider === providerId
+        ? { ...preference, ...patch }
+        : preference)
+    });
   };
 
   const chooseAnotherGoal = (): void => {
@@ -531,6 +603,111 @@ export function StartRunForm({
             </select>
           </label>
         </div>
+        <details className="advanced-run-options collaboration-options" open>
+          <summary><MessagesSquare size={14} /> Collaboration</summary>
+          <div className="collaboration-settings">
+            <div className="form-grid collaboration-mode-grid">
+              <label>
+                Mode
+                <select value={collaboration.mode} onChange={(event) => selectCollaborationMode(event.target.value as ResearchCollaborationMode)}>
+                  <option value="solo">Solo</option>
+                  <option value="adaptive">Adaptive</option>
+                  <option value="always">Always use team</option>
+                </select>
+              </label>
+              <label>
+                Intensity
+                <select
+                  value={collaboration.intensity}
+                  disabled={collaboration.mode === 'solo'}
+                  onChange={(event) => selectCollaborationIntensity(event.target.value as ResearchCollaborationIntensity)}
+                >
+                  <option value="focused">Focused</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="deep">Deep</option>
+                </select>
+              </label>
+            </div>
+            {collaboration.mode !== 'solo' ? (
+              <div className="collaboration-provider-list">
+                {collaboration.providers.map((preference) => {
+                  const provider = providerOptions.find((candidate) => candidate.id === preference.provider);
+                  const selectedCollaboratorModel = provider?.models.find((model) => model.id === preference.model) ?? null;
+                  const acknowledged = providerPolicyRiskAcknowledgements?.[preference.provider] === true;
+                  return (
+                    <div className={`collaboration-provider-row${preference.enabled ? ' enabled' : ''}`} key={preference.provider}>
+                      <label className="collaboration-provider-toggle">
+                        <input
+                          type="checkbox"
+                          checked={preference.enabled}
+                          disabled={!provider?.configured || !acknowledged}
+                          onChange={(event) => updateCollaborator(preference.provider, { enabled: event.target.checked })}
+                        />
+                        <span>
+                          <strong>{provider?.label ?? preference.provider}</strong>
+                          <small>{!provider?.configured ? 'Authentication required' : !acknowledged ? 'Policy acknowledgement required in Provider settings' : preference.provider === selectedProviderId ? 'Lead provider; optional as a collaborator' : 'Available for breakout rooms'}</small>
+                        </span>
+                      </label>
+                      <select
+                        aria-label={`${provider?.label ?? preference.provider} collaborator model`}
+                        value={preference.model}
+                        disabled={!preference.enabled}
+                        onChange={(event) => {
+                          const model = provider?.models.find((candidate) => candidate.id === event.target.value);
+                          if (!model) return;
+                          updateCollaborator(preference.provider, {
+                            model: model.id,
+                            reasoningEffort: preferredEffort(model.effortLevels, preference.reasoningEffort)
+                          });
+                        }}
+                      >
+                        {(provider?.models ?? []).map((model) => <option value={model.id} key={model.id}>{modelOptionLabel(preference.provider, model)}</option>)}
+                      </select>
+                      <select
+                        aria-label={`${provider?.label ?? preference.provider} collaborator reasoning`}
+                        value={preference.reasoningEffort}
+                        disabled={!preference.enabled}
+                        onChange={(event) => updateCollaborator(preference.provider, { reasoningEffort: event.target.value as ResearchModelEffortLevel })}
+                      >
+                        {(selectedCollaboratorModel?.effortLevels ?? []).map((effort) => <option value={effort} key={effort}>{effortLabel(effort)}</option>)}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            {collaboration.mode !== 'solo' ? (
+              <div className="collaboration-behavior-options">
+                <label className="goal-option compact">
+                  <input
+                    type="checkbox"
+                    checked={collaboration.independentFirstPass}
+                    onChange={(event) => update('collaboration', { ...collaboration, independentFirstPass: event.target.checked })}
+                  />
+                  <span><strong>Independent first pass</strong><small>Room members investigate before seeing peer conclusions.</small></span>
+                </label>
+                <label>
+                  Challenge rounds
+                  <select
+                    value={collaboration.peerChallengeRounds}
+                    onChange={(event) => update('collaboration', { ...collaboration, peerChallengeRounds: Number(event.target.value) })}
+                  >
+                    <option value={0}>None</option>
+                    <option value={1}>One</option>
+                    <option value={2}>Two</option>
+                    <option value={3}>Three</option>
+                  </select>
+                </label>
+              </div>
+            ) : null}
+            <p className="collaboration-disclosure">Workspace material and bounded research context may be sent to every enabled provider. Breakout conclusions remain untrusted until tool or artifact evidence verifies them.</p>
+            {!collaborationReady && collaboration.mode !== 'solo' ? (
+              <div className="policy-line collaboration-readiness-warning" role="alert">
+                <ShieldAlert size={14} /> Select at least one authenticated collaborator with its cybersecurity policy acknowledgement accepted in Provider settings.
+              </div>
+            ) : null}
+          </div>
+        </details>
         <details className="advanced-run-options">
           <summary>{presentation?.sessionLabel ?? 'Session'} Settings</summary>
           <SessionSettingsFields

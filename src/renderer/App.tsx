@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
   ApprovalRecord,
+  BreakoutRoomSummary,
   ProviderSettings,
   ProviderModelDefaults,
   HoneycrispRunbookDocument,
@@ -110,6 +111,7 @@ export function App(): JSX.Element {
   const [sessionSummaryDetail, setSessionSummaryDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [selectedSubagentPath, setSelectedSubagentPath] = useState<string | null>(null);
+  const [selectedBreakoutRoomId, setSelectedBreakoutRoomId] = useState<string | null>(null);
   const [selectedRunbookId, setSelectedRunbookId] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [rightSidenavExpanded, setRightSidenavExpanded] = useState(false);
@@ -541,6 +543,11 @@ export function App(): JSX.Element {
   );
 
   const activeRunDetail = activeRunDetailForSelection(runDetail, selectedRunId);
+  useEffect(() => {
+    if (!selectedBreakoutRoomId || !activeRunDetail) return;
+    if ((activeRunDetail.breakoutRooms ?? []).some((room) => room.id === selectedBreakoutRoomId)) return;
+    setSelectedBreakoutRoomId(null);
+  }, [activeRunDetail, selectedBreakoutRoomId]);
   const activeResearchProfile = selectedRunId
     ? activeRunDetail?.researchProfile?.profile ?? null
     : snapshot?.researchProfile.profile ?? null;
@@ -830,6 +837,7 @@ export function App(): JSX.Element {
           openRegisteredWorkspaceMenuId={openRegisteredWorkspaceMenuId}
           workspaceRegistry={workspaceRegistry}
           selectedRunId={selectedRunId}
+          selectedBreakoutRoomId={selectedBreakoutRoomId}
           snapshot={snapshot}
           onAddWorkspace={() => {
             addWorkspace();
@@ -839,7 +847,12 @@ export function App(): JSX.Element {
           }}
           onOpenWorkspaceInfo={setWorkspaceInfo}
           onOpenResearchSession={(workspace, session) => {
+            setSelectedBreakoutRoomId(null);
             openResearchSession(workspace, session);
+          }}
+          onOpenBreakoutRoom={(workspace, session, room: BreakoutRoomSummary) => {
+            openResearchSession(workspace, session);
+            setSelectedBreakoutRoomId(room.id);
           }}
           onRemoveWorkspace={removeRegisteredWorkspace}
           onResizePointerDown={beginSidebarResize}
@@ -892,6 +905,7 @@ export function App(): JSX.Element {
               workspaceName={snapshot?.activeScope.workspaceName ?? 'Workspace'}
               runs={selectedRunId ? [] : snapshot?.runs ?? []}
               selectedRunId={selectedRunId}
+              selectedBreakoutRoomId={selectedBreakoutRoomId}
               researchDetailsOpen={rightSidenavExpanded && researchDetailsAvailable}
               selectedRunbookId={selectedRunbookId}
               selectedRunbook={selectedRunbook}
@@ -925,6 +939,7 @@ export function App(): JSX.Element {
               onSelectTraceEvent={selectTraceEvent}
               onSelectSubagent={selectSubagent}
               onSelectNextStep={startNewResearchFromSuggestion}
+              onBackToSession={() => setSelectedBreakoutRoomId(null)}
               onSessionAction={handleSessionAction}
               onSteerInstruction={handleSteerInstruction}
             />
@@ -951,6 +966,7 @@ export function App(): JSX.Element {
         openAiStatus={snapshot?.openAi ?? openAiStatus}
         defaultProviderId={providerSettings?.defaultProviderId}
         providerModelDefaults={providerSettings?.modelDefaults}
+        providerPolicyRiskAcknowledgements={providerSettings?.cyberPolicyRiskAcknowledgements}
         researchProviderModelCatalog={researchProviderModelCatalog}
         researchProviderStatuses={researchProviderStatuses}
         researchGoalSuggestions={researchGoalSuggestionState.suggestions}

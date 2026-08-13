@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { FolderPlus, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
-import type { WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
+import { FolderPlus, MessagesSquare, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
+import type { BreakoutRoomSummary, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForWorkspace, shortRelativeAge } from '../../view-models/workspaceDisplay';
 
@@ -14,11 +14,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   openRegisteredWorkspaceMenuId,
   workspaceRegistry,
   selectedRunId,
+  selectedBreakoutRoomId = null,
   snapshot,
   onAddWorkspace,
   onOpenWorkspace,
   onOpenWorkspaceInfo,
   onOpenResearchSession,
+  onOpenBreakoutRoom = () => undefined,
   onRemoveWorkspace,
   onResizePointerDown,
   onSetOpenWorkspaceMenuId,
@@ -32,11 +34,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   openRegisteredWorkspaceMenuId: string | null;
   workspaceRegistry: WorkspaceRegistryState | null;
   selectedRunId: string | null;
+  selectedBreakoutRoomId?: string | null;
   snapshot: WorkspaceSnapshot | null;
   onAddWorkspace: () => void;
   onOpenWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   onOpenWorkspaceInfo: (workspace: WorkspaceRegistryEntry) => void;
   onOpenResearchSession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
+  onOpenBreakoutRoom?: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary, room: BreakoutRoomSummary) => void;
   onRemoveWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onSetOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
@@ -119,7 +123,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               </div>
               <div className="workspace-session-list">
                 {visibleSessions.length > 0 ? (
-                  visibleSessions.map((session) => (
+                  visibleSessions.map((session) => {
+                    const rooms = active
+                      ? snapshot?.runs.find((row) => row.run.id === session.runId)?.breakoutRooms ?? session.breakoutRooms ?? []
+                      : session.breakoutRooms ?? [];
+                    return (
                     <div className="workspace-session-row" key={session.id}>
                       <button
                         type="button"
@@ -131,8 +139,26 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                         <span className="workspace-session-age">{shortRelativeAge(session.updatedAt)}</span>
                         <SessionActiveIndicator status={session.status} />
                       </button>
+                      {rooms.length > 0 ? (
+                        <div className="workspace-breakout-room-list">
+                          {rooms.map((room) => (
+                            <button
+                              type="button"
+                              className={`workspace-breakout-room-item ${selectedBreakoutRoomId === room.id ? 'active' : ''}`}
+                              title={`${room.title} — ${breakoutRoomStatusLabel(room.status)}`}
+                              onClick={() => onOpenBreakoutRoom(workspace, session, room)}
+                              key={room.id}
+                            >
+                              <MessagesSquare size={12} />
+                              <span>{room.title}</span>
+                              <span className={`workspace-breakout-room-status status-${room.status}`} aria-label={breakoutRoomStatusLabel(room.status)} />
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <span className="workspace-session-empty">No {sessionLabel} Yet...</span>
                 )}
@@ -159,6 +185,13 @@ function SessionActiveIndicator({ status }: { status: RunStatus }): JSX.Element 
       <RefreshCw size={10} />
     </span>
   );
+}
+
+function breakoutRoomStatusLabel(status: BreakoutRoomSummary['status']): string {
+  if (status === 'active') return 'Active';
+  if (status === 'completed') return 'Completed';
+  if (status === 'interrupted') return 'Interrupted';
+  return 'Error';
 }
 
 function pluralizeSessionLabel(label: string): string {

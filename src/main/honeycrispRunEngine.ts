@@ -5,6 +5,8 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type {
+  BreakoutRoomKind,
+  BreakoutRoomMemberStatus,
   ResearchModelSelection,
   ProviderSettings,
   MemoryTypeDescriptions,
@@ -25,6 +27,7 @@ import type {
   TraceEventType,
   TraceSource
 } from '@shared/types';
+import { normalizeResearchCollaboration } from '../shared/collaboration';
 import { generateSessionTitle, SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
 import {
   SESSION_TITLE_REASONING_EFFORT,
@@ -302,6 +305,7 @@ export class HoneycrispRunEngine {
       ? resolveGoalObjective(input.goalObjective, input.promptMarkdown)
       : null;
     const normalizedInput: StartRunInput = { ...input, goalObjective };
+    if (input.collaboration) normalizedInput.collaboration = normalizeResearchCollaboration(input.collaboration);
     const scope = this.db.getActiveScope();
     const workflowId = resolveResearchWorkflowId(researchProfile.profile, input.workflowId, input.mode);
     const context = this.db.createRun({
@@ -323,7 +327,8 @@ export class HoneycrispRunEngine {
         modelProvider: input.provider?.trim() || null,
         goalEnabled: input.goalEnabled,
         goalObjective,
-        researchWorkflowId: workflowId
+        researchWorkflowId: workflowId,
+        collaboration: normalizedInput.collaboration ?? null
       },
       vmBackend: 'host',
       vmImageId: 'host-machine',
@@ -505,6 +510,9 @@ export class HoneycrispRunEngine {
     const researchProfilePath = researchProfile
       ? join(runDirectory, `${fileStem}.research-profile.json`)
       : null;
+    const collaborationConfigPath = input.collaboration
+      ? join(runDirectory, `${fileStem}.collaboration.json`)
+      : null;
     const workflowId = researchProfile
       ? resolveResearchWorkflowId(
           researchProfile.profile,
@@ -528,6 +536,9 @@ export class HoneycrispRunEngine {
     if (resumeFallbackPromptPath && resume) {
       writeFileSync(resumeFallbackPromptPath, resume.fallbackPrompt, { encoding: 'utf8', mode: 0o600 });
     }
+    if (collaborationConfigPath && input.collaboration) {
+      writeFileSync(collaborationConfigPath, JSON.stringify(normalizeResearchCollaboration(input.collaboration), null, 2), { encoding: 'utf8', mode: 0o600 });
+    }
     const args = [
       ...(invocation.usesNodeRuntime ? [HONEYCRISP_MAX_OLD_SPACE_ARG] : []),
       ...invocation.prefixArgs,
@@ -550,7 +561,8 @@ export class HoneycrispRunEngine {
             }
           : undefined,
         researchProfile ? undefined : this.getMemoryTypeDescriptions?.(),
-        this.getProviderSettings?.()
+        this.getProviderSettings?.(),
+        collaborationConfigPath ?? undefined
       )
     ];
     this.db.appendTraceEvent({
@@ -575,6 +587,7 @@ export class HoneycrispRunEngine {
         researchProfileVersion: researchProfile?.profileVersion ?? null,
         researchWorkflowId: workflowId,
         resolvedResearchProfilePath: researchProfilePath ? '[run-local-profile]' : null,
+        collaborationConfigPath: collaborationConfigPath ? '[run-local-collaboration-config]' : null,
         researchProfileHash: researchProfile ? '[profile-hash]' : null,
         legacyMemoryTypeDescriptions: !researchProfile && Boolean(this.getMemoryTypeDescriptions?.()),
         automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0
@@ -623,6 +636,7 @@ export class HoneycrispRunEngine {
         this.clearTimeLimit(active);
         this.clearForceStopTimer(active);
         if (!this.disposed) {
+          this.db.interruptActiveBreakoutRooms(context.run.id, context.attempt.id);
           this.failRun(context, 'Honeycrisp host process failed to start.', { error: errorMessage(error), capturePath });
         }
         resolveCompletion();
@@ -635,6 +649,7 @@ export class HoneycrispRunEngine {
         this.activeRuns.delete(context.run.id);
         if (!this.disposed) {
           this.finalizePendingControls(active, 'process_closed');
+          this.db.interruptActiveBreakoutRooms(context.run.id, context.attempt.id);
           this.finishClosedProcess(context, capturePath, code, signal, active);
           this.launchQueuedContinuation(active);
         }
@@ -1542,6 +1557,67 @@ export class HoneycrispRunEngine {
     const payload = event.payload ?? {};
     const action = stringPayload(payload, 'action') ?? 'updated';
     const agentPath = stringPayload(payload, 'agentPath') ?? 'unknown agent';
+    const agentId = stringPayload(payload, 'agentId');
+    const roomName = stringPayload(payload, 'roomName');
+    const roomTitle = stringPayload(payload, 'roomTitle') ?? roomName;
+    const provider = stringPayload(payload, 'provider');
+    const model = stringPayload(payload, 'model');
+    const activityId = stringPayload(payload, 'activityId');
+    const activityTimestamp = stringPayload(payload, 'timestamp') ?? event.timestamp ?? new Date().toISOString();
+    const roomId = roomName ? breakoutRoomId(context.run.id, roomName) : null;
+    const memberId = agentId ? breakoutRoomMemberId(context.run.id, context.attempt.id, agentId) : null;
+    if (roomId && memberId && agentId && provider && model && agentPath !== 'unknown agent') {
+      this.db.upsertBreakoutRoom({
+        id: roomId,
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        name: roomName!,
+        title: roomTitle || roomName!,
+        purpose: action === 'spawned' ? stringPayload(payload, 'message') ?? '' : '',
+        kind: breakoutRoomKind(stringPayload(payload, 'roomKind')),
+        status: 'active',
+        createdAt: activityTimestamp
+      });
+      const memberStatus = breakoutMemberStatus(stringPayload(payload, 'status'), action);
+      this.db.upsertBreakoutRoomMember({
+        id: memberId,
+        roomId,
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        agentId,
+        agentPath,
+        provider,
+        model,
+        reasoningEffort: stringPayload(payload, 'reasoningEffort'),
+        role: stringPayload(payload, 'role') ?? 'researcher',
+        status: memberStatus,
+        startedAt: action === 'spawned' ? activityTimestamp : null,
+        endedAt: ['completed', 'errored', 'interrupted'].includes(action) ? activityTimestamp : null,
+        error: action === 'errored' ? stringPayload(payload, 'message') : null
+      });
+      const content = stringPayload(payload, 'message');
+      if (content && activityId) {
+        const completed = action === 'completed';
+        const authorPath = completed ? agentPath : stringPayload(payload, 'authorAgentPath') ?? '/root';
+        this.db.createBreakoutRoomMessage({
+          id: `breakout_message_${activityId}`,
+          roomId,
+          runId: context.run.id,
+          attemptId: context.attempt.id,
+          memberId: completed ? memberId : null,
+          senderAgentPath: authorPath,
+          recipientAgentPath: completed ? '/root' : agentPath,
+          kind: action === 'spawned' ? 'task'
+            : action === 'message' || action === 'followup' ? 'challenge'
+              : completed ? 'response'
+                : 'system',
+          contentMarkdown: content,
+          metadata: { action, provider, model, agentId, agentPath },
+          createdAt: activityTimestamp
+        });
+      }
+      this.db.refreshBreakoutRoomStatus(roomId);
+    }
     const summaries: Record<string, string> = {
       spawned: `Honeycrisp subagent ${agentPath} started.`,
       message: `Honeycrisp sent a message to subagent ${agentPath}.`,
@@ -1567,7 +1643,6 @@ export class HoneycrispRunEngine {
     });
     const finalText = action === 'completed' ? stringPayload(payload, 'message') : null;
     if (finalText && agentPath !== 'unknown agent') {
-      const agentId = stringPayload(payload, 'agentId');
       const parentAgentId = stringPayload(payload, 'parentAgentId') ?? stringPayload(payload, 'parentId');
       const responseId = `subagent-completed:${agentId ?? agentPath}`;
       const itemId = `final:${agentId ?? agentPath}:${activityTrace.id}`;
@@ -1673,6 +1748,23 @@ export class HoneycrispRunEngine {
         live: true
       }
     });
+    if (subagent && agentPath) {
+      const member = this.db.findBreakoutRoomMember(context.run.id, context.attempt.id, agentPath);
+      if (member) {
+        this.db.createBreakoutRoomMessage({
+          id: `breakout_commentary_${trace.id}`,
+          roomId: member.roomId,
+          runId: context.run.id,
+          attemptId: context.attempt.id,
+          memberId: member.id,
+          senderAgentPath: agentPath,
+          kind: 'commentary',
+          contentMarkdown: text,
+          metadata: { provider, model, responseId, itemId, turn },
+          createdAt: event.timestamp
+        });
+      }
+    }
     this.onChange();
   }
 
@@ -2271,6 +2363,29 @@ function numberPayload(payload: Record<string, unknown>, key: string): number | 
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function breakoutRoomId(runId: string, roomName: string): string {
+  return `breakout_${createHash('sha256').update(`${runId}\u0000${roomName}`).digest('hex').slice(0, 24)}`;
+}
+
+function breakoutRoomMemberId(runId: string, attemptId: string, agentId: string): string {
+  return `breakout_member_${createHash('sha256').update(`${runId}\u0000${attemptId}\u0000${agentId}`).digest('hex').slice(0, 24)}`;
+}
+
+function breakoutRoomKind(value: string | null): BreakoutRoomKind {
+  if (value === 'exploration' || value === 'validation' || value === 'proving' || value === 'synthesis') return value;
+  return 'general';
+}
+
+function breakoutMemberStatus(value: string | null, action: string): BreakoutRoomMemberStatus {
+  if (value === 'pending' || value === 'active' || value === 'completed' || value === 'interrupted' || value === 'errored') {
+    return value;
+  }
+  if (action === 'completed') return 'completed';
+  if (action === 'interrupted') return 'interrupted';
+  if (action === 'errored') return 'errored';
+  return 'active';
+}
+
 function honeycrispRunArgs(
   input: StartRunInput,
   workspacePath: string,
@@ -2283,7 +2398,8 @@ function honeycrispRunArgs(
   resumeFallbackPromptPath?: string,
   researchProfile?: HoneycrispResearchProfileLaunch,
   memoryTypeDescriptions?: MemoryTypeDescriptions,
-  providerSettings?: ProviderSettings
+  providerSettings?: ProviderSettings,
+  collaborationConfigPath?: string
 ): string[] {
   const args = [
     '--workspace-root',
@@ -2323,6 +2439,7 @@ function honeycrispRunArgs(
   if (provider) {
     args.push('--provider', provider);
   }
+  if (collaborationConfigPath) args.push('--collaboration-config', collaborationConfigPath);
   const effectiveProvider = provider || 'openai-codex';
   if (providerSettings?.cyberPolicyRiskAcknowledgements?.['openai-codex'] === true) {
     args.push('--openai-trusted-access-cyber-risk-acknowledged');
@@ -2399,6 +2516,7 @@ function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunI
     attemptStrategy: run.attemptStrategy,
     model: run.model,
     reasoningEffort: run.reasoningEffort,
+    ...(run.budget.collaboration ? { collaboration: normalizeResearchCollaboration(run.budget.collaboration) } : {}),
     sandboxProfile: run.sandboxProfile,
     targetAssetId: run.targetAssetId,
     targetPath: run.targetPath,

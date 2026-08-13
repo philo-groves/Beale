@@ -13,6 +13,14 @@ import type {
   ArtifactRecord,
   AttemptRecord,
   AttemptStatus,
+  BreakoutRoomKind,
+  BreakoutRoomMemberRecord,
+  BreakoutRoomMemberStatus,
+  BreakoutRoomMessageKind,
+  BreakoutRoomMessageRecord,
+  BreakoutRoomRecord,
+  BreakoutRoomStatus,
+  BreakoutRoomSummary,
   ContextCompactionRecord,
   ExportRecord,
   ExportReviewDecision,
@@ -855,6 +863,52 @@ function parseJson(value: SqlPrimitive | undefined): Record<string, unknown> {
     return parsed as Record<string, unknown>;
   }
   return {};
+}
+
+export interface UpsertBreakoutRoomInput {
+  id: string;
+  runId: string;
+  attemptId?: string | null;
+  name: string;
+  title: string;
+  purpose?: string;
+  kind?: BreakoutRoomKind;
+  status?: BreakoutRoomStatus;
+  outcomeMarkdown?: string | null;
+  createdAt?: string;
+  closedAt?: string | null;
+}
+
+export interface UpsertBreakoutRoomMemberInput {
+  id: string;
+  roomId: string;
+  runId: string;
+  attemptId?: string | null;
+  agentId: string;
+  agentPath: string;
+  provider: string;
+  model: string;
+  reasoningEffort?: string | null;
+  role?: string;
+  status: BreakoutRoomMemberStatus;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  error?: string | null;
+}
+
+export interface CreateBreakoutRoomMessageInput {
+  id: string;
+  roomId: string;
+  runId: string;
+  attemptId?: string | null;
+  memberId?: string | null;
+  senderAgentPath: string;
+  recipientAgentPath?: string | null;
+  kind: BreakoutRoomMessageKind;
+  contentMarkdown: string;
+  evidenceRefs?: string[];
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
 }
 
 function parseStoredSessionNextStepSuggestions(value: SqlPrimitive | undefined): GeneratedResearchGoalSuggestions | null {
@@ -4441,6 +4495,176 @@ export class WorkspaceDatabase {
     return message;
   }
 
+  public upsertBreakoutRoom(input: UpsertBreakoutRoomInput): BreakoutRoomRecord {
+    const createdAt = input.createdAt ?? nowIso();
+    this.db.prepare(
+      `INSERT INTO breakout_rooms (
+         id, run_id, attempt_id, name, title, purpose, kind, status, outcome_markdown, created_at, closed_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         title = excluded.title,
+         purpose = CASE
+           WHEN excluded.purpose <> '' THEN excluded.purpose
+           ELSE breakout_rooms.purpose
+         END,
+         kind = CASE WHEN ? = 1 THEN excluded.kind ELSE breakout_rooms.kind END,
+         status = excluded.status,
+         outcome_markdown = COALESCE(excluded.outcome_markdown, breakout_rooms.outcome_markdown),
+         closed_at = CASE WHEN excluded.status = 'active' THEN NULL ELSE COALESCE(excluded.closed_at, breakout_rooms.closed_at) END`
+    ).run(
+      input.id,
+      input.runId,
+      input.attemptId ?? null,
+      input.name.trim(),
+      input.title.trim(),
+      input.purpose?.trim() ?? '',
+      input.kind ?? 'general',
+      input.status ?? 'active',
+      input.outcomeMarkdown?.trim() || null,
+      createdAt,
+      input.closedAt ?? null,
+      input.kind !== undefined ? 1 : 0
+    );
+    const room = this.getBreakoutRoom(input.id);
+    if (!room) throw new Error('Failed to upsert breakout room');
+    return room;
+  }
+
+  public upsertBreakoutRoomMember(input: UpsertBreakoutRoomMemberInput): BreakoutRoomMemberRecord {
+    this.db.prepare(
+      `INSERT INTO breakout_room_members (
+         id, room_id, run_id, attempt_id, agent_id, agent_path, provider, model,
+         reasoning_effort, role, status, started_at, ended_at, error
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         provider = excluded.provider,
+         model = excluded.model,
+         reasoning_effort = excluded.reasoning_effort,
+         role = excluded.role,
+         status = excluded.status,
+         started_at = COALESCE(breakout_room_members.started_at, excluded.started_at),
+         ended_at = excluded.ended_at,
+         error = excluded.error`
+    ).run(
+      input.id,
+      input.roomId,
+      input.runId,
+      input.attemptId ?? null,
+      input.agentId,
+      input.agentPath,
+      input.provider,
+      input.model,
+      input.reasoningEffort ?? null,
+      input.role?.trim() ?? '',
+      input.status,
+      input.startedAt ?? null,
+      input.endedAt ?? null,
+      input.error?.trim() || null
+    );
+    const member = this.getBreakoutRoomMember(input.id);
+    if (!member) throw new Error('Failed to upsert breakout room member');
+    return member;
+  }
+
+  public createBreakoutRoomMessage(input: CreateBreakoutRoomMessageInput): BreakoutRoomMessageRecord {
+    this.db.prepare(
+      `INSERT OR IGNORE INTO breakout_room_messages (
+         id, room_id, run_id, attempt_id, member_id, sender_agent_path, recipient_agent_path,
+         kind, content_markdown, evidence_refs_json, metadata_json, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      input.id,
+      input.roomId,
+      input.runId,
+      input.attemptId ?? null,
+      input.memberId ?? null,
+      input.senderAgentPath,
+      input.recipientAgentPath ?? null,
+      input.kind,
+      input.contentMarkdown.trim(),
+      toJson(input.evidenceRefs ?? []),
+      toJson(input.metadata ?? {}),
+      input.createdAt ?? nowIso()
+    );
+    const message = this.getBreakoutRoomMessage(input.id);
+    if (!message) throw new Error('Failed to create breakout room message');
+    return message;
+  }
+
+  public interruptActiveBreakoutRooms(runId: string, attemptId?: string | null): void {
+    const endedAt = nowIso();
+    const attemptClause = attemptId ? ' AND attempt_id = ?' : '';
+    const params = attemptId ? [endedAt, runId, attemptId] : [endedAt, runId];
+    const roomIds = rows(this.db.prepare(
+      `SELECT DISTINCT room_id FROM breakout_room_members
+       WHERE run_id = ?${attemptClause} AND status IN ('pending', 'active')`
+    ).all(...(attemptId ? [runId, attemptId] : [runId])))
+      .map((row) => text(row, 'room_id'));
+    this.db.prepare(
+      `UPDATE breakout_room_members
+       SET status = 'interrupted', ended_at = COALESCE(ended_at, ?)
+       WHERE run_id = ?${attemptClause} AND status IN ('pending', 'active')`
+    ).run(...params);
+    for (const roomId of roomIds) this.refreshBreakoutRoomStatus(roomId);
+  }
+
+  public findBreakoutRoomMember(runId: string, attemptId: string | null, agentPath: string): BreakoutRoomMemberRecord | null {
+    const row = rowOrUndefined(this.db.prepare(
+      `SELECT * FROM breakout_room_members
+       WHERE run_id = ? AND agent_path = ? AND (attempt_id = ? OR (? IS NULL AND attempt_id IS NULL))
+       ORDER BY COALESCE(started_at, '') DESC, rowid DESC LIMIT 1`
+    ).get(runId, agentPath, attemptId, attemptId));
+    return row ? this.mapBreakoutRoomMember(row) : null;
+  }
+
+  public refreshBreakoutRoomStatus(roomId: string): BreakoutRoomRecord | null {
+    const room = this.getBreakoutRoom(roomId);
+    if (!room) return null;
+    const statuses = rows(this.db.prepare('SELECT status FROM breakout_room_members WHERE room_id = ?').all(roomId))
+      .map((row) => text(row, 'status') as BreakoutRoomMemberStatus);
+    const status: BreakoutRoomStatus = statuses.some((value) => value === 'active' || value === 'pending')
+      ? 'active'
+      : statuses.some((value) => value === 'errored')
+        ? 'errored'
+        : statuses.length > 0 && statuses.every((value) => value === 'interrupted')
+          ? 'interrupted'
+          : 'completed';
+    const closedAt = status === 'active' ? null : nowIso();
+    this.db.prepare('UPDATE breakout_rooms SET status = ?, closed_at = ? WHERE id = ?').run(status, closedAt, roomId);
+    return this.getBreakoutRoom(roomId);
+  }
+
+  public listBreakoutRoomSummaries(runId: string): BreakoutRoomSummary[] {
+    return rows(this.db.prepare(
+      `SELECT room.*,
+              COUNT(DISTINCT member.id) AS member_count,
+              COALESCE(MAX(message.created_at), room.created_at) AS updated_at
+       FROM breakout_rooms room
+       LEFT JOIN breakout_room_members member ON member.room_id = room.id
+       LEFT JOIN breakout_room_messages message ON message.room_id = room.id
+       WHERE room.run_id = ?
+       GROUP BY room.id
+       ORDER BY room.created_at ASC, room.id ASC`
+    ).all(runId)).map((row) => {
+      const room = this.mapBreakoutRoom(row);
+      const providerRows = rows(this.db.prepare(
+        'SELECT DISTINCT provider FROM breakout_room_members WHERE room_id = ? ORDER BY provider'
+      ).all(room.id));
+      return {
+        id: room.id,
+        runId: room.runId,
+        name: room.name,
+        title: room.title,
+        kind: room.kind,
+        status: room.status,
+        providers: providerRows.map((providerRow) => text(providerRow, 'provider')),
+        memberCount: numberValue(row, 'member_count'),
+        unreadCount: 0,
+        updatedAt: text(row, 'updated_at')
+      };
+    });
+  }
+
   public createNotification(input: CreateNotificationInput): NotificationRecord {
     const id = createId('notification');
     const createdAt = nowIso();
@@ -5322,7 +5546,8 @@ export class WorkspaceDatabase {
       return {
         run,
         engine: this.runEngineFromBudget(run.budget),
-        sessionRuns
+        sessionRuns,
+        breakoutRooms: this.listBreakoutRoomSummaries(run.id)
       };
     });
   }
@@ -5419,6 +5644,15 @@ export class WorkspaceDatabase {
       traceEvents: rows(this.db.prepare('SELECT * FROM trace_events WHERE run_id = ? ORDER BY sequence ASC').all(runId)).map((row) => this.mapTraceEvent(row)),
       transcriptMessages: rows(this.db.prepare('SELECT * FROM transcript_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
         this.mapTranscriptMessage(row)
+      ),
+      breakoutRooms: rows(this.db.prepare('SELECT * FROM breakout_rooms WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
+        this.mapBreakoutRoom(row)
+      ),
+      breakoutRoomMembers: rows(this.db.prepare('SELECT * FROM breakout_room_members WHERE run_id = ? ORDER BY started_at ASC, rowid ASC').all(runId)).map((row) =>
+        this.mapBreakoutRoomMember(row)
+      ),
+      breakoutRoomMessages: rows(this.db.prepare('SELECT * FROM breakout_room_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
+        this.mapBreakoutRoomMessage(row)
       ),
       artifacts: rows(
         this.db
@@ -7257,6 +7491,15 @@ export class WorkspaceDatabase {
           .prepare('SELECT * FROM transcript_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC LIMIT -1 OFFSET ?')
           .all(runId, afterTranscriptCount)
       ).map((row) => this.mapTranscriptMessage(row)),
+      breakoutRooms: rows(this.db.prepare('SELECT * FROM breakout_rooms WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
+        this.mapBreakoutRoom(row)
+      ),
+      breakoutRoomMembers: rows(this.db.prepare('SELECT * FROM breakout_room_members WHERE run_id = ? ORDER BY started_at ASC, rowid ASC').all(runId)).map((row) =>
+        this.mapBreakoutRoomMember(row)
+      ),
+      breakoutRoomMessages: rows(this.db.prepare('SELECT * FROM breakout_room_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
+        this.mapBreakoutRoomMessage(row)
+      ),
       artifacts: rows(
         this.db
           .prepare(
@@ -7338,6 +7581,30 @@ export class WorkspaceDatabase {
                 COALESCE(MAX(created_at), '') AS max_created,
                 COALESCE(SUM(LENGTH(content_markdown) + LENGTH(metadata_json)), 0) AS content_size
          FROM transcript_messages WHERE run_id = ?`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'breakout_rooms',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(COALESCE(closed_at, created_at)), '') AS max_updated,
+                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || COALESCE(closed_at, '') || ':' || LENGTH(COALESCE(outcome_markdown, '')), '|'), '') AS rows
+         FROM (SELECT * FROM breakout_rooms WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'breakout_room_members',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(COALESCE(ended_at, started_at, '')), '') AS max_updated,
+                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || provider || ':' || model || ':' || COALESCE(ended_at, ''), '|'), '') AS rows
+         FROM (SELECT * FROM breakout_room_members WHERE run_id = ? ORDER BY COALESCE(started_at, ''), id ASC)`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'breakout_room_messages',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(created_at), '') AS max_created,
+                COALESCE(SUM(LENGTH(content_markdown) + LENGTH(metadata_json)), 0) AS content_size
+         FROM breakout_room_messages WHERE run_id = ?`,
         runId
       ),
       this.aggregateVersionPart(
@@ -8241,6 +8508,13 @@ export class WorkspaceDatabase {
             CREATE INDEX IF NOT EXISTS idx_session_activity_intervals_attempt_started
             ON session_activity_intervals(attempt_id, started_at);
           `);
+        }
+      },
+      {
+        version: 20,
+        name: 'durable_breakout_rooms',
+        up: (database) => {
+          database.exec(BREAKOUT_ROOMS_SCHEMA_SQL);
         }
       }
     ]);
@@ -10190,6 +10464,21 @@ export class WorkspaceDatabase {
     };
   }
 
+  private getBreakoutRoom(roomId: string): BreakoutRoomRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM breakout_rooms WHERE id = ?').get(roomId));
+    return row ? this.mapBreakoutRoom(row) : null;
+  }
+
+  private getBreakoutRoomMember(memberId: string): BreakoutRoomMemberRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM breakout_room_members WHERE id = ?').get(memberId));
+    return row ? this.mapBreakoutRoomMember(row) : null;
+  }
+
+  private getBreakoutRoomMessage(messageId: string): BreakoutRoomMessageRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM breakout_room_messages WHERE id = ?').get(messageId));
+    return row ? this.mapBreakoutRoomMessage(row) : null;
+  }
+
   private mapSessionActivityInterval(row: SqlRow): SessionActivityInterval {
     return {
       id: text(row, 'id'),
@@ -10234,6 +10523,59 @@ export class WorkspaceDatabase {
       contentMarkdown: text(row, 'content_markdown'),
       source,
       metadata,
+      createdAt: text(row, 'created_at')
+    };
+  }
+
+  private mapBreakoutRoom(row: SqlRow): BreakoutRoomRecord {
+    return {
+      id: text(row, 'id'),
+      runId: text(row, 'run_id'),
+      attemptId: nullableText(row, 'attempt_id'),
+      name: text(row, 'name'),
+      title: text(row, 'title'),
+      purpose: text(row, 'purpose'),
+      kind: text(row, 'kind') as BreakoutRoomKind,
+      status: text(row, 'status') as BreakoutRoomStatus,
+      outcomeMarkdown: nullableText(row, 'outcome_markdown'),
+      createdAt: text(row, 'created_at'),
+      closedAt: nullableText(row, 'closed_at')
+    };
+  }
+
+  private mapBreakoutRoomMember(row: SqlRow): BreakoutRoomMemberRecord {
+    return {
+      id: text(row, 'id'),
+      roomId: text(row, 'room_id'),
+      runId: text(row, 'run_id'),
+      attemptId: nullableText(row, 'attempt_id'),
+      agentId: text(row, 'agent_id'),
+      agentPath: text(row, 'agent_path'),
+      provider: text(row, 'provider'),
+      model: text(row, 'model'),
+      reasoningEffort: nullableText(row, 'reasoning_effort'),
+      role: text(row, 'role'),
+      status: text(row, 'status') as BreakoutRoomMemberStatus,
+      startedAt: nullableText(row, 'started_at'),
+      endedAt: nullableText(row, 'ended_at'),
+      error: nullableText(row, 'error')
+    };
+  }
+
+  private mapBreakoutRoomMessage(row: SqlRow): BreakoutRoomMessageRecord {
+    const evidenceRefs = parseStringArray(row.evidence_refs_json);
+    return {
+      id: text(row, 'id'),
+      roomId: text(row, 'room_id'),
+      runId: text(row, 'run_id'),
+      attemptId: nullableText(row, 'attempt_id'),
+      memberId: nullableText(row, 'member_id'),
+      senderAgentPath: text(row, 'sender_agent_path'),
+      recipientAgentPath: nullableText(row, 'recipient_agent_path'),
+      kind: text(row, 'kind') as BreakoutRoomMessageKind,
+      contentMarkdown: text(row, 'content_markdown'),
+      evidenceRefs,
+      metadata: parseJson(row.metadata_json),
       createdAt: text(row, 'created_at')
     };
   }
@@ -10484,6 +10826,61 @@ CREATE TABLE IF NOT EXISTS transcript_messages (
 
 CREATE INDEX IF NOT EXISTS idx_transcript_messages_run_created ON transcript_messages(run_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_transcript_messages_trace ON transcript_messages(trace_event_id);
+`;
+
+const BREAKOUT_ROOMS_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS breakout_rooms (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  attempt_id TEXT REFERENCES attempts(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  title TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('exploration', 'validation', 'proving', 'synthesis', 'general')),
+  status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'interrupted', 'errored')),
+  outcome_markdown TEXT,
+  created_at TEXT NOT NULL,
+  closed_at TEXT,
+  UNIQUE(run_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS breakout_room_members (
+  id TEXT PRIMARY KEY,
+  room_id TEXT NOT NULL REFERENCES breakout_rooms(id) ON DELETE CASCADE,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  attempt_id TEXT REFERENCES attempts(id) ON DELETE SET NULL,
+  agent_id TEXT NOT NULL,
+  agent_path TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  reasoning_effort TEXT,
+  role TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'active', 'completed', 'interrupted', 'errored')),
+  started_at TEXT,
+  ended_at TEXT,
+  error TEXT,
+  UNIQUE(run_id, attempt_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS breakout_room_messages (
+  id TEXT PRIMARY KEY,
+  room_id TEXT NOT NULL REFERENCES breakout_rooms(id) ON DELETE CASCADE,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  attempt_id TEXT REFERENCES attempts(id) ON DELETE SET NULL,
+  member_id TEXT REFERENCES breakout_room_members(id) ON DELETE SET NULL,
+  sender_agent_path TEXT NOT NULL,
+  recipient_agent_path TEXT,
+  kind TEXT NOT NULL CHECK (kind IN ('task', 'commentary', 'challenge', 'evidence', 'response', 'outcome', 'system')),
+  content_markdown TEXT NOT NULL,
+  evidence_refs_json TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_breakout_rooms_run_created ON breakout_rooms(run_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_breakout_room_members_room ON breakout_room_members(room_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_breakout_room_messages_room_created ON breakout_room_messages(room_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_breakout_room_messages_run_created ON breakout_room_messages(run_id, created_at);
 `;
 
 const PROJECT_UNDERSTANDING_SCHEMA_SQL = `
@@ -10897,6 +11294,8 @@ ${CONTEXT_COMPACTIONS_SCHEMA_SQL}
 ${NOTIFICATIONS_SCHEMA_SQL}
 
 ${TRANSCRIPT_MESSAGES_SCHEMA_SQL}
+
+${BREAKOUT_ROOMS_SCHEMA_SQL}
 
 ${PROJECT_UNDERSTANDING_SCHEMA_SQL}
 

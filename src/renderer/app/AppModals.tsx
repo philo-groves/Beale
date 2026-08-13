@@ -5,6 +5,7 @@ import type {
   ResearchProfileId,
   ResearchModelProviderId,
   ProviderModelDefaults,
+  ProviderSettings,
   ResearchProviderModelCatalog,
   ResearchProviderStatus,
   ResearchGoalPhase,
@@ -44,6 +45,7 @@ export function AppModals({
   openAiStatus,
   defaultProviderId,
   providerModelDefaults,
+  providerPolicyRiskAcknowledgements,
   researchProviderModelCatalog,
   researchProviderStatuses,
   researchGoalSuggestions,
@@ -99,6 +101,7 @@ export function AppModals({
   openAiStatus: OpenAiAccountStatus | null;
   defaultProviderId: ResearchModelProviderId | null | undefined;
   providerModelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> | undefined;
+  providerPolicyRiskAcknowledgements: ProviderSettings['cyberPolicyRiskAcknowledgements'];
   researchProviderModelCatalog: ResearchProviderModelCatalog[];
   researchProviderStatuses: ResearchProviderStatus[];
   researchGoalSuggestions: ResearchGoalSuggestionsByPhase;
@@ -166,6 +169,7 @@ export function AppModals({
           openAiStatus={openAiStatus}
           defaultProviderId={defaultProviderId}
           providerModelDefaults={providerModelDefaults}
+          providerPolicyRiskAcknowledgements={providerPolicyRiskAcknowledgements}
           researchProviderStatuses={researchProviderStatuses}
           providerModelCatalog={researchProviderModelCatalog}
           researchGoalSuggestions={researchGoalSuggestions}
