@@ -84,13 +84,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           </button>
         </div>
         {workspaces.map((workspace) => {
-          const active = snapshot?.workspace.workspacePath === workspace.workspacePath;
+          const workspaceLoaded = snapshot?.workspace.workspacePath === workspace.workspacePath;
+          const dashboardActive = workspaceLoaded && selectedRunId === null;
           const menuOpen = openRegisteredWorkspaceMenuId === workspace.id;
           const sessions = workspaceRegistry ? researchSessionsForWorkspace(workspaceRegistry, workspace) : [];
           const visibleSessions = sessions.slice(0, SIDEBAR_SESSION_LIMIT);
           return (
             <div className="workspace-group" key={workspace.id}>
-              <div className={`workspace-item-row ${active ? 'active' : ''} ${menuOpen ? 'menu-open' : ''}`} data-workspace-menu-root>
+              <div className={`workspace-item-row ${dashboardActive ? 'active' : ''} ${menuOpen ? 'menu-open' : ''}`} data-workspace-menu-root>
                 <button type="button" className="workspace-item" title={workspace.workspacePath} onClick={() => onOpenWorkspace(workspace)}>
                   <Folder size={15} aria-hidden="true" />
                   <span>{workspace.workspaceName}</span>
@@ -131,7 +132,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                   visibleSessions.map((session) => {
                     const rooms = selectedRunId === session.runId && selectedRunBreakoutRooms !== undefined
                       ? selectedRunBreakoutRooms
-                      : active
+                      : workspaceLoaded
                         ? snapshot?.runs.find((row) => row.run.id === session.runId)?.breakoutRooms ?? session.breakoutRooms ?? []
                         : session.breakoutRooms ?? [];
                     const roomsVisible = selectedRunId === session.runId && rooms.length > 0;

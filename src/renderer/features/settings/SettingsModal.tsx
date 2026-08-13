@@ -5,7 +5,7 @@ import {
   DEFAULT_RESEARCH_REASONING_EFFORT,
   smallModelForProvider
 } from '../../../shared/modelDefaults';
-import { ArrowLeft, BrainCircuit, KeyRound, Plus, RefreshCw } from 'lucide-react';
+import { ArrowLeft, BrainCircuit, KeyRound, Plus, RefreshCw, Settings } from 'lucide-react';
 import type {
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
@@ -65,12 +65,20 @@ export function SettingsSidebar({
         <span>Back to App</span>
       </button>
       <div className="sidebar-section settings-sidebar-section">
-        <div className="meta-label">Settings</div>
+        <div className="workspace-list-title">Settings</div>
         <nav className="settings-sections" aria-label="Settings sections">
           {SETTINGS_SECTIONS.map((item) => (
-            <button type="button" className={activeSection === item ? 'active' : ''} key={item} onClick={() => onChangeSection(item)}>
-              {settingsSectionLabel(item)}
-            </button>
+            <div className={`workspace-item-row no-menu ${activeSection === item ? 'active' : ''}`.trim()} key={item}>
+              <button
+                type="button"
+                className={`workspace-item ${activeSection === item ? 'active' : ''}`.trim()}
+                aria-current={activeSection === item ? 'page' : undefined}
+                onClick={() => onChangeSection(item)}
+              >
+                <Settings size={15} aria-hidden="true" />
+                <span>{settingsSectionLabel(item)}</span>
+              </button>
+            </div>
           ))}
         </nav>
       </div>

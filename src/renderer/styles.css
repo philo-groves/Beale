@@ -1284,14 +1284,19 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .workspace-item-row.active .workspace-item,
 .workspace-item.active {
   border-color: transparent;
-  background: transparent;
-  color: #c8c8c8;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.workspace-item-row.active .workspace-item span,
+.workspace-item.active span {
+  color: var(--text);
 }
 
 .workspace-item-row.active .workspace-item:hover:not(:disabled),
 .workspace-item.active:hover:not(:disabled) {
   border-color: transparent;
-  background: #181818;
+  background: var(--panel);
   color: var(--text);
 }
 
@@ -9117,36 +9122,15 @@ button.research-goal-choice:focus-visible {
 }
 
 .settings-sidebar-section {
-  gap: 6px;
+  gap: 8px;
 }
 
 .settings-sections {
   min-width: 0;
   display: grid;
   align-content: start;
-  gap: 4px;
-  padding: 2px 0;
-}
-
-.settings-sections button {
-  width: 100%;
-  justify-content: flex-start;
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted-strong);
-  padding: 0 10px;
-  text-align: left;
-}
-
-.settings-sections button:hover:not(:disabled) {
-  border-color: transparent;
-  background: #181818;
-  color: var(--text);
-}
-
-.settings-sections button.active {
-  background: var(--panel-raised);
-  color: var(--text);
+  gap: 0;
+  padding: 0;
 }
 
 .settings-view {

@@ -134,6 +134,45 @@ describe('renderer workspace display view models', () => {
     expect(html).toContain('class="lucide lucide-folder"');
     expect(html).toContain('class="lucide lucide-chevron-down"');
     expect(html).toContain('class="lucide lucide-messages-square"');
+    expect(html).not.toMatch(/class="workspace-item-row active\b/u);
+    expect(html).toContain('class="workspace-session-item active"');
+  });
+
+  it('marks a workspace active only while its dashboard is selected', () => {
+    const profile = testResearchProfile();
+    const registeredWorkspace = workspace('workspace_test', '/workspace/test');
+    const registry: WorkspaceRegistryState = {
+      registryPath: '/home/user/.beale/workspaces.json',
+      vmPreference: { enabled: false, backendKind: null, updatedAt: null },
+      activeResearchProfileId: 'security-research',
+      workspaces: [registeredWorkspace],
+      researchSessions: []
+    };
+    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
+      busy: false,
+      collapsed: false,
+      error: null,
+      openRegisteredWorkspaceMenuId: null,
+      workspaceRegistry: registry,
+      selectedRunId: null,
+      snapshot: {
+        workspace: { workspacePath: registeredWorkspace.workspacePath },
+        researchProfile: { profile },
+        runs: []
+      } as unknown as WorkspaceSnapshot,
+      onAddWorkspace: () => undefined,
+      onOpenWorkspace: () => undefined,
+      onOpenWorkspaceInfo: () => undefined,
+      onOpenResearchSession: () => undefined,
+      onRemoveWorkspace: () => undefined,
+      onResizePointerDown: () => undefined,
+      onSetOpenWorkspaceMenuId: () => undefined,
+      onShowMoreSessions: () => undefined,
+      onSearch: () => undefined,
+      onStartNewResearch: () => undefined
+    }));
+
+    expect(html).toMatch(/class="workspace-item-row active\b/u);
   });
 
   it('keeps breakout rooms collapsed beneath sessions that are not selected', () => {
