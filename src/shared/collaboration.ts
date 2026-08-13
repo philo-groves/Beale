@@ -57,19 +57,41 @@ export function collaborationLimits(intensity: ResearchCollaborationIntensity): 
   return { maxConcurrentRooms: 2, maxMembersPerRoom: 3, maxTotalInvocations: 8 };
 }
 
+export function ensureDefaultResearchCollaborator(
+  collaboration: ResearchCollaborationPreferences,
+  lead: ResearchCollaborationProviderPreference
+): ResearchCollaborationPreferences {
+  if (collaboration.mode === 'solo' || collaboration.providers.some((preference) => preference.enabled)) {
+    return collaboration;
+  }
+  const leadExists = collaboration.providers.some((preference) => (
+    preference.provider === lead.provider && preference.model === lead.model
+  ));
+  if (!leadExists) return collaboration;
+  return {
+    ...collaboration,
+    providers: collaboration.providers.map((preference) => (
+      preference.provider === lead.provider && preference.model === lead.model
+        ? { ...preference, reasoningEffort: lead.reasoningEffort, enabled: true }
+        : preference
+    ))
+  };
+}
+
 function normalizeProviders(
   value: unknown,
   fallback: readonly ResearchCollaborationProviderPreference[]
 ): ResearchCollaborationProviderPreference[] {
   const candidates = Array.isArray(value) ? value : fallback;
-  const seen = new Set<ResearchModelProviderId>();
+  const seen = new Set<string>();
   return candidates.flatMap((candidate) => {
     if (!isRecord(candidate)) return [];
     const provider = candidate.provider as ResearchModelProviderId;
     const model = typeof candidate.model === 'string' ? candidate.model.trim() : '';
     const reasoningEffort = candidate.reasoningEffort as ResearchModelEffortLevel;
-    if (!PROVIDERS.has(provider) || !model || !EFFORTS.has(reasoningEffort) || seen.has(provider)) return [];
-    seen.add(provider);
+    const key = collaborationProviderModelKey(provider, model);
+    if (!PROVIDERS.has(provider) || !model || !EFFORTS.has(reasoningEffort) || seen.has(key)) return [];
+    seen.add(key);
     return [{
       provider,
       model,
@@ -77,6 +99,10 @@ function normalizeProviders(
       enabled: candidate.enabled !== false
     }];
   });
+}
+
+function collaborationProviderModelKey(provider: ResearchModelProviderId, model: string): string {
+  return `${provider}\u0000${model}`;
 }
 
 function boundedInteger(value: unknown, minimum: number, maximum: number, fallback: number): number {

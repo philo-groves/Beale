@@ -30,11 +30,13 @@ describe('renderer formatting helpers', () => {
     expect(clampPriorityScoreForDisplay(Number.NaN)).toBe(0);
   });
 
-  it('omits only the leading GPT prefix from OpenAI model names', () => {
+  it('omits implied leading provider prefixes from model names', () => {
     expect(researchModelNameLabel('openai-codex', 'GPT-5.6 Sol')).toBe('5.6 Sol');
     expect(researchModelNameLabel('openai-codex', 'gpt-5.6-sol')).toBe('gpt-5.6-sol');
     expect(researchModelNameLabel('openai-codex', 'Legacy GPT-5.6')).toBe('Legacy GPT-5.6');
-    expect(researchModelNameLabel('anthropic', 'GPT-Compatible Claude')).toBe('GPT-Compatible Claude');
+    expect(researchModelNameLabel('anthropic', 'Claude Opus 5')).toBe('Opus 5');
+    expect(researchModelNameLabel('anthropic', 'claude-sonnet-4-6')).toBe('claude-sonnet-4-6');
+    expect(researchModelNameLabel('anthropic', 'Legacy Claude Sonnet')).toBe('Legacy Claude Sonnet');
   });
 
   it('formats small utility labels consistently', () => {

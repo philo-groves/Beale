@@ -449,6 +449,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.setProviderModelDefaults, (_event, providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) =>
     workspaceService.setProviderModelDefaults(providerId, defaults)
   );
+  ipcMain.handle(IPC_CHANNELS.setProviderOptionalModelEnabled, (
+    _event,
+    providerId: ResearchModelProviderId,
+    modelId: string,
+    enabled: boolean
+  ) => workspaceService.setProviderOptionalModelEnabled(providerId, modelId, enabled));
   ipcMain.handle(IPC_CHANNELS.setProviderCyberPolicyRiskAcknowledged, (
     _event,
     providerId: ResearchModelProviderId,

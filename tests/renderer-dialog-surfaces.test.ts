@@ -90,7 +90,7 @@ describe('renderer dialog surfaces', () => {
     expect(mathematicsHtml).not.toContain('>MSRC</button>');
   });
 
-  it('shows four goals in each research phase and a custom goal section', () => {
+  it('shows one lazily selected suggestion workflow at a time', () => {
     const suggestions = phaseSuggestions();
     const html = renderToStaticMarkup(
       createElement(ResearchGoalChooser, {
@@ -103,13 +103,12 @@ describe('renderer dialog surfaces', () => {
     );
 
     expect(html.match(/aria-label="Discovery goal \d:/g)).toHaveLength(4);
-    expect(html.match(/aria-label="Chaining goal \d:/g)).toHaveLength(4);
-    expect(html.match(/aria-label="Reporting goal \d:/g)).toHaveLength(4);
-    expect(html.match(/<button/g)).toHaveLength(13);
-    for (const suggestion of Object.values(suggestions).flat()) expect(html).toContain(suggestion);
-    expect(html).toContain('<h4 id="research-goal-custom-title">Your Goal</h4>');
-    expect(html).toContain('placeholder="Describe the research outcome you want."');
-    expect(html).toContain('Write full prompt');
+    expect(html).not.toMatch(/aria-label="Chaining goal \d:/);
+    expect(html).not.toMatch(/aria-label="Reporting goal \d:/);
+    expect(html.match(/role="tab"/g)).toHaveLength(3);
+    expect(html).toContain('role="tab" aria-selected="true" class="selected">Discovery</button>');
+    for (const suggestion of suggestions.discovery ?? []) expect(html).toContain(suggestion);
+    for (const suggestion of [...(suggestions.chaining ?? []), ...(suggestions.reporting ?? [])]) expect(html).not.toContain(suggestion);
   });
 
   it('shows goal mode enabled by default in New Research', () => {
@@ -136,19 +135,27 @@ describe('renderer dialog surfaces', () => {
       })
     );
 
-    expect(html).toContain('class="goal-option"');
+    expect(html).toContain('class="new-research-goal-toggle"');
+    expect(html).toContain('class="new-research-generate-toggle"');
     expect(html).toMatch(/<input type="checkbox" checked=""\/>/);
-    expect(html).toContain('Keep working across turns until the objective is complete or genuinely blocked.');
-    expect(html).toContain('Safety Mode');
-    expect(html).toContain('Manual Approval');
+    expect(html).toContain('<span>Goal</span>');
+    expect(html).toContain('<span>Generate</span>');
+    expect(html).toContain('aria-label="Shell safety mode"');
     expect(html).toContain('Auto-Review');
-    expect(html).toContain('Danger Mode');
-    expect(html).toContain('<option value="auto_review" selected="">Auto-Review</option>');
+    expect(html).toContain('aria-label="Research workflow"');
+    expect(html).toContain('aria-label="Lead model settings"');
+    expect(html).toContain('class="research-model-squircle research-lead-model-picker model-selection-picker');
+    expect(html).toContain('aria-label="Add collaborator"');
+    expect(html).not.toContain('research-collaborator-squircle');
+    expect(html).toContain('>Generate</button>');
+    expect(html).toContain('>Generate &amp; Start</button>');
+    expect(html).not.toContain('new-research-send');
     expect(html).not.toContain('<label>Network');
-    for (const suggestion of Object.values(suggestions).flat()) expect(html).toContain(suggestion);
+    for (const suggestion of suggestions.discovery ?? []) expect(html).toContain(suggestion);
+    for (const suggestion of [...(suggestions.chaining ?? []), ...(suggestions.reporting ?? [])]) expect(html).not.toContain(suggestion);
     expect(html).not.toContain('Reviewing prior research…');
-    expect(html).toContain('<h4 id="research-goal-custom-title">Your Goal</h4>');
-    expect(html).toContain('<textarea');
+    expect(html).toContain('aria-label="Research goal"');
+    expect(html).toContain('class="new-research-compose-layout"');
     expect(html).toContain('class="modal-panel bottom-sheet-panel wide-modal start-run-sheet"');
   });
 
@@ -203,7 +210,7 @@ describe('renderer dialog surfaces', () => {
     for (const suggestion of suggestions) expect(html).toContain(suggestion);
   });
 
-  it('opens New Research in expanded mode for a seeded session suggestion', () => {
+  it('seeds the shared New Research composer from a session suggestion', () => {
     const sentence = 'Verify the strongest unresolved boundary from the completed session.';
     const html = renderToStaticMarkup(
       createElement(StartRunForm, {
@@ -229,27 +236,31 @@ describe('renderer dialog surfaces', () => {
     );
 
     expect(html).toContain(sentence);
-    expect(html).toContain('Discovery goal');
-    expect(html).toContain('Choose another goal');
-    expect(html).not.toContain('id="research-goal-custom-title"');
+    expect(html).toContain('aria-label="Research goal"');
+    expect(html).toContain('>Generate &amp; Start</button>');
+    expect(html).toContain('aria-label="Research suggestions"');
+    expect(html).not.toContain('Discovery suggestions');
+    expect(html).toContain('research-goal-choice-scroll');
+    expect(html).not.toContain('Choose another goal');
   });
 
-  it('keeps successful goal sections usable when another section fails', () => {
+  it('shows only the selected workflow error while other workflow state stays hidden', () => {
     const suggestions = phaseSuggestions();
     const html = renderToStaticMarkup(
       createElement(ResearchGoalChooser, {
         suggestions: { discovery: suggestions.discovery },
         loading: { discovery: false, chaining: false, reporting: true },
         errors: { discovery: null, chaining: 'Chaining request failed.', reporting: null },
+        selectedWorkflowId: 'chaining',
         onSelect: () => undefined,
         onRetry: () => undefined
       })
     );
 
-    expect(html.match(/aria-label="Discovery goal \d:/g)).toHaveLength(4);
+    expect(html).not.toMatch(/aria-label="Discovery goal \d:/);
     expect(html).toContain('Could not load chaining goals');
     expect(html).toContain('Chaining request failed.');
-    expect(html.match(/research-goal-choice-loading/g)).toHaveLength(4);
+    expect(html).not.toContain('research-goal-choice-loading');
   });
 
   it('shows the structured final disposition and blocker dependencies in session summaries', () => {

@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
   getProviderSettings: 'beale:get-provider-settings',
   setDefaultProviderId: 'beale:set-default-provider-id',
   setProviderModelDefaults: 'beale:set-provider-model-defaults',
+  setProviderOptionalModelEnabled: 'beale:set-provider-optional-model-enabled',
   setProviderCyberPolicyRiskAcknowledged: 'beale:set-provider-cyber-policy-risk-acknowledged',
   getMemorySettings: 'beale:get-memory-settings',
   setMemoryTypeDescriptions: 'beale:set-memory-type-descriptions',

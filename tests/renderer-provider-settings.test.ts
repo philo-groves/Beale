@@ -192,6 +192,39 @@ describe('renderer provider settings', () => {
     expect(html).toMatch(/type="checkbox" checked=""/u);
   });
 
+  it('offers Daybreak Red as an access-restricted OpenAI opt-in without enabling it by default', () => {
+    const render = (enabled: boolean): string => renderToStaticMarkup(createElement(ProvidersSettingsView, {
+      openAiStatus: configuredOpenAiStatus(),
+      openAiOAuthResult: null,
+      researchProviderOAuthResults: {},
+      researchProviderStatuses: researchProviderStatuses(),
+      researchProviderModelCatalog: modelCatalogs(),
+      providerSettings: {
+        defaultProviderId: 'openai-codex',
+        modelDefaults: {},
+        ...(enabled ? { enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] } } : {})
+      },
+      providerStatusesLoaded: true,
+      busy: false,
+      onRefreshOpenAi: async () => undefined,
+      onStartOpenAiOAuth: async () => undefined,
+      onStartResearchProviderOAuth: async () => undefined,
+      onSetDefaultProviderId: async () => undefined,
+      onSetProviderModelDefaults: async () => undefined,
+      onSetProviderOptionalModelEnabled: async () => undefined
+    }));
+
+    const disabledHtml = render(false);
+    expect(disabledHtml).toContain('aria-label="Optional models"');
+    expect(disabledHtml).toContain('<strong>Daybreak Red</strong>');
+    expect(disabledHtml).toContain('primarily available to approved commercial users');
+    expect(disabledHtml).toMatch(/aria-label="Optional models"[\s\S]*?<input type="checkbox"\/>[\s\S]*?<strong>Daybreak Red<\/strong>/u);
+    expect(disabledHtml).not.toContain('gpt-daybreak-red-latest');
+    const enabledHtml = render(true);
+    expect(enabledHtml).toMatch(/aria-label="Optional models"[\s\S]*?<input type="checkbox" checked=""\/>[\s\S]*?<strong>Daybreak Red<\/strong>/u);
+    expect(enabledHtml).toContain('gpt-daybreak-red-latest');
+  });
+
   it('shows the xAI policy-use risk acknowledgement without a program-membership claim', () => {
     const statuses = researchProviderStatuses().map((provider) => ({
       ...provider,
@@ -259,7 +292,15 @@ function modelCatalogs(): ResearchProviderModelCatalog[] {
     maxTokens: 32_000
   });
   return [
-    { providerId: 'openai-codex', providerName: 'OpenAI (Codex)', models: [model('gpt-5.6-sol', 'GPT-5.6 Sol'), model('gpt-5.6-luna', 'GPT-5.6 Luna')] },
+    {
+      providerId: 'openai-codex',
+      providerName: 'OpenAI (Codex)',
+      models: [
+        model('gpt-5.6-sol', 'GPT-5.6 Sol'),
+        model('gpt-5.6-luna', 'GPT-5.6 Luna'),
+        model('gpt-daybreak-red-latest', 'Daybreak Red')
+      ]
+    },
     { providerId: 'anthropic', providerName: 'Anthropic (Claude)', models: [model('claude-sonnet-4-6', 'Claude Sonnet 4.6'), model('claude-haiku-4-5', 'Claude Haiku 4.5')] },
     { providerId: 'xai', providerName: 'xAI (Grok/X)', models: [model('grok-4', 'Grok 4'), model('grok-4.3', 'Grok 4.3')] }
   ];

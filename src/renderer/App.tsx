@@ -48,6 +48,7 @@ import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
 import { useTraceSelection } from './hooks/useTraceSelection';
 import { useChatViewPreference } from './hooks/useChatViewPreference';
 import { useSessionHeatPreferences } from './hooks/useSessionHeatPreferences';
+import { filterEnabledProviderModelCatalogs } from '../shared/optionalProviderModels';
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
@@ -92,6 +93,10 @@ export function App(): JSX.Element {
   const [researchProviderModelCatalog, setResearchProviderModelCatalog] = useState<ResearchProviderModelCatalog[]>([]);
   const [researchProviderOAuthResults, setResearchProviderOAuthResults] = useState<Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>>({});
   const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
+  const enabledResearchProviderModelCatalog = useMemo(
+    () => filterEnabledProviderModelCatalogs(researchProviderModelCatalog, providerSettings),
+    [providerSettings, researchProviderModelCatalog]
+  );
   const [chatView, setChatView] = useChatViewPreference();
   const [sessionHeatPreferences, setSessionHeatPreference] = useSessionHeatPreferences();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
@@ -432,6 +437,19 @@ export function App(): JSX.Element {
     setError(null);
     try {
       setProviderSettings(await window.beale.setProviderModelDefaults(providerId, defaults));
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }, []);
+
+  const setProviderOptionalModelEnabled = useCallback(async (
+    providerId: ResearchModelProviderId,
+    modelId: string,
+    enabled: boolean
+  ): Promise<void> => {
+    setError(null);
+    try {
+      setProviderSettings(await window.beale.setProviderOptionalModelEnabled(providerId, modelId, enabled));
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -888,6 +906,7 @@ export function App(): JSX.Element {
             onStartResearchProviderOAuth={startResearchProviderOAuth}
             onSetDefaultProviderId={setDefaultProviderId}
             onSetProviderModelDefaults={setProviderModelDefaults}
+            onSetProviderOptionalModelEnabled={setProviderOptionalModelEnabled}
             onSetProviderCyberPolicyRiskAcknowledged={setProviderCyberPolicyRiskAcknowledged}
             onSetSessionHeatPreference={setSessionHeatPreference}
           />
@@ -898,7 +917,7 @@ export function App(): JSX.Element {
               detail={activeRunDetail}
               events={mainSessionTraceEvents}
               allEvents={activeTraceEvents}
-              providerModelCatalog={researchProviderModelCatalog}
+              providerModelCatalog={enabledResearchProviderModelCatalog}
               honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
               activeScope={selectedRunId ? null : snapshot?.activeScope ?? null}
               projectGraph={selectedRunId ? null : snapshot?.projectGraph ?? null}
@@ -969,7 +988,7 @@ export function App(): JSX.Element {
         defaultProviderId={providerSettings?.defaultProviderId}
         providerModelDefaults={providerSettings?.modelDefaults}
         providerPolicyRiskAcknowledgements={providerSettings?.cyberPolicyRiskAcknowledgements}
-        researchProviderModelCatalog={researchProviderModelCatalog}
+        researchProviderModelCatalog={enabledResearchProviderModelCatalog}
         researchProviderStatuses={researchProviderStatuses}
         researchGoalSuggestions={researchGoalSuggestionState.suggestions}
         researchGoalSuggestionsLoading={researchGoalSuggestionState.loading}
@@ -1012,6 +1031,7 @@ export function App(): JSX.Element {
         }}
         onWorkspaceTemplate={applyOnboardingTemplate}
         onFlushProfilingReport={flushProfilingReport}
+        onLoadResearchGoalSuggestions={researchGoalSuggestionState.load}
         onRetryResearchGoalSuggestions={researchGoalSuggestionState.retry}
         onStartedNewResearch={handleResearchStarted}
         onOpenSearchResult={openSearchResult}

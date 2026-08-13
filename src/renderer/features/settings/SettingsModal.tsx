@@ -25,6 +25,10 @@ import { ProviderIcon } from '../../app/ProviderIcon';
 import { StatusPill } from '../../app/StatusPill';
 import { FloatingTextPicker, type FloatingTextPickerOption } from '../../app/FloatingTextPicker';
 import { researchModelNameLabel, stateClass } from '../../lib/formatting';
+import {
+  filterEnabledProviderModelCatalogs,
+  OPTIONAL_PROVIDER_MODELS
+} from '../../../shared/optionalProviderModels';
 import type { ChatView } from '../../view-models/chatView';
 import {
   SESSION_HEAT_LEVELS,
@@ -96,6 +100,7 @@ export function SettingsView({
   onStartResearchProviderOAuth,
   onSetDefaultProviderId,
   onSetProviderModelDefaults,
+  onSetProviderOptionalModelEnabled = async () => undefined,
   onSetProviderCyberPolicyRiskAcknowledged = async () => undefined,
   onSetSessionHeatPreference = () => undefined
 }: {
@@ -119,6 +124,11 @@ export function SettingsView({
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
   onSetDefaultProviderId: (providerId: ResearchModelProviderId | null) => Promise<void>;
   onSetProviderModelDefaults: (providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) => Promise<void>;
+  onSetProviderOptionalModelEnabled?: (
+    providerId: ResearchModelProviderId,
+    modelId: string,
+    enabled: boolean
+  ) => Promise<void>;
   onSetProviderCyberPolicyRiskAcknowledged?: (
     providerId: ResearchModelProviderId,
     acknowledged: boolean
@@ -153,6 +163,7 @@ export function SettingsView({
             onStartResearchProviderOAuth={onStartResearchProviderOAuth}
             onSetDefaultProviderId={onSetDefaultProviderId}
             onSetProviderModelDefaults={onSetProviderModelDefaults}
+            onSetProviderOptionalModelEnabled={onSetProviderOptionalModelEnabled}
             onSetProviderCyberPolicyRiskAcknowledged={onSetProviderCyberPolicyRiskAcknowledged}
           />
         ) : (
@@ -423,6 +434,7 @@ export function ProvidersSettingsView({
   onStartResearchProviderOAuth,
   onSetDefaultProviderId,
   onSetProviderModelDefaults,
+  onSetProviderOptionalModelEnabled = async () => undefined,
   onSetProviderCyberPolicyRiskAcknowledged = async () => undefined
 }: {
   openAiStatus: OpenAiAccountStatus | null;
@@ -438,6 +450,11 @@ export function ProvidersSettingsView({
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
   onSetDefaultProviderId: (providerId: ResearchModelProviderId | null) => Promise<void>;
   onSetProviderModelDefaults: (providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) => Promise<void>;
+  onSetProviderOptionalModelEnabled?: (
+    providerId: ResearchModelProviderId,
+    modelId: string,
+    enabled: boolean
+  ) => Promise<void>;
   onSetProviderCyberPolicyRiskAcknowledged?: (
     providerId: ResearchModelProviderId,
     acknowledged: boolean
@@ -494,13 +511,16 @@ export function ProvidersSettingsView({
   const addableProviders = availableProviders.filter((provider) => provider.id !== authenticationProvider?.id);
   const activeProvider = viewProviders.find((provider) => provider.id === activeProviderId) ?? null;
   const activeModelCatalog = researchProviderModelCatalog.find((catalog) => catalog.providerId === activeProvider?.id) ?? null;
+  const activeEnabledModelCatalog = activeModelCatalog
+    ? filterEnabledProviderModelCatalogs([activeModelCatalog], providerSettings)[0] ?? null
+    : null;
   const activeProviderStatus = activeProvider?.id && activeProvider.id !== 'openai-codex'
     ? researchProviderStatuses.find((provider) => provider.id === activeProvider.id) ?? null
     : null;
   const activeModelDefaults = activeProvider
     ? resolvedProviderModelDefaults(
         activeProvider.id,
-        activeModelCatalog,
+        activeEnabledModelCatalog,
         activeProvider.id === 'openai-codex' ? openAiStatus?.defaultModel ?? null : activeProviderStatus?.defaultModel ?? null,
         activeProvider.id === 'openai-codex' ? openAiStatus?.defaultReasoningEffort ?? null : null,
         providerSettings?.modelDefaults[activeProvider.id]
@@ -546,9 +566,13 @@ export function ProvidersSettingsView({
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
           onAuthenticate={() => authenticateProvider('openai-codex')}
-          modelCatalog={activeModelCatalog}
+          modelCatalog={activeEnabledModelCatalog}
+          fullModelCatalog={activeModelCatalog}
           modelDefaults={activeModelDefaults}
           onSetModelDefaults={(defaults) => void onSetProviderModelDefaults('openai-codex', defaults)}
+          enabledOptionalModelIds={providerSettings?.enabledOptionalModels?.['openai-codex'] ?? []}
+          onSetOptionalModelEnabled={(modelId, enabled) =>
+            void onSetProviderOptionalModelEnabled('openai-codex', modelId, enabled)}
           policyRiskAcknowledged={providerSettings?.cyberPolicyRiskAcknowledgements?.['openai-codex'] === true}
           onSetPolicyRiskAcknowledged={(acknowledged) =>
             void onSetProviderCyberPolicyRiskAcknowledged('openai-codex', acknowledged)}
@@ -559,7 +583,7 @@ export function ProvidersSettingsView({
           provider={researchProviderStatuses.find((provider) => provider.id === activeProvider.id)!}
           result={researchProviderOAuthResults[activeProvider.id] ?? null}
           onAuthenticate={() => authenticateProvider(activeProvider.id)}
-          modelCatalog={activeModelCatalog}
+          modelCatalog={activeEnabledModelCatalog}
           modelDefaults={activeModelDefaults}
           onSetModelDefaults={(defaults) => void onSetProviderModelDefaults(activeProvider.id, defaults)}
           policyRiskAcknowledged={providerSettings?.cyberPolicyRiskAcknowledgements?.[activeProvider.id] === true}
@@ -740,8 +764,11 @@ function OpenAiProviderCard({
   openAiStatus,
   onAuthenticate,
   modelCatalog,
+  fullModelCatalog,
   modelDefaults,
   onSetModelDefaults,
+  enabledOptionalModelIds,
+  onSetOptionalModelEnabled,
   policyRiskAcknowledged,
   onSetPolicyRiskAcknowledged
 }: {
@@ -750,8 +777,11 @@ function OpenAiProviderCard({
   openAiStatus: OpenAiAccountStatus | null;
   onAuthenticate: () => void;
   modelCatalog: ResearchProviderModelCatalog | null;
+  fullModelCatalog: ResearchProviderModelCatalog | null;
   modelDefaults: ProviderModelDefaults | null;
   onSetModelDefaults: (defaults: ProviderModelDefaults) => void;
+  enabledOptionalModelIds: readonly string[];
+  onSetOptionalModelEnabled: (modelId: string, enabled: boolean) => void;
   policyRiskAcknowledged: boolean;
   onSetPolicyRiskAcknowledged: (acknowledged: boolean) => void;
 }): JSX.Element {
@@ -777,6 +807,13 @@ function OpenAiProviderCard({
         defaults={modelDefaults}
         onChange={onSetModelDefaults}
       />
+      <ProviderOptionalModelsControls
+        busy={busy}
+        catalog={fullModelCatalog}
+        enabledModelIds={enabledOptionalModelIds}
+        providerId="openai-codex"
+        onChange={onSetOptionalModelEnabled}
+      />
       <ProviderCyberPolicyAcknowledgement
         providerId="openai-codex"
         acknowledged={policyRiskAcknowledged}
@@ -794,6 +831,46 @@ function OpenAiProviderCard({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function ProviderOptionalModelsControls({
+  busy,
+  catalog,
+  enabledModelIds,
+  providerId,
+  onChange
+}: {
+  busy: boolean;
+  catalog: ResearchProviderModelCatalog | null;
+  enabledModelIds: readonly string[];
+  providerId: ResearchModelProviderId;
+  onChange: (modelId: string, enabled: boolean) => void;
+}): JSX.Element | null {
+  const availableModelIds = new Set((catalog?.models ?? []).map((model) => model.id));
+  const optionalModels = OPTIONAL_PROVIDER_MODELS.filter((model) => model.providerId === providerId);
+  if (optionalModels.length === 0) return null;
+  return (
+    <div className="provider-optional-models" aria-label="Optional models">
+      <span>Optional models</span>
+      {optionalModels.map((model) => {
+        const available = availableModelIds.has(model.modelId);
+        return (
+          <label key={model.modelId}>
+            <input
+              type="checkbox"
+              checked={enabledModelIds.includes(model.modelId)}
+              disabled={busy || !available}
+              onChange={(event) => onChange(model.modelId, event.target.checked)}
+            />
+            <span>
+              <strong>{model.name}</strong>
+              <small>{available ? model.accessNote : 'Not available in the installed Honeycrisp model catalog.'}</small>
+            </span>
+          </label>
+        );
+      })}
+    </div>
   );
 }
 

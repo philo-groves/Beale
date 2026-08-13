@@ -539,6 +539,7 @@ describe('renderer memory catalog', () => {
     })));
 
     expect(html).toContain('Back to Subagents');
+    expect(html).toContain('class="subagent-provider-icon" aria-label="Model: grok-4.6" title="grok-4.6"');
     expect(html).toContain('class="research-side-nested-name" title="Parser Review">Parser Review</span>');
     expect(html).toContain('Checking the parser boundary now.');
     expect(html).not.toContain('Open session detail views');
@@ -767,6 +768,8 @@ function subagentCommentaryEvent(): TraceEventRecord {
     summary: 'Subagent commentary.',
     payload: {
       agentPath: '/root/parser_review',
+      provider: 'xai',
+      model: 'grok-4.6',
       transcriptRole: 'assistant',
       transcriptSource: 'honeycrisp_commentary',
       messagePhase: 'commentary',

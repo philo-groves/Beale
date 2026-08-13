@@ -78,6 +78,13 @@ const api: BealeApi = {
   setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setProviderModelDefaults, providerId, defaults);
   },
+  setProviderOptionalModelEnabled(
+    providerId: ResearchModelProviderId,
+    modelId: string,
+    enabled: boolean
+  ): Promise<ProviderSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setProviderOptionalModelEnabled, providerId, modelId, enabled);
+  },
   setProviderCyberPolicyRiskAcknowledged(providerId: ResearchModelProviderId, acknowledged: boolean): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setProviderCyberPolicyRiskAcknowledged, providerId, acknowledged);
   },

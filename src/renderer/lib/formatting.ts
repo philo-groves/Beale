@@ -16,7 +16,9 @@ export function traceLabel(value: string): string {
 }
 
 export function researchModelNameLabel(providerId: ResearchModelProviderId, name: string): string {
-  return providerId === 'openai-codex' ? name.replace(/^GPT-/u, '') : name;
+  if (providerId === 'openai-codex') return name.replace(/^GPT-/u, '');
+  if (providerId === 'anthropic') return name.replace(/^Claude\s+/u, '');
+  return name;
 }
 
 export function formatSessionStart(date: Date): string {

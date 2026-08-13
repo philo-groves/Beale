@@ -26,6 +26,7 @@ import type {
 } from '@shared/types';
 import type { ResearchProfileId } from '@shared/types';
 import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, isResearchProfileId, MEMORY_NODE_TYPES } from '../shared/types';
+import { isOptionalProviderModel } from '../shared/optionalProviderModels';
 
 interface SqlRow {
   [key: string]: unknown;
@@ -119,6 +120,7 @@ export class WorkspaceRegistry {
 
   public getProviderSettings(): ProviderSettings {
     const cyberPolicyRiskAcknowledgements: Partial<Record<ResearchModelProviderId, true>> = {};
+    const enabledOptionalModels = normalizeEnabledOptionalModelsRecord(this.getMeta('provider_optional_models_json'));
     if (this.getMeta('openai_trusted_access_cyber_risk_acknowledged') === '1') {
       cyberPolicyRiskAcknowledgements['openai-codex'] = true;
     }
@@ -131,6 +133,7 @@ export class WorkspaceRegistry {
     return {
       defaultProviderId: normalizeDefaultProviderId(this.getMeta('default_provider_id')),
       modelDefaults: normalizeProviderModelDefaultsRecord(this.getMeta('provider_model_defaults_json')),
+      ...(Object.keys(enabledOptionalModels).length > 0 ? { enabledOptionalModels } : {}),
       ...(Object.keys(cyberPolicyRiskAcknowledgements).length > 0 ? { cyberPolicyRiskAcknowledgements } : {})
     };
   }
@@ -151,6 +154,32 @@ export class WorkspaceRegistry {
     settings.modelDefaults[providerId] = normalizeProviderModelDefaults(defaults);
     this.setMeta('provider_model_defaults_json', JSON.stringify(settings.modelDefaults));
     return settings;
+  }
+
+  public setProviderOptionalModelEnabled(
+    providerId: ResearchModelProviderId,
+    modelId: string,
+    enabled: boolean
+  ): ProviderSettings {
+    if (!isResearchModelProviderId(providerId) || !isOptionalProviderModel(providerId, modelId)) {
+      throw new Error('Invalid optional provider model.');
+    }
+    const settings = this.getProviderSettings();
+    const current = new Set(settings.enabledOptionalModels?.[providerId] ?? []);
+    if (enabled) current.add(modelId);
+    else current.delete(modelId);
+    const enabledOptionalModels = { ...settings.enabledOptionalModels };
+    if (current.size > 0) enabledOptionalModels[providerId] = [...current];
+    else delete enabledOptionalModels[providerId];
+    this.setMeta('provider_optional_models_json', JSON.stringify(enabledOptionalModels));
+    if (!enabled) {
+      const defaults = settings.modelDefaults[providerId];
+      if (defaults && (defaults.largeModel === modelId || defaults.smallModel === modelId)) {
+        delete settings.modelDefaults[providerId];
+        this.setMeta('provider_model_defaults_json', JSON.stringify(settings.modelDefaults));
+      }
+    }
+    return this.getProviderSettings();
   }
 
   public setProviderCyberPolicyRiskAcknowledged(
@@ -730,6 +759,28 @@ function normalizeProviderModelDefaultsRecord(value: unknown): Partial<Record<Re
       } catch {
         continue;
       }
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function normalizeEnabledOptionalModelsRecord(
+  value: unknown
+): Partial<Record<ResearchModelProviderId, string[]>> {
+  if (typeof value !== 'string' || !value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const normalized: Partial<Record<ResearchModelProviderId, string[]>> = {};
+    for (const providerId of ['openai-codex', 'anthropic', 'xai'] as const) {
+      const modelIds = (parsed as Record<string, unknown>)[providerId];
+      if (!Array.isArray(modelIds)) continue;
+      const enabled = [...new Set(modelIds.filter((modelId): modelId is string => (
+        typeof modelId === 'string' && isOptionalProviderModel(providerId, modelId)
+      )))];
+      if (enabled.length > 0) normalized[providerId] = enabled;
     }
     return normalized;
   } catch {

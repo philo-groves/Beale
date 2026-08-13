@@ -343,8 +343,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const visibleSelectedRunbook = visibleSelectedRunbookId ? selectedRunbook : null;
   const visibleSelectedReportId = featureAvailability.reports ? selectedReportId : null;
   const visibleSelectedReport = visibleSelectedReportId ? selectedReport : null;
+  const selectedSubagent = visibleSelectedSubagentPath
+    ? subagents.find((subagent) => subagent.path === visibleSelectedSubagentPath) ?? null
+    : null;
   const selectedSubagentName = subagentDisplayName(visibleSelectedSubagentPath
-    ? subagents.find((subagent) => subagent.path === visibleSelectedSubagentPath)?.name
+    ? selectedSubagent?.name
       ?? visibleSelectedSubagentPath.split('/').filter(Boolean).at(-1)
       ?? visibleSelectedSubagentPath
     : '');
@@ -559,7 +562,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     <>
       <aside className={`main-session-side memory-catalog view-${activeView} ${visibleSelectedSubagentPath || visibleSelectedRunbookId || visibleSelectedReportId || selectedNode ? 'has-nested-view' : ''}`} aria-label={`${viewSpaceLabel} details`}>
         {visibleSelectedSubagentPath ? (
-          <ResearchSideNestedHeader label="Subagents" name={selectedSubagentName} onBack={onBackToSubagents} />
+          <ResearchSideNestedHeader
+            label="Subagents"
+            leading={selectedSubagent ? (
+              <SubagentProviderIcon provider={selectedSubagent.provider} model={selectedSubagent.model} />
+            ) : null}
+            name={selectedSubagentName}
+            onBack={onBackToSubagents}
+          />
         ) : visibleSelectedRunbookId ? (
           <ResearchSideNestedHeader label={runbookLabel} name={selectedRunbookName} onBack={onBackToRunbooks} />
         ) : visibleSelectedReportId ? (
@@ -935,10 +945,12 @@ function MemoryTypeSummaryRows({ summaries }: {
 
 export function ResearchSideNestedHeader({
   label,
+  leading,
   name,
   onBack
 }: {
   label: string;
+  leading?: ReactNode;
   name: string;
   onBack: () => void;
 }): JSX.Element {
@@ -948,6 +960,7 @@ export function ResearchSideNestedHeader({
         <ArrowLeft size={15} aria-hidden="true" />
         <span>Back to {label}</span>
       </button>
+      {leading}
       <span className="research-side-nested-name" title={name}>{name}</span>
     </header>
   );

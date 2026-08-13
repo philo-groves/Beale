@@ -38,17 +38,21 @@ describe('renderer research profile presentation', () => {
       },
       loading: { survey: false, synthesize: true },
       errors: { survey: null, synthesize: null },
+      selectedWorkflowId: 'synthesize',
       onSelect: () => undefined,
       onRetry: () => undefined
     }));
 
     expect(defaultResearchWorkflowId(workflows)).toBe('survey');
-    expect(html).toContain('>Survey</h4>');
-    expect(html).toContain('>Synthesize</h4>');
+    expect(html).toContain('>Survey</button>');
+    expect(html).toContain('>Synthesize</button>');
+    expect(html).toContain('Synthesize the available material.');
+    expect(html).not.toContain('Synthesize suggestions');
+    expect(html).not.toContain('Survey suggestions');
+    expect(html).toContain('research-goal-choice-scroll');
+    expect(html).not.toContain('Map the corpus.');
     expect(html).not.toContain('Discovery');
     expect(html.match(/research-goal-choice-loading/g)).toHaveLength(12);
-    expect(html).toContain('<option value="survey" selected="">Survey</option>');
-    expect(html).toContain('<option value="synthesize">Synthesize</option>');
   });
 
   it('uses presentation labels and the default workflow in the start surface', () => {
@@ -71,8 +75,11 @@ describe('renderer research profile presentation', () => {
     }));
 
     expect(html).toContain('aria-label="Close New Inquiry"');
-    expect(html).toContain('Study Settings');
-    expect(html).toContain('Choose the workflow that matches the next research outcome.');
+    expect(html).not.toContain('Study Settings');
+    expect(html).not.toContain('>Minutes<');
+    expect(html).toContain('aria-label="Research workflow"');
+    expect(html).toContain('>Survey</span>');
+    expect(html).toContain('>Generate &amp; Start</button>');
   });
 
   it('orders exact profile statuses and retains unknown stored values', () => {

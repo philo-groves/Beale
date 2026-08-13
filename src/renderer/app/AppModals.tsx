@@ -83,6 +83,7 @@ export function AppModals({
   onOpenSessionHistorySession,
   onWorkspaceTemplate,
   onFlushProfilingReport,
+  onLoadResearchGoalSuggestions,
   onRetryResearchGoalSuggestions,
   onStartedNewResearch,
   onSteerNotification,
@@ -139,6 +140,7 @@ export function AppModals({
   onOpenSessionHistorySession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
   onWorkspaceTemplate: (templateKind: WorkspaceTemplateKind) => void;
   onFlushProfilingReport: () => void;
+  onLoadResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
@@ -179,6 +181,7 @@ export function AppModals({
           busy={busy}
           runAction={runAction}
           onCancel={onCancelNewResearch}
+          onLoadResearchGoalSuggestions={onLoadResearchGoalSuggestions}
           onRetryResearchGoalSuggestions={onRetryResearchGoalSuggestions}
           onStarted={onStartedNewResearch}
         />

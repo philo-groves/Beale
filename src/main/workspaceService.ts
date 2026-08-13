@@ -60,6 +60,7 @@ import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../sh
 import { resolveGoalObjective } from '../shared/goalObjective';
 import { normalizeResearchCollaboration } from '../shared/collaboration';
 import { DEFAULT_SHELL_SAFETY_MODE } from '../shared/shellSafety';
+import { isProviderModelEnabled } from '../shared/optionalProviderModels';
 import type {
   ApprovalRecord,
   AttemptRecord,
@@ -624,6 +625,14 @@ export class WorkspaceService {
 
   public setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): ProviderSettings {
     return this.getWorkspaceRegistry().setProviderModelDefaults(providerId, defaults);
+  }
+
+  public setProviderOptionalModelEnabled(
+    providerId: ResearchModelProviderId,
+    modelId: string,
+    enabled: boolean
+  ): ProviderSettings {
+    return this.getWorkspaceRegistry().setProviderOptionalModelEnabled(providerId, modelId, enabled);
   }
 
   public setProviderCyberPolicyRiskAcknowledged(
@@ -1590,10 +1599,19 @@ export class WorkspaceService {
     const runtime = this.getForegroundRuntime();
     if (!runtime) throw new Error('No Beale workspace is open');
     const researchProfile = this.refreshResearchProfile(runtime);
+    const providerSettings = this.getWorkspaceRegistry().getProviderSettings();
+    requireEnabledProviderModel(
+      providerSettings,
+      normalizedInput.provider ?? 'openai-codex',
+      normalizedInput.model
+    );
+    for (const collaborator of normalizedInput.collaboration?.providers.filter((provider) => provider.enabled) ?? []) {
+      requireEnabledProviderModel(providerSettings, collaborator.provider, collaborator.model);
+    }
     if (researchProfile.profile.id === 'security-research' && normalizedInput.collaboration?.mode !== 'solo') {
       requireCollaborationPolicyAcknowledgements(
         normalizedInput.collaboration?.providers.filter((provider) => provider.enabled).map((provider) => provider.provider) ?? [],
-        this.getWorkspaceRegistry().getProviderSettings()
+        providerSettings
       );
     }
     if (normalizedInput.runEngine === 'honeycrisp') {
@@ -1858,6 +1876,13 @@ export class WorkspaceService {
         if (run.status !== 'paused') {
           throw new Error(`Only paused runs can be resumed. Use steering to continue an inactive session.`);
         }
+        if (action.modelSelection) {
+          requireEnabledProviderModel(
+            this.getWorkspaceRegistry().getProviderSettings(),
+            action.modelSelection.provider,
+            action.modelSelection.model
+          );
+        }
         if (action.modelSelection) db.updateRunModelSelection(action.runId, action.modelSelection);
         if (instruction && runEngine === 'honeycrisp' && !this.honeycrispEngine?.steer(action.runId, instruction, action.modelSelection)) {
           throw new Error(`Paused Honeycrisp process not found for run ${action.runId}.`);
@@ -1902,6 +1927,13 @@ export class WorkspaceService {
         const instruction = action.instruction.trim();
         if (!instruction) {
           throw new Error('Steering instruction cannot be empty.');
+        }
+        if (action.modelSelection) {
+          requireEnabledProviderModel(
+            this.getWorkspaceRegistry().getProviderSettings(),
+            action.modelSelection.provider,
+            action.modelSelection.model
+          );
         }
         if (action.modelSelection) db.updateRunModelSelection(action.runId, action.modelSelection);
         const honeycrispDispatch = runEngine === 'honeycrisp'
@@ -5028,6 +5060,16 @@ function fixtureScenarioFromBudget(budget: Record<string, unknown>): FixtureScen
 
 function isShellSafetyMode(value: unknown): value is StartRunInput['shellSafetyMode'] {
   return value === 'manual_approval' || value === 'auto_review' || value === 'danger';
+}
+
+function requireEnabledProviderModel(
+  settings: ProviderSettings,
+  providerId: string,
+  modelId: string
+): void {
+  if (providerId !== 'openai-codex' && providerId !== 'anthropic' && providerId !== 'xai') return;
+  if (isProviderModelEnabled(settings, providerId, modelId)) return;
+  throw new Error(`${modelId} is an optional ${providerId} model. Enable it in Settings > Providers before continuing.`);
 }
 
 function requireCollaborationPolicyAcknowledgements(

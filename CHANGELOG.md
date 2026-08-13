@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added access-restricted OpenAI Daybreak Red (`gpt-daybreak-red-latest`) as an optional model. It remains hidden from model selectors and defaults until explicitly enabled in OpenAI Provider Settings.
 - Active breakout-room members now appear as collapsed working disclosures with live durations and expandable, real-time subagent commentary and tool history.
 - Added durable multi-provider breakout rooms for research sessions. New Research now configures adaptive collaboration, provider/model preferences, independent first passes, challenge rounds, and bounded team intensity; room membership and transcripts remain available under each session in the workspace sidebar.
 - Added Grok 4.6 to the xAI research-model options with its supported low-through-xhigh reasoning levels.
@@ -20,13 +21,17 @@
 
 ### Changed
 
+- Anthropic model labels now omit the implied leading `Claude` prefix, matching the existing compact OpenAI model labels.
+- New Research now starts with the lead model as its required default collaborator. The default remains editable and becomes removable after another collaborator is added; Add Collaborator fills unused providers before stacking further models from a represented provider, while exact provider/model duplicates remain prevented across Beale and Honeycrisp routing.
+- New Research now loads only the selected workflow's suggestions into a flat, borderless surface with left-aligned view buttons, separator-defined rows, and responsive top and bottom scroll fades. It pairs this with a borderless steering-style goal/prompt composer containing workflow, safety, and compact Goal and Generate toggles. Its model area separates the default provider's large lead model from an initially empty, explicitly added collaborator stack using inset squircle selectors. Generate is enabled by default and exposes footer actions to generate a draft or generate and start; disabling it starts directly from the manual prompt.
+- Workspace Dream and Dejunk housekeeping containers now use squircle corners.
 - The left sidebar now reveals breakout rooms only beneath the selected session, with vertical open and close transitions.
 - Provider Settings view tabs now show each provider's mark instead of a generic key icon.
 - The steering model and effort selector now shows the selected provider mark before the model name.
 - Single-worker delegation now remains a normal Subagent. Breakout rooms are exposed only after at least two collaborating subagents share the room, and lead agents are directed to delegate a same-model representative rather than join personally.
 - Breakout-room lists now load newest-first by room creation time in live detail, incremental updates, and workspace session summaries.
 - Breakout-room participant pills now show each provider mark, formatted Subagent name, and collaboration role.
-- Detailed Subagent catalogs now identify each worker with its OpenAI, Anthropic, or xAI provider mark and reveal the exact model on hover.
+- Detailed Subagent catalogs and per-subagent sidenav headers now identify each worker with its OpenAI, Anthropic, or xAI provider mark and reveal the exact model on hover.
 - Breakout-room agents now retain provider-attributed commentary and evidence-oriented outcomes in a dedicated session view, while policy acknowledgements are checked for every enabled cybersecurity provider before a collaborative run starts.
 - Cybersecurity sessions now carry provider-specific policy-risk acknowledgements into Honeycrisp's authorization preflight: OpenAI requires Trusted Access for Cyber membership, Anthropic requires Cyber Verification Program membership, and xAI requires policy-use risk acceptance.
 - Provider Settings now persists explicit cybersecurity policy-use acknowledgements for OpenAI, Anthropic, and xAI; Anthropic subscription authentication continues to require its Cyber Verification Program acknowledgement before sign-in.
@@ -209,6 +214,8 @@
 
 ### Removed
 
+- Removed the unused per-session minute-limit control and its empty New Research settings section; new research remains unlimited by default.
+- Removed the redundant Honeycrisp host-privilege warning banner from the New Research dialog; safety-mode controls and documented execution posture remain unchanged.
 - Removed the experimental Shell Options and Developer sections from Agent Settings; host shell defaults and profiling internals remain unchanged.
 - Removed Beale's background memory-curator launch flags, live usage/event handling, advisory-request presentation, and curator-specific model defaults.
 - Removed HAM Mode, including its autonomous continuation scheduler, exploration/closure prompt workflow, retries, cooldowns, IPC and renderer surfaces, and shared contracts. Workbench migration 9 deletes persisted HAM metadata from the global database.

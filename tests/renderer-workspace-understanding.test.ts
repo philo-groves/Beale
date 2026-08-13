@@ -54,7 +54,8 @@ describe('workspace dashboard', () => {
     expect(housekeepingCardStyles).toContain('width: 100%');
     expect(housekeepingCardStyles).toContain('height: 100%');
     expect(housekeepingCardStyles).toContain('border: 0');
-    expect(housekeepingCardStyles).toContain('border-radius: 24px');
+    expect(housekeepingCardStyles).toContain('border-radius: 34px');
+    expect(housekeepingCardStyles).toContain('corner-shape: squircle');
     expect(housekeepingCardStyles).toContain('radial-gradient');
   });
 
