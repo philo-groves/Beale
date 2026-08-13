@@ -25,7 +25,7 @@ import {
   ensureDefaultResearchCollaborator,
   normalizeResearchCollaboration
 } from '../../../shared/collaboration';
-import { BottomSheet } from '../../app/Modal';
+import { Modal } from '../../app/Modal';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { ModelSelectionPicker } from '../../app/ModelSelectionPicker';
@@ -628,10 +628,10 @@ export function StartRunForm({
   };
 
   return (
-    <BottomSheet
+    <Modal
       title={presentation?.newResearchLabel ?? 'New Research'}
       wide
-      className="start-run-sheet"
+      className="start-run-dialog"
       onClose={closeModal}
       footer={
         <>
@@ -661,6 +661,7 @@ export function StartRunForm({
           <section className="new-research-composer" aria-label="Research prompt composer" aria-busy={generatingPrompt}>
             <textarea
               ref={promptBoxRef}
+              autoFocus
               value={input.promptMarkdown}
               disabled={generatingPrompt}
               placeholder={editorStage === 'goal'
@@ -842,7 +843,7 @@ export function StartRunForm({
               <div className="collaboration-controls-right">
                 {collaboration.mode !== 'solo' ? (
                   <label className="collaboration-inline-control">
-                    <span title="Sets how many rounds collaborators use to challenge and refine one another's conclusions.">Challenge rounds</span>
+                    <span title="Sets how many rounds collaborators use to challenge and refine one another's conclusions.">Challenge Rounds</span>
                     <select
                       value={collaboration.peerChallengeRounds}
                       onChange={(event) => update('collaboration', { ...collaboration, peerChallengeRounds: Number(event.target.value) })}
@@ -883,7 +884,7 @@ export function StartRunForm({
             ) : null}
         </div>
       </div>
-    </BottomSheet>
+    </Modal>
   );
 }
 

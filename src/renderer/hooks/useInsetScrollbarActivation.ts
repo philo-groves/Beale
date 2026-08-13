@@ -6,6 +6,7 @@ export const INSET_SCROLLBAR_SELECTOR = [
   '.sidebar',
   '.main-trace-list',
   '.main-commentary-list',
+  '.research-goal-choice-list',
   '.modal-body',
   '.session-history-list',
   '.trace-inspector-payload pre',

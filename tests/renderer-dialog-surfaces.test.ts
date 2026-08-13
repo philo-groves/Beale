@@ -11,6 +11,7 @@ import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sess
 import { SessionNextSteps, SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
 import { WorkspaceSessionHistorySheet } from '../src/renderer/features/workspaces/WorkspaceModals';
 import { WorkspaceOnboardingModal } from '../src/renderer/features/workspaces/WorkspaceOnboardingModal';
+import { INSET_SCROLLBAR_SELECTOR } from '../src/renderer/hooks/useInsetScrollbarActivation';
 import { onboardingFormFromDefaults } from '../src/renderer/view-models/workspaceOnboarding';
 
 describe('renderer dialog surfaces', () => {
@@ -153,7 +154,7 @@ describe('renderer dialog surfaces', () => {
     expect(html).not.toContain('research-collaborator-squircle');
     expect(html).not.toContain('Independent first pass');
     expect(html.match(/class="collaboration-inline-control"/g)).toHaveLength(3);
-    expect(html.indexOf('>Challenge rounds</span>')).toBeLessThan(html.indexOf('>Mode</span>'));
+    expect(html.indexOf('>Challenge Rounds</span>')).toBeLessThan(html.indexOf('>Mode</span>'));
     expect(html).toContain('title="Sets how many rounds collaborators use to challenge and refine one another&#x27;s conclusions."');
     expect(html).toContain('title="Controls whether research runs solo, calls collaborators adaptively, or always uses the configured team."');
     expect(html).toContain('title="Controls how broadly and deeply collaborators are used during the session."');
@@ -165,19 +166,34 @@ describe('renderer dialog surfaces', () => {
     for (const suggestion of [...(suggestions.chaining ?? []), ...(suggestions.reporting ?? [])]) expect(html).not.toContain(suggestion);
     expect(html).not.toContain('Reviewing prior research…');
     expect(html).toContain('aria-label="Research goal"');
+    expect(html).toContain('autofocus=""');
     expect(html).toContain('class="new-research-compose-layout"');
-    expect(html).toContain('class="modal-panel bottom-sheet-panel wide-modal start-run-sheet"');
+    expect(html).toContain('class="modal-panel wide-modal start-run-dialog"');
+    expect(html).not.toContain('bottom-sheet-panel');
   });
 
   it('styles collaboration dropdowns as compact inline controls', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const controlStyles = styles.match(/\.collaboration-inline-control\s*\{([^}]*)\}/)?.[1] ?? '';
     const selectStyles = styles.match(/\.collaboration-inline-control select\s*\{([^}]*)\}/)?.[1] ?? '';
+    const selectHoverStyles = styles.match(/\.collaboration-inline-control select:hover:not\(:disabled\),\s*\.collaboration-inline-control select:focus-visible\s*\{([^}]*)\}/)?.[1] ?? '';
     const teamLabelStyles = styles.match(/\.research-model-team-label\s*\{([^}]*)\}/)?.[1] ?? '';
-    const startRunSheetStyles = styles.match(/\.modal-panel\.bottom-sheet-panel\.start-run-sheet\s*\{([^}]*)\}/)?.[1] ?? '';
-    const startRunBodyStyles = styles.match(/\.modal-panel\.bottom-sheet-panel\.start-run-sheet \.modal-body\s*\{([^}]*)\}/)?.[1] ?? '';
-    const startRunFooterButtonStyles = styles.match(/\.modal-panel\.bottom-sheet-panel\.start-run-sheet \.modal-footer button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const startRunDialogStyles = styles.match(/\.modal-panel\.start-run-dialog\s*\{([^}]*)\}/)?.[1] ?? '';
+    const startRunBodyStyles = styles.match(/\.modal-panel\.start-run-dialog \.modal-body\s*\{([^}]*)\}/)?.[1] ?? '';
+    const startRunTitleStyles = styles.match(/\.modal-panel\.start-run-dialog \.modal-header h2\s*\{([^}]*)\}/)?.[1] ?? '';
+    const startRunFooterStyles = styles.match(/\.modal-panel\.start-run-dialog \.modal-footer\s*\{([^}]*)\}/)?.[1] ?? '';
+    const startRunFooterButtonStyles = styles.match(/\.modal-panel\.start-run-dialog \.modal-footer button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const newResearchLayoutStyles = styles.match(/\.new-research-compose-layout\s*\{([^}]*)\}/)?.[1] ?? '';
+    const newResearchComposerStyles = styles.match(/\.new-research-composer\s*\{([^}]*)\}/)?.[1] ?? '';
+    const newResearchComposerActionStyles = styles.match(/\.new-research-composer-actions\s*\{([^}]*)\}/)?.[1] ?? '';
+    const researchGoalChooserStyles = styles.match(/\.research-goal-chooser\s*\{([^}]*)\}/)?.[1] ?? '';
+    const researchGoalChoiceScrollStyles = styles.match(/\.research-goal-choice-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
+    const researchGoalChoiceListStyles = styles.match(/\.research-goal-choice-list\s*\{([^}]*)\}/)?.[1] ?? '';
+    const researchGoalChoiceStyles = styles.match(/\.research-goal-choice\s*\{([^}]*)\}/)?.[1] ?? '';
+    const researchGoalChoiceHoverStyles = styles.match(/button\.research-goal-choice:hover:not\(:disabled\),\s*button\.research-goal-choice:focus-visible\s*\{([^}]*)\}/)?.[1] ?? '';
 
+    expect(INSET_SCROLLBAR_SELECTOR).toContain('.research-goal-choice-list');
+    expect(styles.match(/  \.research-goal-choice-list,/g)).toHaveLength(6);
     expect(controlStyles).toContain('display: inline-flex');
     expect(controlStyles).toContain('gap: 5px');
     expect(controlStyles).toContain('color: var(--muted)');
@@ -186,13 +202,43 @@ describe('renderer dialog surfaces', () => {
     expect(selectStyles).toContain('max-width: 120px');
     expect(selectStyles).toContain('border: 0');
     expect(selectStyles).toContain('font-weight: 400');
+    expect(selectHoverStyles).toContain('box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.045)');
     expect(teamLabelStyles).toContain('color: var(--muted)');
     expect(teamLabelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
     expect(teamLabelStyles).toContain('font-weight: 400');
     expect(teamLabelStyles).toContain('line-height: normal');
-    expect(startRunSheetStyles).toContain('min-height: 0');
+    expect(startRunDialogStyles).toContain('min-height: 0');
+    expect(startRunDialogStyles).toContain('border-radius: 34px');
+    expect(startRunDialogStyles).toContain('corner-shape: squircle');
+    expect(startRunDialogStyles).toContain('background: var(--panel-raised)');
     expect(startRunBodyStyles).toContain('padding-bottom: 12px');
+    expect(startRunTitleStyles).toContain('color: var(--muted)');
+    expect(startRunTitleStyles).toContain('font-size: 1rem');
+    expect(startRunTitleStyles).toContain('font-weight: 400');
+    expect(startRunTitleStyles).toContain('line-height: 1.3');
+    expect(startRunFooterStyles).toContain('background: var(--panel-raised)');
     expect(startRunFooterButtonStyles).toContain('border: 0');
+    expect(newResearchLayoutStyles).toContain('gap: 0');
+    expect(newResearchLayoutStyles).toContain('background: var(--panel)');
+    expect(newResearchComposerStyles).toContain('border: 0');
+    expect(newResearchComposerStyles).toContain('background: var(--panel-column)');
+    expect(newResearchComposerActionStyles).toContain('padding: 2px 3px 5px 4px');
+    expect(researchGoalChooserStyles).toContain('margin-left: -18px');
+    expect(researchGoalChooserStyles).toContain('background: transparent');
+    expect(researchGoalChooserStyles).toContain('padding: 10px 0 0 28px');
+    expect(researchGoalChoiceScrollStyles).toContain('box-shadow: inset 0 1px var(--line)');
+    expect(researchGoalChoiceScrollStyles).not.toContain('inset 0 -1px');
+    expect(researchGoalChoiceListStyles).toContain('padding: 1px 0 0');
+    expect(researchGoalChoiceListStyles).not.toContain('scrollbar-gutter');
+    expect(researchGoalChoiceStyles).toContain('border-top: 1px solid transparent');
+    expect(researchGoalChoiceHoverStyles).toContain('border-top-color: var(--text)');
+    expect(researchGoalChoiceHoverStyles).toContain('border-bottom-color: var(--text)');
+    expect(researchGoalChoiceHoverStyles).toContain('background: transparent');
+    expect(researchGoalChoiceHoverStyles).toContain('color: var(--text)');
+    expect(styles).toContain('.research-collaborator-squircle:has(.research-collaborator-picker .model-selection-picker-trigger:hover:not(:disabled))');
+    expect(styles).toContain('box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.045)');
+    expect(styles).toContain('.research-collaborator-squircle .research-collaborator-picker .model-selection-picker-trigger:hover:not(:disabled)');
+    expect(styles).toMatch(/\.research-collaborator-add:hover:not\(:disabled\),[\s\S]*?box-shadow: inset 0 0 0 999px rgba\(255, 255, 255, 0\.045\)/);
   });
 
   it('keeps the terminal-session next-step widget structurally stable while suggestions load', () => {

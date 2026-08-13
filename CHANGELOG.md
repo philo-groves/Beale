@@ -21,6 +21,7 @@
 
 ### Changed
 
+- New Research now opens as a centered floating squircle dialog that layers its darker Suggestions surface beneath the right edge of its lighter prompt composer.
 - Collaboration now uses atomic rooms with simultaneous independent-memo release, targeted peer challenge and response rounds, and lead synthesis. Cybersecurity and Mathematics select separate workflow-specific role recipes from their active workspace profile, and only Cybersecurity requires provider policy acknowledgements for collaborator readiness.
 - Research profile catalogs now resolve through asynchronous parallel Honeycrisp processes and cache duplicate workspace/profile requests, avoiding main-process stalls when opening Profiles.
 - Agent Settings now presents research profiles in a two-level Profiles view, with the selected profile description between the profile and memory-type tabs and each memory type expanded into a full-width definition and session-heat panel.
