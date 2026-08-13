@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  ResearchProviderAuthService,
   claudeSubscriptionLoginInvocation,
   parseHoneycrispAuthStatus,
   parseHoneycrispAuthVerification,
@@ -16,6 +17,26 @@ describe('research provider auth parsing', () => {
     expect(invocation?.args.join(' ')).toContain('Start-Process');
     expect(invocation?.args.join(' ')).toContain('claude auth login --claudeai');
     expect(invocation?.args.join(' ')).toContain('WaitForExit');
+  });
+
+  it('cancels only the selected provider login process', () => {
+    const auth = new ResearchProviderAuthService();
+    const kill = vi.fn();
+    const otherKill = vi.fn();
+    const internals = auth as unknown as {
+      loginProcesses: Map<'anthropic' | 'xai', { kill: () => void }>;
+      latestStarts: Map<'anthropic' | 'xai', unknown>;
+    };
+    internals.loginProcesses.set('anthropic', { kill });
+    internals.loginProcesses.set('xai', { kill: otherKill });
+    internals.latestStarts.set('anthropic', { started: true });
+
+    auth.cancelOAuthLogin('anthropic');
+
+    expect(kill).toHaveBeenCalledOnce();
+    expect(otherKill).not.toHaveBeenCalled();
+    expect(internals.loginProcesses.has('anthropic')).toBe(false);
+    expect(internals.latestStarts.has('anthropic')).toBe(false);
   });
 
   it('parses Honeycrisp stored OAuth state', () => {

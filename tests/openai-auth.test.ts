@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   codexDesktopCommandFromInstallLocation,
   findCodexDesktopBinCommand,
@@ -41,6 +41,23 @@ describe('OpenAiAuthService subscription forgetting', () => {
     writeFileSync(command, 'test executable');
 
     expect(findCodexDesktopBinCommand(directory)).toBe(command);
+  });
+
+  it('cancels an active subscription login process', () => {
+    const auth = new OpenAiAuthService();
+    const kill = vi.fn();
+    const internals = auth as unknown as {
+      oauthLoginProcess: { kill: () => void } | null;
+      latestOAuthStart: unknown;
+    };
+    internals.oauthLoginProcess = { kill };
+    internals.latestOAuthStart = { started: true };
+
+    auth.cancelOAuthLogin();
+
+    expect(kill).toHaveBeenCalledOnce();
+    expect(internals.oauthLoginProcess).toBeNull();
+    expect(internals.latestOAuthStart).toBeNull();
   });
 
   it('removes a validated Codex OAuth file when the CLI is unavailable', async () => {

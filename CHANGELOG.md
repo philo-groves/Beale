@@ -19,8 +19,9 @@
 - Commentary and other Markdown trace prose now render inline and display LaTeX notation locally with KaTeX, including both dollar and `\\(...\\)` / `\\[...\\]` delimiters.
 
 ### Changed
-- Research profiles are now selected per workspace during onboarding, defaulting to Cybersecurity. Existing workspaces retain the previously active profile during registry migration, and workspace and session lists remain visible across profiles.
 
+- Research profiles are now selected per workspace during onboarding, defaulting to Cybersecurity. Existing workspaces retain the previously active profile during registry migration, and workspace and session lists remain visible across profiles.
+- Provider subscription sign-in and API-key configuration now remain disabled until the provider's cybersecurity acknowledgement is confirmed, with an inline risk-acknowledgement prompt beside each action. Unauthenticated and unhealthy provider views now expose a compact removal control that also cancels in-progress authentication.
 - Main-session Commentary now places intermediate commentary and tool activity beneath a live `Working for` duration header and horizontal divider, then collapses that history behind an expandable `Worked for` header whenever the run is no longer active while keeping the prompt and final result visible.
 - Provider policy acknowledgements become read-only after authentication, serving as one-time proof of risk review until the provider is removed.
 - Completed-session suggestions now use a full-width flat section header with compact, flush-left, lightbulb-marked rows and white text-and-divider hover feedback instead of enclosing and per-suggestion cards.

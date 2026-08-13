@@ -83,6 +83,7 @@ describe('renderer provider settings', () => {
     const unhealthyStyles = styles.match(/\.provider-health-indicator\.state-unhealthy\s*\{([^}]*)\}/)?.[1] ?? '';
     const authenticatingStyles = styles.match(/\.provider-health-indicator\.state-authenticating\s*\{([^}]*)\}/)?.[1] ?? '';
     const acknowledgementHeadingStyles = styles.match(/\.provider-policy-warning > h3\s*\{([^}]*)\}/)?.[1] ?? '';
+    const removeProviderStyles = styles.match(/\.provider-remove-button\s*\{([^}]*)\}/)?.[1] ?? '';
     const acknowledgementStyles = styles.match(/\.provider-risk-acknowledgement\s*\{([^}]*)\}/)?.[1] ?? '';
     const acknowledgementInputStyles = styles.match(/\.provider-risk-acknowledgement input\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionalModelsStyles = styles.match(/\.provider-optional-models\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -123,6 +124,10 @@ describe('renderer provider settings', () => {
     expect(providerSelectStyles).toContain('background-color: #141414');
     expect(providerSelectStyles).toContain('font-weight: 400');
     expect(healthyStyles).toContain('background: var(--green)');
+    expect(removeProviderStyles).toContain('width: 18px');
+    expect(removeProviderStyles).toContain('border-radius: 50%');
+    expect(removeProviderStyles).toContain('background: #383838');
+    expect(removeProviderStyles).toContain('color: #b8b8b8');
     expect(unhealthyStyles).toContain('background: var(--red)');
     expect(authenticatingStyles).toContain('border: 1.5px solid rgba(255, 255, 255, 0.28)');
     expect(authenticatingStyles).toContain('animation: provider-health-spin 800ms linear infinite');
@@ -230,6 +235,42 @@ describe('renderer provider settings', () => {
     expect(html).not.toContain('codex login --device-auth');
   });
 
+  it('requires the provider acknowledgement before subscription or API-key setup', () => {
+    const render = (acknowledged: boolean): string => renderToStaticMarkup(createElement(ProvidersSettingsView, {
+      openAiStatus: {
+        ...configuredOpenAiStatus(),
+        subscriptionConfigured: false,
+        apiKeyConfigured: false
+      },
+      openAiOAuthResult: null,
+      researchProviderOAuthResults: {},
+      researchProviderStatuses: researchProviderStatuses(),
+      researchProviderModelCatalog: modelCatalogs(),
+      providerSettings: {
+        defaultProviderId: 'openai-codex',
+        modelDefaults: {},
+        ...(acknowledged ? { cyberPolicyRiskAcknowledgements: { 'openai-codex': true as const } } : {})
+      },
+      providerStatusesLoaded: true,
+      busy: false,
+      onRefreshOpenAi: async () => undefined,
+      onStartOpenAiOAuth: async () => undefined,
+      onStartResearchProviderOAuth: async () => undefined,
+      onSetDefaultProviderId: async () => undefined,
+      onSetProviderModelDefaults: async () => undefined
+    }));
+
+    const pendingHtml = render(false);
+    expect(pendingHtml).toMatch(/<button class="secondary-button provider-authentication-action" type="button" disabled="">Sign in<\/button>/u);
+    expect(pendingHtml).toMatch(/<button class="secondary-button provider-authentication-action" type="button" disabled="">Configure<\/button>/u);
+    expect(pendingHtml.match(/Acknowledge the risks first/gu)).toHaveLength(2);
+
+    const confirmedHtml = render(true);
+    expect(confirmedHtml).toContain('<button class="secondary-button provider-authentication-action" type="button">Sign in</button>');
+    expect(confirmedHtml).toContain('<button class="secondary-button provider-authentication-action" type="button">Configure</button>');
+    expect(confirmedHtml).not.toContain('Acknowledge the risks first');
+  });
+
   it('renders API key confirmation as a password dialog without a stored value', () => {
     const html = renderToStaticMarkup(createElement(ProviderApiKeyDialog, {
       providerId: 'anthropic',
@@ -307,6 +348,8 @@ describe('renderer provider settings', () => {
     expect(html.match(/class="provider-settings-heading-icon"/gu)).toHaveLength(1);
     expect(html).toContain('class="provider-health-indicator state-authenticating"');
     expect(html).toContain('aria-label="Authentication in progress"');
+    expect(html).toContain('class="provider-remove-button"');
+    expect(html).toContain('aria-label="Remove xAI provider"');
     expect(html).toContain('aria-label="Provider model defaults"');
     expect(html).toContain('Complete authentication in the browser.');
   });
@@ -330,6 +373,8 @@ describe('renderer provider settings', () => {
 
     expect(html).toContain('class="provider-health-indicator state-unhealthy"');
     expect(html).toContain('aria-label="Unhealthy"');
+    expect(html).toContain('class="provider-remove-button"');
+    expect(html).toContain('aria-label="Remove OpenAI provider"');
   });
 
   it('offers only authenticated providers as default choices and None when there are none', () => {

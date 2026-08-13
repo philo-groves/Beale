@@ -27,6 +27,7 @@ export const IPC_CHANNELS = {
   getOpenAiStatus: 'beale:get-openai-status',
   startOpenAiOAuth: 'beale:start-openai-oauth',
   forgetProviderSubscription: 'beale:forget-provider-subscription',
+  removeProvider: 'beale:remove-provider',
   configureProviderApiKey: 'beale:configure-provider-api-key',
   removeProviderApiKey: 'beale:remove-provider-api-key',
   refreshOpenAiStatus: 'beale:refresh-openai-status',

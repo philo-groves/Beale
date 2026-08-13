@@ -579,6 +579,29 @@ export function App(): JSX.Element {
     }
   }, [reloadProviderAuthentication]);
 
+  const removeProvider = useCallback(async (providerId: ResearchModelProviderId): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setProviderSettings(await window.beale.removeProvider(providerId));
+      await reloadProviderAuthentication();
+      if (providerId === 'openai-codex') {
+        setOpenAiOAuthResult(null);
+      } else {
+        setResearchProviderOAuthResults((current) => {
+          if (!(providerId in current)) return current;
+          const next = { ...current };
+          delete next[providerId];
+          return next;
+        });
+      }
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }, [reloadProviderAuthentication]);
+
   const configureProviderApiKey = useCallback(async (providerId: ResearchModelProviderId, apiKey: string): Promise<void> => {
     setBusy(true);
     setError(null);
@@ -982,6 +1005,7 @@ export function App(): JSX.Element {
             onStartOpenAiOAuth={startOpenAiOAuth}
             onStartResearchProviderOAuth={startResearchProviderOAuth}
             onForgetProviderSubscription={forgetProviderSubscription}
+            onRemoveProvider={removeProvider}
             onConfigureProviderApiKey={configureProviderApiKey}
             onRemoveProviderApiKey={removeProviderApiKey}
             onSetDefaultProviderId={setDefaultProviderId}

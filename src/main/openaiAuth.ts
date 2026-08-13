@@ -149,7 +149,16 @@ export class OpenAiAuthService {
     return result;
   }
 
+  public cancelOAuthLogin(): void {
+    const child = this.oauthLoginProcess;
+    this.oauthLoginProcess = null;
+    this.latestOAuthStart = null;
+    child?.kill();
+    this.clearCachedCredential();
+  }
+
   public async forgetSubscription(): Promise<void> {
+    this.cancelOAuthLogin();
     this.clearCachedCredential();
     const codexAuthPath = this.codexAuthPath();
     if (!this.getCodexAuthFileCredential()) {
@@ -180,8 +189,7 @@ export class OpenAiAuthService {
   }
 
   public dispose(): void {
-    this.oauthLoginProcess?.kill();
-    this.oauthLoginProcess = null;
+    this.cancelOAuthLogin();
   }
 
   private resolveCredential(): CredentialProbe {

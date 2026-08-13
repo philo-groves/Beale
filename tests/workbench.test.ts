@@ -3811,6 +3811,23 @@ describe('Beale workbench skeleton', () => {
     retained.close();
   });
 
+  it('removes stored provider credentials and policy acknowledgement together', async () => {
+    delete process.env.XAI_API_KEY;
+    const service = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: tempWorkspace(),
+      providerCredentialStore: new ProviderCredentialStore(),
+      providerSubscriptionConfigured: () => false
+    });
+    service.configureProviderApiKey('xai', 'managed-xai-key');
+    await service.setProviderCyberPolicyRiskAcknowledged('xai', true);
+
+    const settings = await service.removeProvider('xai');
+
+    expect(process.env.XAI_API_KEY).toBeUndefined();
+    expect(settings.cyberPolicyRiskAcknowledgements).toBeUndefined();
+    service.close();
+  });
+
   it.each([
     {
       name: 'the wrong number of suggestions',

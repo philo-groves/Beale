@@ -5,7 +5,7 @@ import {
   DEFAULT_RESEARCH_REASONING_EFFORT,
   smallModelForProvider
 } from '../../../shared/modelDefaults';
-import { ArrowLeft, BrainCircuit, KeyRound, Plus, RefreshCw, Settings } from 'lucide-react';
+import { ArrowLeft, BrainCircuit, KeyRound, Plus, RefreshCw, Settings, X } from 'lucide-react';
 import type {
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
@@ -105,6 +105,7 @@ export function SettingsView({
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
   onForgetProviderSubscription = async () => undefined,
+  onRemoveProvider = async () => undefined,
   onConfigureProviderApiKey = async () => undefined,
   onRemoveProviderApiKey = async () => undefined,
   onSetDefaultProviderId,
@@ -131,6 +132,7 @@ export function SettingsView({
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
   onForgetProviderSubscription?: (providerId: ResearchModelProviderId) => Promise<void>;
+  onRemoveProvider?: (providerId: ResearchModelProviderId) => Promise<void>;
   onConfigureProviderApiKey?: (providerId: ResearchModelProviderId, apiKey: string) => Promise<void>;
   onRemoveProviderApiKey?: (providerId: ResearchModelProviderId) => Promise<void>;
   onSetDefaultProviderId: (providerId: ResearchModelProviderId | null) => Promise<void>;
@@ -174,6 +176,7 @@ export function SettingsView({
             onStartOpenAiOAuth={onStartOpenAiOAuth}
             onStartResearchProviderOAuth={onStartResearchProviderOAuth}
             onForgetProviderSubscription={onForgetProviderSubscription}
+            onRemoveProvider={onRemoveProvider}
             onConfigureProviderApiKey={onConfigureProviderApiKey}
             onRemoveProviderApiKey={onRemoveProviderApiKey}
             onSetDefaultProviderId={onSetDefaultProviderId}
@@ -359,6 +362,27 @@ function ProviderHealthIndicator({ state }: { state: ProviderHealthState }): JSX
   );
 }
 
+function ProviderRemoveButton({
+  providerName,
+  disabled,
+  onRemove
+}: {
+  providerName: string;
+  disabled: boolean;
+  onRemove: () => void;
+}): JSX.Element {
+  return (
+    <button
+      className="provider-remove-button"
+      type="button"
+      aria-label={`Remove ${providerName} provider`}
+      title={`Remove ${providerName} provider`}
+      disabled={disabled}
+      onClick={onRemove}
+    ><X size={11} aria-hidden="true" /></button>
+  );
+}
+
 function ProviderAuthenticationStatus({ state, preferred = false }: { state: ProviderAuthenticationState; preferred?: boolean }): JSX.Element {
   const label = state === 'configured'
     ? 'Configured'
@@ -392,6 +416,7 @@ function ProviderAuthenticationSection({
   busy,
   subscriptionDisabled,
   result,
+  policyRiskAcknowledged,
   preferredMethod,
   onAuthenticate,
   onForgetSubscription,
@@ -405,6 +430,7 @@ function ProviderAuthenticationSection({
   busy: boolean;
   subscriptionDisabled: boolean;
   result: OpenAiOAuthStartResult | ResearchProviderOAuthStartResult | null;
+  policyRiskAcknowledged: boolean;
   preferredMethod: ProviderAuthenticationMethod;
   onAuthenticate: () => void;
   onForgetSubscription: () => void;
@@ -432,12 +458,13 @@ function ProviderAuthenticationSection({
               <button
                 className="secondary-button provider-authentication-action"
                 type="button"
-                disabled={busy || subscriptionDisabled}
+                disabled={busy || subscriptionDisabled || !policyRiskAcknowledged}
                 onClick={onAuthenticate}
               >
                 Sign in
               </button>
             )}
+            {subscriptionState !== 'configured' && !policyRiskAcknowledged ? <span className="provider-authentication-prerequisite">Acknowledge the risks first</span> : null}
             {showPreferenceControls && preferredMethod !== 'subscription' ? (
               <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={() => onMarkPreferred('subscription')}>
                 Prefer
@@ -457,10 +484,11 @@ function ProviderAuthenticationSection({
                 Remove
               </button>
             ) : (
-              <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={() => onConfigureApiKey(providerId)}>
+              <button className="secondary-button provider-authentication-action" type="button" disabled={busy || !policyRiskAcknowledged} onClick={() => onConfigureApiKey(providerId)}>
                 Configure
               </button>
             )}
+            {!apiKeyConfigured && !policyRiskAcknowledged ? <span className="provider-authentication-prerequisite">Acknowledge the risks first</span> : null}
             {showPreferenceControls && preferredMethod !== 'api_key' ? (
               <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={() => onMarkPreferred('api_key')}>
                 Prefer
@@ -613,6 +641,7 @@ export function ProvidersSettingsView({
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
   onForgetProviderSubscription = async () => undefined,
+  onRemoveProvider = async () => undefined,
   onConfigureProviderApiKey = async () => undefined,
   onRemoveProviderApiKey = async () => undefined,
   onSetDefaultProviderId,
@@ -633,6 +662,7 @@ export function ProvidersSettingsView({
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
   onForgetProviderSubscription?: (providerId: ResearchModelProviderId) => Promise<void>;
+  onRemoveProvider?: (providerId: ResearchModelProviderId) => Promise<void>;
   onConfigureProviderApiKey?: (providerId: ResearchModelProviderId, apiKey: string) => Promise<void>;
   onRemoveProviderApiKey?: (providerId: ResearchModelProviderId) => Promise<void>;
   onSetDefaultProviderId: (providerId: ResearchModelProviderId | null) => Promise<void>;
@@ -741,6 +771,12 @@ export function ProvidersSettingsView({
       void onStartResearchProviderOAuth(providerId);
     }
   };
+  const removeProvider = async (providerId: ProviderSettingsId): Promise<void> => {
+    await onRemoveProvider(providerId);
+    setAuthenticationProviderId((current) => current === providerId ? null : current);
+    setActiveProviderId((current) => current === providerId ? null : current);
+    setApiKeyDialogProviderId((current) => current === providerId ? null : current);
+  };
   const showProvider = (providerId: ProviderSettingsId): void => {
     setAuthenticationProviderId(providerId);
     setActiveProviderId(providerId);
@@ -781,6 +817,7 @@ export function ProvidersSettingsView({
           openAiStatus={openAiStatus}
           onAuthenticate={() => authenticateProvider('openai-codex')}
           onForgetSubscription={() => void onForgetProviderSubscription('openai-codex')}
+          onRemoveProvider={() => void removeProvider('openai-codex')}
           onConfigureApiKey={setApiKeyDialogProviderId}
           onRemoveApiKey={() => void onRemoveProviderApiKey('openai-codex')}
           modelCatalog={activeEnabledModelCatalog}
@@ -805,6 +842,7 @@ export function ProvidersSettingsView({
           result={researchProviderOAuthResults[activeProvider.id] ?? null}
           onAuthenticate={() => authenticateProvider(activeProvider.id)}
           onForgetSubscription={() => void onForgetProviderSubscription(activeProvider.id)}
+          onRemoveProvider={() => void removeProvider(activeProvider.id)}
           onConfigureApiKey={setApiKeyDialogProviderId}
           onRemoveApiKey={() => void onRemoveProviderApiKey(activeProvider.id)}
           modelCatalog={activeEnabledModelCatalog}
@@ -992,6 +1030,7 @@ function OpenAiProviderCard({
   openAiStatus,
   onAuthenticate,
   onForgetSubscription,
+  onRemoveProvider,
   onConfigureApiKey,
   onRemoveApiKey,
   modelCatalog,
@@ -1011,6 +1050,7 @@ function OpenAiProviderCard({
   openAiStatus: OpenAiAccountStatus | null;
   onAuthenticate: () => void;
   onForgetSubscription: () => void;
+  onRemoveProvider: () => void;
   onConfigureApiKey: (providerId: ResearchModelProviderId) => void;
   onRemoveApiKey: () => void;
   modelCatalog: ResearchProviderModelCatalog | null;
@@ -1026,6 +1066,7 @@ function OpenAiProviderCard({
   onSetPreferredAuthenticationMethod: (method: ProviderAuthenticationMethod) => void;
 }): JSX.Element {
   const readiness = openAiStatus?.readiness ?? 'not_configured';
+  const healthState: ProviderHealthState = openAiStatus?.loginInProgress ? 'authenticating' : openAiStatus?.configured && (readiness === 'oauth_ready' || readiness === 'development_fallback') ? 'healthy' : 'unhealthy';
   const subscriptionState: ProviderAuthenticationState = openAiStatus?.loginInProgress
     ? 'authenticating'
     : openAiStatus?.subscriptionConfigured
@@ -1041,7 +1082,8 @@ function OpenAiProviderCard({
         <ProviderIcon className="provider-settings-heading-icon" provider="openai-codex" size={18} aria-hidden="true" />
         <div className="provider-settings-heading-title">
           <h4>OpenAI</h4>
-          <ProviderHealthIndicator state={openAiStatus?.loginInProgress ? 'authenticating' : openAiStatus?.configured && (readiness === 'oauth_ready' || readiness === 'development_fallback') ? 'healthy' : 'unhealthy'} />
+          <ProviderHealthIndicator state={healthState} />
+          {healthState !== 'healthy' ? <ProviderRemoveButton providerName="OpenAI" disabled={busy && healthState !== 'authenticating'} onRemove={onRemoveProvider} /> : null}
         </div>
         <ProviderModelDefaultsControls
           busy={busy}
@@ -1071,6 +1113,7 @@ function OpenAiProviderCard({
         apiKeyConfigured={openAiStatus?.apiKeyConfigured ?? false}
         busy={busy}
         subscriptionDisabled={false}
+        policyRiskAcknowledged={policyRiskAcknowledged}
         result={openAiOAuthResult}
         preferredMethod={preferredAuthenticationMethod}
         onAuthenticate={onAuthenticate}
@@ -1134,6 +1177,7 @@ function ResearchProviderCard({
   busy,
   onAuthenticate,
   onForgetSubscription,
+  onRemoveProvider,
   onConfigureApiKey,
   onRemoveApiKey,
   modelCatalog,
@@ -1153,6 +1197,7 @@ function ResearchProviderCard({
   busy: boolean;
   onAuthenticate: () => void;
   onForgetSubscription: () => void;
+  onRemoveProvider: () => void;
   onConfigureApiKey: (providerId: ResearchModelProviderId) => void;
   onRemoveApiKey: () => void;
   modelCatalog: ResearchProviderModelCatalog | null;
@@ -1168,6 +1213,7 @@ function ResearchProviderCard({
   onSetPreferredAuthenticationMethod: (method: ProviderAuthenticationMethod) => void;
 }): JSX.Element {
   const providerName = providerCompanyName(provider.id);
+  const healthState: ProviderHealthState = provider.loginInProgress ? 'authenticating' : provider.configured && provider.readiness === 'ready' ? 'healthy' : 'unhealthy';
   const subscriptionState: ProviderAuthenticationState = provider.loginInProgress
     ? 'authenticating'
     : provider.subscriptionConfigured
@@ -1181,7 +1227,8 @@ function ResearchProviderCard({
         <ProviderIcon className="provider-settings-heading-icon" provider={provider.id} size={18} aria-hidden="true" />
         <div className="provider-settings-heading-title">
           <h4>{providerName}</h4>
-          <ProviderHealthIndicator state={provider.loginInProgress ? 'authenticating' : provider.configured && provider.readiness === 'ready' ? 'healthy' : 'unhealthy'} />
+          <ProviderHealthIndicator state={healthState} />
+          {healthState !== 'healthy' ? <ProviderRemoveButton providerName={providerName} disabled={busy && healthState !== 'authenticating'} onRemove={onRemoveProvider} /> : null}
         </div>
         <ProviderModelDefaultsControls
           busy={busy}
@@ -1213,7 +1260,8 @@ function ResearchProviderCard({
         subscriptionState={subscriptionState}
         apiKeyConfigured={provider.apiKeyConfigured}
         busy={busy}
-        subscriptionDisabled={provider.loginInProgress || (provider.id === 'anthropic' && !policyRiskAcknowledged)}
+        subscriptionDisabled={provider.loginInProgress}
+        policyRiskAcknowledged={policyRiskAcknowledged}
         result={result}
         preferredMethod={preferredAuthenticationMethod}
         onAuthenticate={onAuthenticate}

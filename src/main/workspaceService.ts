@@ -2312,6 +2312,23 @@ export class WorkspaceService {
     return this.requireSnapshot();
   }
 
+  public async removeProvider(providerId: ResearchModelProviderId): Promise<ProviderSettings> {
+    if (providerId === 'openai-codex') this.openAiAuth.cancelOAuthLogin();
+    else this.researchProviderAuth.cancelOAuthLogin(providerId);
+
+    if (await this.isProviderSubscriptionConfigured(providerId)) {
+      if (providerId === 'openai-codex') await this.openAiAuth.forgetSubscription();
+      else await this.researchProviderAuth.forgetSubscription(providerId);
+    }
+    this.providerCredentials.removeApiKey(providerId);
+    this.openAiAuth.clearCachedCredential();
+
+    const registry = this.getWorkspaceRegistry();
+    registry.setProviderCyberPolicyRiskAcknowledged(providerId, false);
+    this.emitChange();
+    return registry.getProviderSettings();
+  }
+
   public async forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<ProviderSettings> {
     if (providerId === 'openai-codex') await this.openAiAuth.forgetSubscription();
     else await this.researchProviderAuth.forgetSubscription(providerId);

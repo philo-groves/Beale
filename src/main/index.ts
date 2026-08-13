@@ -484,6 +484,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.startOpenAiOAuth, () => workspaceService.startOpenAiOAuth());
   ipcMain.handle(IPC_CHANNELS.forgetProviderSubscription, (_event, providerId: ResearchModelProviderId) =>
     workspaceService.forgetProviderSubscription(providerId));
+  ipcMain.handle(IPC_CHANNELS.removeProvider, (_event, providerId: ResearchModelProviderId) =>
+    workspaceService.removeProvider(providerId));
   ipcMain.handle(IPC_CHANNELS.configureProviderApiKey, (_event, providerId: ResearchModelProviderId, apiKey: string) =>
     workspaceService.configureProviderApiKey(providerId, apiKey));
   ipcMain.handle(IPC_CHANNELS.removeProviderApiKey, (_event, providerId: ResearchModelProviderId) =>

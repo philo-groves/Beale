@@ -120,14 +120,22 @@ export class ResearchProviderAuthService {
     return result;
   }
 
+  public cancelOAuthLogin(providerId: ResearchProviderId): void {
+    requireSupportedProvider(providerId);
+    const child = this.loginProcesses.get(providerId);
+    this.loginProcesses.delete(providerId);
+    this.latestStarts.delete(providerId);
+    child?.kill();
+  }
+
   public async forgetSubscription(providerId: ResearchProviderId): Promise<void> {
     requireSupportedProvider(providerId);
+    this.cancelOAuthLogin(providerId);
     await runHoneycrispCommand(['auth', 'logout', providerId]);
   }
 
   public dispose(): void {
-    for (const child of this.loginProcesses.values()) child.kill();
-    this.loginProcesses.clear();
+    for (const providerId of [...this.loginProcesses.keys()]) this.cancelOAuthLogin(providerId);
   }
 
   private async getStatus(providerId: ResearchProviderId): Promise<ResearchProviderStatus> {

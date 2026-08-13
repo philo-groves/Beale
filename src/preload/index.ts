@@ -144,6 +144,9 @@ const api: BealeApi = {
   forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.forgetProviderSubscription, providerId);
   },
+  removeProvider(providerId: ResearchModelProviderId): Promise<ProviderSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.removeProvider, providerId);
+  },
   configureProviderApiKey(providerId: ResearchModelProviderId, apiKey: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.configureProviderApiKey, providerId, apiKey);
   },
