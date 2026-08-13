@@ -24,6 +24,7 @@ import {
 } from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
 import { ResearchProviderAuthService } from './researchProviderAuth';
+import { ProviderCredentialStore } from './providerCredentialStore';
 import { HoneycrispRunEngine, invokeHoneycrispToolsConfig, invokeHoneycrispToolsList } from './honeycrispRunEngine';
 import { ResearchProfileService } from './researchProfileService';
 import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
@@ -68,6 +69,7 @@ import type {
   DeveloperSettings,
   ProviderSettings,
   ProviderModelDefaults,
+  ProviderAuthenticationMethod,
   ExecutorStatus,
   FixtureScenario,
   GeneratedResearchGoalSuggestions,
@@ -439,6 +441,7 @@ export interface WorkspaceServiceOptions {
   openAiFetch?: FetchLike;
   researchProfileResolver?: (workspacePath: string, profileId: ResearchProfileId) => ResolvedResearchProfile;
   researchSubjectResolver?: (workspacePath: string) => ResearchSubjectInput | null;
+  providerCredentialStore?: ProviderCredentialStore;
 }
 
 interface WorkspaceRuntime {
@@ -526,8 +529,9 @@ export class WorkspaceService {
   private honeycrispEngine: HoneycrispRunEngine | null = null;
   private researchProfile: ResearchProfileSnapshot | null = null;
   private readonly researchProfileService = new ResearchProfileService();
-  private readonly openAiAuth = new OpenAiAuthService();
-  private readonly researchProviderAuth = new ResearchProviderAuthService();
+  private readonly openAiAuth: OpenAiAuthService;
+  private readonly researchProviderAuth: ResearchProviderAuthService;
+  private readonly providerCredentials: ProviderCredentialStore;
   private readonly profiling = new ProfilingService();
   private workspaceRegistry: WorkspaceRegistry | null = null;
   private workspacePath: string | null = null;
@@ -544,7 +548,11 @@ export class WorkspaceService {
   public constructor(
     private readonly onChange: (change: WorkspaceChange) => void = () => undefined,
     private readonly options: WorkspaceServiceOptions = {}
-  ) {}
+  ) {
+    this.providerCredentials = options.providerCredentialStore ?? new ProviderCredentialStore();
+    this.openAiAuth = new OpenAiAuthService();
+    this.researchProviderAuth = new ResearchProviderAuthService();
+  }
 
   public openWorkspace(path: string): WorkspaceSnapshot {
     return this.open(path, false);
@@ -640,6 +648,13 @@ export class WorkspaceService {
     acknowledged: boolean
   ): ProviderSettings {
     return this.getWorkspaceRegistry().setProviderCyberPolicyRiskAcknowledged(providerId, acknowledged);
+  }
+
+  public setProviderPreferredAuthenticationMethod(
+    providerId: ResearchModelProviderId,
+    method: ProviderAuthenticationMethod
+  ): ProviderSettings {
+    return this.getWorkspaceRegistry().setProviderPreferredAuthenticationMethod(providerId, method);
   }
 
   public getMemorySettings(): MemorySettings {
@@ -1265,6 +1280,10 @@ export class WorkspaceService {
 
   public async startOpenAiOAuth(): Promise<OpenAiOAuthStartResult> {
     const result = await this.openAiAuth.startOAuthLogin();
+    const registry = this.getWorkspaceRegistry();
+    if (!registry.getProviderSettings().preferredAuthenticationMethods?.['openai-codex']) {
+      registry.setProviderPreferredAuthenticationMethod('openai-codex', 'subscription');
+    }
     this.emitChange();
     return result;
   }
@@ -1277,8 +1296,13 @@ export class WorkspaceService {
     return this.researchProviderAuth.getModelCatalog();
   }
 
-  public startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult> {
-    return this.researchProviderAuth.startOAuthLogin(providerId);
+  public async startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult> {
+    const result = await this.researchProviderAuth.startOAuthLogin(providerId);
+    const registry = this.getWorkspaceRegistry();
+    if (!registry.getProviderSettings().preferredAuthenticationMethods?.[providerId]) {
+      registry.setProviderPreferredAuthenticationMethod(providerId, 'subscription');
+    }
+    return result;
   }
 
   public async generateResearchGoalSuggestions(
@@ -2294,6 +2318,34 @@ export class WorkspaceService {
 
     this.emitChange();
     return this.requireSnapshot();
+  }
+
+  public async forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<void> {
+    if (providerId === 'openai-codex') await this.openAiAuth.forgetSubscription();
+    else await this.researchProviderAuth.forgetSubscription(providerId);
+    this.openAiAuth.clearCachedCredential();
+    if (
+      this.getProviderSettings().preferredAuthenticationMethods?.[providerId] === 'subscription'
+      && this.providerCredentials.isApiKeyConfigured(providerId)
+    ) {
+      this.getWorkspaceRegistry().setProviderPreferredAuthenticationMethod(providerId, 'api_key');
+    }
+    this.emitChange();
+  }
+
+  public configureProviderApiKey(providerId: ResearchModelProviderId, apiKey: string): void {
+    this.providerCredentials.setApiKey(providerId, apiKey);
+    if (!this.getProviderSettings().preferredAuthenticationMethods?.[providerId]) {
+      this.getWorkspaceRegistry().setProviderPreferredAuthenticationMethod(providerId, 'api_key');
+    }
+    this.openAiAuth.clearCachedCredential();
+    this.emitChange();
+  }
+
+  public removeProviderApiKey(providerId: ResearchModelProviderId): void {
+    this.providerCredentials.removeApiKey(providerId);
+    this.openAiAuth.clearCachedCredential();
+    this.emitChange();
   }
 
   private dispatchShellApprovalReview(

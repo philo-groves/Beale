@@ -1,11 +1,13 @@
 import type { OpenAiAccountStatus, OpenAiAuthReadiness, OpenAiAuthSource, OpenAiOAuthStartResult, OpenAiOnboardingStep, OpenAiTransport } from '@shared/types';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../shared/modelDefaults';
 import { join } from 'node:path';
 
 const SECRET_ENV_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|COOKIE|CREDENTIAL|OPENAI/i;
+export const OPENAI_SUBSCRIPTION_LOGIN_COMMAND = 'codex login';
+export const OPENAI_SUBSCRIPTION_LOGIN_ARGS = ['login'] as const;
 
 export interface OpenAiCredential {
   token: string;
@@ -53,9 +55,16 @@ export class OpenAiAuthService {
     const credential = probe.credential;
     const supportsWebSocket = true;
     const readiness = readinessFor(probe);
-    const codexCliAvailable = commandExists(this.codexCommand());
+    const codexCliAvailable = this.resolveCodexCommand() !== null;
+    const subscriptionConfigured = credential?.source === 'oauth_command'
+      || credential?.source === 'oauth_bearer_env'
+      || credential?.source === 'codex_oauth_file'
+      || this.getCodexAuthFileCredential() !== null;
     const status: OpenAiAccountStatus = {
       configured: credential !== null,
+      subscriptionConfigured,
+      apiKeyConfigured: Boolean(process.env.OPENAI_API_KEY?.trim()),
+      loginInProgress: Boolean(this.oauthLoginProcess && this.oauthLoginProcess.exitCode === null && !this.oauthLoginProcess.killed),
       source: credential?.source ?? 'not_configured',
       label: labelFor(credential?.source ?? null, readiness),
       credentialHint: credentialHintFor(readiness),
@@ -95,11 +104,9 @@ export class OpenAiAuthService {
 
   public async startOAuthLogin(): Promise<OpenAiOAuthStartResult> {
     this.clearCachedCredential();
-    const command = this.codexCommand();
-    const displayCommand = `${command} login --device-auth`;
-    if (!commandExists(command)) {
-      throw new Error('Codex CLI was not found on PATH. Install Codex or add it to PATH before authenticating with OpenAI.');
-    }
+    const command = this.resolveCodexCommand();
+    const displayCommand = OPENAI_SUBSCRIPTION_LOGIN_COMMAND;
+    if (!command) throw new Error('Codex CLI could not be resolved from PATH or the installed Codex Desktop package.');
     if (this.oauthLoginProcess && this.oauthLoginProcess.exitCode === null && !this.oauthLoginProcess.killed) {
       return this.latestOAuthStart ?? {
         started: false,
@@ -111,32 +118,65 @@ export class OpenAiAuthService {
       };
     }
 
-    const child = spawn(command, ['login', '--device-auth'], {
+    const child = spawn(command, [...OPENAI_SUBSCRIPTION_LOGIN_ARGS], {
       env: minimalAuthCommandEnv(),
       windowsHide: true
     });
     this.oauthLoginProcess = child;
+    child.once('error', () => {
+      if (this.oauthLoginProcess === child) {
+        this.oauthLoginProcess = null;
+        this.statusCache = null;
+      }
+    });
     child.once('exit', () => {
       if (this.oauthLoginProcess === child) {
         this.oauthLoginProcess = null;
+        this.statusCache = null;
       }
     });
 
-    const output = await collectInitialOAuthOutput(child);
-    const instructions = safeDisplayOutput(output);
-    const parsed = parseOAuthInstructions(instructions);
+    await collectInitialOAuthOutput(child);
     const result: OpenAiOAuthStartResult = {
       started: true,
       command: displayCommand,
-      detail: parsed.verificationUri
-        ? 'Complete the browser OAuth step, then refresh provider status.'
-        : 'Started Codex OAuth login. Complete sign-in, then refresh provider status.',
-      verificationUri: parsed.verificationUri,
-      userCode: parsed.userCode,
-      instructions: instructions || null
+      detail: 'Codex opened standard browser sign-in. Complete the local callback flow, then return to Beale.',
+      verificationUri: null,
+      userCode: null,
+      instructions: null
     };
     this.latestOAuthStart = result;
     return result;
+  }
+
+  public async forgetSubscription(): Promise<void> {
+    this.clearCachedCredential();
+    const codexAuthPath = this.codexAuthPath();
+    if (!this.getCodexAuthFileCredential()) {
+      const source = this.resolveCredential().credential?.source;
+      if (source === 'oauth_command' || source === 'oauth_bearer_env') {
+        throw new Error('This OpenAI subscription credential comes from the host environment and must be removed there.');
+      }
+      return;
+    }
+    const command = this.resolveCodexCommand();
+    if (command) {
+      await collectCommandCompletion(spawn(command, ['logout'], {
+        env: minimalAuthCommandEnv(),
+        windowsHide: true
+      }), 'Codex logout');
+    } else if (codexAuthPath) {
+      // Codex Desktop can provide the shared auth file without exposing its bundled
+      // CLI on the PATH inherited by independently launched Electron applications.
+      // The file was validated as a ChatGPT OAuth credential above, so removing this
+      // exact file forgets only that host-side subscription session.
+      try {
+        unlinkSync(codexAuthPath);
+      } catch (error) {
+        if (!isMissingFileError(error)) throw error;
+      }
+    }
+    this.clearCachedCredential();
   }
 
   public dispose(): void {
@@ -245,6 +285,13 @@ export class OpenAiAuthService {
   private codexCommand(): string {
     return this.options.codexCommand?.trim() || 'codex';
   }
+
+  private resolveCodexCommand(): string | null {
+    const command = this.codexCommand();
+    if (commandExists(command)) return command;
+    if (this.options.codexCommand?.trim() || process.platform !== 'win32') return null;
+    return discoverWindowsCodexDesktopCommand();
+  }
 }
 
 export function resolveOpenAiTransport(supportsWebSocket = true): OpenAiTransport {
@@ -319,7 +366,7 @@ function userActionFor(readiness: OpenAiAuthReadiness): string | null {
 }
 
 function setupCommandFor(readiness: OpenAiAuthReadiness): string | null {
-  return readiness === 'oauth_ready' ? null : 'codex login';
+  return readiness === 'oauth_ready' ? null : OPENAI_SUBSCRIPTION_LOGIN_COMMAND;
 }
 
 function onboardingStepsFor(probe: CredentialProbe, readiness: OpenAiAuthReadiness, codexCliAvailable: boolean): OpenAiOnboardingStep[] {
@@ -330,7 +377,7 @@ function onboardingStepsFor(probe: CredentialProbe, readiness: OpenAiAuthReadine
       label: 'ChatGPT OAuth',
       status: readiness === 'oauth_ready' ? 'complete' : 'current',
       detail: readiness === 'oauth_ready' ? 'Signed-in account credential is available to Beale.' : codexCliAvailable ? 'Browser OAuth sign-in can be completed through Codex.' : 'Install or expose Codex CLI before browser OAuth sign-in.',
-      command: readiness === 'oauth_ready' ? null : 'codex login'
+      command: readiness === 'oauth_ready' ? null : OPENAI_SUBSCRIPTION_LOGIN_COMMAND
     },
     {
       id: 'host_credential_bridge',
@@ -371,7 +418,7 @@ function commandExists(command: string): boolean {
   return !result.error && result.status === 0;
 }
 
-async function collectInitialOAuthOutput(child: ChildProcessWithoutNullStreams): Promise<string> {
+async function collectInitialOAuthOutput(child: ChildProcessWithoutNullStreams): Promise<void> {
   let output = '';
   let settled = false;
   return new Promise((resolve, reject) => {
@@ -379,7 +426,7 @@ async function collectInitialOAuthOutput(child: ChildProcessWithoutNullStreams):
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve(output);
+      resolve();
     };
     const fail = (message: string): void => {
       if (settled) return;
@@ -388,11 +435,7 @@ async function collectInitialOAuthOutput(child: ChildProcessWithoutNullStreams):
       reject(new Error(message));
     };
     const append = (chunk: Buffer): void => {
-      output += chunk.toString('utf8');
-      const parsed = parseOAuthInstructions(output);
-      if (parsed.verificationUri && parsed.userCode) {
-        finish();
-      }
+      output = (output + chunk.toString('utf8')).slice(-2_000);
     };
     const timer = setTimeout(finish, 2500);
     child.stdout.on('data', append);
@@ -408,10 +451,58 @@ async function collectInitialOAuthOutput(child: ChildProcessWithoutNullStreams):
   });
 }
 
-function parseOAuthInstructions(output: string): Pick<OpenAiOAuthStartResult, 'verificationUri' | 'userCode'> {
-  const verificationUri = output.match(/https?:\/\/[^\s)]+/i)?.[0] ?? null;
-  const userCode = output.match(/\b[A-Z0-9]{4,8}-[A-Z0-9]{4,8}\b/i)?.[0].toUpperCase() ?? null;
-  return { verificationUri, userCode };
+function discoverWindowsCodexDesktopCommand(): string | null {
+  const localAppData = process.env.LOCALAPPDATA?.trim() || join(homedir(), 'AppData', 'Local');
+  const localCommand = findCodexDesktopBinCommand(join(localAppData, 'OpenAI', 'Codex', 'bin'));
+  if (localCommand) return localCommand;
+
+  const systemRoot = process.env.SystemRoot?.trim() || 'C:\\Windows';
+  const powershell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const script = '$package = Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1; if ($null -ne $package) { Write-Output $package.InstallLocation }';
+  const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8',
+    env: minimalAuthCommandEnv(),
+    timeout: 3_000,
+    windowsHide: true
+  });
+  if (result.error || result.status !== 0) return null;
+  const installLocation = result.stdout.trim().split(/\r?\n/u).filter(Boolean).at(-1);
+  if (!installLocation) return null;
+  const command = codexDesktopCommandFromInstallLocation(installLocation);
+  return existsSync(command) ? command : null;
+}
+
+export function findCodexDesktopBinCommand(binRoot: string): string | null {
+  try {
+    return readdirSync(binRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(binRoot, entry.name, 'codex.exe'))
+      .filter((candidate) => existsSync(candidate))
+      .map((candidate) => ({ candidate, modifiedAt: statSync(candidate).mtimeMs }))
+      .sort((left, right) => right.modifiedAt - left.modifiedAt)[0]?.candidate ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function codexDesktopCommandFromInstallLocation(installLocation: string): string {
+  return join(installLocation.trim(), 'app', 'resources', 'codex.exe');
+}
+
+function collectCommandCompletion(child: ChildProcessWithoutNullStreams, label: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let output = '';
+    const append = (chunk: Buffer): void => {
+      output = (output + chunk.toString('utf8')).slice(-2_000);
+    };
+    child.stdout.on('data', append);
+    child.stderr.on('data', append);
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${label} failed: ${safeCommandFailure(output || `status ${String(code)}`)}`));
+    });
+  });
 }
 
 function recordFromUnknown(value: unknown): Record<string, unknown> | null {
@@ -493,12 +584,6 @@ function safeCommandFailure(value: string): string {
     .slice(0, 240);
 }
 
-function safeDisplayOutput(value: string): string {
-  return value
-    .replace(/\u001b\[[0-9;]*m/g, '')
-    .replace(/sk-[A-Za-z0-9_-]+/g, 'sk-...redacted')
-    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ...redacted')
-    .replace(/\b[A-Za-z0-9._%+-]+:[A-Za-z0-9._%+-]+@/g, '...redacted@')
-    .trim()
-    .slice(0, 1000);
+function isMissingFileError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }

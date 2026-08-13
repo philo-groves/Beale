@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, shell } from 'electron';
 import type { IpcMainInvokeEvent, Rectangle } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,6 +19,7 @@ import type {
   ResearchModelProviderId,
   ResearchProfileId,
   ProviderModelDefaults,
+  ProviderAuthenticationMethod,
   RunDetailUpdateCursor,
   SessionTranscriptSearchInput,
   MemoryTypeDescriptions,
@@ -31,6 +32,7 @@ import type {
 import { isResearchProfileId } from '@shared/types';
 import { getHostEnvironment, WorkspaceService, type WorkspaceChange } from './workspaceService';
 import { nativeMacApplicationMenuTemplate } from './nativeApplicationMenu';
+import { ProviderCredentialStore } from './providerCredentialStore';
 
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
@@ -462,6 +464,11 @@ function registerIpc(): void {
   ) =>
     workspaceService.setProviderCyberPolicyRiskAcknowledged(providerId, acknowledged)
   );
+  ipcMain.handle(IPC_CHANNELS.setProviderPreferredAuthenticationMethod, (
+    _event,
+    providerId: ResearchModelProviderId,
+    method: ProviderAuthenticationMethod
+  ) => workspaceService.setProviderPreferredAuthenticationMethod(providerId, method));
   ipcMain.handle(IPC_CHANNELS.getMemorySettings, () => workspaceService.getMemorySettings());
   ipcMain.handle(IPC_CHANNELS.setMemoryTypeDescriptions, (_event, descriptions: MemoryTypeDescriptions) => workspaceService.setMemoryTypeDescriptions(descriptions));
   ipcMain.handle(IPC_CHANNELS.getShellOptions, () => workspaceService.getShellOptions());
@@ -481,6 +488,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getHostEnvironment, () => getHostEnvironment());
   ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.startOpenAiOAuth, () => workspaceService.startOpenAiOAuth());
+  ipcMain.handle(IPC_CHANNELS.forgetProviderSubscription, (_event, providerId: ResearchModelProviderId) =>
+    workspaceService.forgetProviderSubscription(providerId));
+  ipcMain.handle(IPC_CHANNELS.configureProviderApiKey, (_event, providerId: ResearchModelProviderId, apiKey: string) =>
+    workspaceService.configureProviderApiKey(providerId, apiKey));
+  ipcMain.handle(IPC_CHANNELS.removeProviderApiKey, (_event, providerId: ResearchModelProviderId) =>
+    workspaceService.removeProviderApiKey(providerId));
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.getResearchProviderStatuses, () => workspaceService.getResearchProviderStatuses());
   ipcMain.handle(IPC_CHANNELS.getResearchProviderModelCatalog, () => workspaceService.getResearchProviderModelCatalog());
@@ -586,7 +599,15 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
-  workspaceService = new WorkspaceService(broadcastSnapshot);
+  const providerCredentialStore = new ProviderCredentialStore(
+    join(app.getPath('userData'), 'provider-credentials.json'),
+    {
+      available: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (value) => safeStorage.encryptString(value),
+      decrypt: (value) => safeStorage.decryptString(value)
+    }
+  );
+  workspaceService = new WorkspaceService(broadcastSnapshot, { providerCredentialStore });
   registerIpc();
   createWindow();
   setImmediate(() => {

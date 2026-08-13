@@ -8,6 +8,7 @@ import type {
   DeveloperSettings,
   ProviderSettings,
   ProviderModelDefaults,
+  ProviderAuthenticationMethod,
   ResearchModelProviderId,
   MemorySettings,
   MemoryTypeDescriptions,
@@ -122,6 +123,9 @@ export class WorkspaceRegistry {
     const cyberPolicyRiskAcknowledgements: Partial<Record<ResearchModelProviderId, true>> = {};
     const enabledOptionalModels = normalizeEnabledOptionalModelsRecord(this.getMeta('provider_optional_models_json'));
     const disabledOptionalModels = normalizeEnabledOptionalModelsRecord(this.getMeta('provider_disabled_optional_models_json'));
+    const preferredAuthenticationMethods = normalizePreferredAuthenticationMethodsRecord(
+      this.getMeta('provider_preferred_authentication_methods_json')
+    );
     if (this.getMeta('openai_trusted_access_cyber_risk_acknowledged') === '1') {
       cyberPolicyRiskAcknowledgements['openai-codex'] = true;
     }
@@ -136,6 +140,7 @@ export class WorkspaceRegistry {
       modelDefaults: normalizeProviderModelDefaultsRecord(this.getMeta('provider_model_defaults_json')),
       ...(Object.keys(enabledOptionalModels).length > 0 ? { enabledOptionalModels } : {}),
       ...(Object.keys(disabledOptionalModels).length > 0 ? { disabledOptionalModels } : {}),
+      ...(Object.keys(preferredAuthenticationMethods).length > 0 ? { preferredAuthenticationMethods } : {}),
       ...(Object.keys(cyberPolicyRiskAcknowledgements).length > 0 ? { cyberPolicyRiskAcknowledgements } : {})
     };
   }
@@ -209,6 +214,20 @@ export class WorkspaceRegistry {
         : 'xai_policy_use_risk_acknowledged';
     if (acknowledged) this.setMeta(metaKey, '1');
     else this.deleteMeta(metaKey);
+    return this.getProviderSettings();
+  }
+
+  public setProviderPreferredAuthenticationMethod(
+    providerId: ResearchModelProviderId,
+    method: ProviderAuthenticationMethod
+  ): ProviderSettings {
+    if (!isResearchModelProviderId(providerId)) throw new Error('Invalid authentication preference provider.');
+    if (method !== 'subscription' && method !== 'api_key') throw new Error('Invalid authentication preference.');
+    const preferences = {
+      ...this.getProviderSettings().preferredAuthenticationMethods,
+      [providerId]: method
+    };
+    this.setMeta('provider_preferred_authentication_methods_json', JSON.stringify(preferences));
     return this.getProviderSettings();
   }
 
@@ -796,6 +815,24 @@ function normalizeEnabledOptionalModelsRecord(
         typeof modelId === 'string' && isOptionalProviderModel(providerId, modelId)
       )))];
       if (enabled.length > 0) normalized[providerId] = enabled;
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function normalizePreferredAuthenticationMethodsRecord(
+  value: unknown
+): Partial<Record<ResearchModelProviderId, ProviderAuthenticationMethod>> {
+  if (typeof value !== 'string' || !value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const normalized: Partial<Record<ResearchModelProviderId, ProviderAuthenticationMethod>> = {};
+    for (const providerId of ['openai-codex', 'anthropic', 'xai'] as const) {
+      const method = (parsed as Record<string, unknown>)[providerId];
+      if (method === 'subscription' || method === 'api_key') normalized[providerId] = method;
     }
     return normalized;
   } catch {

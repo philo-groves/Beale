@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  claudeSubscriptionLoginInvocation,
   parseHoneycrispAuthStatus,
   parseHoneycrispAuthVerification,
   parseHoneycrispModelCatalog,
@@ -7,6 +8,16 @@ import {
 } from '../src/main/researchProviderAuth';
 
 describe('research provider auth parsing', () => {
+  it('launches Windows Claude subscription login in a visible tracked terminal', () => {
+    const invocation = claudeSubscriptionLoginInvocation('win32', 'C:\\Windows', 'C:\\workspace');
+
+    expect(invocation?.command).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+    expect(invocation?.displayCommand).toBe('claude auth login --claudeai');
+    expect(invocation?.args.join(' ')).toContain('Start-Process');
+    expect(invocation?.args.join(' ')).toContain('claude auth login --claudeai');
+    expect(invocation?.args.join(' ')).toContain('WaitForExit');
+  });
+
   it('parses Honeycrisp stored OAuth state', () => {
     expect(
       parseHoneycrispAuthStatus(

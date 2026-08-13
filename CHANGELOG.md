@@ -21,12 +21,17 @@
 
 ### Changed
 
+- Provider Settings now persists a preferred Subscription or API key authentication source per provider, marks it in the authentication view, and sends that host-owned preference to every Honeycrisp run. Explicit subscription usage-cap and API-credit exhaustion errors may fall back to the configured alternate source.
+- Provider Settings now labels the global selector “Lead Provider” and groups provider-specific Large, Small, and Reasoning selectors behind a compact white “Defaults” label.
+- Checkbox and radio accents now consistently use the shared white text color instead of browser-default blue or muted per-view variants.
+- Provider Settings body copy, statuses, acknowledgements, optional-model rows, and authentication dialogs now use the same base font size as provider dropdown labels.
+- Provider Settings now separates Subscription and API key authentication into side-by-side live status areas for every provider. Subscription sessions can be forgotten through their official logout path, while API keys can be confirmed into OS-encrypted host storage or removed without ever rendering stored values or credential hints.
 - Claude Fable 5 is now an optional Anthropic model enabled by default, while access-restricted Claude Mythos 5 can be enabled explicitly in Provider Settings; explicit Fable disablement is persisted.
 - Provider Settings now labels providers by company name only, uses provider logos in view headings, and gives inactive provider tabs a clearer contrasting surface.
 - Provider Settings model and provider default selectors now match the compact inline styling used by New Research, use concise labels, and show model display names without appended IDs.
 - Provider views now place model defaults in their headings and replace text status pills with compact healthy, unhealthy, or authenticating indicators.
 - Provider Settings content now uses a flat, unpadded surface instead of an outer card.
-- Provider views now place their policy description and acknowledgement directly below the heading instead of showing redundant source, transport, authentication, and boundary tiles.
+- Provider views now place their policy description and acknowledgement under a dedicated Acknowledgment section heading instead of showing redundant source, transport, authentication, and boundary tiles.
 - Provider policy acknowledgement checkboxes now use compact left-aligned rows.
 - Optional provider models now use a flat, single-line checkbox list with detailed-sidenav heading typography.
 - Daybreak Blue is now an optional OpenAI model enabled by default for expected Trusted Access for Cyber availability, with explicit disablement persisted separately from opt-in models such as Daybreak Red.
@@ -60,6 +65,11 @@
 - Post-session next-step suggestions are now stored with their completed session and restored immediately when revisited. Workbench migration 18 adds the durable suggestion record.
 
 ### Fixed
+
+- Provider Settings now waits for provider status and saved settings before choosing its initial view, then opens the available default provider without switching tabs during ordinary status refreshes.
+- Provider subscription sign-in notices now clear automatically when refreshed status confirms authentication, without affecting active or unrelated provider sign-ins.
+- Provider subscription sign-in now resolves the installed Codex Desktop CLI when OpenAI is absent from Beale's inherited `PATH`, uses Codex's standard local browser callback instead of device authorization, launches Anthropic's interactive official CLI in a visible Windows terminal, and prevents overlapping provider-status polls during authentication.
+- OpenAI subscription forgetting now works when Codex Desktop provides the shared OAuth session but its bundled CLI is absent from Beale's inherited `PATH`.
 
 - Large multi-repository sessions now support explicitly scoped, bounded repository searches with partial-result signaling, recover reasoning-only provider stalls automatically, validate model-specific subagent routes, and distinguish shell no-match results from command failures.
 - Anthropic lead and subagent progress text now carries explicit commentary phases into session transcripts, with Claude-specific guidance to emit concise visible updates without exposing private extended thinking.

@@ -5,11 +5,12 @@ import {
   DEFAULT_RESEARCH_REASONING_EFFORT,
   smallModelForProvider
 } from '../../../shared/modelDefaults';
-import { ArrowLeft, BrainCircuit, KeyRound, Plus, RefreshCw, Terminal } from 'lucide-react';
+import { ArrowLeft, BrainCircuit, KeyRound, Plus, RefreshCw } from 'lucide-react';
 import type {
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
   ProviderSettings,
+  ProviderAuthenticationMethod,
   ProviderModelDefaults,
   ResearchProfileSnapshot,
   ResearchProfileId,
@@ -98,10 +99,14 @@ export function SettingsView({
   onRefreshOpenAi,
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
+  onForgetProviderSubscription = async () => undefined,
+  onConfigureProviderApiKey = async () => undefined,
+  onRemoveProviderApiKey = async () => undefined,
   onSetDefaultProviderId,
   onSetProviderModelDefaults,
   onSetProviderOptionalModelEnabled = async () => undefined,
   onSetProviderCyberPolicyRiskAcknowledged = async () => undefined,
+  onSetProviderPreferredAuthenticationMethod = async () => undefined,
   onSetSessionHeatPreference = () => undefined
 }: {
   section: SettingsSection;
@@ -122,6 +127,9 @@ export function SettingsView({
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
+  onForgetProviderSubscription?: (providerId: ResearchModelProviderId) => Promise<void>;
+  onConfigureProviderApiKey?: (providerId: ResearchModelProviderId, apiKey: string) => Promise<void>;
+  onRemoveProviderApiKey?: (providerId: ResearchModelProviderId) => Promise<void>;
   onSetDefaultProviderId: (providerId: ResearchModelProviderId | null) => Promise<void>;
   onSetProviderModelDefaults: (providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) => Promise<void>;
   onSetProviderOptionalModelEnabled?: (
@@ -132,6 +140,10 @@ export function SettingsView({
   onSetProviderCyberPolicyRiskAcknowledged?: (
     providerId: ResearchModelProviderId,
     acknowledged: boolean
+  ) => Promise<void>;
+  onSetProviderPreferredAuthenticationMethod?: (
+    providerId: ResearchModelProviderId,
+    method: ProviderAuthenticationMethod
   ) => Promise<void>;
   onSetSessionHeatPreference?: (profileId: string, memoryTypeId: string, status: string, heat: SessionHeat | null) => void;
 }): JSX.Element {
@@ -161,10 +173,14 @@ export function SettingsView({
             onRefreshOpenAi={onRefreshOpenAi}
             onStartOpenAiOAuth={onStartOpenAiOAuth}
             onStartResearchProviderOAuth={onStartResearchProviderOAuth}
+            onForgetProviderSubscription={onForgetProviderSubscription}
+            onConfigureProviderApiKey={onConfigureProviderApiKey}
+            onRemoveProviderApiKey={onRemoveProviderApiKey}
             onSetDefaultProviderId={onSetDefaultProviderId}
             onSetProviderModelDefaults={onSetProviderModelDefaults}
             onSetProviderOptionalModelEnabled={onSetProviderOptionalModelEnabled}
             onSetProviderCyberPolicyRiskAcknowledged={onSetProviderCyberPolicyRiskAcknowledged}
+            onSetProviderPreferredAuthenticationMethod={onSetProviderPreferredAuthenticationMethod}
           />
         ) : (
           <MemorySettingsView
@@ -356,7 +372,6 @@ interface ProviderSettingsOption {
   name: string;
   configured: boolean;
   authenticationRunning: boolean;
-  authenticationUnavailable: boolean;
 }
 
 function providerCompanyName(providerId: ResearchModelProviderId): string {
@@ -366,6 +381,7 @@ function providerCompanyName(providerId: ResearchModelProviderId): string {
 }
 
 type ProviderHealthState = 'healthy' | 'unhealthy' | 'authenticating';
+type ProviderAuthenticationState = 'configured' | 'not-configured' | 'authenticating' | 'needs-attention' | 'unavailable';
 
 function ProviderHealthIndicator({ state }: { state: ProviderHealthState }): JSX.Element {
   const label = state === 'healthy'
@@ -383,6 +399,185 @@ function ProviderHealthIndicator({ state }: { state: ProviderHealthState }): JSX
   );
 }
 
+function ProviderAuthenticationStatus({ state, preferred = false }: { state: ProviderAuthenticationState; preferred?: boolean }): JSX.Element {
+  const label = state === 'configured'
+    ? 'Configured'
+    : state === 'authenticating'
+      ? 'Authenticating'
+      : state === 'needs-attention'
+        ? 'Needs attention'
+        : state === 'unavailable'
+          ? 'Unavailable'
+          : 'Not configured';
+  return (
+    <span className="provider-authentication-statuses">
+      <span className={`provider-authentication-status state-${state}`}>
+        <span aria-hidden="true" />
+        {label}
+      </span>
+      {preferred ? (
+        <span className="provider-authentication-status state-preferred">
+          <span aria-hidden="true" />
+          Preferred
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function ProviderAuthenticationSection({
+  providerId,
+  subscriptionState,
+  apiKeyConfigured,
+  busy,
+  subscriptionDisabled,
+  result,
+  preferredMethod,
+  onAuthenticate,
+  onForgetSubscription,
+  onConfigureApiKey,
+  onRemoveApiKey,
+  onMarkPreferred
+}: {
+  providerId: ResearchModelProviderId;
+  subscriptionState: ProviderAuthenticationState;
+  apiKeyConfigured: boolean;
+  busy: boolean;
+  subscriptionDisabled: boolean;
+  result: OpenAiOAuthStartResult | ResearchProviderOAuthStartResult | null;
+  preferredMethod: ProviderAuthenticationMethod;
+  onAuthenticate: () => void;
+  onForgetSubscription: () => void;
+  onConfigureApiKey: (providerId: ResearchModelProviderId) => void;
+  onRemoveApiKey: () => void;
+  onMarkPreferred: (method: ProviderAuthenticationMethod) => void;
+}): JSX.Element {
+  const subscriptionConfigured = subscriptionState === 'configured';
+  const showPreferenceControls = subscriptionConfigured && apiKeyConfigured;
+  return (
+    <section className="provider-authentication-section" aria-label="Authentication">
+      <h3>Authentication</h3>
+      <div className="provider-authentication-options">
+        <div className="provider-authentication-option">
+          <div className="provider-authentication-option-heading">
+            <strong>Subscription</strong>
+            <ProviderAuthenticationStatus state={subscriptionState} preferred={showPreferenceControls && preferredMethod === 'subscription'} />
+          </div>
+          <div className="provider-authentication-actions">
+            {subscriptionState === 'configured' ? (
+              <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={onForgetSubscription}>
+                Forget
+              </button>
+            ) : (
+              <button
+                className="secondary-button provider-authentication-action"
+                type="button"
+                disabled={busy || subscriptionDisabled}
+                onClick={onAuthenticate}
+              >
+                Sign in
+              </button>
+            )}
+            {showPreferenceControls && preferredMethod !== 'subscription' ? (
+              <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={() => onMarkPreferred('subscription')}>
+                Mark as Preferred
+              </button>
+            ) : null}
+          </div>
+          {result ? <ProviderOAuthResult result={result} /> : null}
+        </div>
+        <div className="provider-authentication-option">
+          <div className="provider-authentication-option-heading">
+            <strong>API key</strong>
+            <ProviderAuthenticationStatus state={apiKeyConfigured ? 'configured' : 'not-configured'} preferred={showPreferenceControls && preferredMethod === 'api_key'} />
+          </div>
+          <div className="provider-authentication-actions">
+            <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={() => onConfigureApiKey(providerId)}>
+              Configure
+            </button>
+            <button className="secondary-button provider-authentication-action" type="button" disabled={busy || !apiKeyConfigured} onClick={onRemoveApiKey}>
+              Remove
+            </button>
+            {showPreferenceControls && preferredMethod !== 'api_key' ? (
+              <button className="secondary-button provider-authentication-action" type="button" disabled={busy} onClick={() => onMarkPreferred('api_key')}>
+                Mark as Preferred
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function ProviderApiKeyDialog({
+  providerId,
+  busy,
+  onCancel,
+  onConfirm
+}: {
+  providerId: ResearchModelProviderId;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (apiKey: string) => Promise<void>;
+}): JSX.Element {
+  const [apiKey, setApiKey] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && !submitting) onCancel();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [onCancel, submitting]);
+  const submit = async (): Promise<void> => {
+    const normalized = apiKey.trim();
+    if (!normalized || submitting) return;
+    setSubmitting(true);
+    try {
+      await onConfirm(normalized);
+      setApiKey('');
+    } catch {
+      // The parent surfaces the host error; keep the dialog open for correction.
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <div className="modal-backdrop provider-api-key-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !submitting) onCancel();
+    }}>
+      <form className="modal-panel provider-api-key-dialog" role="dialog" aria-modal="true" aria-label={`Configure ${providerCompanyName(providerId)} API key`} onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}>
+        <header className="modal-header">
+          <h2>Configure {providerCompanyName(providerId)} API key</h2>
+        </header>
+        <div className="modal-body">
+          <label className="provider-api-key-field">
+            <span>API key</span>
+            <input
+              autoFocus
+              autoComplete="off"
+              spellCheck={false}
+              type="password"
+              value={apiKey}
+              disabled={busy || submitting}
+              onChange={(event) => setApiKey(event.target.value)}
+            />
+          </label>
+          <p>The key is encrypted by the operating system and remains available only to Beale's host process.</p>
+        </div>
+        <footer className="modal-footer">
+          <button className="secondary-button" type="button" disabled={busy || submitting} onClick={onCancel}>Cancel</button>
+          <button className="primary-button" type="submit" disabled={busy || submitting || !apiKey.trim()}>Confirm</button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
 export function providerSettingsOptions(
   openAiStatus: OpenAiAccountStatus | null,
   researchProviderStatuses: readonly ResearchProviderStatus[]
@@ -392,15 +587,13 @@ export function providerSettingsOptions(
       id: 'openai-codex',
       name: providerCompanyName('openai-codex'),
       configured: openAiStatus?.configured ?? false,
-      authenticationRunning: false,
-      authenticationUnavailable: openAiStatus?.codexCliAvailable === false
+      authenticationRunning: openAiStatus?.loginInProgress ?? false
     },
     ...researchProviderStatuses.map((provider) => ({
       id: provider.id,
       name: providerCompanyName(provider.id),
       configured: provider.configured,
-      authenticationRunning: provider.loginInProgress,
-      authenticationUnavailable: provider.readiness === 'unavailable'
+      authenticationRunning: provider.loginInProgress
     }))
   ];
 }
@@ -456,10 +649,14 @@ export function ProvidersSettingsView({
   onRefreshOpenAi,
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
+  onForgetProviderSubscription = async () => undefined,
+  onConfigureProviderApiKey = async () => undefined,
+  onRemoveProviderApiKey = async () => undefined,
   onSetDefaultProviderId,
   onSetProviderModelDefaults,
   onSetProviderOptionalModelEnabled = async () => undefined,
-  onSetProviderCyberPolicyRiskAcknowledged = async () => undefined
+  onSetProviderCyberPolicyRiskAcknowledged = async () => undefined,
+  onSetProviderPreferredAuthenticationMethod = async () => undefined
 }: {
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
@@ -472,6 +669,9 @@ export function ProvidersSettingsView({
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
+  onForgetProviderSubscription?: (providerId: ResearchModelProviderId) => Promise<void>;
+  onConfigureProviderApiKey?: (providerId: ResearchModelProviderId, apiKey: string) => Promise<void>;
+  onRemoveProviderApiKey?: (providerId: ResearchModelProviderId) => Promise<void>;
   onSetDefaultProviderId: (providerId: ResearchModelProviderId | null) => Promise<void>;
   onSetProviderModelDefaults: (providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) => Promise<void>;
   onSetProviderOptionalModelEnabled?: (
@@ -483,12 +683,22 @@ export function ProvidersSettingsView({
     providerId: ResearchModelProviderId,
     acknowledged: boolean
   ) => Promise<void>;
+  onSetProviderPreferredAuthenticationMethod?: (
+    providerId: ResearchModelProviderId,
+    method: ProviderAuthenticationMethod
+  ) => Promise<void>;
 }): JSX.Element {
   const providers = providerSettingsOptions(openAiStatus, researchProviderStatuses);
   const configuredProviders = providers.filter((provider) => provider.configured);
   const availableProviders = providers.filter((provider) => !provider.configured);
   const configuredProviderKey = configuredProviders.map((provider) => provider.id).join('|');
-  const previouslyConfiguredProviderIds = useRef(new Set(configuredProviders.map((provider) => provider.id)));
+  const providerSelectionReady = providerStatusesLoaded && providerSettings !== null;
+  const preferredProviderId = providerSelectionReady
+    ? resolvedDefaultProviderId(configuredProviders, providerSettings.defaultProviderId)
+    : null;
+  const providerSelectionInitialized = useRef(providerSelectionReady);
+  const previouslyConfiguredProviderIds = useRef(new Set(
+    providerSelectionReady ? configuredProviders.map((provider) => provider.id) : []));
   const initialAuthenticationProviderId = (() => {
     const runningProvider = researchProviderStatuses.find((provider) => provider.loginInProgress);
     if (runningProvider) return runningProvider.id;
@@ -496,9 +706,10 @@ export function ProvidersSettingsView({
     return null;
   })();
   const [activeProviderId, setActiveProviderId] = useState<ProviderSettingsId | null>(
-    initialAuthenticationProviderId ?? configuredProviders[0]?.id ?? null
+    initialAuthenticationProviderId ?? preferredProviderId
   );
   const [authenticationProviderId, setAuthenticationProviderId] = useState<ProviderSettingsId | null>(initialAuthenticationProviderId);
+  const [apiKeyDialogProviderId, setApiKeyDialogProviderId] = useState<ResearchModelProviderId | null>(null);
   const defaultProviderUpdateRef = useRef<ResearchModelProviderId | null | undefined>(undefined);
 
   useEffect(() => {
@@ -512,14 +723,22 @@ export function ProvidersSettingsView({
   }, [configuredProviderKey, onSetDefaultProviderId, providerSettings, providerStatusesLoaded]);
 
   useEffect(() => {
+    if (!providerSelectionReady) return;
     const configuredProviderIds = new Set(configuredProviders.map((provider) => provider.id));
+    if (!providerSelectionInitialized.current) {
+      providerSelectionInitialized.current = true;
+      previouslyConfiguredProviderIds.current = configuredProviderIds;
+      setActiveProviderId((current) => current ?? preferredProviderId);
+      return;
+    }
     const newlyConfiguredProvider = configuredProviders.find((provider) => !previouslyConfiguredProviderIds.current.has(provider.id));
     previouslyConfiguredProviderIds.current = configuredProviderIds;
-    setActiveProviderId((current) => newlyConfiguredProvider?.id ?? (current && configuredProviderIds.has(current) ? current : configuredProviders[0]?.id ?? null));
+    setActiveProviderId((current) => newlyConfiguredProvider?.id
+      ?? (current && configuredProviderIds.has(current) ? current : preferredProviderId));
     if (newlyConfiguredProvider) {
       setAuthenticationProviderId((current) => current === newlyConfiguredProvider.id ? null : current);
     }
-  }, [configuredProviderKey]);
+  }, [configuredProviderKey, preferredProviderId, providerSelectionReady]);
 
   const runningResearchProviderId = researchProviderStatuses.find((provider) => provider.loginInProgress)?.id ?? null;
   useEffect(() => {
@@ -559,6 +778,10 @@ export function ProvidersSettingsView({
       void onStartResearchProviderOAuth(providerId);
     }
   };
+  const showProvider = (providerId: ProviderSettingsId): void => {
+    setAuthenticationProviderId(providerId);
+    setActiveProviderId(providerId);
+  };
   const refresh = (): void => {
     void onRefreshOpenAi();
   };
@@ -573,23 +796,19 @@ export function ProvidersSettingsView({
         configuredProviders={configuredProviders}
         defaultProviderId={providerSettings?.defaultProviderId ?? null}
         onActivate={setActiveProviderId}
-        onAuthenticate={authenticateProvider}
+        onAuthenticate={showProvider}
         onRefreshProvider={refresh}
         onSetDefaultProviderId={(providerId) => void onSetDefaultProviderId(providerId)}
       />
-      {activeProvider && activeProvider.id === authenticationProvider?.id ? (
-        <ProviderAuthenticationCard
-          provider={activeProvider}
-          result={activeProvider.id === 'openai-codex'
-            ? openAiOAuthResult
-            : researchProviderOAuthResults[activeProvider.id] ?? null}
-        />
-      ) : activeProvider?.id === 'openai-codex' ? (
+      {activeProvider?.id === 'openai-codex' ? (
         <OpenAiProviderCard
           busy={busy}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
           onAuthenticate={() => authenticateProvider('openai-codex')}
+          onForgetSubscription={() => void onForgetProviderSubscription('openai-codex')}
+          onConfigureApiKey={setApiKeyDialogProviderId}
+          onRemoveApiKey={() => void onRemoveProviderApiKey('openai-codex')}
           modelCatalog={activeEnabledModelCatalog}
           fullModelCatalog={activeModelCatalog}
           modelDefaults={activeModelDefaults}
@@ -601,6 +820,9 @@ export function ProvidersSettingsView({
           policyRiskAcknowledged={providerSettings?.cyberPolicyRiskAcknowledgements?.['openai-codex'] === true}
           onSetPolicyRiskAcknowledged={(acknowledged) =>
             void onSetProviderCyberPolicyRiskAcknowledged('openai-codex', acknowledged)}
+          preferredAuthenticationMethod={providerSettings?.preferredAuthenticationMethods?.['openai-codex'] ?? 'subscription'}
+          onSetPreferredAuthenticationMethod={(method) =>
+            void onSetProviderPreferredAuthenticationMethod('openai-codex', method)}
         />
       ) : activeProvider ? (
         <ResearchProviderCard
@@ -608,6 +830,9 @@ export function ProvidersSettingsView({
           provider={researchProviderStatuses.find((provider) => provider.id === activeProvider.id)!}
           result={researchProviderOAuthResults[activeProvider.id] ?? null}
           onAuthenticate={() => authenticateProvider(activeProvider.id)}
+          onForgetSubscription={() => void onForgetProviderSubscription(activeProvider.id)}
+          onConfigureApiKey={setApiKeyDialogProviderId}
+          onRemoveApiKey={() => void onRemoveProviderApiKey(activeProvider.id)}
           modelCatalog={activeEnabledModelCatalog}
           fullModelCatalog={activeModelCatalog}
           modelDefaults={activeModelDefaults}
@@ -619,16 +844,30 @@ export function ProvidersSettingsView({
           policyRiskAcknowledged={providerSettings?.cyberPolicyRiskAcknowledgements?.[activeProvider.id] === true}
           onSetPolicyRiskAcknowledged={(acknowledged) =>
             void onSetProviderCyberPolicyRiskAcknowledged(activeProvider.id, acknowledged)}
+          preferredAuthenticationMethod={providerSettings?.preferredAuthenticationMethods?.[activeProvider.id] ?? 'subscription'}
+          onSetPreferredAuthenticationMethod={(method) =>
+            void onSetProviderPreferredAuthenticationMethod(activeProvider.id, method)}
         />
       ) : (
         <section className="provider-card provider-settings-empty">
           <KeyRound size={20} aria-hidden="true" />
           <div>
             <h4>No providers configured</h4>
-            <p>Use the plus button above to authenticate a research provider.</p>
+            <p>Use the plus button above to configure a research provider.</p>
           </div>
         </section>
       )}
+      {apiKeyDialogProviderId ? (
+        <ProviderApiKeyDialog
+          providerId={apiKeyDialogProviderId}
+          busy={busy}
+          onCancel={() => setApiKeyDialogProviderId(null)}
+          onConfirm={async (apiKey) => {
+            await onConfigureProviderApiKey(apiKeyDialogProviderId, apiKey);
+            setApiKeyDialogProviderId(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -684,7 +923,7 @@ function ProviderSettingsTabs({
       <div className="research-side-view-tabs" role="tablist" aria-label="Provider views">
         {viewProviders.map((provider) => (
           <div
-            className={`research-side-view-tab provider-settings-tab ${activeProviderId === provider.id ? 'active' : ''} ${provider.authenticationRunning || !provider.configured ? 'authenticating' : ''}`.trim()}
+            className={`research-side-view-tab provider-settings-tab ${activeProviderId === provider.id ? 'active' : ''} ${provider.authenticationRunning ? 'authenticating' : ''}`.trim()}
             key={provider.id}
           >
             <button
@@ -692,7 +931,7 @@ function ProviderSettingsTabs({
               className="research-side-view-tab-activate"
               role="tab"
               aria-selected={activeProviderId === provider.id}
-              aria-busy={provider.authenticationRunning || !provider.configured}
+              aria-busy={provider.authenticationRunning}
               onClick={() => onActivate(provider.id)}
             >
               <ProviderIcon
@@ -736,7 +975,7 @@ function ProviderSettingsTabs({
                   type="button"
                   role="menuitem"
                   key={provider.id}
-                  disabled={busy || provider.authenticationRunning || provider.authenticationUnavailable}
+                  disabled={busy || provider.authenticationRunning}
                   onClick={() => {
                     onAuthenticate(provider.id);
                     setPickerOpen(false);
@@ -751,12 +990,12 @@ function ProviderSettingsTabs({
         </div>
       ) : null}
       <label className="research-side-view-trailing provider-settings-default-control">
-        <span>Default provider</span>
+        <span>Lead Provider</span>
         <select
           value={configuredProviders.some((provider) => provider.id === defaultProviderId) ? defaultProviderId ?? '' : ''}
           disabled={busy}
-          title="Default provider"
-          aria-label="Default provider"
+          title="Lead Provider"
+          aria-label="Lead Provider"
           onChange={(event) => onSetDefaultProviderId(event.target.value ? event.target.value as ResearchModelProviderId : null)}
         >
           {defaultProviderPickerOptions(configuredProviders).map((option) => (
@@ -768,33 +1007,14 @@ function ProviderSettingsTabs({
   );
 }
 
-function ProviderAuthenticationCard({
-  provider,
-  result
-}: {
-  provider: ProviderSettingsOption;
-  result: OpenAiOAuthStartResult | ResearchProviderOAuthStartResult | null;
-}): JSX.Element {
-  return (
-    <section className="provider-card provider-authentication-card readiness-not_configured" aria-label={`${provider.name} authentication`}>
-      <div className="provider-heading provider-settings-provider-heading">
-        <ProviderIcon className="provider-settings-heading-icon" provider={provider.id} size={18} aria-hidden="true" />
-        <div className="provider-settings-heading-title">
-          <h4>Authenticate {provider.name}</h4>
-          <ProviderHealthIndicator state="authenticating" />
-          <p>{provider.authenticationRunning ? 'Waiting for provider sign-in' : 'Complete provider authentication to add its tab.'}</p>
-        </div>
-      </div>
-      {result ? <ProviderOAuthResult result={result} /> : <p className="provider-detail">Starting provider authentication…</p>}
-    </section>
-  );
-}
-
 function OpenAiProviderCard({
   busy,
   openAiOAuthResult,
   openAiStatus,
   onAuthenticate,
+  onForgetSubscription,
+  onConfigureApiKey,
+  onRemoveApiKey,
   modelCatalog,
   fullModelCatalog,
   modelDefaults,
@@ -803,12 +1023,17 @@ function OpenAiProviderCard({
   disabledOptionalModelIds,
   onSetOptionalModelEnabled,
   policyRiskAcknowledged,
-  onSetPolicyRiskAcknowledged
+  onSetPolicyRiskAcknowledged,
+  preferredAuthenticationMethod,
+  onSetPreferredAuthenticationMethod
 }: {
   busy: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
   onAuthenticate: () => void;
+  onForgetSubscription: () => void;
+  onConfigureApiKey: (providerId: ResearchModelProviderId) => void;
+  onRemoveApiKey: () => void;
   modelCatalog: ResearchProviderModelCatalog | null;
   fullModelCatalog: ResearchProviderModelCatalog | null;
   modelDefaults: ProviderModelDefaults | null;
@@ -818,16 +1043,26 @@ function OpenAiProviderCard({
   onSetOptionalModelEnabled: (modelId: string, enabled: boolean) => void;
   policyRiskAcknowledged: boolean;
   onSetPolicyRiskAcknowledged: (acknowledged: boolean) => void;
+  preferredAuthenticationMethod: ProviderAuthenticationMethod;
+  onSetPreferredAuthenticationMethod: (method: ProviderAuthenticationMethod) => void;
 }): JSX.Element {
   const readiness = openAiStatus?.readiness ?? 'not_configured';
-  const authenticateLabel = readiness === 'oauth_ready' ? 'Re-authenticate' : 'Authenticate';
+  const subscriptionState: ProviderAuthenticationState = openAiStatus?.loginInProgress
+    ? 'authenticating'
+    : openAiStatus?.subscriptionConfigured
+      ? 'configured'
+      : readiness === 'oauth_command_failed'
+        ? 'needs-attention'
+        : openAiStatus?.codexCliAvailable === false
+          ? 'unavailable'
+          : 'not-configured';
   return (
     <section className={`provider-card readiness-${stateClass(readiness)}`} role="tabpanel" aria-label="OpenAI provider settings">
       <div className="provider-heading provider-settings-provider-heading">
         <ProviderIcon className="provider-settings-heading-icon" provider="openai-codex" size={18} aria-hidden="true" />
         <div className="provider-settings-heading-title">
           <h4>OpenAI</h4>
-          <ProviderHealthIndicator state={openAiStatus?.configured && (readiness === 'oauth_ready' || readiness === 'development_fallback') ? 'healthy' : 'unhealthy'} />
+          <ProviderHealthIndicator state={openAiStatus?.loginInProgress ? 'authenticating' : openAiStatus?.configured && (readiness === 'oauth_ready' || readiness === 'development_fallback') ? 'healthy' : 'unhealthy'} />
         </div>
         <ProviderModelDefaultsControls
           busy={busy}
@@ -850,16 +1085,20 @@ function OpenAiProviderCard({
         providerId="openai-codex"
         onChange={onSetOptionalModelEnabled}
       />
-      {openAiOAuthResult ? <ProviderOAuthResult result={openAiOAuthResult} /> : null}
-      <div className="provider-actions">
-        <button className="primary-button" type="button" disabled={busy || openAiStatus?.codexCliAvailable === false} onClick={onAuthenticate}>
-          <KeyRound size={15} />
-          {authenticateLabel}
-        </button>
-        {openAiStatus?.setupCommand ? (
-          <div className="command-row"><Terminal size={15} /><code>{openAiStatus.setupCommand}</code></div>
-        ) : null}
-      </div>
+      <ProviderAuthenticationSection
+        providerId="openai-codex"
+        subscriptionState={subscriptionState}
+        apiKeyConfigured={openAiStatus?.apiKeyConfigured ?? false}
+        busy={busy}
+        subscriptionDisabled={false}
+        result={openAiOAuthResult}
+        preferredMethod={preferredAuthenticationMethod}
+        onAuthenticate={onAuthenticate}
+        onForgetSubscription={onForgetSubscription}
+        onConfigureApiKey={onConfigureApiKey}
+        onRemoveApiKey={onRemoveApiKey}
+        onMarkPreferred={onSetPreferredAuthenticationMethod}
+      />
     </section>
   );
 }
@@ -914,6 +1153,9 @@ function ResearchProviderCard({
   result,
   busy,
   onAuthenticate,
+  onForgetSubscription,
+  onConfigureApiKey,
+  onRemoveApiKey,
   modelCatalog,
   fullModelCatalog,
   modelDefaults,
@@ -922,12 +1164,17 @@ function ResearchProviderCard({
   disabledOptionalModelIds,
   onSetOptionalModelEnabled,
   policyRiskAcknowledged,
-  onSetPolicyRiskAcknowledged
+  onSetPolicyRiskAcknowledged,
+  preferredAuthenticationMethod,
+  onSetPreferredAuthenticationMethod
 }: {
   provider: ResearchProviderStatus;
   result: ResearchProviderOAuthStartResult | null;
   busy: boolean;
   onAuthenticate: () => void;
+  onForgetSubscription: () => void;
+  onConfigureApiKey: (providerId: ResearchModelProviderId) => void;
+  onRemoveApiKey: () => void;
   modelCatalog: ResearchProviderModelCatalog | null;
   fullModelCatalog: ResearchProviderModelCatalog | null;
   modelDefaults: ProviderModelDefaults | null;
@@ -937,13 +1184,17 @@ function ResearchProviderCard({
   onSetOptionalModelEnabled: (modelId: string, enabled: boolean) => void;
   policyRiskAcknowledged: boolean;
   onSetPolicyRiskAcknowledged: (acknowledged: boolean) => void;
+  preferredAuthenticationMethod: ProviderAuthenticationMethod;
+  onSetPreferredAuthenticationMethod: (method: ProviderAuthenticationMethod) => void;
 }): JSX.Element {
   const providerName = providerCompanyName(provider.id);
-  const authenticateLabel = provider.loginInProgress
-    ? 'Authentication Running'
-    : provider.configured
-      ? 'Re-authenticate'
-      : 'Authenticate';
+  const subscriptionState: ProviderAuthenticationState = provider.loginInProgress
+    ? 'authenticating'
+    : provider.subscriptionConfigured
+      ? 'configured'
+      : provider.readiness === 'unavailable'
+        ? 'unavailable'
+        : 'not-configured';
   return (
     <section className={`provider-card readiness-${stateClass(provider.readiness)}`} role="tabpanel" aria-label={`${providerName} provider settings`}>
       <div className="provider-heading provider-settings-provider-heading">
@@ -976,23 +1227,20 @@ function ResearchProviderCard({
         onChange={onSetOptionalModelEnabled}
       />
 
-      {result ? <ProviderOAuthResult result={result} /> : null}
-
-      <div className="provider-actions">
-        <button
-          className="primary-button"
-          type="button"
-          disabled={busy || provider.loginInProgress || provider.readiness === 'unavailable' || (provider.id === 'anthropic' && !policyRiskAcknowledged)}
-          onClick={onAuthenticate}
-        >
-          <KeyRound size={15} />
-          {authenticateLabel}
-        </button>
-        <div className="command-row">
-          <Terminal size={15} />
-          <code>honeycrisp auth login {provider.id}</code>
-        </div>
-      </div>
+      <ProviderAuthenticationSection
+        providerId={provider.id}
+        subscriptionState={subscriptionState}
+        apiKeyConfigured={provider.apiKeyConfigured}
+        busy={busy}
+        subscriptionDisabled={provider.loginInProgress || (provider.id === 'anthropic' && !policyRiskAcknowledged)}
+        result={result}
+        preferredMethod={preferredAuthenticationMethod}
+        onAuthenticate={onAuthenticate}
+        onForgetSubscription={onForgetSubscription}
+        onConfigureApiKey={onConfigureApiKey}
+        onRemoveApiKey={onRemoveApiKey}
+        onMarkPreferred={onSetPreferredAuthenticationMethod}
+      />
     </section>
   );
 }
@@ -1020,6 +1268,7 @@ function ProviderCyberPolicyAcknowledgement({
       : 'I accept the policy-use risk for cybersecurity research with xAI.';
   return (
     <div className="provider-policy-warning">
+      <h3>Acknowledgment</h3>
       <p className="provider-detail provider-billing-note">{detail}</p>
       <label className="provider-risk-acknowledgement">
         <input
@@ -1051,8 +1300,12 @@ function ProviderModelDefaultsControls({
   const disabled = busy || !defaults || models.length === 0;
   return (
     <div className="provider-model-defaults" aria-label="Provider model defaults">
+      <div className="provider-model-defaults-heading" aria-hidden="true">
+        <span>Defaults</span>
+      </div>
+      <span className="provider-model-defaults-divider" aria-hidden="true" />
       <label>
-        <span>Default large</span>
+        <span>Large</span>
         <select
           value={defaults?.largeModel ?? ''}
           disabled={disabled}
@@ -1070,7 +1323,7 @@ function ProviderModelDefaultsControls({
         </select>
       </label>
       <label>
-        <span>Default small</span>
+        <span>Small</span>
         <select
           value={defaults?.smallModel ?? ''}
           disabled={disabled}
@@ -1080,7 +1333,7 @@ function ProviderModelDefaultsControls({
         </select>
       </label>
       <label>
-        <span>Default reasoning</span>
+        <span>Reasoning</span>
         <select
           value={defaults?.reasoningEffort ?? ''}
           disabled={disabled || effortLevels.length === 0}

@@ -887,7 +887,10 @@ export interface ProviderSettings {
   enabledOptionalModels?: Partial<Record<ResearchModelProviderId, string[]>>;
   disabledOptionalModels?: Partial<Record<ResearchModelProviderId, string[]>>;
   cyberPolicyRiskAcknowledgements?: Partial<Record<ResearchModelProviderId, true>>;
+  preferredAuthenticationMethods?: Partial<Record<ResearchModelProviderId, ProviderAuthenticationMethod>>;
 }
+
+export type ProviderAuthenticationMethod = 'subscription' | 'api_key';
 
 export interface ProviderModelDefaults {
   largeModel: string;
@@ -1039,6 +1042,9 @@ export interface WorkspaceExportResult {
 
 export interface OpenAiAccountStatus {
   configured: boolean;
+  subscriptionConfigured: boolean;
+  apiKeyConfigured: boolean;
+  loginInProgress: boolean;
   source: OpenAiAuthSource;
   label: string;
   credentialHint: string;
@@ -1117,6 +1123,8 @@ export interface ResearchProviderStatus {
   id: ResearchProviderId;
   name: string;
   configured: boolean;
+  subscriptionConfigured: boolean;
+  apiKeyConfigured: boolean;
   readiness: ResearchProviderReadiness;
   authMethods: ('api_key' | 'oauth')[];
   credentialType: 'api_key' | 'oauth' | null;
@@ -1657,6 +1665,7 @@ export interface BealeApi {
   setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): Promise<ProviderSettings>;
   setProviderOptionalModelEnabled(providerId: ResearchModelProviderId, modelId: string, enabled: boolean): Promise<ProviderSettings>;
   setProviderCyberPolicyRiskAcknowledged(providerId: ResearchModelProviderId, acknowledged: boolean): Promise<ProviderSettings>;
+  setProviderPreferredAuthenticationMethod(providerId: ResearchModelProviderId, method: ProviderAuthenticationMethod): Promise<ProviderSettings>;
   getMemorySettings(): Promise<MemorySettings>;
   setMemoryTypeDescriptions(descriptions: MemoryTypeDescriptions): Promise<MemorySettings>;
   getShellOptions(): Promise<ShellOptions>;
@@ -1673,6 +1682,9 @@ export interface BealeApi {
   getHostEnvironment(): Promise<HostEnvironment>;
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
+  forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<void>;
+  configureProviderApiKey(providerId: ResearchModelProviderId, apiKey: string): Promise<void>;
+  removeProviderApiKey(providerId: ResearchModelProviderId): Promise<void>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
   getResearchProviderStatuses(): Promise<ResearchProviderStatus[]>;
   getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]>;

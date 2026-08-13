@@ -258,6 +258,11 @@ select {
   letter-spacing: 0;
 }
 
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--text);
+}
+
 button {
   min-height: 32px;
   display: inline-flex;
@@ -7716,7 +7721,7 @@ button.session-summary-item:hover:not(:disabled),
   min-width: 14px;
   height: 14px;
   min-height: 14px;
-  accent-color: var(--muted-strong);
+  accent-color: var(--text);
   margin: 0;
 }
 
@@ -8248,7 +8253,7 @@ button.session-summary-item:hover:not(:disabled),
   min-width: 12px;
   height: 12px;
   min-height: 12px;
-  accent-color: var(--muted-strong);
+  accent-color: var(--text);
   margin: 0;
 }
 
@@ -8423,7 +8428,7 @@ button.session-summary-item:hover:not(:disabled),
   min-width: 13px;
   height: 13px;
   min-height: 13px;
-  accent-color: var(--muted-strong);
+  accent-color: var(--text);
   margin: 0;
 }
 
@@ -9183,6 +9188,7 @@ button.research-goal-choice:focus-visible {
 
 .provider-settings-page {
   gap: 12px;
+  font-size: var(--steer-control-font-size, 13px);
 }
 
 .provider-settings-page > .provider-card {
@@ -9218,6 +9224,8 @@ button.research-goal-choice:focus-visible {
 
 .provider-settings-picker-menu {
   min-width: 220px;
+  right: auto;
+  left: 0;
 }
 
 .provider-settings-default-control {
@@ -9585,8 +9593,7 @@ button.research-goal-choice:focus-visible {
   padding: 8px;
 }
 
-.provider-grid span,
-.provider-oauth-result span {
+.provider-grid span {
   display: block;
   color: var(--muted);
   font-size: 0.7rem;
@@ -9607,6 +9614,25 @@ button.research-goal-choice:focus-visible {
   justify-content: flex-end;
   gap: 14px;
   flex-wrap: wrap;
+}
+
+.provider-model-defaults-heading {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--text);
+  font-size: var(--steer-control-font-size, 13px);
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.provider-model-defaults-divider {
+  width: 0;
+  height: 24px;
+  flex: 0 0 auto;
+  border-left: 1px solid var(--panel-border);
 }
 
 .provider-model-defaults label {
@@ -9658,7 +9684,7 @@ button.research-goal-choice:focus-visible {
   padding: 0 2px;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--steer-control-font-size, 13px);
   font-weight: 400;
 }
 
@@ -9702,6 +9728,154 @@ button.research-goal-choice:focus-visible {
 .provider-optional-models small {
   color: var(--muted);
   line-height: 1.35;
+}
+
+.provider-authentication-section {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.provider-authentication-section > h3 {
+  margin: 0;
+  padding: 0 2px 7px;
+  border-bottom: 1px solid var(--panel-border);
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+.provider-authentication-options {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.provider-authentication-option {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.provider-authentication-option + .provider-authentication-option {
+  border-left: 1px solid var(--panel-border);
+  padding-left: 16px;
+}
+
+.provider-authentication-option-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.provider-authentication-option-heading strong {
+  color: var(--text);
+  font-size: var(--steer-control-font-size, 13px);
+  font-weight: 400;
+}
+
+.provider-authentication-status {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--steer-control-font-size, 13px);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.provider-authentication-statuses {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.provider-authentication-status > span {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.provider-authentication-status.state-configured > span {
+  background: var(--green);
+}
+
+.provider-authentication-status.state-preferred > span {
+  background: #4d8dff;
+}
+
+.provider-authentication-status.state-needs-attention > span,
+.provider-authentication-status.state-unavailable > span {
+  background: var(--red);
+}
+
+.provider-authentication-status.state-authenticating > span {
+  width: 9px;
+  height: 9px;
+  flex-basis: 9px;
+  border: 1.5px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #a8a8a8;
+  background: transparent;
+  animation: provider-health-spin 800ms linear infinite;
+}
+
+.provider-authentication-action,
+.provider-authentication-action:hover:not(:disabled),
+.provider-authentication-action:focus-visible {
+  width: fit-content;
+  border: 0;
+}
+
+.provider-authentication-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.provider-api-key-backdrop {
+  z-index: 30;
+}
+
+.modal-panel.provider-api-key-dialog {
+  width: min(460px, 100%);
+}
+
+.provider-api-key-dialog .modal-body {
+  display: grid;
+  gap: 10px;
+}
+
+.provider-api-key-dialog .modal-body > p {
+  color: var(--muted);
+  font-size: var(--steer-control-font-size, 13px);
+  line-height: 1.4;
+}
+
+.provider-api-key-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--steer-control-font-size, 13px);
+}
+
+.provider-api-key-field input {
+  width: 100%;
+}
+
+.provider-api-key-dialog button,
+.provider-api-key-dialog button:hover:not(:disabled),
+.provider-api-key-dialog button:focus-visible {
+  border: 0;
 }
 
 .profiling-overview {
@@ -9914,6 +10088,15 @@ button.research-goal-choice:focus-visible {
   border-radius: 7px;
   background: var(--panel);
   padding: 10px;
+  font-size: var(--steer-control-font-size, 13px);
+}
+
+.provider-oauth-result span {
+  display: block;
+  color: var(--muted);
+  font-size: inherit;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .provider-oauth-result strong,
@@ -9922,21 +10105,19 @@ button.research-goal-choice:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.provider-actions {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.provider-actions .command-row {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
 .provider-policy-warning {
   display: grid;
   gap: 8px;
+}
+
+.provider-policy-warning > h3 {
+  margin: 0;
+  padding: 0 2px 7px;
+  border-bottom: 1px solid var(--panel-border);
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.3;
 }
 
 .provider-risk-acknowledgement {
@@ -9947,7 +10128,7 @@ button.research-goal-choice:focus-visible {
   justify-content: flex-start;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--steer-control-font-size, 13px);
   line-height: 1.4;
 }
 

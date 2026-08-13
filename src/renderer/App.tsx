@@ -5,6 +5,7 @@ import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from '
 import type {
   ApprovalRecord,
   ProviderSettings,
+  ProviderAuthenticationMethod,
   ProviderModelDefaults,
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
@@ -64,6 +65,10 @@ import { sessionHeatForDetail, sessionHeatPaletteStyle } from './view-models/ses
 import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
+import {
+  clearConfirmedProviderOAuthResults,
+  isSubscriptionAuthenticationConfirmed
+} from './view-models/providerAuthentication';
 
 export function App(): JSX.Element {
   const appShellRef = useRef<HTMLDivElement | null>(null);
@@ -405,13 +410,24 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     if (!settingsOpen || !researchProviderStatuses.some((provider) => provider.loginInProgress)) return;
-    const timer = window.setInterval(() => void loadResearchProviderStatuses(), 2_000);
+    let inFlight = false;
+    const poll = async (): Promise<void> => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        await loadResearchProviderStatuses();
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 2_000);
     return () => window.clearInterval(timer);
   }, [loadResearchProviderStatuses, researchProviderStatuses, settingsOpen]);
 
   const openAiConfigured = openAiStatus?.configured ?? snapshot?.openAi.configured ?? false;
+  const openAiAuthenticationRunning = openAiStatus?.loginInProgress ?? false;
   useEffect(() => {
-    if (!settingsOpen || settingsSection !== 'providers' || !openAiOAuthResult?.started || openAiConfigured) return;
+    if (!settingsOpen || settingsSection !== 'providers' || !openAiOAuthResult?.started || (openAiConfigured && !openAiAuthenticationRunning)) return;
     void loadOpenAiProviderStatus();
     const timer = window.setInterval(() => void loadOpenAiProviderStatus(), 2_000);
     const timeout = window.setTimeout(() => window.clearInterval(timer), 5 * 60_000);
@@ -419,7 +435,17 @@ export function App(): JSX.Element {
       window.clearInterval(timer);
       window.clearTimeout(timeout);
     };
-  }, [loadOpenAiProviderStatus, openAiConfigured, openAiOAuthResult?.started, settingsOpen, settingsSection]);
+  }, [loadOpenAiProviderStatus, openAiAuthenticationRunning, openAiConfigured, openAiOAuthResult?.started, settingsOpen, settingsSection]);
+
+  useEffect(() => {
+    if (!openAiOAuthResult || !isSubscriptionAuthenticationConfirmed(openAiStatus)) return;
+    setOpenAiOAuthResult(null);
+  }, [openAiOAuthResult, openAiStatus]);
+
+  useEffect(() => {
+    setResearchProviderOAuthResults((current) =>
+      clearConfirmedProviderOAuthResults(current, researchProviderStatuses));
+  }, [researchProviderStatuses]);
 
   const setDefaultProviderId = useCallback(async (providerId: ResearchModelProviderId | null): Promise<void> => {
     setError(null);
@@ -462,6 +488,18 @@ export function App(): JSX.Element {
     setError(null);
     try {
       setProviderSettings(await window.beale.setProviderCyberPolicyRiskAcknowledged(providerId, acknowledged));
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }, []);
+
+  const setProviderPreferredAuthenticationMethod = useCallback(async (
+    providerId: ResearchModelProviderId,
+    method: ProviderAuthenticationMethod
+  ): Promise<void> => {
+    setError(null);
+    try {
+      setProviderSettings(await window.beale.setProviderPreferredAuthenticationMethod(providerId, method));
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -512,6 +550,62 @@ export function App(): JSX.Element {
       setBusy(false);
     }
   }, []);
+
+  const reloadProviderAuthentication = useCallback(async (): Promise<void> => {
+    setOpenAiStatus(await window.beale.getOpenAiStatus());
+    setResearchProviderStatuses(await window.beale.getResearchProviderStatuses());
+    setResearchProviderStatusesLoaded(true);
+  }, []);
+
+  const forgetProviderSubscription = useCallback(async (providerId: ResearchModelProviderId): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      await window.beale.forgetProviderSubscription(providerId);
+      await reloadProviderAuthentication();
+      if (providerId === 'openai-codex') {
+        setOpenAiOAuthResult(null);
+      } else {
+        setResearchProviderOAuthResults((current) => {
+          if (!(providerId in current)) return current;
+          const next = { ...current };
+          delete next[providerId];
+          return next;
+        });
+      }
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }, [reloadProviderAuthentication]);
+
+  const configureProviderApiKey = useCallback(async (providerId: ResearchModelProviderId, apiKey: string): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      await window.beale.configureProviderApiKey(providerId, apiKey);
+      await reloadProviderAuthentication();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }, [reloadProviderAuthentication]);
+
+  const removeProviderApiKey = useCallback(async (providerId: ResearchModelProviderId): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      await window.beale.removeProviderApiKey(providerId);
+      await reloadProviderAuthentication();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }, [reloadProviderAuthentication]);
 
   const {
     addWorkspace,
@@ -904,10 +998,14 @@ export function App(): JSX.Element {
             onRefreshOpenAi={refreshOpenAiProvider}
             onStartOpenAiOAuth={startOpenAiOAuth}
             onStartResearchProviderOAuth={startResearchProviderOAuth}
+            onForgetProviderSubscription={forgetProviderSubscription}
+            onConfigureProviderApiKey={configureProviderApiKey}
+            onRemoveProviderApiKey={removeProviderApiKey}
             onSetDefaultProviderId={setDefaultProviderId}
             onSetProviderModelDefaults={setProviderModelDefaults}
             onSetProviderOptionalModelEnabled={setProviderOptionalModelEnabled}
             onSetProviderCyberPolicyRiskAcknowledged={setProviderCyberPolicyRiskAcknowledged}
+            onSetProviderPreferredAuthenticationMethod={setProviderPreferredAuthenticationMethod}
             onSetSessionHeatPreference={setSessionHeatPreference}
           />
         ) : (

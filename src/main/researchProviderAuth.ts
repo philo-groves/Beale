@@ -77,8 +77,17 @@ export class ResearchProviderAuthService {
       };
     }
 
-    const invocation = resolveHoneycrispInvocation();
-    const child = spawn(invocation.command, [...invocation.prefixArgs, 'auth', 'login', providerId], {
+    const honeycrispInvocation = resolveHoneycrispInvocation();
+    const claudeInvocation = claudeSubscriptionLoginInvocation();
+    const invocation = providerId === 'anthropic' && claudeInvocation
+      ? claudeInvocation
+      : {
+          command: honeycrispInvocation.command,
+          args: [...honeycrispInvocation.prefixArgs, 'auth', 'login', providerId],
+          cwd: honeycrispInvocation.cwd,
+          displayCommand: `honeycrisp auth login ${providerId}`
+        };
+    const child = spawn(invocation.command, invocation.args, {
       cwd: invocation.cwd,
       env: honeycrispProcessEnvironment(),
       windowsHide: true
@@ -97,8 +106,10 @@ export class ResearchProviderAuthService {
     const result: ResearchProviderOAuthStartResult = {
       providerId,
       started: true,
-      command: `honeycrisp auth login ${providerId}`,
-      detail: parsed.verificationUri
+      command: invocation.displayCommand,
+      detail: providerId === 'anthropic' && claudeInvocation
+        ? 'Complete Anthropic authentication in the opened Claude CLI window. Beale will refresh when the official CLI finishes.'
+        : parsed.verificationUri
         ? `Complete ${providerDisplayName(providerId)} authentication in the browser, then refresh provider status.`
         : `${providerDisplayName(providerId)} authentication started. Complete the provider sign-in, then refresh status.`,
       verificationUri: parsed.verificationUri,
@@ -109,12 +120,19 @@ export class ResearchProviderAuthService {
     return result;
   }
 
+  public async forgetSubscription(providerId: ResearchProviderId): Promise<void> {
+    requireSupportedProvider(providerId);
+    await runHoneycrispCommand(['auth', 'logout', providerId]);
+  }
+
   public dispose(): void {
     for (const child of this.loginProcesses.values()) child.kill();
     this.loginProcesses.clear();
   }
 
   private async getStatus(providerId: ResearchProviderId): Promise<ResearchProviderStatus> {
+    const apiKeyEnvironmentVariable = providerId === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'XAI_API_KEY';
+    const environmentApiKeyConfigured = Boolean(process.env[apiKeyEnvironmentVariable]?.trim());
     try {
       const [statusResult, verifyResult] = await Promise.all([
         runHoneycrispCommand(['auth', 'status', providerId]),
@@ -131,6 +149,8 @@ export class ResearchProviderAuthService {
         id: providerId,
         name: providerDisplayName(providerId),
         configured: verification.configured,
+        subscriptionConfigured: status.storedCredentialType === 'oauth',
+        apiKeyConfigured: environmentApiKeyConfigured || status.storedCredentialType === 'api_key',
         readiness: verification.configured ? 'ready' : 'not_configured',
         authMethods: status.authMethods,
         credentialType: status.storedCredentialType,
@@ -139,13 +159,15 @@ export class ResearchProviderAuthService {
         credentialsHostOnly: true,
         loginInProgress,
         statusDetail: providerStatusDetail(providerId, verification.configured, source, loginInProgress),
-        apiKeyEnvironmentVariable: providerId === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'XAI_API_KEY'
+        apiKeyEnvironmentVariable
       };
     } catch (error) {
       return {
         id: providerId,
         name: providerDisplayName(providerId),
         configured: false,
+        subscriptionConfigured: false,
+        apiKeyConfigured: environmentApiKeyConfigured,
         readiness: 'unavailable',
         authMethods: ['api_key', 'oauth'],
         credentialType: null,
@@ -154,7 +176,7 @@ export class ResearchProviderAuthService {
         credentialsHostOnly: true,
         loginInProgress: this.loginProcesses.has(providerId),
         statusDetail: `Honeycrisp could not inspect ${providerDisplayName(providerId)}: ${errorMessage(error)}`,
-        apiKeyEnvironmentVariable: providerId === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'XAI_API_KEY'
+        apiKeyEnvironmentVariable
       };
     }
   }
@@ -318,7 +340,35 @@ function providerStatusDetail(providerId: ResearchProviderId, configured: boolea
   if (providerId === 'anthropic') {
     return `${name} is not configured. Sign in through the official Claude CLI with a Cyber Verification Program account, or provide ANTHROPIC_API_KEY in Beale's host environment.`;
   }
+
   return `${name} is not configured. Use subscription OAuth here or provide the provider API key in Beale's host environment.`;
+}
+
+interface InteractiveAuthInvocation {
+  command: string;
+  args: string[];
+  cwd: string;
+  displayCommand: string;
+}
+
+export function claudeSubscriptionLoginInvocation(
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot?.trim() || 'C:\\Windows',
+  cwd = process.cwd()
+): InteractiveAuthInvocation | null {
+  if (platform !== 'win32') return null;
+  const powershell = `${systemRoot.replace(/[\\/]+$/u, '')}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
+  const script = [
+    "$process = Start-Process -FilePath $env:ComSpec -ArgumentList @('/d', '/s', '/c', 'claude auth login --claudeai') -WindowStyle Normal -PassThru",
+    '$process.WaitForExit()',
+    'exit $process.ExitCode'
+  ].join('; ');
+  return {
+    command: powershell,
+    args: ['-NoProfile', '-NonInteractive', '-Command', script],
+    cwd,
+    displayCommand: 'claude auth login --claudeai'
+  };
 }
 
 function providerDisplayName(providerId: ResearchProviderId): string {

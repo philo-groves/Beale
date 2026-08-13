@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { OpenAiAccountStatus, ResearchProviderModel, ResearchProviderModelCatalog, ResearchProviderStatus } from '../src/shared/types';
 import {
   ProvidersSettingsView,
+  ProviderApiKeyDialog,
   defaultProviderPickerOptions,
   providerSettingsOptions,
   resolvedDefaultProviderId,
@@ -12,6 +13,50 @@ import {
 } from '../src/renderer/features/settings/SettingsModal';
 
 describe('renderer provider settings', () => {
+  it('marks the preferred authentication source and offers the alternate action', () => {
+    const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {
+      openAiStatus: { ...configuredOpenAiStatus(), apiKeyConfigured: true },
+      openAiOAuthResult: null,
+      researchProviderOAuthResults: {},
+      researchProviderStatuses: researchProviderStatuses(),
+      researchProviderModelCatalog: modelCatalogs(),
+      providerSettings: {
+        defaultProviderId: 'openai-codex',
+        modelDefaults: {},
+        preferredAuthenticationMethods: { 'openai-codex': 'subscription' }
+      },
+      providerStatusesLoaded: true,
+      busy: false,
+      onRefreshOpenAi: async () => undefined,
+      onStartOpenAiOAuth: async () => undefined,
+      onStartResearchProviderOAuth: async () => undefined,
+      onSetDefaultProviderId: async () => undefined,
+      onSetProviderModelDefaults: async () => undefined,
+      onSetProviderPreferredAuthenticationMethod: async () => undefined
+    }));
+
+    expect(html).toContain('state-preferred');
+    expect(html).toContain('Preferred');
+    expect(html.match(/Mark as Preferred/gu)).toHaveLength(1);
+  });
+
+  it('uses the shared white theme accent for all checkbox and radio controls', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const checkboxStyles = styles.match(/input\[type='checkbox'\],\s*input\[type='radio'\]\s*\{([^}]*)\}/)?.[1] ?? '';
+    const accentValues = [...styles.matchAll(/accent-color:\s*([^;]+);/gu)].map((match) => match[1]?.trim());
+
+    expect(checkboxStyles).toContain('accent-color: var(--text)');
+    expect(new Set(accentValues)).toEqual(new Set(['var(--text)']));
+  });
+
+  it('opens the provider picker toward the right of its trigger', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const pickerStyles = styles.match(/\.provider-settings-picker-menu\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(pickerStyles).toContain('left: 0;');
+    expect(pickerStyles).toContain('right: auto;');
+  });
+
   it('gives inactive provider tabs a contrasting surface', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const inactiveTabStyles = styles.match(/\.provider-settings-tab:not\(\.active\)\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -27,6 +72,8 @@ describe('renderer provider settings', () => {
   it('uses compact New Research styling for provider defaults', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const defaultsStyles = styles.match(/^\.provider-model-defaults\s*\{([^}]*)\}/m)?.[1] ?? '';
+    const defaultsHeadingStyles = styles.match(/\.provider-model-defaults-heading\s*\{([^}]*)\}/)?.[1] ?? '';
+    const defaultsDividerStyles = styles.match(/\.provider-model-defaults-divider\s*\{([^}]*)\}/)?.[1] ?? '';
     const labelStyles = styles.match(/\.provider-model-defaults label\s*\{([^}]*)\}/)?.[1] ?? '';
     const selectStyles = styles.match(/\.provider-model-defaults select\s*\{([^}]*)\}/)?.[1] ?? '';
     const providerControlStyles = styles.match(/\.provider-settings-default-control\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -34,6 +81,7 @@ describe('renderer provider settings', () => {
     const healthyStyles = styles.match(/\.provider-health-indicator\.state-healthy\s*\{([^}]*)\}/)?.[1] ?? '';
     const unhealthyStyles = styles.match(/\.provider-health-indicator\.state-unhealthy\s*\{([^}]*)\}/)?.[1] ?? '';
     const authenticatingStyles = styles.match(/\.provider-health-indicator\.state-authenticating\s*\{([^}]*)\}/)?.[1] ?? '';
+    const acknowledgementHeadingStyles = styles.match(/\.provider-policy-warning > h3\s*\{([^}]*)\}/)?.[1] ?? '';
     const acknowledgementStyles = styles.match(/\.provider-risk-acknowledgement\s*\{([^}]*)\}/)?.[1] ?? '';
     const acknowledgementInputStyles = styles.match(/\.provider-risk-acknowledgement input\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionalModelsStyles = styles.match(/\.provider-optional-models\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -41,8 +89,22 @@ describe('renderer provider settings', () => {
     const optionalLabelStyles = styles.match(/\.provider-optional-models label\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionalInputStyles = styles.match(/\.provider-optional-models input\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionalCopyStyles = styles.match(/\.provider-optional-model-copy\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticationStyles = styles.match(/\.provider-authentication-section\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticationHeadingStyles = styles.match(/\.provider-authentication-section > h3\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticationOptionsStyles = styles.match(/\.provider-authentication-options\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticationLabelStyles = styles.match(/\.provider-authentication-option-heading strong\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticationStatusStyles = styles.match(/\.provider-authentication-status\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticationActionStyles = styles.match(/\.provider-authentication-action,([\s\S]*?)\{([^}]*)\}/)?.[2] ?? '';
+    const oauthResultStyles = styles.match(/\.provider-oauth-result\s*\{([^}]*)\}/)?.[1] ?? '';
+    const apiKeyDescriptionStyles = styles.match(/\.provider-api-key-dialog \.modal-body > p\s*\{([^}]*)\}/)?.[1] ?? '';
+    const apiKeyFieldStyles = styles.match(/\.provider-api-key-field\s*\{([^}]*)\}/)?.[1] ?? '';
+    const apiKeyDialogButtonStyles = styles.match(/\.provider-api-key-dialog button,([\s\S]*?)\{([^}]*)\}/)?.[2] ?? '';
 
     expect(defaultsStyles).toContain('justify-content: flex-end');
+    expect(defaultsHeadingStyles).toContain('display: inline-flex');
+    expect(defaultsHeadingStyles).toContain('color: var(--text)');
+    expect(defaultsHeadingStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(defaultsDividerStyles).toContain('border-left: 1px solid var(--panel-border)');
     expect(labelStyles).toContain('display: inline-flex');
     expect(labelStyles).toContain('gap: 5px');
     expect(labelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
@@ -61,9 +123,11 @@ describe('renderer provider settings', () => {
     expect(unhealthyStyles).toContain('background: var(--red)');
     expect(authenticatingStyles).toContain('border: 1.5px solid rgba(255, 255, 255, 0.28)');
     expect(authenticatingStyles).toContain('animation: provider-health-spin 800ms linear infinite');
+    expect(acknowledgementHeadingStyles).toBe(authenticationHeadingStyles);
     expect(acknowledgementStyles).toContain('width: fit-content');
     expect(acknowledgementStyles).toContain('display: inline-flex');
     expect(acknowledgementStyles).toContain('justify-content: flex-start');
+    expect(acknowledgementStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
     expect(acknowledgementInputStyles).toContain('width: 14px');
     expect(acknowledgementInputStyles).toContain('flex: 0 0 14px');
     expect(optionalModelsStyles).toContain('background: transparent');
@@ -72,10 +136,23 @@ describe('renderer provider settings', () => {
     expect(optionalHeadingStyles).toContain('border-bottom: 1px solid var(--panel-border)');
     expect(optionalLabelStyles).toContain('display: inline-flex');
     expect(optionalLabelStyles).toContain('background: transparent');
+    expect(optionalLabelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
     expect(optionalInputStyles).toContain('width: 14px');
     expect(optionalInputStyles).toContain('flex: 0 0 14px');
     expect(optionalCopyStyles).toContain('display: inline-flex');
     expect(optionalCopyStyles).toContain('white-space: nowrap');
+    expect(authenticationStyles).toContain('display: grid');
+    expect(authenticationHeadingStyles).toContain('border-bottom: 1px solid var(--panel-border)');
+    expect(authenticationHeadingStyles).toContain('font-size: 1rem');
+    expect(authenticationHeadingStyles).toContain('font-weight: 400');
+    expect(authenticationOptionsStyles).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(authenticationLabelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(authenticationStatusStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(authenticationActionStyles).toContain('border: 0');
+    expect(oauthResultStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(apiKeyDescriptionStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(apiKeyFieldStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(apiKeyDialogButtonStyles).toContain('border: 0');
   });
 
   it('separates configured provider tabs from providers available through the add menu', () => {
@@ -88,7 +165,7 @@ describe('renderer provider settings', () => {
     ]);
   });
 
-  it('renders configured providers as tabs and only the active provider detail', () => {
+  it('renders configured providers as tabs and defaults the detail to the saved default provider', () => {
     const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {
       openAiStatus: configuredOpenAiStatus(),
       openAiOAuthResult: null,
@@ -115,8 +192,8 @@ describe('renderer provider settings', () => {
     expect(html).toContain('aria-label="Refresh Anthropic"');
     expect(html).not.toContain('>Refresh</button>');
     expect(html.match(/role="tabpanel"/gu)).toHaveLength(1);
-    expect(html).toContain('aria-label="OpenAI provider settings"');
-    expect(html).not.toContain('aria-label="Anthropic provider settings"');
+    expect(html).not.toContain('aria-label="OpenAI provider settings"');
+    expect(html).toContain('aria-label="Anthropic provider settings"');
     expect(html.match(/class="provider-settings-heading-icon"/gu)).toHaveLength(1);
     expect(html).not.toContain('class="status-icon"');
     expect(html).not.toContain('class="status-pill');
@@ -127,11 +204,65 @@ describe('renderer provider settings', () => {
     expect(html).not.toContain('<span>Source</span>');
     expect(html).not.toContain('<span>Transport</span>');
     expect(html).not.toContain('<span>Boundary</span>');
-    expect(html).toContain('aria-label="Default provider"');
-    expect(html).toContain('<span>Default provider</span>');
+    expect(html).toContain('aria-label="Lead Provider"');
+    expect(html).toContain('<span>Lead Provider</span>');
     expect(html).not.toContain('Default: Anthropic');
     expect(html).not.toContain('(Codex)');
     expect(html).not.toContain('(Claude)');
+    expect(html).toContain('aria-label="Authentication"');
+    expect(html).toContain('<h3>Acknowledgment</h3>');
+    expect(html).toContain('<h3>Authentication</h3>');
+    expect(html).toContain('<strong>Subscription</strong>');
+    expect(html).toContain('<strong>API key</strong>');
+    expect(html).toContain('provider-authentication-status state-configured');
+    expect(html).toContain('provider-authentication-status state-not-configured');
+    expect(html).toContain('>Forget</button>');
+    expect(html).toContain('>Configure</button>');
+    expect(html).toContain('>Remove</button>');
+    expect(html).not.toContain('>Sign in</button>');
+    expect(html).not.toContain('Re-authenticate');
+    expect(html).not.toContain('Host credential');
+    expect(html).not.toContain('OPENAI_API_KEY');
+    expect(html).not.toContain('codex login --device-auth');
+  });
+
+  it('renders API key confirmation as a password dialog without a stored value', () => {
+    const html = renderToStaticMarkup(createElement(ProviderApiKeyDialog, {
+      providerId: 'anthropic',
+      busy: false,
+      onCancel: () => undefined,
+      onConfirm: async () => undefined
+    }));
+
+    expect(html).toContain('aria-label="Configure Anthropic API key"');
+    expect(html).toContain('role="dialog" aria-modal="true"');
+    expect(html).toContain('type="password"');
+    expect(html).toContain('value=""');
+    expect(html).toContain('>Cancel</button>');
+    expect(html).toContain('>Confirm</button>');
+  });
+
+  it('shows subscription and API-key authentication statuses independently without key material', () => {
+    const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {
+      openAiStatus: { ...configuredOpenAiStatus(), apiKeyConfigured: true },
+      openAiOAuthResult: null,
+      researchProviderOAuthResults: {},
+      researchProviderStatuses: researchProviderStatuses(),
+      researchProviderModelCatalog: modelCatalogs(),
+      providerSettings: { defaultProviderId: 'openai-codex', modelDefaults: {} },
+      providerStatusesLoaded: true,
+      busy: false,
+      onRefreshOpenAi: async () => undefined,
+      onStartOpenAiOAuth: async () => undefined,
+      onStartResearchProviderOAuth: async () => undefined,
+      onSetDefaultProviderId: async () => undefined,
+      onSetProviderModelDefaults: async () => undefined
+    }));
+
+    expect(html.match(/provider-authentication-status state-configured/gu)).toHaveLength(2);
+    expect(html.match(/>Configured<\/span>/gu)).toHaveLength(2);
+    expect(html).not.toContain('Host credential');
+    expect(html).not.toContain('OPENAI_API_KEY');
   });
 
   it('renders an in-progress authentication as its own active provider tab and panel', () => {
@@ -166,11 +297,11 @@ describe('renderer provider settings', () => {
 
     expect(html.match(/role="tab"/gu)).toHaveLength(3);
     expect(html).toContain('aria-busy="true"');
-    expect(html).toContain('aria-label="xAI authentication"');
+    expect(html).toContain('aria-label="xAI provider settings"');
     expect(html.match(/class="provider-settings-heading-icon"/gu)).toHaveLength(1);
     expect(html).toContain('class="provider-health-indicator state-authenticating"');
     expect(html).toContain('aria-label="Authentication in progress"');
-    expect(html).not.toContain('aria-label="Provider model defaults"');
+    expect(html).toContain('aria-label="Provider model defaults"');
     expect(html).toContain('Complete authentication in the browser.');
   });
 
@@ -262,12 +393,13 @@ describe('renderer provider settings', () => {
     expect(html).not.toContain('Anthropic is ready.');
     expect(html).not.toContain('API-key authentication is also available');
     expect(html).not.toContain('OAuth ready');
-    expect(html).toContain('Default large');
-    expect(html).toContain('Default small');
-    expect(html).toContain('Default reasoning');
-    expect(html).not.toContain('Default large model');
-    expect(html).not.toContain('Default small model');
-    expect(html).not.toContain('Default reasoning level');
+    expect(html).toContain('<span>Defaults</span>');
+    expect(html).toContain('<span>Large</span>');
+    expect(html).toContain('<span>Small</span>');
+    expect(html).toContain('<span>Reasoning</span>');
+    expect(html).not.toContain('Default large');
+    expect(html).not.toContain('Default small');
+    expect(html).not.toContain('Default reasoning');
     expect(html).not.toMatch(/<option[^>]*>[^<]* — [^<]*<\/option>/u);
   });
 
@@ -442,8 +574,8 @@ describe('renderer provider settings', () => {
     expect(html).toContain('No providers configured');
     expect(html).toContain('aria-label="Add provider"');
     expect(html).not.toContain('role="tabpanel"');
-    expect(html).toContain('aria-label="Default provider"');
-    expect(html).toContain('<span>Default provider</span>');
+    expect(html).toContain('aria-label="Lead Provider"');
+    expect(html).toContain('<span>Lead Provider</span>');
     expect(html).toContain('<option value="" selected="">None</option>');
   });
 });
@@ -484,6 +616,9 @@ function modelCatalogs(): ResearchProviderModelCatalog[] {
 function configuredOpenAiStatus(): OpenAiAccountStatus {
   return {
     configured: true,
+    subscriptionConfigured: true,
+    apiKeyConfigured: false,
+    loginInProgress: false,
     source: 'codex_oauth_file',
     label: 'Authenticated with Codex OAuth',
     credentialHint: 'Host credential',
@@ -508,6 +643,8 @@ function researchProviderStatuses(): ResearchProviderStatus[] {
       id: 'anthropic',
       name: 'Anthropic (Claude)',
       configured: true,
+      subscriptionConfigured: true,
+      apiKeyConfigured: false,
       readiness: 'ready',
       authMethods: ['api_key', 'oauth'],
       credentialType: 'oauth',
@@ -522,6 +659,8 @@ function researchProviderStatuses(): ResearchProviderStatus[] {
       id: 'xai',
       name: 'xAI (Grok/X)',
       configured: false,
+      subscriptionConfigured: false,
+      apiKeyConfigured: false,
       readiness: 'not_configured',
       authMethods: ['api_key', 'oauth'],
       credentialType: null,

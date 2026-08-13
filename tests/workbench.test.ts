@@ -71,7 +71,26 @@ describe('Beale workbench skeleton', () => {
     const env = honeycrispProcessEnvironment();
 
     expect(env.HONEYCRISP_CODEX_AUTH_FILE).toBe(codexAuthFile);
+    expect(JSON.parse(env.HONEYCRISP_PROVIDER_AUTH_PREFERENCES!)).toEqual({
+      'openai-codex': 'subscription',
+      anthropic: 'subscription',
+      xai: 'subscription'
+    });
     expect(JSON.stringify(env)).not.toContain('access_token');
+  });
+
+  it('passes persisted authentication preferences to Honeycrisp without credentials', () => {
+    const env = honeycrispProcessEnvironment(null, {
+      'openai-codex': 'api_key',
+      anthropic: 'subscription'
+    });
+
+    expect(JSON.parse(env.HONEYCRISP_PROVIDER_AUTH_PREFERENCES!)).toEqual({
+      'openai-codex': 'api_key',
+      anthropic: 'subscription',
+      xai: 'subscription'
+    });
+    expect(env.HONEYCRISP_PROVIDER_AUTH_PREFERENCES).not.toContain('OPENAI_API_KEY');
   });
 
   it('initializes and reopens the global SQLite database for a workspace', () => {
@@ -2986,6 +3005,19 @@ describe('Beale workbench skeleton', () => {
     expect(reopenedWithAnthropicPreferences.setProviderOptionalModelEnabled('anthropic', 'claude-fable-5', true).disabledOptionalModels).toBeUndefined();
     expect(reopenedWithAnthropicPreferences.setProviderOptionalModelEnabled('anthropic', 'claude-mythos-5', false).enabledOptionalModels).toBeUndefined();
     reopenedWithAnthropicPreferences.close();
+  });
+
+  it('persists provider authentication preferences', () => {
+    const registryDir = tempWorkspace();
+    const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+
+    expect(service.setProviderPreferredAuthenticationMethod('anthropic', 'api_key').preferredAuthenticationMethods)
+      .toEqual({ anthropic: 'api_key' });
+    service.close();
+
+    const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    expect(reopened.getProviderSettings().preferredAuthenticationMethods).toEqual({ anthropic: 'api_key' });
+    reopened.close();
   });
 
   it('rejects Daybreak Red at the host boundary until its provider opt-in is enabled', () => {

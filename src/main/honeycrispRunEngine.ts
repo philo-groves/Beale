@@ -539,6 +539,7 @@ export class HoneycrispRunEngine {
     if (collaborationConfigPath && input.collaboration) {
       writeFileSync(collaborationConfigPath, JSON.stringify(normalizeResearchCollaboration(input.collaboration), null, 2), { encoding: 'utf8', mode: 0o600 });
     }
+    const providerSettings = this.getProviderSettings?.();
     const args = [
       ...(invocation.usesNodeRuntime ? [HONEYCRISP_MAX_OLD_SPACE_ARG] : []),
       ...invocation.prefixArgs,
@@ -561,7 +562,7 @@ export class HoneycrispRunEngine {
             }
           : undefined,
         researchProfile ? undefined : this.getMemoryTypeDescriptions?.(),
-        this.getProviderSettings?.(),
+        providerSettings,
         collaborationConfigPath ?? undefined
       )
     ];
@@ -600,7 +601,7 @@ export class HoneycrispRunEngine {
       env: honeycrispProcessEnvironment({
         databasePath: this.db.getDatabasePath(),
         artifactDirectoryPath: join(dirname(this.db.getDatabasePath()), 'artifacts')
-      }),
+      }, providerSettings?.preferredAuthenticationMethods),
       detached: process.platform !== 'win32',
       windowsHide: true
     });
@@ -2247,13 +2248,19 @@ export class HoneycrispRunEngine {
 }
 
 export function honeycrispProcessEnvironment(
-  storage: { databasePath: string; artifactDirectoryPath: string } | null = null
+  storage: { databasePath: string; artifactDirectoryPath: string } | null = null,
+  preferredAuthenticationMethods: ProviderSettings['preferredAuthenticationMethods'] = undefined
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' };
   if (storage) {
     env.HONEYCRISP_DATABASE_PATH = storage.databasePath;
     env.HONEYCRISP_ARTIFACT_DIRECTORY = storage.artifactDirectoryPath;
   }
+  env.HONEYCRISP_PROVIDER_AUTH_PREFERENCES = JSON.stringify({
+    'openai-codex': preferredAuthenticationMethods?.['openai-codex'] ?? 'subscription',
+    anthropic: preferredAuthenticationMethods?.anthropic ?? 'subscription',
+    xai: preferredAuthenticationMethods?.xai ?? 'subscription'
+  });
   if (env.HONEYCRISP_CODEX_AUTH_FILE?.trim()) return env;
 
   const configured = process.env.BEALE_OPENAI_CODEX_AUTH_FILE?.trim();
