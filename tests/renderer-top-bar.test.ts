@@ -46,6 +46,8 @@ describe('renderer top bar', () => {
     expect(expanded).toContain('aria-label="Show summary sidebar"');
     expect(expanded).toContain('aria-pressed="true"');
     expect(expanded).toContain('lucide-panel-right-close');
+    expect(collapsed).toMatch(/<svg[^>]*width="14"[^>]*height="14"[^>]*class="[^"]*lucide-panel-left-close/);
+    expect(collapsed).toMatch(/<svg[^>]*width="14"[^>]*height="14"[^>]*class="[^"]*lucide-panel-right-open/);
   });
 
   it('hides workspace and session identity while the contextual title is disabled', () => {

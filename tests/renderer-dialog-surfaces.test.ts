@@ -1,4 +1,5 @@
 import { createElement } from 'react';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { HoneycrispMemoryNodeSummary, ResearchGoalSuggestionsByPhase, ResearchSessionSummary, RunDetail, WorkspaceRegistryEntry, WorkspaceSnapshot } from '@shared/types';
@@ -147,6 +148,12 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('class="research-model-squircle research-lead-model-picker model-selection-picker');
     expect(html).toContain('aria-label="Add collaborator"');
     expect(html).not.toContain('research-collaborator-squircle');
+    expect(html).not.toContain('Independent first pass');
+    expect(html.match(/class="collaboration-inline-control"/g)).toHaveLength(3);
+    expect(html.indexOf('>Challenge rounds</span>')).toBeLessThan(html.indexOf('>Mode</span>'));
+    expect(html).toContain('title="Sets how many rounds collaborators use to challenge and refine one another&#x27;s conclusions."');
+    expect(html).toContain('title="Controls whether research runs solo, calls collaborators adaptively, or always uses the configured team."');
+    expect(html).toContain('title="Controls how broadly and deeply collaborators are used during the session."');
     expect(html).toContain('>Generate</button>');
     expect(html).toContain('>Generate &amp; Start</button>');
     expect(html).not.toContain('new-research-send');
@@ -157,6 +164,32 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('aria-label="Research goal"');
     expect(html).toContain('class="new-research-compose-layout"');
     expect(html).toContain('class="modal-panel bottom-sheet-panel wide-modal start-run-sheet"');
+  });
+
+  it('styles collaboration dropdowns as compact inline controls', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const controlStyles = styles.match(/\.collaboration-inline-control\s*\{([^}]*)\}/)?.[1] ?? '';
+    const selectStyles = styles.match(/\.collaboration-inline-control select\s*\{([^}]*)\}/)?.[1] ?? '';
+    const teamLabelStyles = styles.match(/\.research-model-team-label\s*\{([^}]*)\}/)?.[1] ?? '';
+    const startRunSheetStyles = styles.match(/\.modal-panel\.bottom-sheet-panel\.start-run-sheet\s*\{([^}]*)\}/)?.[1] ?? '';
+    const startRunBodyStyles = styles.match(/\.modal-panel\.bottom-sheet-panel\.start-run-sheet \.modal-body\s*\{([^}]*)\}/)?.[1] ?? '';
+    const startRunFooterButtonStyles = styles.match(/\.modal-panel\.bottom-sheet-panel\.start-run-sheet \.modal-footer button\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(controlStyles).toContain('display: inline-flex');
+    expect(controlStyles).toContain('gap: 5px');
+    expect(controlStyles).toContain('color: var(--muted)');
+    expect(controlStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(controlStyles).toContain('font-weight: 400');
+    expect(selectStyles).toContain('max-width: 120px');
+    expect(selectStyles).toContain('border: 0');
+    expect(selectStyles).toContain('font-weight: 400');
+    expect(teamLabelStyles).toContain('color: var(--muted)');
+    expect(teamLabelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(teamLabelStyles).toContain('font-weight: 400');
+    expect(teamLabelStyles).toContain('line-height: normal');
+    expect(startRunSheetStyles).toContain('min-height: 0');
+    expect(startRunBodyStyles).toContain('padding-bottom: 12px');
+    expect(startRunFooterButtonStyles).toContain('border: 0');
   });
 
   it('keeps the terminal-session next-step widget structurally stable while suggestions load', () => {

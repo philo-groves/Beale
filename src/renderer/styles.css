@@ -8503,8 +8503,16 @@ button.session-summary-item:hover:not(:disabled),
 
 .modal-panel.bottom-sheet-panel.start-run-sheet {
   width: min(1180px, calc(100vw - 36px));
-  min-height: min(720px, 90vh);
+  min-height: 0;
   max-height: 90vh;
+}
+
+.modal-panel.bottom-sheet-panel.start-run-sheet .modal-body {
+  padding-bottom: 12px;
+}
+
+.modal-panel.bottom-sheet-panel.start-run-sheet .modal-footer button {
+  border: 0;
 }
 
 .new-research-compose-layout {
@@ -9856,8 +9864,52 @@ button.research-goal-choice:focus-visible {
   gap: 12px;
 }
 
-.collaboration-mode-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.collaboration-controls-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.collaboration-controls-right {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.collaboration-controls-right {
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.collaboration-inline-control {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: var(--steer-control-font-size, 13px);
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.collaboration-inline-control > span {
+  cursor: help;
+}
+
+.collaboration-inline-control select {
+  width: 120px;
+  max-width: 120px;
+  border: 0;
+  font-weight: 400;
+}
+
+.collaboration-inline-control select:focus {
+  border-color: transparent;
 }
 
 .research-model-team {
@@ -9876,9 +9928,9 @@ button.research-goal-choice:focus-visible {
 
 .research-model-team-label {
   color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 500;
-  line-height: 1;
+  font-size: var(--steer-control-font-size, 13px);
+  font-weight: 400;
+  line-height: normal;
 }
 
 .research-model-squircle {
@@ -9973,13 +10025,6 @@ button.research-goal-choice:focus-visible {
   opacity: 0.65;
 }
 
-.collaboration-behavior-options {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px;
-  align-items: end;
-  gap: 12px;
-}
-
 .goal-option.compact {
   margin: 0;
   padding: 0;
@@ -9988,8 +10033,7 @@ button.research-goal-choice:focus-visible {
 }
 
 @media (max-width: 760px) {
-  .research-model-team,
-  .collaboration-behavior-options {
+  .research-model-team {
     grid-template-columns: 1fr;
   }
 }

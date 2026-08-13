@@ -3,6 +3,12 @@ import { ensureDefaultResearchCollaborator, normalizeResearchCollaboration } fro
 import { selectNextAvailableCollaborator } from '../src/renderer/features/sessions/StartRunForm';
 
 describe('research collaboration normalization', () => {
+  it('always requires independent first passes', () => {
+    expect(normalizeResearchCollaboration({ independentFirstPass: false }).independentFirstPass).toBe(true);
+    expect(normalizeResearchCollaboration({ independentFirstPass: true }).independentFirstPass).toBe(true);
+    expect(normalizeResearchCollaboration(undefined).independentFirstPass).toBe(true);
+  });
+
   it('allows distinct models from one provider while preventing exact duplicates', () => {
     const collaboration = normalizeResearchCollaboration({
       mode: 'adaptive',

@@ -21,6 +21,8 @@
 
 ### Changed
 
+- New Research no longer exposes an independent-first-pass toggle; collaborative sessions always require independent room-member investigation before peer conclusions are shared.
+- New Research collaboration settings now use a single right-aligned compact row with descriptive label tooltips and borderless, consistently sized dropdowns.
 - Anthropic model labels now omit the implied leading `Claude` prefix, matching the existing compact OpenAI model labels.
 - New Research now starts with the lead model as its required default collaborator. The default remains editable and becomes removable after another collaborator is added; Add Collaborator fills unused providers before stacking further models from a represented provider, while exact provider/model duplicates remain prevented across Beale and Honeycrisp routing.
 - New Research now loads only the selected workflow's suggestions into a flat, borderless surface with left-aligned view buttons, separator-defined rows, and responsive top and bottom scroll fades. It pairs this with a borderless steering-style goal/prompt composer containing workflow, safety, and compact Goal and Generate toggles. Its model area separates the default provider's large lead model from an initially empty, explicitly added collaborator stack using inset squircle selectors. Generate is enabled by default and exposes footer actions to generate a draft or generate and start; disabling it starts directly from the manual prompt.
@@ -50,6 +52,7 @@
 
 ### Fixed
 
+- Large multi-repository sessions now support explicitly scoped, bounded repository searches with partial-result signaling, recover reasoning-only provider stalls automatically, validate model-specific subagent routes, and distinguish shell no-match results from command failures.
 - Anthropic lead and subagent progress text now carries explicit commentary phases into session transcripts, with Claude-specific guidance to emit concise visible updates without exposing private extended thinking.
 - Opening a breakout room in the selected session now preserves live room detail, while genuine session loads use neutral room markers instead of stale statuses that could make every room appear active.
 - Selected-session breakout rooms now appear in the workspace sidebar as soon as live session detail records them, without requiring a navigation refresh.

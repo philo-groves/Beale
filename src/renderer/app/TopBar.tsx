@@ -275,7 +275,7 @@ export const TopBar = memo(function TopBar({
               aria-pressed={rightSidenavExpanded}
               onClick={onToggleRightSidenav}
             >
-              <RightSidenavToggleIcon size={16} aria-hidden="true" />
+              <RightSidenavToggleIcon size={14} aria-hidden="true" />
             </button>
           ) : null}
           {!isMac ? (

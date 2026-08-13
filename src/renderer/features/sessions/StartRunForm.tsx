@@ -837,52 +837,44 @@ export function StartRunForm({
                 </div>
               </div>
             </div>
-            <div className="form-grid collaboration-mode-grid">
-              <label>
-                Mode
-                <select value={collaboration.mode} onChange={(event) => selectCollaborationMode(event.target.value as ResearchCollaborationMode)}>
-                  <option value="solo">Solo</option>
-                  <option value="adaptive">Adaptive</option>
-                  <option value="always">Always use team</option>
-                </select>
-              </label>
-              <label>
-                Intensity
-                <select
-                  value={collaboration.intensity}
-                  disabled={collaboration.mode === 'solo'}
-                  onChange={(event) => selectCollaborationIntensity(event.target.value as ResearchCollaborationIntensity)}
-                >
-                  <option value="focused">Focused</option>
-                  <option value="balanced">Balanced</option>
-                  <option value="deep">Deep</option>
-                </select>
-              </label>
-            </div>
-            {collaboration.mode !== 'solo' ? (
-              <div className="collaboration-behavior-options">
-                <label className="goal-option compact">
-                  <input
-                    type="checkbox"
-                    checked={collaboration.independentFirstPass}
-                    onChange={(event) => update('collaboration', { ...collaboration, independentFirstPass: event.target.checked })}
-                  />
-                  <span><strong>Independent first pass</strong><small>Room members investigate before seeing peer conclusions.</small></span>
+            <div className="collaboration-controls-row">
+              <div className="collaboration-controls-right">
+                {collaboration.mode !== 'solo' ? (
+                  <label className="collaboration-inline-control">
+                    <span title="Sets how many rounds collaborators use to challenge and refine one another's conclusions.">Challenge rounds</span>
+                    <select
+                      value={collaboration.peerChallengeRounds}
+                      onChange={(event) => update('collaboration', { ...collaboration, peerChallengeRounds: Number(event.target.value) })}
+                    >
+                      <option value={0}>None</option>
+                      <option value={1}>One</option>
+                      <option value={2}>Two</option>
+                      <option value={3}>Three</option>
+                    </select>
+                  </label>
+                ) : null}
+                <label className="collaboration-inline-control">
+                  <span title="Controls whether research runs solo, calls collaborators adaptively, or always uses the configured team.">Mode</span>
+                  <select value={collaboration.mode} onChange={(event) => selectCollaborationMode(event.target.value as ResearchCollaborationMode)}>
+                    <option value="solo">Solo</option>
+                    <option value="adaptive">Adaptive</option>
+                    <option value="always">Always use team</option>
+                  </select>
                 </label>
-                <label>
-                  Challenge rounds
+                <label className="collaboration-inline-control">
+                  <span title="Controls how broadly and deeply collaborators are used during the session.">Intensity</span>
                   <select
-                    value={collaboration.peerChallengeRounds}
-                    onChange={(event) => update('collaboration', { ...collaboration, peerChallengeRounds: Number(event.target.value) })}
+                    value={collaboration.intensity}
+                    disabled={collaboration.mode === 'solo'}
+                    onChange={(event) => selectCollaborationIntensity(event.target.value as ResearchCollaborationIntensity)}
                   >
-                    <option value={0}>None</option>
-                    <option value={1}>One</option>
-                    <option value={2}>Two</option>
-                    <option value={3}>Three</option>
+                    <option value="focused">Focused</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="deep">Deep</option>
                   </select>
                 </label>
               </div>
-            ) : null}
+            </div>
             {!collaborationReady && collaboration.mode !== 'solo' ? (
               <div className="policy-line collaboration-readiness-warning" role="alert">
                 <ShieldAlert size={14} /> At least one collaborator is required. Every collaborator must be authenticated, use a supported model and effort, and have its cybersecurity policy acknowledgement accepted in Provider settings.

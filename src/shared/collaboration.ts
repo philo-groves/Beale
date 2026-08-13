@@ -40,7 +40,7 @@ export function normalizeResearchCollaboration(
     mode,
     intensity,
     providers: mode === 'solo' ? [] : providers,
-    independentFirstPass: record.independentFirstPass !== false,
+    independentFirstPass: true,
     peerChallengeRounds: boundedInteger(record.peerChallengeRounds, 0, 3, DEFAULT_RESEARCH_COLLABORATION.peerChallengeRounds),
     maxConcurrentRooms: boundedInteger(record.maxConcurrentRooms, 1, 5, limits.maxConcurrentRooms),
     maxMembersPerRoom: boundedInteger(record.maxMembersPerRoom, 2, 5, limits.maxMembersPerRoom),
