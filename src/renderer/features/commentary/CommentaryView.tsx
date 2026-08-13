@@ -381,7 +381,7 @@ export const CommentaryView = memo(function CommentaryView({
   );
 });
 
-const CommentaryMessageRow = memo(function CommentaryMessageRow({
+export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   message,
   autoExpandToolKey,
   searchHighlightQuery,

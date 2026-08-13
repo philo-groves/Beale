@@ -9844,6 +9844,95 @@ button.research-goal-choice:focus-visible {
   padding: 16px 20px 28px;
 }
 
+.breakout-room-working-subagents {
+  width: 100%;
+  max-width: var(--trace-content-max-width);
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  margin: 4px auto 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.breakout-room-working-subagent {
+  min-width: 0;
+}
+
+.breakout-room-working-subagent > summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  list-style: none;
+  border-radius: 8px;
+  color: var(--muted-strong);
+  padding: 8px 9px;
+  cursor: pointer;
+}
+
+.breakout-room-working-subagent > summary::-webkit-details-marker {
+  display: none;
+}
+
+.breakout-room-working-subagent > summary:hover,
+.breakout-room-working-subagent > summary:focus-visible {
+  background: #181818;
+  color: var(--text);
+  outline: none;
+}
+
+.breakout-room-working-title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.breakout-room-working-title svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+
+.breakout-room-working-title strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 1rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.breakout-room-working-subagent[open] .breakout-room-working-title svg {
+  transform: rotate(90deg);
+}
+
+.breakout-room-working-duration {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.breakout-room-working-history {
+  max-height: min(52vh, 480px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--main-commentary-item-gap, 14px);
+  overflow: auto;
+  margin: 0 8px 6px 23px;
+  padding: 12px 10px 16px 14px;
+  border-left: 1px solid var(--line);
+}
+
+.breakout-room-working-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .breakout-room-message {
   display: grid;
   gap: 7px;
@@ -10686,6 +10775,10 @@ button.research-goal-choice:focus-visible {
   }
 
   .workspace-breakout-room-reveal {
+    transition: none;
+  }
+
+  .breakout-room-working-title svg {
     transition: none;
   }
 }

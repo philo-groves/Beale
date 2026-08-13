@@ -155,7 +155,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onRunMemoryDreaming={onRunMemoryDreaming}
         />
       ) : selectedBreakoutRoomId ? (
-        <BreakoutRoomView detail={detail} roomId={selectedBreakoutRoomId} onBack={onBackToSession} />
+        <BreakoutRoomView detail={detail} events={allEvents} roomId={selectedBreakoutRoomId} onBack={onBackToSession} />
       ) : chatView === 'commentary' ? (
         <CommentaryView
           busy={busy}

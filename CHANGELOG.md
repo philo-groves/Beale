@@ -4,6 +4,7 @@
 
 ### Added
 
+- Active breakout-room members now appear as collapsed working disclosures with live durations and expandable, real-time subagent commentary and tool history.
 - Added durable multi-provider breakout rooms for research sessions. New Research now configures adaptive collaboration, provider/model preferences, independent first passes, challenge rounds, and bounded team intensity; room membership and transcripts remain available under each session in the workspace sidebar.
 - Added Grok 4.6 to the xAI research-model options with its supported low-through-xhigh reasoning levels.
 - Added workspace Dejunk housekeeping beside Dream. Dejunk tracks files created since its last baseline, uses 10/50/200/1,000-file heat thresholds, organizes recognizable loose notes, PoCs, evidence, scripts, and scratch material under `research/`, and removes only large rebuildable trees or recognizable IPSW extractions outside `.beale`, symlinks, and detected Git repositories.
@@ -44,6 +45,7 @@
 
 ### Fixed
 
+- Anthropic lead and subagent progress text now carries explicit commentary phases into session transcripts, with Claude-specific guidance to emit concise visible updates without exposing private extended thinking.
 - Opening a breakout room in the selected session now preserves live room detail, while genuine session loads use neutral room markers instead of stale statuses that could make every room appear active.
 - Selected-session breakout rooms now appear in the workspace sidebar as soon as live session detail records them, without requiring a navigation refresh.
 - Repository searches across large multi-repository workspaces now use a bounded native Git path and respond to session interruption instead of leaving low-match scans running indefinitely.

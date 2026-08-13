@@ -2,7 +2,11 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { RunDetail } from '@shared/types';
-import { BreakoutRoomView } from '../src/renderer/features/sessions/BreakoutRoomView';
+import {
+  BreakoutRoomView,
+  breakoutRoomWorkingDurationLabel
+} from '../src/renderer/features/sessions/BreakoutRoomView';
+import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
 
 describe('breakout room view', () => {
   it('shows the provider mark, formatted subagent name, and role in member pills', () => {
@@ -33,5 +37,98 @@ describe('breakout room view', () => {
 
     expect(html).toContain('breakout-room-member-provider-icon');
     expect(html).toContain('<span class="breakout-room-member-name">Parser Review</span><small>challenger</small>');
+    expect(html).toContain('<details class="breakout-room-working-subagent">');
+    expect(html).toContain('class="lucide lucide-chevron-right"');
+    expect(html).toContain('<strong>Parser Review Working</strong>');
+    expect(html).not.toContain('<details class="breakout-room-working-subagent" open="">');
+  });
+
+  it('projects live subagent commentary inside the collapsed working disclosure', () => {
+    const detail = {
+      breakoutRooms: [{
+        id: 'room_live',
+        title: 'Live review',
+        purpose: '',
+        status: 'active'
+      }],
+      breakoutRoomMembers: [{
+        id: 'member_live',
+        roomId: 'room_live',
+        agentPath: '/root/live_parser',
+        provider: 'openai-codex',
+        model: 'gpt-5.6-sol',
+        role: 'reviewer',
+        status: 'active',
+        startedAt: '2026-08-12T12:00:00.000Z'
+      }, {
+        id: 'member_finished',
+        roomId: 'room_live',
+        agentPath: '/root/finished_worker',
+        provider: 'anthropic',
+        model: 'claude-opus-5',
+        role: 'challenger',
+        status: 'completed',
+        startedAt: '2026-08-12T11:55:00.000Z'
+      }],
+      breakoutRoomMessages: []
+    } as unknown as RunDetail;
+    const events: TraceDisplayEvent[] = [traceEvent({
+      id: 'live-commentary',
+      payload: {
+        agentPath: '/root/live_parser',
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp_commentary',
+        text: 'Inspecting live parser state.'
+      }
+    }), traceEvent({
+      id: 'finished-commentary',
+      payload: {
+        agentPath: '/root/finished_worker',
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp_commentary',
+        text: 'Finished review history.'
+      }
+    })];
+
+    const html = renderToStaticMarkup(createElement(BreakoutRoomView, {
+      detail,
+      events,
+      roomId: 'room_live',
+      onBack: () => undefined
+    }));
+
+    expect(html).toContain('<strong>Live Parser Working</strong>');
+    expect(html).toContain('Inspecting live parser state.');
+    expect(html).not.toContain('<strong>Finished Worker Working</strong>');
+    expect(html).not.toContain('Finished review history.');
+  });
+
+  it('formats working duration from the member start time', () => {
+    expect(breakoutRoomWorkingDurationLabel(
+      { startedAt: '2026-08-12T12:00:00.000Z' },
+      [],
+      Date.parse('2026-08-12T12:02:03.000Z')
+    )).toBe('00:02:03');
   });
 });
+
+function traceEvent(input: Partial<TraceDisplayEvent>): TraceDisplayEvent {
+  return {
+    id: 'trace_test',
+    runId: 'run_test',
+    attemptId: null,
+    sequence: 1,
+    source: 'model',
+    type: 'model_message',
+    summary: 'Trace.',
+    payload: {},
+    sensitivity: 'internal',
+    modelVisible: true,
+    createdAt: '2026-08-12T12:00:01.000Z',
+    vmContextId: null,
+    artifactId: null,
+    toolCallId: null,
+    approvalId: null,
+    ...input
+  };
+}
