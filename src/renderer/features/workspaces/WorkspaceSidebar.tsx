@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { ChevronDown, ChevronRight, Folder, FolderPlus, MoreVertical, Plug, RefreshCw, Search, SquarePen } from 'lucide-react';
+import { CalendarClock, ChevronDown, ChevronRight, Folder, FolderPlus, MoreVertical, Plug, RefreshCw, Search, SquarePen } from 'lucide-react';
 import type { BreakoutRoomStatus, BreakoutRoomSummary, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { displayBreakoutRoomTitle } from '../../view-models/appHeader';
@@ -29,6 +29,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onResizePointerDown,
   onSetOpenWorkspaceMenuId,
   onShowMoreSessions,
+  onOpenAutomations = () => undefined,
   onOpenPlugins = () => undefined,
   onSearch,
   onStartNewResearch
@@ -52,6 +53,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onSetOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
   onShowMoreSessions: (registryWorkspaceId: string) => void;
+  onOpenAutomations?: () => void;
   onOpenPlugins?: () => void;
   onSearch: () => void;
   onStartNewResearch: () => void;
@@ -77,6 +79,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         <button type="button" className="sidebar-utility-button" title="Find a Session" onClick={onSearch}>
           <Search size={15} />
           <span>Find a Session</span>
+        </button>
+        <button type="button" className="sidebar-utility-button" title="Automations" onClick={onOpenAutomations}>
+          <CalendarClock size={15} />
+          <span>Automations</span>
         </button>
         <button type="button" className="sidebar-utility-button" title="Plugins" onClick={onOpenPlugins}>
           <Plug size={15} />

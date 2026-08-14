@@ -21,7 +21,8 @@ export const defaultRunInput: StartRunInput = {
   budget: {
     maxMinutes: UNBOUNDED_MINUTES,
     maxAttempts: 1,
-    maxCostUsd: 0
+    maxCostUsd: 0,
+    repeatSchedule: { type: 'none' }
   }
 };
 

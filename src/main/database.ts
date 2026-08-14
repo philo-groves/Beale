@@ -8,6 +8,7 @@ import { applyDatabaseMigrations } from './databaseMigrations';
 import { MEMORY_DREAMING_RUN_PROVENANCE_TRIGGER_SQL, MEMORY_DREAMING_SCHEMA_SQL } from './memoryDreaming';
 import { decodeResearchProfileJson, decodeResolvedResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
 import { normalizeShellSafetyMode } from '../shared/shellSafety';
+import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import type {
   ApprovalRecord,
   ArtifactRecord,
@@ -5057,6 +5058,9 @@ export class WorkspaceDatabase {
         throw new Error('maxCostUsd must be zero or greater.');
       }
       nextBudget[key] = value;
+    }
+    if (budgetPatch.repeatSchedule !== undefined) {
+      nextBudget.repeatSchedule = normalizeRepeatSchedule(budgetPatch.repeatSchedule);
     }
     this.db.prepare('UPDATE runs SET budget_json = ? WHERE id = ?').run(toJson(nextBudget), runId);
     const updated = this.getRun(runId);

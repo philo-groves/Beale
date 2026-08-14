@@ -4,6 +4,9 @@
 
 ### Added
 
+- Added a repeat schedule picker to New Research with a default No Repeat state and persisted repeat metadata on started runs.
+- Added minute and hour interval options to repeat schedules.
+- Added an Automations sidebar dialog for viewing and canceling scheduled repeat prompts.
 - Added a default Beale Introspection Agent Plugin with MCP tools to list and create workspaces, list sessions, launch sessions, and stop sessions; it appears in Plugins by default and can be disabled there.
 - Added a first-class Agent Plugins manager with local/repository install paths, persistent enablement, removal, and v1 manifest/skill/MCP discovery surfaced from the left sidebar.
 - Enabled Agent Plugins now extend Honeycrisp runs and tooling discovery through generated skill-dir, selected-skill, MCP-config, and MCP server allow-list arguments, with plugin MCP paths rewritten into a Beale-owned runtime overlay.

@@ -403,7 +403,7 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('Provide an authorized credential reference.');
   });
 
-  it('uses bottom sheets for session history and transcript search', () => {
+  it('uses New Research-style dialogs for session history and transcript search', () => {
     const workspace: WorkspaceRegistryEntry = {
       id: 'registry_workspace',
       workspacePath: '/tmp/workspace',
@@ -460,10 +460,10 @@ describe('renderer dialog surfaces', () => {
       })
     );
 
-    expect(historyHtml).toContain('bottom-sheet-panel');
+    expect(historyHtml).toContain('start-run-dialog transcript-search-dialog');
     expect(historyHtml).toContain('Review parser bounds');
     expect(historyHtml).not.toContain('modal-footer');
-    expect(searchHtml).toContain('bottom-sheet-panel');
+    expect(searchHtml).toContain('start-run-dialog transcript-search-dialog');
     expect(searchHtml).toContain('Search session transcripts...');
     expect(searchHtml).not.toContain('modal-footer');
   });

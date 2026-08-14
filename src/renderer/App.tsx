@@ -114,6 +114,7 @@ export function App(): JSX.Element {
   const [newResearchInitialGoal, setNewResearchInitialGoal] = useState<ResearchGoalSeed | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [automationsOpen, setAutomationsOpen] = useState(false);
   const [agentPluginState, setAgentPluginState] = useState<AgentPluginRegistryState | null>(null);
   const [agentPluginsLoading, setAgentPluginsLoading] = useState(false);
   const [agentPluginsBusy, setAgentPluginsBusy] = useState(false);
@@ -1011,6 +1012,15 @@ export function App(): JSX.Element {
     [clearRunDetail, setSelectedRunId]
   );
   const openSearch = useCallback(() => setSearchOpen(true), []);
+  const openAutomations = useCallback(() => setAutomationsOpen(true), []);
+  const cancelRepeatAutomation = useCallback((runId: string): void => {
+    void runAction(() => window.beale.steerRun({
+      type: 'update_run_budget',
+      runId,
+      budgetPatch: { repeatSchedule: { type: 'none' } },
+      note: 'Repeat automation canceled by user.'
+    }));
+  }, [runAction]);
   const openSearchResult = useCallback(
     (result: SessionTranscriptSearchResult, query: string): void => {
       setPendingSearchTarget(result);
@@ -1110,6 +1120,7 @@ export function App(): JSX.Element {
           onResizePointerDown={beginSidebarResize}
           onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
           onShowMoreSessions={setSessionHistoryWorkspaceId}
+          onOpenAutomations={openAutomations}
           onOpenPlugins={openPlugins}
           onSearch={openSearch}
           onStartNewResearch={startNewResearch}
@@ -1224,6 +1235,7 @@ export function App(): JSX.Element {
         busy={busy}
         newResearchOpen={newResearchOpen}
         newResearchInitialGoal={newResearchInitialGoal}
+        automationsOpen={automationsOpen}
         pluginsOpen={pluginsOpen}
         agentPluginState={agentPluginState}
         agentPluginsLoading={agentPluginsLoading}
@@ -1259,6 +1271,7 @@ export function App(): JSX.Element {
           setNewResearchInitialGoal(null);
           setNewResearchOpen(false);
         }}
+        onCloseAutomations={() => setAutomationsOpen(false)}
         onClosePlugins={() => setPluginsOpen(false)}
         onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
         onPluginRepositoryUrlChange={setPluginRepositoryUrl}
@@ -1282,6 +1295,11 @@ export function App(): JSX.Element {
         onLoadResearchGoalSuggestions={researchGoalSuggestionState.load}
         onRetryResearchGoalSuggestions={researchGoalSuggestionState.retry}
         onStartedNewResearch={handleResearchStarted}
+        onCancelRepeatAutomation={cancelRepeatAutomation}
+        onOpenAutomationSession={(runId) => {
+          openWorkspaceDashboardSession(runId);
+          setAutomationsOpen(false);
+        }}
         onOpenSearchResult={openSearchResult}
         onSteerNotification={(notification, instruction) => {
           void runAction(() => window.beale.steerRun({ type: 'steer', runId: notification.runId, instruction }));

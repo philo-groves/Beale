@@ -30,6 +30,7 @@ import type {
   TraceSource
 } from '@shared/types';
 import { normalizeResearchCollaboration } from '../shared/collaboration';
+import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { generateSessionTitle, SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
 import {
   SESSION_TITLE_REASONING_EFFORT,
@@ -2578,7 +2579,8 @@ function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunI
     budget: {
       maxMinutes: finiteRecordNumber(run.budget, 'maxMinutes', 1),
       maxAttempts: finiteRecordNumber(run.budget, 'maxAttempts', 1),
-      maxCostUsd: finiteRecordNumber(run.budget, 'maxCostUsd', 0)
+      maxCostUsd: finiteRecordNumber(run.budget, 'maxCostUsd', 0),
+      repeatSchedule: normalizeRepeatSchedule(run.budget.repeatSchedule)
     },
     runEngine: 'honeycrisp'
   };

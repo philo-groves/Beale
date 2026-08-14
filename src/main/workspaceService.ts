@@ -68,6 +68,7 @@ import {
 import { resolveGoalObjective } from '../shared/goalObjective';
 import { normalizeResearchCollaboration } from '../shared/collaboration';
 import { isResearchProfileId, RESEARCH_PROFILE_IDS } from '../shared/researchProfile';
+import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { DEFAULT_SHELL_SAFETY_MODE } from '../shared/shellSafety';
 import { isProviderModelEnabled } from '../shared/optionalProviderModels';
 import type {
@@ -2039,6 +2040,10 @@ export class WorkspaceService {
     }
     let normalizedInput: StartRunInput = {
       ...input,
+      budget: {
+        ...input.budget,
+        repeatSchedule: normalizeRepeatSchedule(input.budget.repeatSchedule)
+      },
       shellSafetyMode: requestedShellSafetyMode ?? DEFAULT_SHELL_SAFETY_MODE,
       ...(input.collaboration ? { collaboration: normalizeResearchCollaboration(input.collaboration) } : {})
     };
@@ -2509,7 +2514,8 @@ export class WorkspaceService {
           budget: {
             maxMinutes: numberFromBudget(run.budget, 'maxMinutes', UNBOUNDED_RUN_MINUTES),
             maxAttempts: numberFromBudget(run.budget, 'maxAttempts', UNBOUNDED_RUN_ATTEMPTS),
-            maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0)
+            maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0),
+            repeatSchedule: normalizeRepeatSchedule(run.budget.repeatSchedule)
           },
           runEngine: runEngine === 'fixture' ? 'fixture' : 'honeycrisp',
           fixtureScenario: scenario

@@ -1237,9 +1237,18 @@ export interface StartRunInput {
     maxMinutes: number;
     maxAttempts: number;
     maxCostUsd: number;
+    repeatSchedule?: RepeatSchedule;
   };
   fixtureScenario?: FixtureScenario;
 }
+
+export type RepeatSchedule =
+  | { type: 'none' }
+  | { type: 'minutely'; interval: number }
+  | { type: 'hourly'; interval: number }
+  | { type: 'daily'; interval: number }
+  | { type: 'weekly'; interval: number }
+  | { type: 'monthly'; interval: number };
 
 export interface ResearchSubjectInput {
   id?: string | null;

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { Play, Plus, RefreshCw, ShieldAlert, Sparkles, X } from 'lucide-react';
+import { ChevronDown, Play, Plus, RefreshCw, Repeat, ShieldAlert, Sparkles, X } from 'lucide-react';
 import type {
   OpenAiAccountStatus,
   ResearchGoalPhase,
@@ -16,6 +16,7 @@ import type {
   ResearchProviderModel,
   ResearchProviderModelCatalog,
   ResearchProviderStatus,
+  RepeatSchedule,
   StartRunInput,
   WorkspaceSnapshot
 } from '@shared/types';
@@ -32,6 +33,7 @@ import { ModelSelectionPicker } from '../../app/ModelSelectionPicker';
 import { userFacingErrorMessage } from '../../lib/errors';
 import { researchModelNameLabel } from '../../lib/formatting';
 import { DEFAULT_RESEARCH_MODEL } from '../../../shared/modelDefaults';
+import { normalizeRepeatSchedule, repeatScheduleFor, repeatScheduleLabel } from '../../../shared/repeatSchedule';
 import { DEFAULT_SHELL_SAFETY_MODE, normalizeShellSafetyMode, SHELL_SAFETY_MODE_OPTIONS } from '../../../shared/shellSafety';
 import {
   clientRequestId,
@@ -41,6 +43,8 @@ import type { ResearchGoalSeed } from './SessionNextSteps';
 
 const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
 const MAX_RENDERED_GOAL_SUGGESTIONS = 12;
+const REPEAT_SCHEDULE_TYPES: RepeatSchedule['type'][] = ['none', 'minutely', 'hourly', 'daily', 'weekly', 'monthly'];
+type RepeatScheduleUnit = 'minute' | 'hour' | 'day' | 'week' | 'month';
 
 type PromptEditorStage = 'goal' | 'prompt';
 
@@ -433,6 +437,7 @@ export function StartRunForm({
   const hasPromptDraft = input.promptMarkdown.trim().length > 0;
   const activeWorkflowId = input.workflowId ?? defaultWorkflowId;
   const selectedEffort = effortLevelFromInput(input.reasoningEffort);
+  const repeatSchedule = normalizeRepeatSchedule(input.budget.repeatSchedule);
   const requiresCyberPolicyAcknowledgement = collaborationRequiresCyberPolicyAcknowledgement(profile?.id);
   const collaboration = normalizeResearchCollaboration(input.collaboration);
   const enabledCollaborators = collaboration.providers.filter((provider) => provider.enabled);
@@ -535,6 +540,20 @@ export function StartRunForm({
 
   const selectEffort = (effort: ResearchModelEffortLevel): void => {
     update('reasoningEffort', inputValueForEffort(effort));
+  };
+
+  const selectRepeatSchedule = (repeatSchedule: RepeatSchedule): void => {
+    setInput((current) => {
+      const next = {
+        ...current,
+        budget: {
+          ...current.budget,
+          repeatSchedule: normalizeRepeatSchedule(repeatSchedule)
+        }
+      };
+      inputRef.current = next;
+      return next;
+    });
   };
 
   const selectCollaborationMode = (mode: ResearchCollaborationMode): void => {
@@ -695,6 +714,11 @@ export function StartRunForm({
                 ariaLabel="Research workflow"
                 disabled={generatingPrompt}
                 onChange={selectWorkflow}
+              />
+              <RepeatSchedulePicker
+                value={repeatSchedule}
+                disabled={generatingPrompt}
+                onChange={selectRepeatSchedule}
               />
               <label
                 className="new-research-goal-toggle"
@@ -892,6 +916,131 @@ export function StartRunForm({
   );
 }
 
+function RepeatSchedulePicker({
+  value,
+  disabled,
+  onChange
+}: {
+  value: RepeatSchedule;
+  disabled: boolean;
+  onChange: (value: RepeatSchedule) => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const schedule = normalizeRepeatSchedule(value);
+  const interval = schedule.type === 'none' ? 1 : schedule.interval;
+  const unit = repeatScheduleUnit(schedule.type);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const dismissOnOutsidePointer = (event: PointerEvent): void => {
+      if (pickerRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    const dismissOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', dismissOnOutsidePointer);
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOnOutsidePointer);
+      document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  const selectType = (type: RepeatSchedule['type']): void => {
+    onChange(repeatScheduleFor(type, type === schedule.type ? interval : 1));
+  };
+
+  const selectInterval = (nextInterval: number): void => {
+    onChange(repeatScheduleFor(schedule.type === 'none' ? 'daily' : schedule.type, nextInterval));
+  };
+
+  const selectUnit = (nextUnit: RepeatScheduleUnit): void => {
+    const type = repeatScheduleTypeForUnit(nextUnit);
+    onChange(repeatScheduleFor(type, interval));
+  };
+
+  return (
+    <div
+      className={`new-research-repeat-picker ${open ? 'is-open' : ''}`.trim()}
+      ref={pickerRef}
+      onBlur={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        className="new-research-repeat-trigger"
+        title="Repeat schedule"
+        aria-label="Repeat schedule"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+          event.preventDefault();
+          setOpen(true);
+        }}
+      >
+        <Repeat size={13} aria-hidden="true" />
+        <span>{repeatScheduleLabel(schedule)}</span>
+        <ChevronDown size={13} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="new-research-repeat-menu" role="dialog" aria-label="Repeat schedule">
+          <div className="new-research-repeat-presets" role="listbox" aria-label="Repeat preset">
+            {REPEAT_SCHEDULE_TYPES.map((type) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected={schedule.type === type}
+                className={schedule.type === type ? 'is-selected' : undefined}
+                onClick={() => selectType(type)}
+                key={type}
+              >
+                {repeatTypeLabel(type)}
+              </button>
+            ))}
+          </div>
+          <div className="new-research-repeat-widget">
+            <label>
+              <span>Every</span>
+              <input
+                type="number"
+                min={1}
+                max={99}
+                step={1}
+                value={interval}
+                disabled={schedule.type === 'none'}
+                onChange={(event) => selectInterval(Number(event.target.value))}
+              />
+            </label>
+            <select
+              value={unit}
+              disabled={schedule.type === 'none'}
+              aria-label="Repeat unit"
+              onChange={(event) => selectUnit(event.target.value as RepeatScheduleUnit)}
+            >
+              <option value="minute">{interval === 1 ? 'minute' : 'minutes'}</option>
+              <option value="hour">{interval === 1 ? 'hour' : 'hours'}</option>
+              <option value="day">{interval === 1 ? 'day' : 'days'}</option>
+              <option value="week">{interval === 1 ? 'week' : 'weeks'}</option>
+              <option value="month">{interval === 1 ? 'month' : 'months'}</option>
+            </select>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ResearchGoalChooser({
   workflows = LEGACY_RESEARCH_GOAL_WORKFLOWS,
   suggestions,
@@ -989,6 +1138,31 @@ export function defaultResearchWorkflowId(workflows: readonly ResearchProfileWor
     ?? workflows.find((workflow) => workflow.default)?.id
     ?? workflows[0]?.id
     ?? 'discovery';
+}
+
+function repeatTypeLabel(type: RepeatSchedule['type']): string {
+  if (type === 'none') return 'No Repeat';
+  if (type === 'minutely') return 'Every minute';
+  if (type === 'hourly') return 'Hourly';
+  if (type === 'daily') return 'Daily';
+  if (type === 'weekly') return 'Weekly';
+  return 'Monthly';
+}
+
+function repeatScheduleUnit(type: RepeatSchedule['type']): RepeatScheduleUnit {
+  if (type === 'minutely') return 'minute';
+  if (type === 'hourly') return 'hour';
+  if (type === 'weekly') return 'week';
+  if (type === 'monthly') return 'month';
+  return 'day';
+}
+
+function repeatScheduleTypeForUnit(unit: RepeatScheduleUnit): Exclude<RepeatSchedule['type'], 'none'> {
+  if (unit === 'minute') return 'minutely';
+  if (unit === 'hour') return 'hourly';
+  if (unit === 'week') return 'weekly';
+  if (unit === 'month') return 'monthly';
+  return 'daily';
 }
 
 function workflowDomId(id: string, index: number): string {
