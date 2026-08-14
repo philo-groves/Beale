@@ -36,6 +36,7 @@
 
 ### Changed
 
+- Shell execution now supports complete platform shell commands, executable paths, and host HOME-family environment variables through Honeycrisp while retaining the selected Manual Approval, Auto-Review, or Danger Mode authorization flow.
 - Main headers now separate workspace, session, and active breakout-room names with vertical dividers, and breakout-room views no longer render a duplicate room header.
 - Active breakout-room names in the main header now match session-title styling, with brighter vertical dividers.
 - Breakout-room names now display with each word capitalized in the sidebar and main header.
