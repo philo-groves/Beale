@@ -110,7 +110,7 @@ describe('renderer workspace display view models', () => {
       selectedRunBreakoutRooms: [{
         id: 'room_live',
         runId: selectedSession.runId,
-        title: 'Live provider challenge',
+        title: 'live provider challenge',
         status: 'active'
       }],
       snapshot: {
@@ -131,7 +131,8 @@ describe('renderer workspace display view models', () => {
       onStartNewResearch: () => undefined
     }));
 
-    expect(html).toContain('Live provider challenge');
+    expect(html).toContain('Live Provider Challenge');
+    expect(html).toContain('title="Live Provider Challenge — Active"');
     expect(html).toContain('workspace-breakout-room-item');
     expect(html).toContain('class="workspace-breakout-room-item" data-room-status="active"');
     expect(html).toContain('class="workspace-breakout-room-reveal" data-state="open" aria-hidden="false"');
@@ -139,7 +140,7 @@ describe('renderer workspace display view models', () => {
     expect(html).toContain('class="lucide lucide-chevron-down"');
     expect(html).not.toContain('class="lucide lucide-messages-square"');
     const statusIndex = html.indexOf('workspace-breakout-room-status status-active');
-    const titleIndex = html.indexOf('class="workspace-breakout-room-title">Live provider challenge');
+    const titleIndex = html.indexOf('class="workspace-breakout-room-title">Live Provider Challenge');
     expect(statusIndex).toBeGreaterThanOrEqual(0);
     expect(titleIndex).toBeGreaterThan(statusIndex);
     expect(html).not.toMatch(/class="workspace-item-row active\b/u);
@@ -241,7 +242,7 @@ describe('renderer workspace display view models', () => {
       onStartNewResearch: () => undefined
     }));
 
-    expect(html).toContain('Previous provider challenge');
+    expect(html).toContain('Previous Provider Challenge');
     expect(html).toContain('class="workspace-breakout-room-reveal" data-state="closed" aria-hidden="true" inert=""');
     expect(html).toContain('class="lucide lucide-chevron-down"');
     expect(html).toContain('class="lucide lucide-chevron-right"');

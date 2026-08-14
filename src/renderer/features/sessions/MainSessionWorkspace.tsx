@@ -68,7 +68,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSelectTraceEvent,
   onSelectSubagent,
   onSelectNextStep,
-  onBackToSession = () => undefined,
   onSessionAction,
   onSteerInstruction
 }: {
@@ -122,7 +121,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
   onSelectNextStep: (goal: ResearchGoalSeed) => void;
-  onBackToSession?: () => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
@@ -170,7 +168,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           events={allEvents}
           providerModelCatalog={providerModelCatalog}
           roomId={selectedBreakoutRoomId}
-          onBack={onBackToSession}
           onSelectSubagent={onSelectSubagent}
         />
       ) : chatView === 'commentary' ? (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayWorkspaceHeaderName } from '../src/renderer/view-models/appHeader';
+import { displayBreakoutRoomTitle, displayWorkspaceHeaderName } from '../src/renderer/view-models/appHeader';
 
 describe('renderer app header view model', () => {
   it('renders workspace names in word-capitalized form', () => {
@@ -10,5 +10,11 @@ describe('renderer app header view model', () => {
 
   it('falls back when no workspace is selected', () => {
     expect(displayWorkspaceHeaderName('')).toBe('No Workspace Selected');
+  });
+
+  it('capitalizes the first letter of each breakout room name word', () => {
+    expect(displayBreakoutRoomTitle('parser review')).toBe('Parser Review');
+    expect(displayBreakoutRoomTitle('  live provider challenge  ')).toBe('Live Provider Challenge');
+    expect(displayBreakoutRoomTitle('API audit')).toBe('API Audit');
   });
 });

@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HostEnvironment } from '@shared/types';
+import type { HostEnvironment, RunDetail } from '@shared/types';
 import { StatusBar } from '../src/renderer/app/StatusBar';
 import { TopBar } from '../src/renderer/app/TopBar';
 
@@ -11,7 +11,7 @@ describe('renderer top bar', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const menuButtonStyles = styles.match(/\.window-menu button\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceTitleStyles = styles.match(/\.app-header-workspace-title\s*\{([^}]*)\}/)?.[1] ?? '';
-    const sessionTitleStyles = styles.match(/\.app-header-session-title\s*\{([^}]*)\}/)?.[1] ?? '';
+    const sessionTitleStyles = styles.match(/\.app-header-session-title,\s*\.app-header-breakout-room-title\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(menuButtonStyles).toContain('padding: 1px 8px');
     expect(workspaceTitleStyles).toContain('padding: 1px 6px');
@@ -62,9 +62,43 @@ describe('renderer top bar', () => {
 
     expect(html).toContain('aria-label="Agent Settings, Memory"');
     expect(html).toContain('<span class="app-header-workspace-title app-header-static-title"><span>Agent Settings</span></span>');
+    expect(html).toContain('<span class="app-header-divider" aria-hidden="true"></span>');
     expect(html).toContain('<span class="app-header-session-title app-header-static-title"><span>Memory</span></span>');
     expect(html).not.toContain('title="Open workspace information"');
     expect(html).not.toContain('title="View session summary"');
+  });
+
+  it('separates workspace, session, and breakout room names in the main header', () => {
+    const detail = {
+      run: {
+        id: 'run_header',
+        title: 'Primary session',
+        promptMarkdown: ''
+      }
+    } as unknown as RunDetail;
+    const html = renderToStaticMarkup(createElement(TopBar, {
+      sidebarCollapsed: false,
+      platform: 'win32',
+      workspaceName: 'Security',
+      activeWorkspace: null,
+      activeRunDetail: detail,
+      activeBreakoutRoomTitle: 'parser review',
+      rightSidenavAvailable: false,
+      rightSidenavExpanded: false,
+      contextualTitleVisible: true,
+      staticContextTitle: null,
+      profilingEnabled: false,
+      onOpenSessionSummary: () => undefined,
+      onOpenWorkspaceInfo: () => undefined,
+      onOpenProfiling: () => undefined,
+      onAddWorkspace: () => undefined,
+      onToggleRightSidenav: () => undefined,
+      onToggleSidebar: () => undefined
+    }));
+
+    expect(html).toContain('aria-label="Security, Primary session, Parser Review"');
+    expect(html.match(/app-header-divider/g)?.length).toBe(2);
+    expect(html).toContain('<span class="app-header-breakout-room-title app-header-static-title" title="Parser Review"><span>Parser Review</span></span>');
   });
 
   it('labels the lower-left settings action as Agent Settings', () => {
@@ -88,6 +122,7 @@ function renderTopBar(
     workspaceName: 'Security',
     activeWorkspace: null,
     activeRunDetail: null,
+    activeBreakoutRoomTitle: null,
     rightSidenavAvailable,
     rightSidenavExpanded,
     contextualTitleVisible,

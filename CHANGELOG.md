@@ -26,6 +26,9 @@
 
 ### Changed
 
+- Main headers now separate workspace, session, and active breakout-room names with vertical dividers, and breakout-room views no longer render a duplicate room header.
+- Active breakout-room names in the main header now match session-title styling, with brighter vertical dividers.
+- Breakout-room names now display with each word capitalized in the sidebar and main header.
 - Outbound agent-to-agent messages now render as right-aligned white bubbles in Commentary and breakout-room transcripts, while breakout-room incoming messages and outcomes use left-aligned dark bubbles with in-bubble provider, agent, display-model, type, and timestamp headers.
 - Session transcript search now opens as a centered Find a Session dialog matching the New Research modal shape and surface color instead of a bottom sheet.
 - More Sessions now reuses the same centered session-finder dialog styling instead of the bottom-sheet presentation.

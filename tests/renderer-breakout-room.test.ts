@@ -1,5 +1,4 @@
 import { createElement } from 'react';
-import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { BreakoutRoomMemberRecord, BreakoutRoomMessageRecord, RunDetail } from '@shared/types';
@@ -12,16 +11,7 @@ import {
 import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
 
 describe('breakout room view', () => {
-  it('aligns room header content to the commentary width', () => {
-    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
-    const headingStyles = styles.match(/\.breakout-room-heading\s*\{([^}]*)\}/)?.[1] ?? '';
-
-    expect(headingStyles).toContain('width: 100%');
-    expect(headingStyles).toContain('max-width: var(--trace-content-max-width)');
-    expect(headingStyles).toContain('margin-inline: auto');
-  });
-
-  it('shows the provider mark, formatted subagent name, and role in member pills', () => {
+  it('omits duplicate room chrome while keeping active worker disclosures', () => {
     const detail = {
       breakoutRooms: [{
         id: 'room_review',
@@ -44,12 +34,13 @@ describe('breakout room view', () => {
     const html = renderToStaticMarkup(createElement(BreakoutRoomView, {
       detail,
       roomId: 'room_review',
-      onBack: () => undefined,
       onSelectSubagent: () => undefined
     }));
 
-    expect(html).toContain('breakout-room-member-provider-icon');
-    expect(html).toContain('<span class="breakout-room-member-name">Parser Review</span><small>challenger</small>');
+    expect(html).not.toContain('breakout-room-header');
+    expect(html).not.toContain('breakout-room-heading');
+    expect(html).not.toContain('breakout-room-member-chip');
+    expect(html).not.toContain('Back to Session');
     expect(html).toContain('<details class="breakout-room-working-subagent">');
     expect(html).toContain('class="lucide lucide-chevron-right"');
     expect(html).toContain('<strong>Parser Review Working</strong>');
@@ -107,7 +98,6 @@ describe('breakout room view', () => {
       detail,
       events,
       roomId: 'room_live',
-      onBack: () => undefined,
       onSelectSubagent: () => undefined
     }));
 
@@ -152,7 +142,6 @@ describe('breakout room view', () => {
     const html = renderToStaticMarkup(createElement(BreakoutRoomView, {
       detail,
       roomId: 'room_messages',
-      onBack: () => undefined,
       onSelectSubagent: () => undefined
     }));
 

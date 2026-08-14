@@ -18,6 +18,7 @@ export const TopBar = memo(function TopBar({
   workspaceName,
   activeWorkspace,
   activeRunDetail,
+  activeBreakoutRoomTitle,
   profilingEnabled,
   onOpenSessionSummary,
   onOpenWorkspaceInfo,
@@ -35,6 +36,7 @@ export const TopBar = memo(function TopBar({
   workspaceName: string;
   activeWorkspace: WorkspaceRegistryEntry | null;
   activeRunDetail: RunDetail | null;
+  activeBreakoutRoomTitle: string | null;
   profilingEnabled: boolean;
   onOpenSessionSummary: (detail: RunDetail) => void;
   onOpenWorkspaceInfo: (workspace: WorkspaceRegistryEntry) => void;
@@ -217,6 +219,7 @@ export const TopBar = memo(function TopBar({
           workspaceName={workspaceName}
           activeWorkspace={activeWorkspace}
           detail={activeRunDetail}
+          breakoutRoomTitle={activeBreakoutRoomTitle}
           onOpenWorkspaceInfo={onOpenWorkspaceInfo}
           onOpenSessionSummary={onOpenSessionSummary}
         />

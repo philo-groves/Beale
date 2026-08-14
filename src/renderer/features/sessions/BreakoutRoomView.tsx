@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronRight, MessagesSquare } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
 import type { BreakoutRoomMemberRecord, BreakoutRoomMessageRecord, ResearchModelProviderId, ResearchProviderModelCatalog, RunDetail } from '@shared/types';
@@ -15,14 +15,12 @@ export function BreakoutRoomView({
   events = [],
   providerModelCatalog = [],
   roomId,
-  onBack,
   onSelectSubagent
 }: {
   detail: RunDetail | null;
   events?: TraceDisplayEvent[];
   providerModelCatalog?: ResearchProviderModelCatalog[];
   roomId: string;
-  onBack: () => void;
   onSelectSubagent: (path: string) => void;
 }): JSX.Element {
   const room = useMemo(() => detail?.breakoutRooms?.find((candidate) => candidate.id === roomId) ?? null, [detail?.breakoutRooms, roomId]);
@@ -113,26 +111,6 @@ export function BreakoutRoomView({
 
   return (
     <section className="main-trace-view breakout-room-view" aria-label={room ? `Breakout room: ${room.title}` : 'Breakout room'}>
-      <header className="breakout-room-header">
-        <button type="button" className="back-to-main-button trace-back-to-main-button" onClick={onBack}>
-          <ArrowLeft size={14} />
-          <span>Back to Session</span>
-        </button>
-        {room ? (
-          <div className="breakout-room-heading">
-            <div>
-              <MessagesSquare size={16} />
-              <h2>{room.title}</h2>
-              <span className={`breakout-room-state state-${room.status}`}>{roomStatusLabel(room.status)}</span>
-              <span className={`breakout-room-phase phase-${room.phase}`}>{roomPhaseLabel(room.phase, room.challengeRound)}</span>
-            </div>
-            {room.purpose ? <p>{room.purpose}</p> : null}
-            <div className="breakout-room-member-chips">
-              {members.map((member) => <BreakoutMemberChip member={member} key={member.id} />)}
-            </div>
-          </div>
-        ) : null}
-      </header>
       {!detail || !room ? <div className="main-trace-empty">Loading breakout room.</div> : null}
       {detail && room && !hasTranscriptContent ? <div className="main-trace-empty">This room has no recorded messages yet.</div> : null}
       {detail && room && hasTranscriptContent ? (
@@ -252,17 +230,6 @@ export function breakoutRoomWorkingDurationLabel(
   }, null);
   const startedAtMs = Number.isFinite(memberStartMs) ? memberStartMs : eventStartMs ?? nowMs;
   return formatDurationHms(Math.max(0, nowMs - startedAtMs));
-}
-
-function BreakoutMemberChip({ member }: { member: BreakoutRoomMemberRecord }): JSX.Element {
-  const rawName = member.agentPath.split('/').filter(Boolean).at(-1) ?? member.agentPath;
-  return (
-    <span className={`breakout-room-member-chip state-${member.status}`} title={`${member.agentPath} — ${member.model}`}>
-      <ProviderIcon className="breakout-room-member-provider-icon" provider={member.provider || member.model} size={12} aria-hidden="true" />
-      <span className="breakout-room-member-name">{subagentDisplayName(rawName)}</span>
-      {member.role ? <small>{member.role}</small> : null}
-    </span>
-  );
 }
 
 function BreakoutMessage({
@@ -498,24 +465,9 @@ function breakoutMessageSenderName(
   return subagentDisplayName(rawName);
 }
 
-function roomStatusLabel(status: string): string {
-  if (status === 'active') return 'Active';
-  if (status === 'completed') return 'Completed';
-  if (status === 'interrupted') return 'Interrupted';
-  return 'Error';
-}
-
 function messageKindLabel(message: BreakoutRoomMessageRecord): string {
   const packetKind = typeof message.metadata.packetKind === 'string' ? message.metadata.packetKind : message.kind;
   return packetKind.split('_').map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(' ');
-}
-
-function roomPhaseLabel(phase: string, challengeRound: number): string {
-  if (phase === 'independent') return 'Independent memos';
-  if (phase === 'challenge') return `Challenge ${challengeRound}`;
-  if (phase === 'response') return `Responses ${challengeRound}`;
-  if (phase === 'synthesis') return 'Awaiting synthesis';
-  return 'Synthesized';
 }
 
 function roomPacketDetails(message: BreakoutRoomMessageRecord): [string, string][] {

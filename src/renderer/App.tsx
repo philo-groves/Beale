@@ -975,6 +975,9 @@ export function App(): JSX.Element {
     sidebarCollapsed
   })}${settingsOpen ? ' settings-open' : ''}`;
   const currentWorkspaceName = snapshot?.activeScope.workspaceName ?? 'No Workspace Selected';
+  const activeBreakoutRoomTitle = selectedBreakoutRoomId
+    ? activeRunDetail?.breakoutRooms?.find((room) => room.id === selectedBreakoutRoomId)?.title ?? null
+    : null;
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const openProfiling = useCallback(() => {
     flushProfilingReport();
@@ -1056,6 +1059,7 @@ export function App(): JSX.Element {
         workspaceName={currentWorkspaceName}
         activeWorkspace={activeWorkspaceEntry}
         activeRunDetail={activeRunDetail}
+        activeBreakoutRoomTitle={activeBreakoutRoomTitle}
         profilingEnabled={profilingState?.enabled ?? false}
         onOpenSessionSummary={setSessionSummaryDetail}
         onOpenWorkspaceInfo={setWorkspaceInfo}
@@ -1198,7 +1202,6 @@ export function App(): JSX.Element {
               onSelectTraceEvent={selectTraceEvent}
               onSelectSubagent={selectSubagent}
               onSelectNextStep={startNewResearchFromSuggestion}
-              onBackToSession={() => setSelectedBreakoutRoomId(null)}
               onSessionAction={handleSessionAction}
               onSteerInstruction={handleSteerInstruction}
             />

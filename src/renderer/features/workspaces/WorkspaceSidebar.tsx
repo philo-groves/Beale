@@ -3,6 +3,7 @@ import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
 import { ChevronDown, ChevronRight, Folder, FolderPlus, MoreVertical, Plug, RefreshCw, Search, SquarePen } from 'lucide-react';
 import type { BreakoutRoomStatus, BreakoutRoomSummary, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
+import { displayBreakoutRoomTitle } from '../../view-models/appHeader';
 import { promptSessionTitle, researchSessionsForWorkspace, shortRelativeAge } from '../../view-models/workspaceDisplay';
 
 const SIDEBAR_SESSION_LIMIT = 4;
@@ -167,22 +168,25 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                           inert={!roomsVisible}
                         >
                           <div className="workspace-breakout-room-list">
-                            {rooms.map((room) => (
-                              <button
-                                type="button"
-                                className={`workspace-breakout-room-item${selectedBreakoutRoomId === room.id ? ' active' : ''}`}
-                                data-room-status={room.status}
-                                title={`${room.title} — ${breakoutRoomStatusLabel(room.status)}`}
-                                onClick={() => onOpenBreakoutRoom(workspace, session, room.id)}
-                                key={room.id}
-                              >
-                                <span
-                                  className={`workspace-breakout-room-status ${selectedRunId === session.runId && selectedRunBreakoutRoomsLoading ? 'status-loading' : `status-${room.status}`}`}
-                                  aria-label={selectedRunId === session.runId && selectedRunBreakoutRoomsLoading ? 'Loading room status' : breakoutRoomStatusLabel(room.status)}
-                                />
-                                <span className="workspace-breakout-room-title">{room.title}</span>
-                              </button>
-                            ))}
+                            {rooms.map((room) => {
+                              const roomTitle = displayBreakoutRoomTitle(room.title);
+                              return (
+                                <button
+                                  type="button"
+                                  className={`workspace-breakout-room-item${selectedBreakoutRoomId === room.id ? ' active' : ''}`}
+                                  data-room-status={room.status}
+                                  title={`${roomTitle} — ${breakoutRoomStatusLabel(room.status)}`}
+                                  onClick={() => onOpenBreakoutRoom(workspace, session, room.id)}
+                                  key={room.id}
+                                >
+                                  <span
+                                    className={`workspace-breakout-room-status ${selectedRunId === session.runId && selectedRunBreakoutRoomsLoading ? 'status-loading' : `status-${room.status}`}`}
+                                    aria-label={selectedRunId === session.runId && selectedRunBreakoutRoomsLoading ? 'Loading room status' : breakoutRoomStatusLabel(room.status)}
+                                  />
+                                  <span className="workspace-breakout-room-title">{roomTitle}</span>
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
                       ) : null}
