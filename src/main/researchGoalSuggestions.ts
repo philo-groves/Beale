@@ -6,6 +6,8 @@ import type {
 const MAX_CANDIDATE_POOL_SIZE = 12;
 const MAX_GROUNDING_REFS_PER_CANDIDATE = 4;
 const SEMANTIC_DUPLICATE_THRESHOLD = 0.62;
+const LONGSHOT_CLOSE_ENDED_PATTERN = /\bwhether\b|^(?:verify|confirm)\b|^(?:determine|establish|test|check|assess|resolve)\s+if\b/i;
+const LONGSHOT_HIGH_UPSIDE_PATTERN = /\b(?:critical|high[- ]impact|high[- ]severity|systemic|platform[- ]wide|cross[- ]tenant|remote code execution|system code execution|arbitrary code execution|sandbox escape|privilege escalation|supply[- ]chain|account takeover|major breakthrough|breakthrough[- ]scale|foundational|unifying|general theorem|general classification|new theory|new framework|new method|broad problem class|long[- ]standing open problem)\b/i;
 
 export interface ResearchGoalCandidate {
   goal: string;
@@ -173,6 +175,7 @@ function parseCandidate(
   }
   const record = value as Record<string, unknown>;
   const goal = normalizeResearchGoalSentence(record.goal);
+  validateWorkflowGoal(goal, input.workflow);
   const rationale = boundedText(record.rationale, 12, 500, 'candidate rationale');
   const noveltyAxis = boundedText(record.noveltyAxis, 3, 120, 'candidate novelty axis');
   if (!Array.isArray(record.groundingRefs)
@@ -194,6 +197,16 @@ function parseCandidate(
     throw new Error(`Research goal candidate ${index + 1} does not cite an eligible ${input.workflow.name} memory.`);
   }
   return { goal, groundingRefs, rationale, noveltyAxis };
+}
+
+function validateWorkflowGoal(goal: string, workflow: ResearchProfileWorkflow): void {
+  if (workflow.id !== 'longshot') return;
+  if (LONGSHOT_CLOSE_ENDED_PATTERN.test(goal)) {
+    throw new Error('Longshot research goals must open a broad research direction, not ask to verify or determine a binary claim.');
+  }
+  if (!LONGSHOT_HIGH_UPSIDE_PATTERN.test(goal)) {
+    throw new Error('Longshot research goals must state an explicit systemic-impact or major-breakthrough ceiling.');
+  }
 }
 
 function normalizeResearchGoalSentence(value: unknown): string {

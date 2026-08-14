@@ -17,6 +17,13 @@ const WORKFLOW: ResearchProfileWorkflow = {
   outputRequirements: []
 };
 
+const LONGSHOT_WORKFLOW: ResearchProfileWorkflow = {
+  ...WORKFLOW,
+  id: 'longshot',
+  name: 'Longshot',
+  description: 'Pursue open-ended, high-upside research directions.'
+};
+
 describe('research goal candidate selection', () => {
   it('over-generates a bounded candidate pool and exposes a strict structured-output schema', () => {
     expect(researchGoalCandidateCount(1)).toBe(3);
@@ -137,6 +144,53 @@ describe('research goal candidate selection', () => {
       previousResearchTexts: [],
       relevanceTexts: []
     })).toThrow(/eligible Chaining memory/i);
+  });
+
+  it('rejects close-ended or low-ceiling Longshot candidates', () => {
+    const closeEnded = [
+      candidate('Verify whether a stale claim can execute Git operations against unauthorized local state.', 'stale-claim'),
+      candidate('Determine whether one organization selector can mutate a resolved group in another organization.', 'organization-selector'),
+      candidate('Establish whether a message fallback can route one request to a different project.', 'message-routing')
+    ];
+    expect(() => parseAndSelectResearchGoalCandidates(JSON.stringify({ candidates: closeEnded }), {
+      workflow: LONGSHOT_WORKFLOW,
+      suggestionCount: 3,
+      candidateCount: 3,
+      allowedGroundingRefs: new Set(['workspace:scope']),
+      previousResearchTexts: [],
+      relevanceTexts: []
+    })).toThrow(/broad research direction/i);
+
+    const lowCeiling = Array.from({ length: 3 }, (_, index) => candidate(
+      `Explore underreviewed component ${index + 1} for unusual state transitions and isolated authorization mistakes.`,
+      `component-${index + 1}`
+    ));
+    expect(() => parseAndSelectResearchGoalCandidates(JSON.stringify({ candidates: lowCeiling }), {
+      workflow: LONGSHOT_WORKFLOW,
+      suggestionCount: 3,
+      candidateCount: 3,
+      allowedGroundingRefs: new Set(['workspace:scope']),
+      previousResearchTexts: [],
+      relevanceTexts: []
+    })).toThrow(/systemic-impact or major-breakthrough ceiling/i);
+  });
+
+  it('accepts open-ended Longshot programs with an explicit high-upside ceiling', () => {
+    const candidates = [
+      candidate('Explore cross-tenant workspace identity boundaries for systemic compromise paths that remain unknown.', 'tenant-boundaries'),
+      candidate('Map update trust transitions for supply-chain compromise opportunities across the platform.', 'update-trust'),
+      candidate('Develop a new framework connecting sparse invariants to a general classification theorem.', 'classification-framework')
+    ];
+    const selection = parseAndSelectResearchGoalCandidates(JSON.stringify({ candidates }), {
+      workflow: LONGSHOT_WORKFLOW,
+      suggestionCount: 3,
+      candidateCount: 3,
+      allowedGroundingRefs: new Set(['workspace:scope']),
+      previousResearchTexts: [],
+      relevanceTexts: []
+    });
+
+    expect(selection.result.suggestions).toEqual(candidates.map((value) => value.goal));
   });
 });
 
