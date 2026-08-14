@@ -188,7 +188,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                 )}
                 {sessions.length > SIDEBAR_SESSION_LIMIT ? (
                   <button type="button" className="workspace-session-more" onClick={() => onShowMoreSessions(workspace.id)}>
-                    More {workspace.workspaceName} Sessions...
+                    More Sessions...
                   </button>
                 ) : null}
               </div>

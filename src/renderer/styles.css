@@ -1437,7 +1437,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   border-radius: 8px;
   background: transparent;
   margin-inline: -4px;
-  padding: 5px 4px;
+  padding: 5px 4px 5px 26px;
   text-align: left;
 }
 

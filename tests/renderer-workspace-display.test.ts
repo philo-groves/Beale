@@ -179,7 +179,8 @@ describe('renderer workspace display view models', () => {
     }));
 
     expect(html).toMatch(/class="workspace-item-row active\b/u);
-    expect(html).toContain('>More Snapchat Sessions...</button>');
+    expect(html).toContain('>More Sessions...</button>');
+    expect(html).not.toContain('More Snapchat Sessions');
     expect(html).not.toContain('More Research Sessions');
   });
 
