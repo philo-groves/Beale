@@ -95,6 +95,15 @@ const LEGACY_RESEARCH_GOAL_WORKFLOWS: readonly ResearchProfileWorkflow[] = [
     goalSuggestionInstructions: [],
     promptInstructions: [],
     outputRequirements: []
+  },
+  {
+    id: 'longshot',
+    name: 'Longshot',
+    description: 'Hunt for ambitious, reportable high- or critical-severity vulnerabilities in underexplored attack surfaces.',
+    goalSuggestionCount: 4,
+    goalSuggestionInstructions: [],
+    promptInstructions: [],
+    outputRequirements: []
   }
 ];
 

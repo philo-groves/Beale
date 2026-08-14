@@ -10,6 +10,7 @@
 
 ### Added
 
+- Added the Longshot suggestion workflow for Cybersecurity and Mathematics profiles, targeting evidence-gated reportable high or critical bugs in cyber and concrete paths toward major mathematical breakthroughs.
 - Added a repeat schedule picker to New Research with a default No Repeat state and persisted repeat metadata on started runs.
 - Added minute and hour interval options to repeat schedules.
 - Added an Automations sidebar dialog for viewing and canceling scheduled repeat prompts.

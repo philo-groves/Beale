@@ -9527,6 +9527,7 @@ button.session-summary-item:hover:not(:disabled),
 .research-goal-view-toggle {
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
   gap: 4px;

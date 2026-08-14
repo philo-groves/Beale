@@ -114,12 +114,14 @@ describe('renderer dialog surfaces', () => {
     );
 
     expect(html.match(/aria-label="Discovery goal \d:/g)).toHaveLength(4);
+    expect(html).not.toMatch(/aria-label="Longshot goal \d:/);
     expect(html).not.toMatch(/aria-label="Chaining goal \d:/);
     expect(html).not.toMatch(/aria-label="Reporting goal \d:/);
-    expect(html.match(/role="tab"/g)).toHaveLength(3);
+    expect(html.match(/role="tab"/g)).toHaveLength(4);
     expect(html).toContain('role="tab" aria-selected="true" class="selected">Discovery</button>');
+    expect(html).toContain('>Longshot</button>');
     for (const suggestion of suggestions.discovery ?? []) expect(html).toContain(suggestion);
-    for (const suggestion of [...(suggestions.chaining ?? []), ...(suggestions.reporting ?? [])]) expect(html).not.toContain(suggestion);
+    for (const suggestion of [...(suggestions.longshot ?? []), ...(suggestions.chaining ?? []), ...(suggestions.reporting ?? [])]) expect(html).not.toContain(suggestion);
   });
 
   it('starts goals directly by default in New Research', () => {
@@ -526,6 +528,12 @@ function phaseSuggestions(): ResearchGoalSuggestionsByPhase {
       'Examine workspace ownership for authorization vulnerabilities.',
       'Research metadata decoding for memory-safety vulnerabilities.'
     ],
+    longshot: [
+      'Hunt for a reportable high-impact trust-boundary failure in workspace imports.',
+      'Pursue a critical cross-project isolation failure in repository attachment flows.',
+      'Investigate a high-impact authorization composition flaw across ownership transitions.',
+      'Search for a critical parser-to-execution chain in underexplored metadata handling.'
+    ],
     chaining: [
       'Upgrade the parser primitive into a reportable chain with a triage-ready PoC.',
       'Develop the archive primitive into a reachable chain with a triage-ready PoC.',
@@ -541,6 +549,6 @@ function phaseSuggestions(): ResearchGoalSuggestionsByPhase {
   };
 }
 
-function phaseValues<T>(value: T): { discovery: T; chaining: T; reporting: T } {
-  return { discovery: value, chaining: value, reporting: value };
+function phaseValues<T>(value: T): { discovery: T; longshot: T; chaining: T; reporting: T } {
+  return { discovery: value, longshot: value, chaining: value, reporting: value };
 }

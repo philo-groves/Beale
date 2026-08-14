@@ -14,7 +14,7 @@ import {
 } from '../view-models/researchGoalSuggestions';
 import { clientRequestId } from '../view-models/runSettings';
 
-const LEGACY_RESEARCH_GOAL_PHASES: ResearchGoalPhase[] = ['discovery', 'chaining', 'reporting'];
+const LEGACY_RESEARCH_GOAL_PHASES: ResearchGoalPhase[] = ['discovery', 'chaining', 'reporting', 'longshot'];
 
 interface ActiveSuggestionRequest {
   key: string;
