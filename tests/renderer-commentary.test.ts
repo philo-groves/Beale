@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import {
   COMMENTARY_RENDER_WINDOW_SIZE,
@@ -20,6 +21,16 @@ import { commentaryMessagesForSession, commentaryToolUsageText } from '../src/re
 import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
 
 describe('renderer commentary projection', () => {
+  it('keeps the working disclosure aligned to the commentary text width', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const messageStyles = styles.match(/\.main-commentary-message\s*\{([^}]*)\}/)?.[1] ?? '';
+    const disclosureStyles = styles.match(/\.run-work-disclosure\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(messageStyles).toContain('max-width: var(--trace-content-max-width)');
+    expect(disclosureStyles).toContain('max-width: var(--trace-content-max-width)');
+    expect(disclosureStyles).toContain('margin-inline: auto');
+  });
+
   it('labels subagent assignments by lifecycle action', () => {
     expect(commentaryMessageLabel('user')).toBeNull();
     expect(commentaryMessageLabel('commentary')).toBeNull();

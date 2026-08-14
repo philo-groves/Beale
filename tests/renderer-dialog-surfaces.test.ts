@@ -273,7 +273,8 @@ describe('renderer dialog surfaces', () => {
     expect(containerStyles).toContain('background: transparent');
     expect(containerStyles).toContain('border-radius: 0');
     expect(containerStyles).toContain('width: 100%');
-    expect(containerStyles).not.toContain('max-width');
+    expect(containerStyles).toContain('max-width: var(--trace-content-max-width)');
+    expect(containerStyles).toContain('margin: 10px auto -14px');
     expect(containerStyles).not.toContain('height: 219px');
     expect(headerStyles).toContain('border-bottom: 1px solid var(--panel-border)');
     expect(listStyles).toContain('grid-template-rows: repeat(3, auto)');

@@ -3828,10 +3828,12 @@ button.session-summary-item:hover:not(:disabled),
 
 .run-work-disclosure {
   width: 100%;
+  max-width: var(--trace-content-max-width);
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--main-commentary-item-gap);
+  margin-inline: auto;
 }
 
 .run-work-header {
@@ -4789,8 +4791,9 @@ button.session-summary-item:hover:not(:disabled),
 
 .session-next-steps {
   width: 100%;
+  max-width: var(--trace-content-max-width);
   box-sizing: border-box;
-  margin: 10px 0 -14px;
+  margin: 10px auto -14px;
   padding: 0;
   border: 0;
   border-radius: 0;
