@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { ChevronDown, ChevronRight, Folder, FolderPlus, MessagesSquare, MoreVertical, Play, RefreshCw, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderPlus, MoreVertical, Play, RefreshCw, Search } from 'lucide-react';
 import type { BreakoutRoomStatus, BreakoutRoomSummary, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForWorkspace, shortRelativeAge } from '../../view-models/workspaceDisplay';
@@ -164,17 +164,17 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                             {rooms.map((room) => (
                               <button
                                 type="button"
-                                className={`workspace-breakout-room-item ${selectedBreakoutRoomId === room.id ? 'active' : ''}`}
+                                className={`workspace-breakout-room-item${selectedBreakoutRoomId === room.id ? ' active' : ''}`}
+                                data-room-status={room.status}
                                 title={`${room.title} — ${breakoutRoomStatusLabel(room.status)}`}
                                 onClick={() => onOpenBreakoutRoom(workspace, session, room.id)}
                                 key={room.id}
                               >
-                                <MessagesSquare size={12} aria-hidden="true" />
-                                <span>{room.title}</span>
                                 <span
                                   className={`workspace-breakout-room-status ${selectedRunId === session.runId && selectedRunBreakoutRoomsLoading ? 'status-loading' : `status-${room.status}`}`}
                                   aria-label={selectedRunId === session.runId && selectedRunBreakoutRoomsLoading ? 'Loading room status' : breakoutRoomStatusLabel(room.status)}
                                 />
+                                <span className="workspace-breakout-room-title">{room.title}</span>
                               </button>
                             ))}
                           </div>

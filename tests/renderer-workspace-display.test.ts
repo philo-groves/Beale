@@ -128,10 +128,15 @@ describe('renderer workspace display view models', () => {
 
     expect(html).toContain('Live provider challenge');
     expect(html).toContain('workspace-breakout-room-item');
+    expect(html).toContain('class="workspace-breakout-room-item" data-room-status="active"');
     expect(html).toContain('class="workspace-breakout-room-reveal" data-state="open" aria-hidden="false"');
     expect(html).toContain('class="lucide lucide-folder"');
     expect(html).toContain('class="lucide lucide-chevron-down"');
-    expect(html).toContain('class="lucide lucide-messages-square"');
+    expect(html).not.toContain('class="lucide lucide-messages-square"');
+    const statusIndex = html.indexOf('workspace-breakout-room-status status-active');
+    const titleIndex = html.indexOf('class="workspace-breakout-room-title">Live provider challenge');
+    expect(statusIndex).toBeGreaterThanOrEqual(0);
+    expect(titleIndex).toBeGreaterThan(statusIndex);
     expect(html).not.toMatch(/class="workspace-item-row active\b/u);
     expect(html).toContain('class="workspace-session-item active"');
   });
