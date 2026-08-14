@@ -18,6 +18,11 @@ import { normalizeShellSafetyMode, SHELL_SAFETY_MODE_OPTIONS } from '../../../sh
 export { SHELL_SAFETY_MODE_OPTIONS } from '../../../shared/shellSafety';
 import type { TraceCategoryId } from '../../traceClassification';
 import {
+  steeringInputSuggestion,
+  steeringInputTabAction,
+  steeringSuggestionAutoVisible
+} from '../../view-models/steeringSuggestions';
+import {
   buildTraceTimelineEntries,
   coalesceConsecutiveReasoningEntries,
   groupRenderedTraceEntries,
@@ -563,6 +568,7 @@ export const MainSteerArea = memo(function MainSteerArea({
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element {
   const [instruction, setInstruction] = useState('');
+  const [tabSuggestionVisible, setTabSuggestionVisible] = useState(false);
   const runProviderId = runModelProvider(detail, providerModelCatalog);
   const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId>(runProviderId);
   const [selectedModelId, setSelectedModelId] = useState(detail?.run.model ?? '');
@@ -573,6 +579,8 @@ export const MainSteerArea = memo(function MainSteerArea({
   const trimmedInstruction = instruction.trim();
   const disabled = busy || !runId || !trimmedInstruction;
   const status = detail?.run.status ?? null;
+  const steeringSuggestion = steeringInputSuggestion(detail);
+  const suggestionShowing = Boolean(steeringSuggestion && (tabSuggestionVisible || steeringSuggestionAutoVisible(status)));
   const shellSafetyMode = normalizeShellSafetyMode(detail?.run.shellSafetyMode);
   const controlsDisabled = busy || !runId;
   const fallbackModel = detail ? fallbackResearchModel(detail.run.model, researchEffort(detail.run.reasoningEffort)) : null;
@@ -607,6 +615,10 @@ export const MainSteerArea = memo(function MainSteerArea({
     setSelectedModelId(nextModel?.id ?? detail.run.model);
     setSelectedEffort(nextEffort);
   }, [detail?.run.id, detail?.run.model, detail?.run.reasoningEffort, providerModelCatalog]);
+
+  useEffect(() => {
+    setTabSuggestionVisible(false);
+  }, [runId, status, steeringSuggestion]);
 
   const resizeTextarea = useCallback((): void => {
     const textarea = textareaRef.current;
@@ -652,6 +664,7 @@ export const MainSteerArea = memo(function MainSteerArea({
     if (disabled || !runId) return;
     onSteerInstruction(runId, trimmedInstruction, modelSelection);
     setInstruction('');
+    setTabSuggestionVisible(false);
   };
 
   const stopSession = (): void => {
@@ -660,6 +673,8 @@ export const MainSteerArea = memo(function MainSteerArea({
   };
 
   const sessionActive = status === 'active';
+  const defaultPlaceholder = sessionActive ? 'Steer the research' : 'Your move';
+  const placeholder = suggestionShowing && steeringSuggestion ? steeringSuggestion : defaultPlaceholder;
 
   return (
     <footer className="main-trace-footer" ref={footerRef} aria-label="Steer research session">
@@ -668,9 +683,29 @@ export const MainSteerArea = memo(function MainSteerArea({
           ref={textareaRef}
           rows={1}
           value={instruction}
-          placeholder={sessionActive ? 'Steer the research' : 'Your move'}
-          onChange={(event) => setInstruction(event.target.value)}
+          placeholder={placeholder}
+          onChange={(event) => {
+            setInstruction(event.target.value);
+            setTabSuggestionVisible(false);
+          }}
           onKeyDown={(event) => {
+            if (event.key === 'Tab' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+              const action = steeringInputTabAction({
+                instruction,
+                suggestion: steeringSuggestion,
+                suggestionShowing
+              });
+              if (action !== 'none') {
+                event.preventDefault();
+                if (action === 'accept_suggestion' && steeringSuggestion) {
+                  setInstruction(steeringSuggestion);
+                  setTabSuggestionVisible(false);
+                } else {
+                  setTabSuggestionVisible(true);
+                }
+                return;
+              }
+            }
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
               submit();

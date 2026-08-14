@@ -9,6 +9,10 @@ import {
   STEER_TEXTAREA_MAX_LINES,
   TraceView
 } from '../src/renderer/features/traces/TraceView';
+import {
+  shortSteeringSuggestion,
+  steeringInputTabAction
+} from '../src/renderer/view-models/steeringSuggestions';
 
 describe('renderer trace composer', () => {
   it('renders the trace session loading state with a spinner and no composer', () => {
@@ -60,7 +64,55 @@ describe('renderer trace composer', () => {
 
     expect(html).toContain('aria-label="Send steering instruction"');
     expect(html).not.toContain('aria-label="Stop session"');
-    expect(html).toContain('placeholder="Your move"');
+    expect(html).toContain('placeholder="Resume from the last useful result."');
+  });
+
+  it('shows a current-session continuation suggestion when the run has ended', () => {
+    const html = renderTraceComposer('completed', {
+      transcriptMessages: [{
+        id: 'final_message',
+        runId: 'run_composer',
+        attemptId: 'attempt_one',
+        traceEventId: 'trace_final',
+        role: 'assistant',
+        phase: 'final_answer',
+        contentMarkdown: 'Final result.',
+        source: 'honeycrisp',
+        metadata: {
+          nextPromptSuggestions: [{
+            title: 'Validate crash',
+            promptMarkdown: 'Inspect the saved crash and validate the suspected bounds check.'
+          }]
+        },
+        createdAt: '2026-08-14T10:00:00.000Z'
+      }]
+    });
+
+    expect(html).toContain('placeholder="Inspect the saved crash and validate the suspected bounds check."');
+  });
+
+  it('uses Tab to first show and then accept an input suggestion', () => {
+    expect(steeringInputTabAction({
+      instruction: '',
+      suggestion: 'Continue from the latest findings.',
+      suggestionShowing: false
+    })).toBe('show_suggestion');
+    expect(steeringInputTabAction({
+      instruction: '',
+      suggestion: 'Continue from the latest findings.',
+      suggestionShowing: true
+    })).toBe('accept_suggestion');
+    expect(steeringInputTabAction({
+      instruction: 'manual text',
+      suggestion: 'Continue from the latest findings.',
+      suggestionShowing: true
+    })).toBe('none');
+  });
+
+  it('keeps steering suggestions under fifteen words', () => {
+    expect(shortSteeringSuggestion(
+      'Continue by validating the parser crash with saved artifacts and then compare adjacent bounds checks carefully.'
+    )?.split(/\s+/u)).toHaveLength(14);
   });
 
   it('combines model and effort into one model settings picker', () => {
@@ -113,10 +165,10 @@ describe('renderer trace composer', () => {
   });
 });
 
-function renderTraceComposer(status: RunStatus): string {
+function renderTraceComposer(status: RunStatus, detailPatch: Partial<RunDetail> = {}): string {
   return renderToStaticMarkup(createElement(TraceView, {
     busy: false,
-    detail: composerDetail(status),
+    detail: composerDetail(status, detailPatch),
     events: [],
     providerModelCatalog: providerModelCatalog(),
     selectedRunId: 'run_composer',
@@ -135,7 +187,7 @@ function renderTraceComposer(status: RunStatus): string {
   }));
 }
 
-function composerDetail(status: RunStatus): RunDetail {
+function composerDetail(status: RunStatus, detailPatch: Partial<RunDetail> = {}): RunDetail {
   return {
     run: {
       id: 'run_composer',
@@ -145,7 +197,10 @@ function composerDetail(status: RunStatus): RunDetail {
       reasoningEffort: 'medium',
       budget: {}
     },
-    traceEvents: []
+    attempts: [],
+    traceEvents: [],
+    transcriptMessages: [],
+    ...detailPatch
   } as unknown as RunDetail;
 }
 
