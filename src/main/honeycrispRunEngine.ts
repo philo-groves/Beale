@@ -3314,7 +3314,7 @@ function additionalHoneycrispRuntimeArgs(): string[] {
   return parseEnvArgs('BEALE_HONEYCRISP_RUNTIME_ARGS_JSON');
 }
 
-const BEALE_PROFILE_TOOL_FAMILY_CEILING_DEFAULT = ['shell'] as const;
+const BEALE_PROFILE_TOOL_FAMILY_CEILING_DEFAULT = ['shell', 'repository-search', 'file-read'] as const;
 const BEALE_PROFILE_TOOL_FAMILY_CEILING_ALLOWED = new Set([
   'shell',
   'repository-search',

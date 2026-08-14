@@ -2459,6 +2459,10 @@ describe('Beale workbench skeleton', () => {
     expect(launchArgs).toEqual(expect.arrayContaining([
       '--profile-tool-family-ceiling',
       'shell',
+      '--profile-tool-family-ceiling',
+      'repository-search',
+      '--profile-tool-family-ceiling',
+      'file-read',
       '--profile-side-effect-ceiling',
       'none',
       '--profile-side-effect-ceiling',
@@ -2473,8 +2477,8 @@ describe('Beale workbench skeleton', () => {
     expect(launchArgs).not.toContain('--tool-family');
     expect(launchArgs).not.toContain('--allow-mcp-server');
     expect(launchArgs).not.toContain('--skill');
-    expect(launchArgs).not.toContain('repository-search');
-    expect(launchArgs).not.toContain('file-read');
+    expect(launchArgs).toContain('repository-search');
+    expect(launchArgs).toContain('file-read');
     expect(launchArgs).not.toContain('code');
     expect(existsSync(join(workspace, '.beale', 'honeycrisp-skills', 'beale-skeptical-triage', 'SKILL.md'))).toBe(false);
     const workspaceContextPath = (launchEvent?.payload as { workspaceContextPath?: string } | undefined)?.workspaceContextPath ?? '';

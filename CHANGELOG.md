@@ -23,6 +23,7 @@
 
 ### Changed
 
+- Beale now permits bundled and host-approved research profiles to use Honeycrisp repository search and file reads by default; repository search may target any readable host directory, including repositories outside the workspace, while configured repositories remain context hints.
 - Removed borders from the Dream and Dejunk housekeeping buttons.
 - Breakout-room messages now use provider-attributed rows at the standard Commentary width, with Working/Worked-style divider headers, clickable subagent names that open detailed Commentary, message-kind labels, and 400px fade-truncated bodies that can be expanded instead of colored side rails.
 - Lead-provider routing now covers New Research prompt generation, workspace and session suggestions, Memory Dreaming, HackerOne scope review, and provider-omitted run starts instead of assuming OpenAI; Anthropic auxiliary work stays on Honeycrisp's official Claude Agent SDK and CLI boundary.

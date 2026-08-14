@@ -148,7 +148,7 @@ describe('research profile host integration', () => {
 
   it('keeps profile capabilities inside an explicit Beale-owned ceiling', () => {
     expect(resolveBealeProfileCapabilityCeilings({})).toEqual({
-      toolFamilies: ['shell'],
+      toolFamilies: ['shell', 'repository-search', 'file-read'],
       sideEffects: ['none', 'read', 'write', 'process']
     });
     expect(resolveBealeProfileCapabilityCeilings({
@@ -313,6 +313,10 @@ describe('research profile host integration', () => {
       expect(invocations[0]?.args).toEqual(expect.arrayContaining([
         '--profile-tool-family-ceiling',
         'shell',
+        '--profile-tool-family-ceiling',
+        'repository-search',
+        '--profile-tool-family-ceiling',
+        'file-read',
         '--profile-side-effect-ceiling',
         'none',
         '--profile-side-effect-ceiling',
@@ -452,6 +456,10 @@ describe('research profile host integration', () => {
       expect(invocation?.args).toEqual(expect.arrayContaining([
         '--profile-tool-family-ceiling',
         'shell',
+        '--profile-tool-family-ceiling',
+        'repository-search',
+        '--profile-tool-family-ceiling',
+        'file-read',
         '--profile-side-effect-ceiling',
         'none',
         '--profile-side-effect-ceiling',
