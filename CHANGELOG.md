@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added durable workspace-level research goal suggestions in workbench migration 23, with stale-while-refresh restoration across dialog and application reopen cycles.
 - Added durable structured collaboration-room protocol state in workbench migration 22, including independent, challenge, response, synthesis, and completed phases; bounded challenge rounds; evidence references; confidence; uncertainty; proposed next checks; and a lead-owned room outcome.
 - Added access-restricted OpenAI Daybreak Red (`gpt-daybreak-red-latest`) as an optional model. It remains hidden from model selectors and defaults until explicitly enabled in OpenAI Provider Settings.
 - Active breakout-room members now appear as collapsed working disclosures with live durations and expandable, real-time subagent commentary and tool history.
@@ -21,6 +22,7 @@
 
 ### Changed
 
+- Research goal generation now defaults to OpenAI's configured small model at low effort, reuses a measured per-revision context, requests structured grounded candidate pools, and deterministically ranks them for workflow relevance, novelty, and semantic diversity. Cybersecurity Chaining requires an evidence-backed confirmed primitive, while Reporting requires a confirmed chain with impact, reachability, and proof evidence.
 - New Research now opens as a centered floating squircle dialog that layers its darker Suggestions surface beneath the right edge of its lighter prompt composer.
 - Collaboration now uses atomic rooms with simultaneous independent-memo release, targeted peer challenge and response rounds, and lead synthesis. Cybersecurity and Mathematics select separate workflow-specific role recipes from their active workspace profile, and only Cybersecurity requires provider policy acknowledgements for collaborator readiness.
 - Research profile catalogs now resolve through asynchronous parallel Honeycrisp processes and cache duplicate workspace/profile requests, avoiding main-process stalls when opening Profiles.

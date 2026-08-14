@@ -130,6 +130,21 @@ describe('renderer research goal suggestion cache', () => {
     expect(retryLoader).toHaveBeenCalledTimes(1);
     expect(cache.read(key)).toEqual({ status: 'ready', result: retryResult });
   });
+
+  it('retains a ready stale result when a forced background refresh fails', async () => {
+    const cache = new ResearchGoalSuggestionCache();
+    const key = requiredKey(snapshot('workspace_one', 'scope_one'));
+    const stale = { ...suggestions('stale'), cacheStatus: 'stale' as const };
+    await cache.load(key, async () => stale);
+
+    const refresh = deferred<GeneratedResearchGoalSuggestions>();
+    const refreshing = cache.load(key, () => refresh.promise, { force: true });
+    expect(cache.read(key)).toEqual({ status: 'ready', result: stale });
+    refresh.reject(new Error('refresh unavailable'));
+    await expect(refreshing).rejects.toThrow(/refresh unavailable/);
+
+    expect(cache.read(key)).toEqual({ status: 'ready', result: stale });
+  });
 });
 
 function snapshot(workspaceId: string, scopeId: string): WorkspaceSnapshot {

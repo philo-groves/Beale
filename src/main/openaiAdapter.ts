@@ -57,7 +57,14 @@ export interface OpenAiResponseCreateBody {
   };
   text: {
     verbosity: 'low' | 'medium' | 'high';
+    format?: {
+      type: 'json_schema';
+      name: string;
+      strict: boolean;
+      schema: Record<string, unknown>;
+    };
   };
+  prompt_cache_key?: string;
   previous_response_id?: string | null;
   metadata: Record<string, string>;
 }

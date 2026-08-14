@@ -18,7 +18,13 @@ interface ReadyEntry {
   result: GeneratedResearchGoalSuggestions;
 }
 
-type CacheEntry = PendingEntry | ReadyEntry;
+interface RefreshingEntry {
+  status: 'refreshing';
+  promise: Promise<GeneratedResearchGoalSuggestions>;
+  result: GeneratedResearchGoalSuggestions;
+}
+
+type CacheEntry = PendingEntry | ReadyEntry | RefreshingEntry;
 
 const IDLE_STATE: ResearchGoalSuggestionCacheState = { status: 'idle', result: null };
 
@@ -72,7 +78,7 @@ export class ResearchGoalSuggestionCache {
     if (!key) return IDLE_STATE;
     const entry = this.entries.get(key);
     if (!entry) return IDLE_STATE;
-    return entry.status === 'ready'
+    return entry.status === 'ready' || entry.status === 'refreshing'
       ? { status: 'ready', result: entry.result }
       : { status: 'loading', result: null };
   }
@@ -92,8 +98,13 @@ export class ResearchGoalSuggestionCache {
       loaded = Promise.reject(error);
     }
 
-    const pending: PendingEntry = {
-      status: 'loading',
+    const previousReady = existing?.status === 'ready' || existing?.status === 'refreshing'
+      ? existing.result
+      : null;
+    const pending: PendingEntry | RefreshingEntry = {
+      ...(previousReady
+        ? { status: 'refreshing' as const, result: previousReady }
+        : { status: 'loading' as const }),
       promise: Promise.resolve(loaded).then(
         (result) => {
           if (this.entries.get(key) === pending) {
@@ -102,7 +113,16 @@ export class ResearchGoalSuggestionCache {
           return result;
         },
         (error: unknown) => {
-          if (this.entries.get(key) === pending) this.entries.delete(key);
+          if (this.entries.get(key) === pending) {
+            if (previousReady) {
+              this.entries.set(key, {
+                status: 'ready',
+                promise: Promise.resolve(previousReady),
+                result: previousReady
+              });
+            }
+            else this.entries.delete(key);
+          }
           throw error;
         }
       )

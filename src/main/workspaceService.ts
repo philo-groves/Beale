@@ -57,7 +57,16 @@ import {
 } from './sourceMaterializer';
 import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
-import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../shared/modelDefaults';
+import {
+  DEFAULT_RESEARCH_MODEL,
+  DEFAULT_RESEARCH_REASONING_EFFORT,
+  smallModelForProvider
+} from '../shared/modelDefaults';
+import {
+  parseAndSelectResearchGoalCandidates,
+  researchGoalCandidateCount,
+  researchGoalSuggestionTextFormat
+} from './researchGoalSuggestions';
 import { resolveGoalObjective } from '../shared/goalObjective';
 import { normalizeResearchCollaboration } from '../shared/collaboration';
 import { isResearchProfileId, RESEARCH_PROFILE_IDS } from '../shared/researchProfile';
@@ -100,7 +109,6 @@ import type {
   WorkspaceScopeVersion,
   ResearchGoalPhase,
   ResearchGoalSuggestionInput,
-  ResearchGoalSuggestionGroup,
   ResearchPromptGenerationInput,
   RunDetail,
   RunDetailUpdate,
@@ -152,6 +160,8 @@ const EXECUTION_POSTURE_LABEL = 'Honeycrisp host-process execution. Use an exter
 const UNBOUNDED_RUN_MINUTES = 999_999;
 const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 const RESEARCH_PROMPT_GENERATION_REASONING_EFFORT = 'medium';
+const RESEARCH_GOAL_SUGGESTION_REASONING_EFFORT = 'low';
+const MAX_RESEARCH_GOAL_CONTEXT_CACHE_ENTRIES = 8;
 const DEFAULT_VM_PREFERENCE: VmPreference = {
   enabled: false,
   backendKind: null,
@@ -300,6 +310,7 @@ function researchGoalSuggestionInstructions(
   profileSnapshot: ResearchProfileSnapshot,
   workflow: ResearchProfileWorkflow,
   suggestionCount: number,
+  candidateCount: number,
   sourceRunId: string | null = null
 ): string {
   const profile = profileSnapshot.profile;
@@ -321,8 +332,11 @@ function researchGoalSuggestionInstructions(
       ? [`Focus every suggestion on a concrete next step that follows from the completed source session ${boundedProfileText(sourceRunId, 240)}. Use that session's prompt, outcome, summary, evidence, and unresolved threads as the primary grounding; use other workspace context only to sharpen those next steps.`]
       : []),
     ...workflow.outputRequirements.slice(0, 16).map((requirement) => `The resulting session must satisfy: ${boundedProfileText(requirement, 1_000)}`),
-    `Return strict JSON only with an array named suggestions containing exactly ${suggestionCount} one-sentence strings.`,
-    `Make all ${suggestionCount} suggestions materially distinct and ground each in ${groundingSources}. Do not invent observations or evidence.`,
+    `Generate exactly ${candidateCount} candidates so the host can select the strongest ${suggestionCount}.`,
+    `The resulting visible suggestions array will contain exactly ${suggestionCount} one-sentence strings.`,
+    'Return the structured candidates object required by the response schema. Each candidate must contain goal, groundingRefs, rationale, and noveltyAxis.',
+    'Cite only identifiers from groundingCatalog. Every candidate must cite at least one reference, and when groundingContract.requiredEligibleRefs is non-empty, every candidate must cite at least one of those eligible references.',
+    `Make all ${candidateCount} candidates materially distinct and ground each in ${groundingSources}. Do not invent observations or evidence.`,
     'Keep each suggestion at the goal level: do not include ordered steps, commands, tool instructions, or unrelated workflow mechanics.',
     'If prior research is sparse, use only recorded context and make limitations explicit.'
   ].join('\n');
@@ -525,6 +539,24 @@ interface ResearchRecommendationDetail extends ResearchRecommendationRunContext 
   sessionMemoryNodes: HoneycrispMemoryNodeSummary[];
 }
 
+interface ResearchGoalSuggestionPreparedContext {
+  key: string;
+  contextRevision: string;
+  memory: HoneycrispMemorySummary | null;
+  details: ResearchRecommendationDetail[];
+  sourceCoverage: SourceCoverageSummary | null;
+  agentInstructions: WorkspaceAgentInstructionContext | null;
+  researchSubject: ResearchSubjectInput;
+}
+
+interface ResearchGoalSuggestionGroundingContext {
+  payload: Record<string, unknown>;
+  allowedRefs: Set<string>;
+  requiredRefs: Set<string>;
+  previousResearchTexts: string[];
+  relevanceTexts: string[];
+}
+
 export class WorkspaceService {
   private db: WorkspaceDatabase | null = null;
   private fixtureEngine: FixtureRunEngine | null = null;
@@ -543,6 +575,7 @@ export class WorkspaceService {
   private pendingChangeRequiresWorkspaceRegistrySync = false;
   private pendingChangeIncludesWorkspaceRegistry = false;
   private readonly researchPromptControllers = new Map<string, AbortController>();
+  private readonly researchGoalSuggestionContexts = new Map<string, ResearchGoalSuggestionPreparedContext>();
   private readonly disposedRuntimeDatabases = new WeakSet<WorkspaceDatabase>();
   private readonly onboardingRepositoryJobs = new Map<string, WorkspaceOnboardingRepositoryJob>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
@@ -1310,6 +1343,7 @@ export class WorkspaceService {
   public async generateResearchGoalSuggestions(
     input: ResearchGoalSuggestionInput
   ): Promise<GeneratedResearchGoalSuggestions> {
+    const totalStartedAt = performance.now();
     const runtime = this.getForegroundRuntime();
     if (!runtime) throw new Error('No Beale workspace is open');
     const db = runtime.db;
@@ -1330,32 +1364,46 @@ export class WorkspaceService {
       const persisted = sourceDetail?.nextStepSuggestions;
       if (persisted?.phase === workflow.id) return persisted;
     }
+    const scope = this.profileMainTiming('goalSuggestions.scope', { phase }, () => db.getActiveScope());
+    const contextRevision = db.getResearchGoalSuggestionContextRevision(scope.id);
+    if (!sourceRunId && input.refresh !== true) {
+      const cached = db.getResearchGoalSuggestionCache(scope.id, profileSnapshot.profileHash, workflow.id);
+      if (cached) {
+        const cacheStatus = cached.contextRevision === contextRevision ? 'fresh' : 'stale';
+        this.recordProfilingMainTiming('goalSuggestions.cacheHit', 0, { phase, cacheStatus });
+        return {
+          phase: cached.phase,
+          suggestions: cached.suggestions,
+          ...(cacheStatus === 'stale' ? { cacheStatus } : {})
+        };
+      }
+    }
     const status = this.openAiAuth.getStatus();
-    const defaultOpenAiModel = this.getWorkspaceRegistry().getProviderSettings().modelDefaults['openai-codex']?.largeModel
+    const openAiDefaults = this.getWorkspaceRegistry().getProviderSettings().modelDefaults['openai-codex'];
+    const defaultOpenAiModel = openAiDefaults?.smallModel
+      ?? smallModelForProvider('openai-codex')
+      ?? openAiDefaults?.largeModel
       ?? status.defaultModel;
     const route = resolveProfileOpenAiRoute(
       profileSnapshot.profile,
       'goalSuggestions',
       defaultOpenAiModel,
-      RESEARCH_PROMPT_GENERATION_REASONING_EFFORT
+      RESEARCH_GOAL_SUGGESTION_REASONING_EFFORT
     );
     requireOpenAiAuthenticationForResearchPrompt(this.openAiAuth);
-    const scope = db.getActiveScope();
     const requestId = input.requestId?.trim() || null;
     const controller = new AbortController();
     if (requestId) {
       this.researchPromptControllers.get(requestId)?.abort();
       this.researchPromptControllers.set(requestId, controller);
     }
-    const includeMemoryContext = profileSnapshot.profile.capabilities.memoryEnabled;
-    const memory = includeMemoryContext
-      ? this.memorySummaryForRuntime(runtime, scope, undefined, profileSnapshot)
-      : null;
-    const details = this.researchRecommendationDetailsForRuntime(runtime, scope, includeMemoryContext, sourceRunId);
-    const sourceCoverage = isSecurityResearchProfile(profileSnapshot.profile)
-      ? buildSourceCoverage(db, scope, details, memory)
-      : null;
-    const agentInstructions = discoverWorkspaceAgentInstructions(runtime.workspacePath);
+    const prepared = this.prepareResearchGoalSuggestionContext(
+      runtime,
+      scope,
+      profileSnapshot,
+      contextRevision,
+      sourceRunId
+    );
     const adapter = new OpenAiResponsesAdapter(
       this.openAiAuth,
       this.options.openAiFetch ?? (fetch as FetchLike),
@@ -1364,29 +1412,65 @@ export class WorkspaceService {
       undefined,
       (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
     );
-    const researchSubject = resolveRecommendationResearchSubject(
-      scope,
-      this.options.researchSubjectResolver?.(runtime.workspacePath) ?? runtime.db.getResearchSubject()
+    const recommendationDetails = rankResearchRecommendationDetailsForWorkflow(
+      prepared.details,
+      workflow,
+      sourceRunId
     );
     const recommendationInput = buildResearchPromptRecommendationInput(
       scope,
-      details,
+      recommendationDetails,
       null,
-      sourceCoverage,
-      memory,
-      agentInstructions,
+      prepared.sourceCoverage,
+      prepared.memory,
+      prepared.agentInstructions,
       profileSnapshot,
       workflow,
-      researchSubject
+      prepared.researchSubject
     );
+    const grounding = buildResearchGoalSuggestionGroundingContext(
+      recommendationInput,
+      scope,
+      prepared,
+      profileSnapshot.profile,
+      workflow,
+      sourceRunId
+    );
+    requireEligibleResearchGoalSuggestionGrounding(profileSnapshot.profile, workflow, grounding);
+    const candidateCount = sourceRunId ? suggestionCount : researchGoalCandidateCount(suggestionCount);
+    const payload = JSON.stringify({
+      ...grounding.payload,
+      task: sourceRunId ? 'suggest_source_session_next_steps' : 'suggest_next_research_goals',
+      sourceRunId,
+      researchPhase: workflow.id,
+      suggestionCount,
+      candidateCount
+    });
+    const promptCacheKey = researchGoalPromptCacheKey(db.getWorkspaceId(), scope.id, profileSnapshot.profileHash, contextRevision, workflow.id);
+    this.recordProfilingMainTiming('goalSuggestions.input', 0, {
+      phase,
+      model: route.model,
+      effort: route.effort,
+      bytes: Buffer.byteLength(payload, 'utf8'),
+      priorRuns: prepared.details.length,
+      activeMemories: prepared.memory?.nodes.length ?? 0,
+      groundingRefs: grounding.allowedRefs.size,
+      candidateCount
+    });
     try {
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const phaseInstructions = researchGoalSuggestionInstructions(profileSnapshot, workflow, suggestionCount, sourceRunId);
+        const phaseInstructions = researchGoalSuggestionInstructions(
+          profileSnapshot,
+          workflow,
+          suggestionCount,
+          candidateCount,
+          sourceRunId
+        );
         const instructions = attempt === 0
           ? phaseInstructions
           : [
               phaseInstructions,
-              `The previous ${boundedProfileText(workflow.name, 160)} response was rejected by the host validator. Return exactly ${suggestionCount} distinct one-sentence suggestions in the suggestions array and follow the workflow contract above.`
+              `The previous ${boundedProfileText(workflow.name, 160)} response was rejected by the host validator. Return exactly ${candidateCount} valid, grounded, materially distinct candidates and follow the workflow contract above.`
             ].join('\n');
         const body = adapter.buildRequest({
           model: route.model,
@@ -1398,22 +1482,17 @@ export class WorkspaceService {
               content: [
                 {
                   type: 'input_text',
-                  text: JSON.stringify({
-                    ...recommendationInput,
-                    task: sourceRunId ? 'suggest_source_session_next_steps' : 'suggest_next_research_goals',
-                    sourceRunId,
-                    researchPhase: workflow.id,
-                    suggestionCount
-                  }, null, 2)
+                  text: payload
                 }
               ]
             }
           ],
           tools: [],
           reasoning: { effort: route.effort },
-          text: { verbosity: 'low' },
+          text: { verbosity: 'low', format: researchGoalSuggestionTextFormat(candidateCount) },
+          prompt_cache_key: promptCacheKey,
           metadata: {
-            beale_run_id: requestId ? `goal_suggestions_${requestId}` : `goal_suggestions_${db.getWorkspaceId()}`,
+            beale_run_id: promptCacheKey,
             beale_task: 'research_goal_suggestions',
             beale_research_phase: workflow.id,
             beale_workspace_scope_version: scope.id,
@@ -1425,19 +1504,57 @@ export class WorkspaceService {
           adapter.streamResponse({ body, signal: controller.signal }),
           status.source
         );
+        this.recordProfilingMainTiming('goalSuggestions.output', 0, {
+          phase,
+          attempt: attempt + 1,
+          characters: output.length
+        });
         let generated: GeneratedResearchGoalSuggestions;
         try {
-          generated = parseResearchGoalSuggestions(output, workflow, suggestionCount);
+          const parseStartedAt = performance.now();
+          const selection = parseAndSelectResearchGoalCandidates(output, {
+            workflow,
+            suggestionCount,
+            candidateCount,
+            allowedGroundingRefs: grounding.allowedRefs,
+            requiredGroundingRefs: grounding.requiredRefs,
+            previousResearchTexts: grounding.previousResearchTexts,
+            relevanceTexts: grounding.relevanceTexts
+          });
+          generated = selection.result;
+          this.recordProfilingMainTiming('goalSuggestions.validateAndRank', performance.now() - parseStartedAt, {
+            phase,
+            attempt: attempt + 1,
+            candidates: selection.candidates.length,
+            selected: selection.selected.length,
+            semanticDuplicates: selection.rejectedSemanticDuplicates
+          });
         } catch (error) {
+          this.recordProfilingMainTiming('goalSuggestions.validationRetry', 0, {
+            phase,
+            attempt: attempt + 1,
+            error: errorMessage(error).slice(0, 240)
+          });
           if (attempt > 0) throw error;
           continue;
         }
-        return sourceRunId
-          ? db.saveSessionNextStepSuggestions(sourceRunId, generated)
-          : generated;
+        if (sourceRunId) return db.saveSessionNextStepSuggestions(sourceRunId, generated);
+        db.saveResearchGoalSuggestionCache({
+          scopeId: scope.id,
+          profileHash: profileSnapshot.profileHash,
+          phase: workflow.id,
+          contextRevision,
+          suggestions: generated.suggestions
+        });
+        return generated;
       }
       throw new Error(`Research goal recommendations did not satisfy the ${workflow.name} workflow contract.`);
     } finally {
+      this.recordProfilingMainTiming('goalSuggestions.total', performance.now() - totalStartedAt, {
+        phase,
+        sourceSession: Boolean(sourceRunId),
+        refresh: input.refresh === true
+      });
       if (requestId && this.researchPromptControllers.get(requestId) === controller) {
         this.researchPromptControllers.delete(requestId);
       }
@@ -1479,7 +1596,7 @@ export class WorkspaceService {
     const model = route.model;
     const includeMemoryContext = profileSnapshot.profile.capabilities.memoryEnabled;
     const memory = includeMemoryContext ? this.memorySummaryForRuntime(runtime, scope) : null;
-    const details = this.researchRecommendationDetailsForRuntime(runtime, scope, includeMemoryContext);
+    const details = this.researchRecommendationDetailsForRuntime(runtime, scope, includeMemoryContext, null, memory);
     const sourceCoverage = isSecurityResearchProfile(profileSnapshot.profile)
       ? buildSourceCoverage(db, scope, details, memory)
       : null;
@@ -2446,6 +2563,7 @@ export class WorkspaceService {
       controller.abort();
     }
     this.researchPromptControllers.clear();
+    this.researchGoalSuggestionContexts.clear();
     const foreground = this.detachForegroundRuntime();
     if (foreground) {
       this.disposeRuntime(foreground);
@@ -2848,11 +2966,70 @@ export class WorkspaceService {
     });
   }
 
+  private prepareResearchGoalSuggestionContext(
+    runtime: WorkspaceRuntime,
+    scope: WorkspaceScopeVersion,
+    profileSnapshot: ResearchProfileSnapshot,
+    contextRevision: string,
+    prioritizeRunId: string | null
+  ): ResearchGoalSuggestionPreparedContext {
+    const key = [
+      runtime.db.getWorkspaceId(),
+      scope.id,
+      profileSnapshot.profileHash,
+      contextRevision,
+      prioritizeRunId ?? ''
+    ].join('::');
+    const cached = this.researchGoalSuggestionContexts.get(key);
+    if (cached) {
+      this.researchGoalSuggestionContexts.delete(key);
+      this.researchGoalSuggestionContexts.set(key, cached);
+      this.recordProfilingMainTiming('goalSuggestions.contextCacheHit', 0, { phaseIndependent: true });
+      return cached;
+    }
+    const detail = { workspace: runtime.db.getWorkspaceId(), revision: contextRevision };
+    const includeMemoryContext = profileSnapshot.profile.capabilities.memoryEnabled;
+    const memory = includeMemoryContext
+      ? this.profileMainTiming('goalSuggestions.memory', detail, () =>
+          this.memorySummaryForRuntime(runtime, scope, undefined, profileSnapshot))
+      : null;
+    const details = this.profileMainTiming('goalSuggestions.previousResearch', detail, () =>
+      this.researchRecommendationDetailsForRuntime(runtime, scope, includeMemoryContext, prioritizeRunId, memory));
+    const sourceCoverage = isSecurityResearchProfile(profileSnapshot.profile)
+      ? this.profileMainTiming('goalSuggestions.sourceCoverage', detail, () =>
+          buildSourceCoverage(runtime.db, scope, details, memory))
+      : null;
+    const agentInstructions = this.profileMainTiming('goalSuggestions.agentInstructions', detail, () =>
+      discoverWorkspaceAgentInstructions(runtime.workspacePath));
+    const researchSubject = this.profileMainTiming('goalSuggestions.researchSubject', detail, () =>
+      resolveRecommendationResearchSubject(
+        scope,
+        this.options.researchSubjectResolver?.(runtime.workspacePath) ?? runtime.db.getResearchSubject()
+      ));
+    const prepared: ResearchGoalSuggestionPreparedContext = {
+      key,
+      contextRevision,
+      memory,
+      details,
+      sourceCoverage,
+      agentInstructions,
+      researchSubject
+    };
+    this.researchGoalSuggestionContexts.set(key, prepared);
+    while (this.researchGoalSuggestionContexts.size > MAX_RESEARCH_GOAL_CONTEXT_CACHE_ENTRIES) {
+      const oldest = this.researchGoalSuggestionContexts.keys().next().value;
+      if (typeof oldest !== 'string') break;
+      this.researchGoalSuggestionContexts.delete(oldest);
+    }
+    return prepared;
+  }
+
   private researchRecommendationDetailsForRuntime(
     runtime: WorkspaceRuntime,
     scope: WorkspaceScopeVersion,
     includeMemoryContext = true,
-    prioritizeRunId: string | null = null
+    prioritizeRunId: string | null = null,
+    workspaceMemory: HoneycrispMemorySummary | null = null
   ): ResearchRecommendationDetail[] {
     return runtime.db.listResearchRecommendationRuns(12, prioritizeRunId).map((detail) => {
       const researchProfile = runtime.db.getRunResearchProfileSnapshot(detail.run.id);
@@ -2866,12 +3043,8 @@ export class WorkspaceService {
         researchProfile,
         sessionMemoryNodes: includeMemoryContext
           && (researchProfile?.profile.capabilities.memoryEnabled ?? true)
-          ? this.memorySummaryForRuntime(
-              runtime,
-              scope,
-              detail.run.id,
-              researchProfile
-            ).nodes
+          ? (workspaceMemory?.nodes
+              ?? this.memorySummaryForRuntime(runtime, scope, detail.run.id, researchProfile).nodes)
               .filter((node) => node.sessionIds.includes(detail.run.id))
           : []
       };
@@ -4223,7 +4396,8 @@ function buildResearchPromptRecommendationInput(
       ...(includeMemoryContext
         ? {
             activeMemoryNodes: activeMemoryNodes
-              .sort((left, right) => right.confidence - left.confidence)
+              .sort((left, right) => workflowMemoryPriority(workflow, right) - workflowMemoryPriority(workflow, left)
+                || right.confidence - left.confidence)
               .slice(0, 12)
               .map((node) => ({
                 id: node.id,
@@ -4303,6 +4477,169 @@ function buildResearchPromptRecommendationInput(
       };
     })
   };
+}
+
+function rankResearchRecommendationDetailsForWorkflow(
+  details: readonly ResearchRecommendationDetail[],
+  workflow: ResearchProfileWorkflow,
+  prioritizeRunId: string | null
+): ResearchRecommendationDetail[] {
+  const workflowTokens = recommendationTokens(`${workflow.name} ${workflow.description} ${workflow.goalSuggestionInstructions.join(' ')}`);
+  return details
+    .map((detail, index) => ({
+      detail,
+      index,
+      score: (detail.run.id === prioritizeRunId ? 1_000 : 0)
+        + detail.sessionMemoryNodes.reduce((score, node) => score + workflowMemoryPriority(workflow, node), 0)
+        + recommendationTokenOverlap(
+          workflowTokens,
+          `${detail.run.title} ${detail.run.promptMarkdown} ${detail.run.summary} ${detail.finalResponseMarkdown ?? ''}`
+        )
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(({ detail }) => detail);
+}
+
+function buildResearchGoalSuggestionGroundingContext(
+  recommendationInput: Record<string, unknown>,
+  scope: WorkspaceScopeVersion,
+  prepared: ResearchGoalSuggestionPreparedContext,
+  profile: ResearchProfile,
+  workflow: ResearchProfileWorkflow,
+  sourceRunId: string | null
+): ResearchGoalSuggestionGroundingContext {
+  const allowedRefs = new Set<string>();
+  const requiredRefs = new Set<string>();
+  const catalog: Array<{ ref: string; kind: string; label: string; summary?: string }> = [];
+  const add = (ref: string, kind: string, label: string, summary?: string): void => {
+    if (allowedRefs.has(ref)) return;
+    allowedRefs.add(ref);
+    catalog.push({ ref, kind, label: trimRedactedText(label, 220), ...(summary ? { summary: trimRedactedText(summary, 420) } : {}) });
+  };
+  add('workspace:scope', 'scope', scope.workspaceName, `${scope.descriptionMarkdown} ${scope.rulesMarkdown}`);
+  for (const asset of scope.assets.slice(0, 80)) {
+    add(`asset:${asset.id}`, `asset:${asset.kind}`, asset.value, asset.direction);
+  }
+  const activeNodes = prepared.memory?.nodes
+    .filter((node) => isResearchProfileMemoryStatusActive(profile, node.status))
+    .sort((left, right) => workflowMemoryPriority(workflow, right) - workflowMemoryPriority(workflow, left)
+      || right.confidence - left.confidence)
+    .slice(0, 16) ?? [];
+  for (const node of activeNodes) {
+    const ref = `memory:${node.id}`;
+    add(ref, `memory:${node.type}`, node.title, node.summary);
+    if (isSecurityResearchProfile(profile) && workflow.id === 'chaining'
+      && node.type === 'primitive' && node.status === 'confirmed' && node.evidenceRefs.length > 0) {
+      requiredRefs.add(ref);
+    }
+    if (isSecurityResearchProfile(profile) && workflow.id === 'reporting' && isReportableSecurityChain(node)) {
+      requiredRefs.add(ref);
+    }
+  }
+  const rankedDetails = rankResearchRecommendationDetailsForWorkflow(prepared.details, workflow, sourceRunId).slice(0, 12);
+  for (const detail of rankedDetails) {
+    const ref = `run:${detail.run.id}`;
+    add(ref, 'prior-run', detail.run.title, detail.run.summary || detail.finalResponseMarkdown || detail.run.promptMarkdown);
+    if (detail.run.id === sourceRunId) requiredRefs.add(ref);
+  }
+  const coverage = prepared.sourceCoverage ? compactResearchSourceCoverage(prepared.sourceCoverage) : null;
+  for (const component of coverage?.components ?? []) {
+    add(`coverage:component:${component.component}`, 'coverage-component', component.component, `${component.reviewCoverage}% reviewed`);
+  }
+  for (const path of coverage?.paths ?? []) {
+    add(`coverage:path:${path.path}`, 'coverage-path', path.path, path.reviewed ? 'reviewed' : 'unreviewed');
+  }
+  for (const entity of [...(coverage?.entryPoints ?? []), ...(coverage?.sinks ?? []), ...(coverage?.unreviewedFunctions ?? [])]) {
+    add(`coverage:entity:${entity.id}`, `coverage:${entity.kind}`, `${entity.name} — ${entity.path}`, entity.reviewed ? 'reviewed' : 'unreviewed');
+  }
+  return {
+    payload: {
+      ...recommendationInput,
+      groundingCatalog: catalog,
+      groundingContract: {
+        citeOnlyListedRefs: true,
+        minimumRefsPerCandidate: 1,
+        requiredEligibleRefs: [...requiredRefs]
+      }
+    },
+    allowedRefs,
+    requiredRefs,
+    previousResearchTexts: rankedDetails.flatMap((detail) => [
+      detail.run.title,
+      detail.run.promptMarkdown,
+      detail.run.summary,
+      detail.finalResponseMarkdown ?? ''
+    ]).filter(Boolean),
+    relevanceTexts: [
+      workflow.name,
+      workflow.description,
+      ...workflow.goalSuggestionInstructions,
+      ...activeNodes.flatMap((node) => [node.title, node.summary]),
+      ...(coverage?.components.map((component) => component.component) ?? [])
+    ]
+  };
+}
+
+function requireEligibleResearchGoalSuggestionGrounding(
+  profile: ResearchProfile,
+  workflow: ResearchProfileWorkflow,
+  grounding: ResearchGoalSuggestionGroundingContext
+): void {
+  if (!isSecurityResearchProfile(profile)) return;
+  if (workflow.id === 'chaining' && grounding.requiredRefs.size === 0) {
+    throw new Error('Chaining suggestions require at least one evidence-backed confirmed primitive in workspace memory.');
+  }
+  if (workflow.id === 'reporting' && grounding.requiredRefs.size === 0) {
+    throw new Error('Reporting suggestions require at least one confirmed chain with impact, reachability, and proof evidence.');
+  }
+}
+
+function isReportableSecurityChain(node: HoneycrispMemoryNodeSummary): boolean {
+  return node.type === 'chain'
+    && node.status === 'confirmed'
+    && typeof node.attributes.impact === 'string'
+    && Boolean(node.attributes.impact.trim())
+    && typeof node.attributes.reachability === 'string'
+    && Boolean(node.attributes.reachability.trim())
+    && node.evidenceRefs.length > 0;
+}
+
+function workflowMemoryPriority(workflow: ResearchProfileWorkflow, node: HoneycrispMemoryNodeSummary): number {
+  const typeWeight = workflow.id === 'chaining'
+    ? node.type === 'primitive' ? 100 : node.type === 'trajectory' || node.type === 'hypothesis' ? 30 : 0
+    : workflow.id === 'reporting'
+      ? node.type === 'chain' ? 120 : node.type === 'primitive' ? 20 : 0
+      : node.type === 'trajectory' || node.type === 'hypothesis' || node.type === 'invariant' ? 35 : 10;
+  const statusWeight = node.status === 'confirmed' ? 24 : node.status === 'suspected' ? 12 : 0;
+  const workflowTokens = recommendationTokens(`${workflow.name} ${workflow.description} ${workflow.goalSuggestionInstructions.join(' ')}`);
+  return typeWeight + statusWeight + node.confidence * 10
+    + recommendationTokenOverlap(workflowTokens, `${node.title} ${node.summary} ${node.tags.join(' ')}`);
+}
+
+function recommendationTokens(value: string): Set<string> {
+  return new Set((value.toLocaleLowerCase().match(/[a-z0-9-]{3,}/g) ?? [])
+    .filter((token) => !['research', 'session', 'suggestion', 'workflow', 'recorded', 'existing'].includes(token)));
+}
+
+function recommendationTokenOverlap(tokens: ReadonlySet<string>, value: string): number {
+  const candidate = recommendationTokens(value);
+  let overlap = 0;
+  for (const token of tokens) if (candidate.has(token)) overlap += 1;
+  return overlap * 4;
+}
+
+function researchGoalPromptCacheKey(
+  workspaceId: string,
+  scopeId: string,
+  profileHash: string,
+  contextRevision: string,
+  workflowId: string
+): string {
+  const digest = createHash('sha256')
+    .update([workspaceId, scopeId, profileHash, contextRevision, workflowId].join('\0'))
+    .digest('hex')
+    .slice(0, 24);
+  return `goal-suggestions-${digest}`;
 }
 
 export function isResearchProfileMemoryStatusActive(profile: ResearchProfile, statusId: string): boolean {
@@ -4953,52 +5290,6 @@ function parseHackerOneImportReview(output: string): HackerOneScopeImportReview 
     scopeMarkdown: markdownField(record, 'scopeMarkdown', 5000),
     rulesMarkdown: markdownField(record, 'rulesMarkdown', 7000)
   };
-}
-
-function parseResearchGoalSuggestions(
-  output: string,
-  workflow: ResearchProfileWorkflow,
-  suggestionCount: number
-): GeneratedResearchGoalSuggestions {
-  let record: Record<string, unknown> | null = null;
-  try {
-    record = recordFromUnknown(JSON.parse(extractJsonObject(output)));
-  } catch {
-    // The strict response contract is validated below with a focused error.
-  }
-  if (!record) throw new Error('Research goal recommendations must be a JSON object.');
-  const suggestions = parseResearchGoalSuggestionGroup(record.suggestions, workflow, suggestionCount);
-  const identities = new Set(suggestions.map((sentence) => sentence.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()));
-  if (identities.size !== suggestions.length) throw new Error(`${workflow.name} research goal recommendations must be distinct.`);
-  return { phase: workflow.id, suggestions };
-}
-
-function parseResearchGoalSuggestionGroup(
-  value: unknown,
-  workflow: ResearchProfileWorkflow,
-  suggestionCount: number
-): ResearchGoalSuggestionGroup {
-  if (!Array.isArray(value) || value.length !== suggestionCount) {
-    throw new Error(`${workflow.name} research goal recommendations must contain exactly ${suggestionCount} suggestions.`);
-  }
-  return value.map(normalizeResearchGoalSentence) as ResearchGoalSuggestionGroup;
-}
-
-function normalizeResearchGoalSentence(value: unknown): string {
-  if (typeof value !== 'string') throw new Error('Each research goal recommendation must be a string.');
-  let sentence = value.trim().replace(/^['"]|['"]$/g, '').replace(/\s+/g, ' ');
-  if (sentence.length < 24 || sentence.length > 320) {
-    throw new Error('Each research goal recommendation must be between 24 and 320 characters.');
-  }
-  if (!/[.!?]$/.test(sentence)) sentence = `${sentence}.`;
-  if (sentence.length > 320) {
-    throw new Error('Each research goal recommendation must be between 24 and 320 characters.');
-  }
-  const withoutLastMark = sentence.slice(0, -1);
-  if (/[.!?](?:['")\]]*)\s+\S/.test(withoutLastMark)) {
-    throw new Error('Each research goal recommendation must be exactly one sentence.');
-  }
-  return sentence;
 }
 
 function isMateriallyExpandedResearchPrompt(goalSentence: string, promptMarkdown: string): boolean {

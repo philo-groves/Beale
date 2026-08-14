@@ -367,10 +367,10 @@ describe('research profile host integration', () => {
         modelRequests.push(request);
         const task = (request.metadata as Record<string, unknown> | undefined)?.beale_task;
         return task === 'research_goal_suggestions'
-          ? modelJsonResponse({ suggestions: [
+          ? modelGoalSuggestionResponse(request, [
               'Compare observed rainfall bias across the recorded regional datasets.',
               'Investigate how boundary conditions influence the recorded temperature projections.'
-            ] }, 'resp_general_goals')
+            ], 'resp_general_goals')
           : modelJsonResponse({
               promptMarkdown: '# Comparative literature study\n\nAnalyze the recorded material using the selected synthesis workflow. Compare competing explanations, distinguish observations from inference, preserve uncertainty, and produce the profile-required annotated synthesis with source references.'
             }, 'resp_general_prompt');
@@ -416,7 +416,7 @@ describe('research profile host integration', () => {
       expect(goalRequest).toMatchObject({ model: 'gpt-general-goals', reasoning: { effort: 'low' } });
       expect(promptRequest).toMatchObject({ model: 'gpt-general-prompts', reasoning: { effort: 'high' } });
       expect(String(goalRequest?.instructions)).toContain('You are an interdisciplinary literature researcher.');
-      expect(String(goalRequest?.instructions)).toContain('exactly 2 one-sentence strings');
+      expect(String(goalRequest?.instructions)).toContain('Generate exactly 4 candidates');
       expect(String(goalRequest?.instructions)).toContain('Suggest questions that compare plausible explanations.');
       expect(String(promptRequest?.instructions)).toContain('Separate observations from inference.');
       expect(String(promptRequest?.instructions)).toContain('Produce an annotated synthesis.');
@@ -651,10 +651,10 @@ describe('research profile host integration', () => {
         modelRequests.push(request);
         const task = (request.metadata as Record<string, unknown> | undefined)?.beale_task;
         return task === 'research_goal_suggestions'
-          ? modelJsonResponse({ suggestions: [
+          ? modelGoalSuggestionResponse(request, [
               'Compare the recorded methodology assumptions across the bounded collection.',
               'Investigate how sampling choices affect the recorded cross-study conclusions.'
-            ] }, 'resp_memory_disabled_goals')
+            ], 'resp_memory_disabled_goals')
           : modelJsonResponse({
               promptMarkdown: '# Bounded synthesis\n\nCompare the available studies under the selected workflow, distinguish observations from inference, preserve uncertainty, and produce an annotated synthesis.'
             }, 'resp_memory_disabled_prompt');
@@ -1000,6 +1000,23 @@ function modelJsonResponse(value: unknown, id: string): Response {
     }
   });
   return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+}
+
+function modelGoalSuggestionResponse(
+  request: Record<string, unknown>,
+  suggestions: readonly string[],
+  id: string
+): Response {
+  const payload = modelRequestPayload(request);
+  const candidateCount = Number(payload.candidateCount);
+  return modelJsonResponse({
+    candidates: Array.from({ length: candidateCount }, (_, index) => ({
+      goal: suggestions[index % suggestions.length],
+      groundingRefs: ['workspace:scope'],
+      rationale: 'The recorded collection makes this a bounded and discriminating research direction.',
+      noveltyAxis: `candidate-${index + 1}`
+    }))
+  }, id);
 }
 
 async function waitForInvocationCount(path: string, count: number): Promise<void> {

@@ -9,7 +9,7 @@ import { WorkspaceDatabase } from '../src/main/database';
 import { honeycrispProcessEnvironment } from '../src/main/honeycrispRunEngine';
 import { ProviderCredentialStore } from '../src/main/providerCredentialStore';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
-import { DEFAULT_RESEARCH_MODEL } from '../src/shared/modelDefaults';
+import { DEFAULT_RESEARCH_MODEL, smallModelForProvider } from '../src/shared/modelDefaults';
 import { resolvedTestResearchProfile, testResearchProfile, testResearchProfileCatalogEnvelope } from './researchProfileFixture';
 
 const createdDirs: string[] = [];
@@ -3601,7 +3601,7 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('generates four distinct goals for each research phase grounded in prior workspace research', async () => {
+  it('generates four distinct Discovery goals grounded in prior workspace research', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-goal-suggestions';
     const suggestions = validResearchGoalSuggestionGroups();
     const modelRequests: Record<string, unknown>[] = [];
@@ -3611,7 +3611,7 @@ describe('Beale workbench skeleton', () => {
         modelRequests.push(request);
         const payload = modelRequestPayload(request);
         const phase = payload.researchPhase as ResearchGoalPhase;
-        return modelJsonResponse({ suggestions: suggestions[phase] }, `resp_goal_suggestions_${phase}`);
+        return modelGoalSuggestionResponse(request, suggestions[phase], `resp_goal_suggestions_${phase}`);
       }
     });
 
@@ -3632,7 +3632,7 @@ describe('Beale workbench skeleton', () => {
       promptMarkdown: '# Prior parser research\nTrace the parser length into its allocation boundary.'
     });
 
-    const phases: ResearchGoalPhase[] = ['discovery', 'chaining', 'reporting'];
+    const phases: ResearchGoalPhase[] = ['discovery'];
     const results = await Promise.all(phases.map((phase) => service.generateResearchGoalSuggestions({
       phase,
       requestId: `goal_suggestions_grounded_${phase}`
@@ -3644,19 +3644,23 @@ describe('Beale workbench skeleton', () => {
     const previousResearch = payload.previousResearch as Array<Record<string, unknown>>;
     const coverageHints = payload.coverageHints as Record<string, unknown>;
 
-    expect(results).toEqual(phases.map((phase) => ({ phase, suggestions: suggestions[phase] })));
-    expect(modelRequests).toHaveLength(3);
+    expect(results[0]).toMatchObject({ phase: 'discovery' });
+    expect(results[0]?.suggestions).toEqual(expect.arrayContaining(suggestions.discovery));
+    expect(modelRequests).toHaveLength(1);
     expect(new Set(modelRequests.map((request) => modelRequestPayload(request).researchPhase))).toEqual(new Set(phases));
     for (const request of modelRequests) {
       const requestPayload = modelRequestPayload(request);
       const phase = requestPayload.researchPhase as ResearchGoalPhase;
-      expect(request.model).toBe(DEFAULT_RESEARCH_MODEL);
+      expect(request.model).toBe(smallModelForProvider('openai-codex'));
       expect(request.tools).toEqual([]);
-      expect(request.reasoning).toEqual({ effort: 'medium' });
-      expect(request.text).toEqual({ verbosity: 'low' });
+      expect(request.reasoning).toEqual({ effort: 'low' });
+      expect(request.text).toMatchObject({
+        verbosity: 'low',
+        format: { type: 'json_schema', name: 'beale_research_goal_candidates', strict: true }
+      });
       expect(request.metadata).toMatchObject({ beale_task: 'research_goal_suggestions', beale_research_phase: phase });
       expect(request.instructions).toMatch(/^You are a world-class security researcher/);
-      expect(request.instructions).toContain('an array named suggestions containing exactly 4');
+      expect(request.instructions).toContain('Generate exactly 8 candidates');
       const workflow = service.getSnapshot()?.researchProfile.profile.workflows.find((candidate) => candidate.id === phase);
       expect(request.instructions).toContain(workflow?.goalSuggestionInstructions[0]);
       expect(requestPayload.task).toBe('suggest_next_research_goals');
@@ -3691,9 +3695,11 @@ describe('Beale workbench skeleton', () => {
     const requests: Record<string, unknown>[] = [];
     const service = new WorkspaceService(() => undefined, {
       openAiFetch: async (_url, init) => {
-        requests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
-        return modelJsonResponse(
-          { suggestions: requests.length === 1 ? wrongCount : broad },
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        requests.push(request);
+        return modelGoalSuggestionResponse(
+          request,
+          requests.length === 1 ? wrongCount : broad,
           `resp_goal_framing_${requests.length}`
         );
       }
@@ -3705,8 +3711,53 @@ describe('Beale workbench skeleton', () => {
     expect(result).toEqual({ phase: 'discovery', suggestions: broad });
     expect(requests).toHaveLength(2);
     expect(requests[1]?.instructions).toContain('The previous Discovery response was rejected by the host validator');
-    expect(requests[1]?.instructions).toContain('Return exactly 4 distinct one-sentence suggestions');
+    expect(requests[1]?.instructions).toContain('Return exactly 8 valid, grounded, materially distinct candidates');
     service.close();
+  });
+
+  it('persists workspace goal suggestions and serves stale results while an explicit refresh replaces them', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-durable-goal-suggestions';
+    const workspace = tempWorkspace();
+    const initial = validResearchGoalSuggestionGroups().discovery;
+    const refreshed = [
+      'Research request routing and canonicalization for boundary-confusion vulnerabilities.',
+      'Explore cache partitioning and tenant keys for cross-workspace authorization flaws.',
+      'Examine package signature parsing for trust and algorithm-confusion vulnerabilities.',
+      'Research decoder state transitions for memory-safety and lifecycle vulnerabilities.'
+    ];
+    let modelCalls = 0;
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async (_url, init) => {
+        modelCalls += 1;
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        return modelGoalSuggestionResponse(request, modelCalls === 1 ? initial : refreshed, `resp_durable_goals_${modelCalls}`);
+      }
+    });
+    service.createWorkspace(workspace);
+
+    await expect(service.generateResearchGoalSuggestions({ phase: 'discovery' }))
+      .resolves.toEqual({ phase: 'discovery', suggestions: initial });
+    await expect(service.generateResearchGoalSuggestions({ phase: 'discovery' }))
+      .resolves.toEqual({ phase: 'discovery', suggestions: initial });
+    expect(modelCalls).toBe(1);
+
+    startRunForTest(service, runInput('source_review'));
+    await expect(service.generateResearchGoalSuggestions({ phase: 'discovery' }))
+      .resolves.toEqual({ phase: 'discovery', suggestions: initial, cacheStatus: 'stale' });
+    expect(modelCalls).toBe(1);
+
+    await expect(service.generateResearchGoalSuggestions({ phase: 'discovery', refresh: true }))
+      .resolves.toEqual({ phase: 'discovery', suggestions: refreshed });
+    expect(modelCalls).toBe(2);
+    service.close();
+
+    const reopened = new WorkspaceService(() => undefined, {
+      openAiFetch: async () => { throw new Error('A fresh durable suggestion cache must avoid provider calls.'); }
+    });
+    reopened.openWorkspace(workspace);
+    await expect(reopened.generateResearchGoalSuggestions({ phase: 'discovery' }))
+      .resolves.toEqual({ phase: 'discovery', suggestions: refreshed });
+    reopened.close();
   });
 
   it('generates exactly three next steps grounded in a completed source session', async () => {
@@ -3716,7 +3767,11 @@ describe('Beale workbench skeleton', () => {
     const service = new WorkspaceService(() => undefined, {
       openAiFetch: async (_url, init) => {
         modelRequests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
-        return modelJsonResponse({ suggestions: nextSteps }, 'resp_session_next_steps');
+        return modelGoalSuggestionResponse(
+          modelRequests[modelRequests.length - 1]!,
+          nextSteps,
+          'resp_session_next_steps'
+        );
       }
     });
     const workspace = tempWorkspace();
@@ -3742,7 +3797,7 @@ describe('Beale workbench skeleton', () => {
       sourceRunId,
       suggestionCount: 3
     });
-    expect(modelRequest.instructions).toContain('containing exactly 3 one-sentence strings');
+    expect(modelRequest.instructions).toContain('contain exactly 3 one-sentence strings');
     expect(modelRequest.instructions).toContain(`completed source session ${sourceRunId}`);
     const sourceResearch = (payload.previousResearch as Array<Record<string, unknown>>)[0];
     expect(sourceResearch).toMatchObject({ runId: sourceRunId });
@@ -3859,7 +3914,7 @@ describe('Beale workbench skeleton', () => {
           'Explore archive extraction for path-confusion vulnerabilities.'
         ]
       },
-      error: /exactly 4 suggestions/i
+      error: /exactly 8 candidates/i
     },
     {
       name: 'duplicate suggestions',
@@ -3896,7 +3951,16 @@ describe('Beale workbench skeleton', () => {
   ])('rejects $name in research goal suggestions', async ({ payload, error }) => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-invalid-goal-suggestions';
     const service = new WorkspaceService(() => undefined, {
-      openAiFetch: async () => modelJsonResponse(payload, 'resp_invalid_goal_suggestions')
+      openAiFetch: async (_url, init) => {
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        const values = payload.suggestions;
+        if (!Array.isArray(values)) return modelJsonResponse(payload, 'resp_invalid_goal_suggestions');
+        const requestedCount = Number(modelRequestPayload(request).candidateCount);
+        const candidateCount = values.length === 2 ? values.length : requestedCount;
+        return modelJsonResponse({
+          candidates: researchGoalCandidates(values, candidateCount, researchGoalGroundingRef(request))
+        }, 'resp_invalid_goal_suggestions');
+      }
     });
     service.createWorkspace(tempWorkspace());
 
@@ -3904,38 +3968,17 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('accepts natural wording variants in Chaining and Reporting goals', async () => {
-    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-natural-goal-wording';
-    const validSuggestions = validResearchGoalSuggestionGroups();
-    const suggestions: Pick<ResearchGoalSuggestionStateByPhase<ResearchGoalSuggestionGroup>, 'chaining' | 'reporting'> = {
-      chaining: [
-        'Develop the recorded parser flaws into an end-to-end exploit with a triage-ready proof of concept.',
-        validSuggestions.chaining[1],
-        validSuggestions.chaining[2],
-        validSuggestions.chaining[3]
-      ],
-      reporting: [
-        'Prepare the parser security report with its demonstrated impact, reproducible test case, and supporting evidence archive.',
-        validSuggestions.reporting[1],
-        validSuggestions.reporting[2],
-        validSuggestions.reporting[3]
-      ]
-    };
+  it('gates Chaining and Reporting suggestions on eligible recorded memory', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-goal-eligibility';
     const service = new WorkspaceService(() => undefined, {
-      openAiFetch: async (_url, init) => {
-        const phase = modelRequestPayload(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>).researchPhase as 'chaining' | 'reporting';
-        return modelJsonResponse({ suggestions: suggestions[phase] }, `resp_natural_goal_wording_${phase}`);
-      }
+      openAiFetch: async () => { throw new Error('Ineligible workflows must fail before model generation.'); }
     });
     service.createWorkspace(tempWorkspace());
 
-    await expect(Promise.all([
-      service.generateResearchGoalSuggestions({ phase: 'chaining' }),
-      service.generateResearchGoalSuggestions({ phase: 'reporting' })
-    ])).resolves.toEqual([
-      { phase: 'chaining', suggestions: suggestions.chaining },
-      { phase: 'reporting', suggestions: suggestions.reporting }
-    ]);
+    await expect(service.generateResearchGoalSuggestions({ phase: 'chaining' }))
+      .rejects.toThrow(/confirmed primitive/i);
+    await expect(service.generateResearchGoalSuggestions({ phase: 'reporting' }))
+      .rejects.toThrow(/confirmed chain.*impact.*reachability.*proof evidence/i);
     service.close();
   });
 
@@ -4826,6 +4869,40 @@ function modelJsonResponse(value: unknown, id: string, reasoningSummary = ''): R
     ),
     { status: 200, headers: { 'content-type': 'text/event-stream' } }
   );
+}
+
+function modelGoalSuggestionResponse(
+  request: Record<string, unknown>,
+  suggestions: readonly string[],
+  id: string
+): Response {
+  const candidateCount = Number(modelRequestPayload(request).candidateCount);
+  return modelJsonResponse({
+    candidates: researchGoalCandidates(suggestions, candidateCount, researchGoalGroundingRef(request))
+  }, id);
+}
+
+function researchGoalGroundingRef(request: Record<string, unknown>): string {
+  const payload = modelRequestPayload(request);
+  const contract = payload.groundingContract as { requiredEligibleRefs?: unknown } | undefined;
+  const required = Array.isArray(contract?.requiredEligibleRefs)
+    ? contract.requiredEligibleRefs.find((value): value is string => typeof value === 'string' && value.length > 0)
+    : null;
+  return required ?? 'workspace:scope';
+}
+
+function researchGoalCandidates(
+  suggestions: readonly unknown[],
+  candidateCount: number,
+  groundingRef: string
+): Array<Record<string, unknown>> {
+  if (suggestions.length === 0 || !Number.isSafeInteger(candidateCount) || candidateCount < 1) return [];
+  return Array.from({ length: candidateCount }, (_, index) => ({
+    goal: suggestions[index % suggestions.length],
+    groundingRefs: [groundingRef],
+    rationale: 'The captured workspace context makes this a bounded and discriminating research direction.',
+    noveltyAxis: `candidate-${index + 1}`
+  }));
 }
 
 function validResearchGoalSuggestionGroups(): ResearchGoalSuggestionStateByPhase<ResearchGoalSuggestionGroup> {

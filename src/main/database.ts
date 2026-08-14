@@ -914,6 +914,16 @@ export interface CreateBreakoutRoomMessageInput {
   createdAt?: string;
 }
 
+export interface ResearchGoalSuggestionCacheRecord {
+  scopeId: string;
+  profileHash: string;
+  phase: string;
+  contextRevision: string;
+  suggestions: string[];
+  generatedAt: string;
+  updatedAt: string;
+}
+
 function parseStoredSessionNextStepSuggestions(value: SqlPrimitive | undefined): GeneratedResearchGoalSuggestions | null {
   const parsed = parseJson(value);
   const phase = typeof parsed.phase === 'string' ? parsed.phase.trim() : '';
@@ -923,6 +933,25 @@ function parseStoredSessionNextStepSuggestions(value: SqlPrimitive | undefined):
   const identities = new Set(suggestions.map((suggestion) => suggestion.toLocaleLowerCase()));
   if (!phase || suggestions.length !== 3 || suggestions.some((suggestion) => !suggestion) || identities.size !== 3) return null;
   return { phase, suggestions };
+}
+
+function parseResearchGoalSuggestionCacheRow(row: SqlRow | undefined): ResearchGoalSuggestionCacheRecord | null {
+  if (!row) return null;
+  const suggestions = parseStringArray(row.suggestions_json)
+    .map((suggestion) => suggestion.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (suggestions.length === 0 || new Set(suggestions.map((suggestion) => suggestion.toLocaleLowerCase())).size !== suggestions.length) {
+    return null;
+  }
+  return {
+    scopeId: text(row, 'scope_version_id'),
+    profileHash: text(row, 'profile_hash'),
+    phase: text(row, 'phase'),
+    contextRevision: text(row, 'context_revision'),
+    suggestions,
+    generatedAt: text(row, 'generated_at'),
+    updatedAt: text(row, 'updated_at')
+  };
 }
 
 function transcriptMessagePhase(metadata: Record<string, unknown>): TranscriptMessagePhase | null {
@@ -4896,6 +4925,85 @@ export class WorkspaceDatabase {
     return normalized;
   }
 
+  public getResearchGoalSuggestionContextRevision(scopeId: string): string {
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT id, ended_at
+           FROM runs
+           WHERE scope_version_id = ?
+             AND ended_at IS NOT NULL
+             AND scope_version_id IN (SELECT id FROM scope_versions WHERE workspace_id = ?)
+           ORDER BY ended_at DESC, id DESC
+           LIMIT 1`
+        )
+        .get(scopeId, this.workspaceId)
+    );
+    return row ? `${text(row, 'ended_at')}::${text(row, 'id')}` : 'initial';
+  }
+
+  public getResearchGoalSuggestionCache(
+    scopeId: string,
+    profileHash: string,
+    phase: string
+  ): ResearchGoalSuggestionCacheRecord | null {
+    return parseResearchGoalSuggestionCacheRow(rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT scope_version_id, profile_hash, phase, context_revision,
+                  suggestions_json, generated_at, updated_at
+           FROM research_goal_suggestion_cache
+           WHERE workspace_id = ? AND scope_version_id = ? AND profile_hash = ? AND phase = ?`
+        )
+        .get(this.workspaceId, scopeId, profileHash, phase)
+    ));
+  }
+
+  public saveResearchGoalSuggestionCache(input: {
+    scopeId: string;
+    profileHash: string;
+    phase: string;
+    contextRevision: string;
+    suggestions: readonly string[];
+    generatedAt?: string;
+  }): ResearchGoalSuggestionCacheRecord {
+    const phase = input.phase.trim();
+    const profileHash = input.profileHash.trim();
+    const contextRevision = input.contextRevision.trim();
+    const suggestions = input.suggestions.map((suggestion) => suggestion.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    if (!phase || !profileHash || !contextRevision || suggestions.length === 0
+      || new Set(suggestions.map((suggestion) => suggestion.toLocaleLowerCase())).size !== suggestions.length) {
+      throw new Error('Workspace research goal suggestion cache requires a workflow, profile, revision, and distinct suggestions.');
+    }
+    const generatedAt = input.generatedAt?.trim() || nowIso();
+    const updatedAt = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO research_goal_suggestion_cache(
+           workspace_id, scope_version_id, profile_hash, phase, context_revision,
+           suggestions_json, generated_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(workspace_id, scope_version_id, profile_hash, phase) DO UPDATE SET
+           context_revision = excluded.context_revision,
+           suggestions_json = excluded.suggestions_json,
+           generated_at = excluded.generated_at,
+           updated_at = excluded.updated_at`
+      )
+      .run(
+        this.workspaceId,
+        input.scopeId,
+        profileHash,
+        phase,
+        contextRevision,
+        JSON.stringify(suggestions),
+        generatedAt,
+        updatedAt
+      );
+    const stored = this.getResearchGoalSuggestionCache(input.scopeId, profileHash, phase);
+    if (!stored) throw new Error('Workspace research goal suggestions were not persisted.');
+    return stored;
+  }
+
   public updateRunTitle(runId: string, title: string): RunRecord {
     const normalized = title.replace(/\s+/g, ' ').trim();
     if (!normalized) throw new Error('Run title cannot be empty.');
@@ -8523,6 +8631,13 @@ export class WorkspaceDatabase {
           }
           database.exec("UPDATE breakout_rooms SET phase = 'completed' WHERE status = 'completed';");
         }
+      },
+      {
+        version: 23,
+        name: 'durable_research_goal_suggestions',
+        up: (database) => {
+          database.exec(RESEARCH_GOAL_SUGGESTION_CACHE_SCHEMA_SQL);
+        }
       }
     ]);
   }
@@ -11074,6 +11189,22 @@ CREATE INDEX IF NOT EXISTS idx_project_graph_edges_variant_node ON project_graph
 CREATE INDEX IF NOT EXISTS idx_project_graph_edges_variant_label ON project_graph_edges(scope_version_id, edge_kind, target_entity_type, target_label);
 `;
 
+const RESEARCH_GOAL_SUGGESTION_CACHE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS research_goal_suggestion_cache (
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
+  profile_hash TEXT NOT NULL,
+  phase TEXT NOT NULL,
+  context_revision TEXT NOT NULL,
+  suggestions_json TEXT NOT NULL,
+  generated_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (workspace_id, scope_version_id, profile_hash, phase)
+);
+CREATE INDEX IF NOT EXISTS idx_research_goal_suggestion_cache_revision
+ON research_goal_suggestion_cache(workspace_id, scope_version_id, context_revision);
+`;
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workspaces (
   id TEXT PRIMARY KEY,
@@ -11179,6 +11310,8 @@ CREATE TABLE IF NOT EXISTS runs (
   started_at TEXT,
   ended_at TEXT
 );
+
+${RESEARCH_GOAL_SUGGESTION_CACHE_SCHEMA_SQL}
 
 CREATE TABLE IF NOT EXISTS session_activity_intervals (
   id TEXT PRIMARY KEY,

@@ -14,7 +14,6 @@ import {
 } from '../view-models/researchGoalSuggestions';
 import { clientRequestId } from '../view-models/runSettings';
 
-const OPENAI_NOT_CONFIGURED_MESSAGE = 'Connect OpenAI in Settings to load suggested goals.';
 const LEGACY_RESEARCH_GOAL_PHASES: ResearchGoalPhase[] = ['discovery', 'chaining', 'reporting'];
 
 interface ActiveSuggestionRequest {
@@ -40,7 +39,7 @@ export interface ResearchGoalSuggestionsState {
 
 export function useResearchGoalSuggestions(
   snapshot: WorkspaceSnapshot | null,
-  openAiConfigured: boolean
+  _openAiConfigured: boolean
 ): ResearchGoalSuggestionsState {
   const cache = useMemo(() => new ResearchGoalSuggestionCache(), []);
   const phases = useMemo(
@@ -49,6 +48,7 @@ export function useResearchGoalSuggestions(
     [snapshot?.researchProfile?.profileHash]
   );
   const activeRequestsRef = useRef(new Map<ResearchGoalPhase, ActiveSuggestionRequest>());
+  const loadSuggestionsRef = useRef<(phase: ResearchGoalPhase, force?: boolean) => void>(() => undefined);
   const [requestStates, setRequestStates] = useState<ResearchGoalSuggestionStateByPhase<SuggestionRequestState>>(
     {}
   );
@@ -67,21 +67,11 @@ export function useResearchGoalSuggestions(
   }, [cache]);
 
   const loadSuggestions = useCallback((phase: ResearchGoalPhase, force = false): void => {
-    for (const [activePhase, activeRequest] of activeRequestsRef.current) {
-      if (activePhase !== phase) cancelRequest(activeRequest);
-    }
     const key = phaseCacheKey(suggestionContextKey, phase);
     if (!key) {
       const activeRequest = activeRequestsRef.current.get(phase);
       if (activeRequest) cancelRequest(activeRequest);
       updatePhaseState(setRequestStates, phase, { key: null, loading: false, error: null });
-      return;
-    }
-
-    if (!openAiConfigured) {
-      const activeRequest = activeRequestsRef.current.get(phase);
-      if (activeRequest) cancelRequest(activeRequest);
-      updatePhaseState(setRequestStates, phase, { key, loading: false, error: OPENAI_NOT_CONFIGURED_MESSAGE });
       return;
     }
 
@@ -108,20 +98,29 @@ export function useResearchGoalSuggestions(
     void cache
       .load(
         key,
-        () => window.beale.generateResearchGoalSuggestions({ phase, requestId: request.requestId }),
+        () => window.beale.generateResearchGoalSuggestions({
+          phase,
+          requestId: request.requestId,
+          refresh: force
+        }),
         { force }
       )
-      .then(() => {
+      .then((result) => {
         if (activeRequestsRef.current.get(phase)?.token !== request.token) return;
         updatePhaseState(setRequestStates, phase, { key, loading: false, error: null });
+        if (!force && result.cacheStatus === 'stale') {
+          activeRequestsRef.current.delete(phase);
+          loadSuggestionsRef.current(phase, true);
+        }
       })
       .catch((caught: unknown) => {
         if (activeRequestsRef.current.get(phase)?.token !== request.token) return;
         const message = userFacingErrorMessage(caught);
+        const retained = cache.read(key).status === 'ready';
         updatePhaseState(setRequestStates, phase, {
           key,
           loading: false,
-          error: /canceled/i.test(message) ? null : message
+          error: /canceled/i.test(message) || retained ? null : message
         });
       })
       .finally(() => {
@@ -129,16 +128,17 @@ export function useResearchGoalSuggestions(
           activeRequestsRef.current.delete(phase);
         }
       });
-  }, [cache, cancelRequest, openAiConfigured, suggestionContextKey]);
+  }, [cache, cancelRequest, suggestionContextKey]);
+  loadSuggestionsRef.current = loadSuggestions;
 
   useEffect(() => {
     const phaseSet = new Set(phases);
     for (const [phase, activeRequest] of activeRequestsRef.current) {
-      if (!phaseSet.has(phase) || activeRequest.key !== phaseCacheKey(suggestionContextKey, phase) || !openAiConfigured) {
+      if (!phaseSet.has(phase) || activeRequest.key !== phaseCacheKey(suggestionContextKey, phase)) {
         cancelRequest(activeRequest);
       }
     }
-  }, [cancelRequest, openAiConfigured, phases, suggestionContextKey]);
+  }, [cancelRequest, phases, suggestionContextKey]);
 
   useEffect(() => () => {
     for (const request of activeRequestsRef.current.values()) cancelRequest(request);

@@ -1195,6 +1195,10 @@ export type ResearchGoalSuggestionGroup = string[];
 export interface GeneratedResearchGoalSuggestions {
   phase: ResearchGoalPhase;
   suggestions: ResearchGoalSuggestionGroup;
+  /** Present for workspace-level suggestions. Session next steps remain immutable session data. */
+  cacheStatus?: 'fresh' | 'stale';
+  contextRevision?: string;
+  generatedAt?: string;
 }
 
 export type ResearchGoalSuggestionsByPhase = Partial<Record<string, string[]>>;
@@ -1205,6 +1209,8 @@ export interface ResearchGoalSuggestionInput {
   phase: ResearchGoalPhase;
   requestId?: string | null;
   sourceRunId?: string | null;
+  /** Bypass a durable workspace suggestion cache while preserving it if refresh fails. */
+  refresh?: boolean;
 }
 
 export interface ResearchPromptGenerationUpdate {
