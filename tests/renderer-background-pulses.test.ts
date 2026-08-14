@@ -14,21 +14,27 @@ describe('renderer background pulses', () => {
     expect(firstRender).not.toContain('style=');
   });
 
-  it('uses fixed infinite timing gated only by active-session visibility', () => {
+  it('keeps the app shell flat without background wash or pulse effects', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const appShellStyles = styles.match(/\.app-shell\s*\{([^}]*)\}/)?.[1] ?? '';
     const appShellWashStyles = styles.match(/\.app-shell::before\s*\{([^}]*)\}/)?.[1] ?? '';
+    const appBackgroundPulsesStyles = styles.match(/\.app-background-pulses\s*\{([^}]*)\}/)?.[1] ?? '';
+    const appBackgroundPulseStyles = styles.match(/\.app-background-pulse\s*\{([^}]*)\}/)?.[1] ?? '';
 
-    expect(styles).toContain('animation: app-background-pulse 12s linear infinite both;');
-    expect(styles).toContain('.app-shell.session-active .app-background-pulses');
-    expect(styles).toContain('.app-shell.session-active .app-background-pulse');
+    expect(styles).not.toContain('animation: app-background-pulse');
+    expect(styles).not.toContain('@keyframes app-background-pulse');
+    expect(styles).not.toContain('.app-shell.session-active .app-background-pulses');
+    expect(styles).not.toContain('.app-shell.session-active .app-background-pulse');
     expect(styles).not.toContain('--app-pulse-duration');
     expect(styles).not.toMatch(/\.app-shell\.momentum-[^\s,{]+[^{]*\.app-background-pulse/);
-    expect(appShellStyles).toContain('background: var(--session-heat-glass)');
-    expect(appShellStyles).toContain('backdrop-filter: blur(44px) saturate(1.08)');
+    expect(appShellStyles).toContain('background: var(--bg)');
+    expect(appShellStyles).not.toContain('--session-heat-glass');
+    expect(appShellStyles).not.toContain('backdrop-filter');
     expect(appShellStyles).not.toContain('gradient');
-    expect(appShellWashStyles).toContain('background: var(--session-heat-wash)');
-    expect(appShellWashStyles).toContain('backdrop-filter: blur(64px) saturate(1.14)');
+    expect(appShellWashStyles).toBe('');
+    expect(appBackgroundPulsesStyles).toContain('display: none');
+    expect(appBackgroundPulseStyles).toContain('display: none');
+    expect(appShellWashStyles).not.toContain('backdrop-filter');
     expect(appShellWashStyles).not.toContain('82px');
     expect(appShellWashStyles).not.toContain('box-shadow');
     expect(appShellWashStyles).not.toContain('gradient');

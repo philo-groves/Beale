@@ -33,6 +33,10 @@ describe('workspace dashboard', () => {
     const dreamAreaStyles = styles.match(/\.workspace-dream-area\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamContentStyles = styles.match(/\.workspace-dream-content\s*\{([^}]*)\}/)?.[1] ?? '';
     const housekeepingCardStyles = styles.match(/\.workspace-dejunk-card,\s*\.workspace-dream-card\s*\{([^}]*)\}/)?.[1] ?? '';
+    const mediumHeatCardStyles =
+      styles.match(
+        /\.app-shell\.session-heat-medium,\s*\.workspace-dream-card\[data-dream-heat="medium"\],\s*\.workspace-dejunk-card\[data-dejunk-heat="medium"\]\s*\{([^}]*)\}/
+      )?.[1] ?? '';
 
     expect(dashboardStyles).toContain('grid-template-rows: fit-content(50%) fit-content(33%) minmax(0, 1fr)');
     expect(sharedPanelStyles).toContain('min-height: 0');
@@ -60,9 +64,13 @@ describe('workspace dashboard', () => {
     expect(housekeepingCardStyles).toContain('border: 0');
     expect(housekeepingCardStyles).toContain('border-radius: 34px');
     expect(housekeepingCardStyles).toContain('corner-shape: squircle');
-    expect(housekeepingCardStyles).toContain('background: var(--workspace-card-glass)');
+    expect(housekeepingCardStyles).toContain('background: var(--workspace-card-surface)');
+    expect(housekeepingCardStyles).not.toContain('--workspace-card-glass');
     expect(housekeepingCardStyles).toContain('outline: 1px solid var(--session-heat-edge)');
-    expect(housekeepingCardStyles).toContain('backdrop-filter: blur(52px) saturate(1.18)');
+    expect(mediumHeatCardStyles).toContain(
+      '--workspace-card-surface: color-mix(in srgb, var(--session-heat-medium-color) 24%, var(--panel-strong))'
+    );
+    expect(housekeepingCardStyles).not.toContain('backdrop-filter');
     expect(housekeepingCardStyles).not.toContain('box-shadow');
     expect(housekeepingCardStyles).not.toContain('gradient');
   });
