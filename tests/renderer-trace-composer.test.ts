@@ -11,6 +11,34 @@ import {
 } from '../src/renderer/features/traces/TraceView';
 
 describe('renderer trace composer', () => {
+  it('renders the trace session loading state with a spinner and no composer', () => {
+    const html = renderToStaticMarkup(createElement(TraceView, {
+      busy: true,
+      detail: null,
+      events: [],
+      providerModelCatalog: providerModelCatalog(),
+      selectedRunId: 'run_loading',
+      traceScopeKey: 'main',
+      showBackToMain: false,
+      selectedTraceEventId: null,
+      searchHighlightQuery: '',
+      traceFilterCount: 0,
+      totalTraceFilterCount: 0,
+      visibleTraceCategories: [],
+      onBackToMain: () => undefined,
+      onOpenTraceFilters: () => undefined,
+      onSelectTraceEvent: () => undefined,
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+
+    expect(html).toContain('main-trace-view is-loading');
+    expect(html).toContain('class="main-session-loading"');
+    expect(html).toContain('lucide-loader-circle');
+    expect(html).toContain('Loading session.');
+    expect(html).not.toContain('class="main-trace-footer"');
+  });
+
   it('allows the steering input to grow through seven typed lines', () => {
     expect(STEER_TEXTAREA_MAX_LINES).toBe(7);
   });

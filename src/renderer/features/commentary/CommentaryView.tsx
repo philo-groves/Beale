@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Bot, Brain, ChevronRight, Database, FileText, Terminal, Wrench } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bot, Brain, ChevronRight, CircleAlert, Database, FileText, Terminal, Wrench } from 'lucide-react';
 import type {
   ResearchModelSelection,
   ResearchProviderModelCatalog,
@@ -9,7 +9,7 @@ import type {
 } from '@shared/types';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
 import { renderTraceProseText } from '../traces/traceMarkup';
-import { MainSteerArea } from '../traces/TraceView';
+import { MainSteerArea, SessionLoadingState } from '../traces/TraceView';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import {
   commentaryMessagesForSession,
@@ -95,6 +95,7 @@ export const CommentaryView = memo(function CommentaryView({
   const userScrollIntentTimerRef = useRef<number | null>(null);
   const scrollbarDragRef = useRef(false);
   const scrollScopeKeyRef = useRef(scrollScopeKey);
+  const loading = !detail;
 
   useDevRenderProbe('commentary.list', () => ({
     messages: messages.length,
@@ -320,7 +321,7 @@ export const CommentaryView = memo(function CommentaryView({
   if (!selectedRunId) return null;
 
   return (
-    <section className={`main-trace-view main-commentary-view${showBackToMain ? ' is-subagent-trace' : ''}`} aria-label="Agent commentary">
+    <section className={`main-trace-view main-commentary-view${showBackToMain ? ' is-subagent-trace' : ''}${loading ? ' is-loading' : ''}`} aria-label="Agent commentary">
       {showBackButton ? (
         <button
           type="button"
@@ -332,7 +333,7 @@ export const CommentaryView = memo(function CommentaryView({
           <span>Back to Main</span>
         </button>
       ) : null}
-      {!detail ? <div className="main-trace-empty">Loading commentary.</div> : null}
+      {loading ? <SessionLoadingState label="Loading session." /> : null}
       {detail && showBackToMain && messages.length === 0 && !postSessionContent ? <div className="main-trace-empty">No commentary recorded yet.</div> : null}
       {detail && (!showBackToMain || messages.length > 0 || postSessionContent) ? (
         <div className="main-commentary-scroll" ref={scrollRef}>
@@ -409,7 +410,7 @@ export const CommentaryView = memo(function CommentaryView({
           </div>
         </div>
       ) : null}
-      {!showBackToMain ? (
+      {!showBackToMain && !loading ? (
         <MainSteerArea
           busy={busy}
           detail={detail}
@@ -856,6 +857,7 @@ export function commentaryMessageIcon(
   toolName?: string
 ): JSX.Element | null {
   if (kind === 'progress') return <Brain size={16} />;
+  if (kind === 'error') return <CircleAlert size={16} />;
   if (kind !== 'tool') return null;
   const normalizedToolName = toolName?.trim().toLowerCase() ?? '';
   if (SUBAGENT_TOOL_NAMES.has(normalizedToolName)) return <Bot size={16} />;
@@ -884,6 +886,5 @@ export function commentaryMessageLabel(
   taskAction?: CommentaryMessage['taskAction']
 ): string | null {
   if (kind === 'task') return taskAction === 'spawn' ? 'Subagent Spawn' : 'Subagent Follow-up';
-  if (kind === 'error') return 'Error';
   return null;
 }

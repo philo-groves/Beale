@@ -1,6 +1,6 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, SlidersHorizontal, Square } from 'lucide-react';
+import { ArrowLeft, ArrowRight, LoaderCircle, SlidersHorizontal, Square } from 'lucide-react';
 import type {
   ResearchModelEffortLevel,
   ResearchModelProviderId,
@@ -475,7 +475,7 @@ export const TraceView = memo(function TraceView({
   if (!selectedRunId) return null;
 
   return (
-    <section className={`main-trace-view${showBackToMain ? ' is-subagent-trace' : ''}`} aria-label="Agent trace">
+    <section className={`main-trace-view${showBackToMain ? ' is-subagent-trace' : ''}${loading ? ' is-loading' : ''}`} aria-label="Agent trace">
       {showBackButton ? (
         <button
           type="button"
@@ -487,7 +487,7 @@ export const TraceView = memo(function TraceView({
           <span>Back to Main</span>
         </button>
       ) : null}
-      {loading ? <div className="main-trace-empty">Loading trace.</div> : null}
+      {loading ? <SessionLoadingState label="Loading session." /> : null}
       {!loading && events.length === 0 && !postSessionContent ? <div className="main-trace-empty">No trace events recorded.</div> : null}
       {!loading && events.length > 0 && timelineEntries.length === 0 && !postSessionContent ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
       {!loading && (renderedEntries.length > 0 || postSessionContent) ? (
@@ -513,7 +513,7 @@ export const TraceView = memo(function TraceView({
           </div>
         </div>
       ) : null}
-      {!showBackToMain ? (
+      {!showBackToMain && !loading ? (
         <MainSteerArea
           busy={busy}
           detail={detail}
@@ -529,6 +529,15 @@ export const TraceView = memo(function TraceView({
     </section>
   );
 });
+
+export function SessionLoadingState({ label }: { label: string }): JSX.Element {
+  return (
+    <div className="main-session-loading" role="status" aria-live="polite">
+      <LoaderCircle size={18} aria-hidden="true" />
+      <span>{label}</span>
+    </div>
+  );
+}
 
 export const MainSteerArea = memo(function MainSteerArea({
   runId,

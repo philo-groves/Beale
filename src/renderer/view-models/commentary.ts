@@ -56,7 +56,7 @@ export function commentaryMessagesForSession(
     const toolUsage = toolUsageMessage(event, toolCallsByPrimaryEventId);
     if (toolUsage) return [toolUsage];
     const kind = commentaryMessageKind(event, nativeCommentaryKeys);
-    const contentMarkdown = eventText(event);
+    const contentMarkdown = commentaryMessageContentMarkdown(event, kind);
     if (!kind || !contentMarkdown) return [];
     return [{
       id: event.id,
@@ -152,6 +152,7 @@ function commentaryMessageKind(
 
   if (role === 'user') return 'user';
   if (role !== 'assistant') return null;
+  if (payloadString(event, 'finalResultKind') === 'error' || legacyHoneycrispFinalErrorText(event)) return 'error';
   if (source === 'honeycrisp_commentary') return 'commentary';
   if (source === 'openai_reasoning_summary') {
     const key = chatMessageCorrelationKey(event);
@@ -397,6 +398,39 @@ function hasRecordedInitialPrompt(events: readonly TraceDisplayEvent[]): boolean
 
 function eventText(event: TraceDisplayEvent): string {
   return (payloadString(event, 'text') ?? payloadString(event, 'outputText') ?? '').trim();
+}
+
+function commentaryMessageContentMarkdown(
+  event: TraceDisplayEvent,
+  kind: CommentaryMessageKind | null
+): string {
+  const text = eventText(event);
+  return kind === 'error' ? honeycrispErrorDisplayText(text) ?? text : text;
+}
+
+const HONEYCRISP_UNEXPECTED_ERROR_TEXT = 'Unexpected error';
+
+function legacyHoneycrispFinalErrorText(event: TraceDisplayEvent): string | null {
+  if (payloadString(event, 'transcriptSource') !== 'honeycrisp') return null;
+  const phase = payloadString(event, 'messagePhase');
+  if (phase && phase !== 'final_answer') return null;
+  return honeycrispErrorDisplayText(eventText(event));
+}
+
+function honeycrispErrorDisplayText(value: string): string | null {
+  const trimmed = value.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return null;
+  const stripped = trimmed
+    .replace(/^research agent failed:\s*/i, '')
+    .replace(/^honeycrisp process failed:\s*/i, '')
+    .replace(/^honeycrisp process finished with agent status\s*/i, '')
+    .replace(/^agent status\s*/i, '')
+    .trim();
+  const generic = stripped.toLowerCase().replace(/[.]+$/, '');
+  if (['terminated', 'unexpected error', 'error', 'failed', 'failure', 'unknown'].includes(generic)) {
+    return HONEYCRISP_UNEXPECTED_ERROR_TEXT;
+  }
+  return stripped !== trimmed ? stripped : null;
 }
 
 function linkedTraceEventId(event: TraceDisplayEvent): string | null {

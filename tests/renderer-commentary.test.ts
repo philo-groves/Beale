@@ -21,6 +21,30 @@ import { commentaryMessagesForSession, commentaryToolUsageText } from '../src/re
 import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
 
 describe('renderer commentary projection', () => {
+  it('renders the commentary session loading state with a spinner and no composer', () => {
+    const html = renderToStaticMarkup(
+      createElement(CommentaryView, {
+        busy: true,
+        detail: null,
+        events: [],
+        providerModelCatalog: [],
+        selectedRunId: 'run_loading',
+        showBackToMain: false,
+        selectedTraceEventId: null,
+        searchHighlightQuery: '',
+        onBackToMain: () => undefined,
+        onSessionAction: () => undefined,
+        onSteerInstruction: () => undefined
+      })
+    );
+
+    expect(html).toContain('main-trace-view main-commentary-view is-loading');
+    expect(html).toContain('class="main-session-loading"');
+    expect(html).toContain('lucide-loader-circle');
+    expect(html).toContain('Loading session.');
+    expect(html).not.toContain('class="main-trace-footer"');
+  });
+
   it('keeps the working disclosure aligned to the commentary text width', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const messageStyles = styles.match(/\.main-commentary-message\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -39,7 +63,7 @@ describe('renderer commentary projection', () => {
     expect(commentaryMessageLabel('task', 'spawn')).toBe('Subagent Spawn');
     expect(commentaryMessageLabel('task', 'followup')).toBe('Subagent Follow-up');
     expect(commentaryMessageLabel('final_answer')).toBeNull();
-    expect(commentaryMessageLabel('error')).toBe('Error');
+    expect(commentaryMessageLabel('error')).toBeNull();
   });
 
   it('uses distinct icons for reasoning and each tool family', () => {
@@ -53,6 +77,7 @@ describe('renderer commentary projection', () => {
     expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'shell.run')!)).toContain('lucide-terminal');
     expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'experiment.run')!)).toContain('lucide-terminal');
     expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'file.read')!)).toContain('lucide-wrench');
+    expect(renderToStaticMarkup(commentaryMessageIcon('error')!)).toContain('lucide-circle-alert');
     expect(commentaryMessageIcon('commentary')).toBeNull();
     expect(commentaryMessageIcon('final_answer')).toBeNull();
   });
@@ -284,6 +309,55 @@ describe('renderer commentary projection', () => {
       ['user', 'Inspect the parser.'],
       ['commentary', 'I found two parser entrypoints and am checking their shared guard.'],
       ['final_answer', 'The shared guard rejects the boundary safely.']
+    ]);
+  });
+
+  it('projects failed final Honeycrisp results as error messages', () => {
+    const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
+      displayEvent('final-error', {
+        agentPath: '/root',
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp',
+        messagePhase: 'final_answer',
+        finalResultKind: 'error',
+        outputText: 'Unexpected error'
+      })
+    ], { includeInitialPrompt: false });
+
+    expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
+      ['error', 'Unexpected error']
+    ]);
+  });
+
+  it('normalizes legacy terminated Honeycrisp final text as an unexpected error', () => {
+    const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
+      displayEvent('legacy-final-error', {
+        agentPath: '/root',
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp',
+        messagePhase: 'final_answer',
+        text: 'terminated'
+      })
+    ], { includeInitialPrompt: false });
+
+    expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
+      ['error', 'Unexpected error']
+    ]);
+  });
+
+  it('preserves legacy wrapped Honeycrisp error details when present', () => {
+    const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
+      displayEvent('legacy-wrapped-error', {
+        agentPath: '/root',
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp',
+        messagePhase: 'final_answer',
+        text: 'Research agent failed: Provider request failed with status 500.'
+      })
+    ], { includeInitialPrompt: false });
+
+    expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
+      ['error', 'Provider request failed with status 500.']
     ]);
   });
 

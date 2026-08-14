@@ -2160,6 +2160,7 @@ export class HoneycrispRunEngine {
       }
     }
 
+    const finalResultKind = honeycrispFinalResultKind(capture);
     const assistantText = options.includeFinalResponse === false ? '' : renderHoneycrispAssistantMessage(capture);
     const nextPromptSuggestions = honeycrispNextPromptSuggestions(capture);
     if (assistantText) {
@@ -2168,9 +2169,13 @@ export class HoneycrispRunEngine {
         attemptId: context.attempt.id,
         type: 'model_message',
         source: 'model',
-        summary: 'Honeycrisp produced a final run response.',
+        summary: finalResultKind === 'error'
+          ? 'Honeycrisp produced a final run error.'
+          : 'Honeycrisp produced a final run response.',
         payload: {
           outputText: assistantText,
+          finalResultKind,
+          agentStatus: capture.agent?.status ?? null,
           nextPromptSuggestions,
           captureArtifactId: captureArtifact.id
         },
@@ -2188,6 +2193,8 @@ export class HoneycrispRunEngine {
           captureArtifactId: captureArtifact.id,
           captureTraceEventId: artifactTrace.id,
           executorName: capture.agent?.executorName ?? null,
+          finalResultKind,
+          agentStatus: capture.agent?.status ?? null,
           nextPromptSuggestions
         }
       });
@@ -2195,7 +2202,7 @@ export class HoneycrispRunEngine {
         runId: context.run.id,
         traceEventId: transcriptTrace.id,
         kind: 'session_final_response',
-        title: 'Honeycrisp run finished',
+        title: finalResultKind === 'error' ? 'Honeycrisp run failed' : 'Honeycrisp run finished',
         bodyMarkdown: assistantText
       });
     }
@@ -3840,7 +3847,8 @@ function honeycrispCompletionSummary(capture: HoneycrispFlowCapture): string {
   if (status === 'complete' && honeycrispGoalStatus(capture) === 'active') {
     return 'Honeycrisp exited while the research goal was still active.';
   }
-  return status === 'complete' ? 'Honeycrisp completed the research session.' : `Honeycrisp process finished with agent status ${status}.`;
+  if (status === 'complete') return 'Honeycrisp completed the research session.';
+  return `Honeycrisp process failed: ${honeycrispAgentErrorMessage(capture)}`;
 }
 
 function retryableHoneycrispWebSocketError(capture: HoneycrispFlowCapture): string | null {
@@ -3905,7 +3913,105 @@ function honeycrispFinalDisposition(
 }
 
 function renderHoneycrispAssistantMessage(capture: HoneycrispFlowCapture): string {
+  if (honeycrispFinalResultKind(capture) === 'error') return honeycrispAgentErrorMessage(capture);
   return capture.agent?.outputText?.trim() ?? '';
+}
+
+type HoneycrispFinalResultKind = 'final_answer' | 'error';
+
+function honeycrispFinalResultKind(capture: HoneycrispFlowCapture): HoneycrispFinalResultKind {
+  return capture.agent?.status === 'complete' && honeycrispGoalStatus(capture) !== 'active'
+    ? 'final_answer'
+    : 'error';
+}
+
+const HONEYCRISP_UNEXPECTED_ERROR_TEXT = 'Unexpected error';
+
+function honeycrispAgentErrorMessage(capture: HoneycrispFlowCapture): string {
+  let genericFallback: string | null = null;
+  for (const candidate of honeycrispAgentErrorCandidates(capture)) {
+    const normalized = normalizeHoneycrispAgentErrorText(candidate);
+    if (!normalized) continue;
+    if (normalized === HONEYCRISP_UNEXPECTED_ERROR_TEXT) {
+      genericFallback ??= normalized;
+      continue;
+    }
+    return normalized;
+  }
+  return genericFallback ?? HONEYCRISP_UNEXPECTED_ERROR_TEXT;
+}
+
+function honeycrispAgentErrorCandidates(capture: HoneycrispFlowCapture): Array<string | null | undefined> {
+  const disposition = recordValue(capture.agent?.finalDisposition);
+  return [
+    capture.agent?.outputText,
+    disposition ? stringPayload(disposition, 'errorMessage') : null,
+    disposition ? stringPayload(disposition, 'error') : null,
+    disposition ? stringPayload(disposition, 'message') : null,
+    disposition ? stringPayload(disposition, 'summary') : null,
+    ...(capture.eventTimeline ?? []).flatMap((event) => honeycrispEventErrorCandidates(event))
+  ];
+}
+
+function honeycrispEventErrorCandidates(event: HoneycrispCaptureEvent): Array<string | null | undefined> {
+  const payload = recordValue(event.payload);
+  const errorFields = payload
+    ? [
+        stringPayload(payload, 'errorMessage'),
+        stringPayload(payload, 'error')
+      ]
+    : [];
+  const diagnosticFields = honeycrispTextLooksDiagnostic(event.kind)
+    || honeycrispTextLooksDiagnostic(event.summary)
+    || errorFields.some((value) => Boolean(value));
+  return [
+    ...errorFields,
+    ...(diagnosticFields
+      ? [
+          payload ? stringPayload(payload, 'message') : null,
+          payload ? stringPayload(payload, 'summary') : null,
+          event.summary
+        ]
+      : [])
+  ];
+}
+
+function normalizeHoneycrispAgentErrorText(value: string | null | undefined): string | null {
+  if (!value?.trim()) return null;
+  const normalized = redactForModelText(value).replace(/\s+/g, ' ').trim().slice(0, 1_000);
+  if (!normalized) return null;
+  const displayText = honeycrispErrorDisplayText(normalized);
+  return isGenericHoneycrispErrorText(displayText) ? HONEYCRISP_UNEXPECTED_ERROR_TEXT : displayText;
+}
+
+function honeycrispErrorDisplayText(value: string): string {
+  return value
+    .replace(/^research agent failed:\s*/i, '')
+    .replace(/^honeycrisp process failed:\s*/i, '')
+    .replace(/^honeycrisp process finished with agent status\s*/i, '')
+    .replace(/^agent status\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isGenericHoneycrispErrorText(value: string): boolean {
+  const stripped = honeycrispErrorDisplayText(value)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/[.]+$/, '');
+  return [
+    'terminated',
+    'unexpected error',
+    'error',
+    'failed',
+    'failure',
+    'unknown'
+  ].includes(stripped);
+}
+
+function honeycrispTextLooksDiagnostic(value: string | null | undefined): boolean {
+  return Boolean(value && /\b(error|failed|failure|exception|terminated|timeout|timed out|closed|disconnect(?:ed|ion)?|websocket|abort(?:ed)?|invalid|denied)\b/i.test(value));
 }
 
 function honeycrispNextPromptSuggestions(capture: HoneycrispFlowCapture): HoneycrispNextPromptSuggestion[] {
