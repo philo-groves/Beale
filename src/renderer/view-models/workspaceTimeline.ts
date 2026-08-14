@@ -8,7 +8,7 @@ import type {
   SessionRunActivity
 } from '@shared/types';
 
-export const WORKSPACE_TIMELINE_WINDOW_MS = 12 * 60 * 60 * 1_000;
+export const WORKSPACE_TIMELINE_WINDOW_MS = 4 * 60 * 60 * 1_000;
 export type WorkspaceTimelineResult = 'natural_end' | 'unexpected_error' | 'safeguard_error';
 
 export interface WorkspaceTimelineSegment {

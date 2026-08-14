@@ -28,6 +28,7 @@ describe('workspace dashboard', () => {
     const timelineResultStyles = styles.match(/\.workspace-timeline-result\s*\{([^}]*)\}/)?.[1] ?? '';
     const timelineLegendButtonStyles = styles.match(/\.workspace-timeline-legend-button\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceAreaStyles = styles.match(/\.workspace-surface-area\s*\{([^}]*)\}/)?.[1] ?? '';
+    const surfaceListStyles = styles.match(/\.workspace-surface-list\s*\{([^}]*)\}/)?.[1] ?? '';
     const sharedSectionHeaderStyles = styles.match(/\.workspace-surface-header,\s*\.workspace-housekeeping-header\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamAreaStyles = styles.match(/\.workspace-dream-area\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamContentStyles = styles.match(/\.workspace-dream-content\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -47,6 +48,8 @@ describe('workspace dashboard', () => {
     expect(timelineResultStyles).toContain('justify-items: end');
     expect(timelineLegendButtonStyles).toContain('top: -6px');
     expect(surfaceAreaStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
+    expect(surfaceListStyles).not.toContain('scrollbar-gutter');
+    expect(styles).toMatch(/:where\([\s\S]*\.main-commentary-list,[\s\S]*\.workspace-surface-list,[\s\S]*\)\s*\{\s*scrollbar-color: transparent transparent;/u);
     expect(sharedSectionHeaderStyles).toContain('border-bottom: 1px solid var(--panel-border)');
     expect(dreamAreaStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
     expect(dreamAreaStyles).toContain('padding: 8px 18px 18px');
@@ -144,7 +147,7 @@ describe('workspace dashboard', () => {
     expect(html.indexOf('>0 new files</span>')).toBeLessThan(html.indexOf('>0 new memories</span>'));
     expect(html).toContain('No workspace sources or references recorded.');
     expect(html).not.toContain('Parser Workspace Activity');
-    expect(html).toContain('aria-label="Parser Workspace — most recent 12 hours of session activity"');
+    expect(html).toContain('aria-label="Parser Workspace — most recent 4 hours of session activity"');
     expect(html).toContain('<span>Activity</span>');
     expect(html).toContain('aria-label="Show activity legend"');
     expect(html).toContain('aria-expanded="false"');
@@ -195,16 +198,18 @@ describe('workspace dashboard', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.segments).toHaveLength(2);
     expect(rows[0]?.totalDurationMs).toBe(5 * 60 * 60 * 1_000);
-    expect(timeline.windowDurationMs).toBe(5 * 60 * 60 * 1_000);
+    expect(timeline.windowDurationMs).toBe(4 * 60 * 60 * 1_000);
     expect(rows[0]?.segments[0]?.leftPercent).toBeCloseTo(0);
+    expect(rows[0]?.segments[0]?.widthPercent).toBeCloseTo(25);
     expect((rows[0]?.segments[0]?.leftPercent ?? 0) + (rows[0]?.segments[0]?.widthPercent ?? 0))
       .toBeCloseTo(rows[0]?.segments[1]?.leftPercent ?? 0);
+    expect(rows[0]?.segments[1]?.widthPercent).toBeCloseTo(75);
     expect((rows[0]?.segments[1]?.leftPercent ?? 0) + (rows[0]?.segments[1]?.widthPercent ?? 0))
       .toBeCloseTo(100);
     expect(rows[0]?.memoryMarkers).toEqual([
       expect.objectContaining({ id: 'memory_one', type: memoryType.id, color: memoryType.color ?? null })
     ]);
-    expect(rows[0]?.memoryMarkers[0]?.leftPercent).toBeCloseTo(60);
+    expect(rows[0]?.memoryMarkers[0]?.leftPercent).toBeCloseTo(50);
     expect(rows[0]?.runbookRevisionMarkers).toEqual([
       expect.objectContaining({ id: 'runbook_one:1', revision: 1 }),
       expect.objectContaining({ id: 'runbook_one:2', revision: 2 })
@@ -231,9 +236,9 @@ describe('workspace dashboard', () => {
       onRunMemoryDreaming: () => undefined
     }));
 
-    expect(html).not.toContain('>Past 12 Hours<');
-    expect(html).toContain('>-5h<');
-    expect(html).toContain('>-3h 45m<');
+    expect(html).not.toContain('>Past 4 Hours<');
+    expect(html).toContain('>-4h<');
+    expect(html).toContain('>-3h<');
     expect(html).toContain('>Latest<');
     expect(html).toContain('Recent session');
     expect(html).not.toContain('<strong>Recent session</strong>');
@@ -395,7 +400,7 @@ describe('workspace dashboard', () => {
     expect(html).toContain('>Safeguard error</span>');
   });
 
-  it('uses the latest 12 cumulative activity hours and collapses wall-clock gaps', () => {
+  it('uses the latest 4 cumulative activity hours and collapses wall-clock gaps', () => {
     const timeline = buildWorkspaceTimeline([
       runRow('run_one', [
         ['2026-08-01T00:00:00.000Z', '2026-08-01T08:00:00.000Z'],
@@ -405,13 +410,11 @@ describe('workspace dashboard', () => {
     const rows = timeline.rows;
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.segments).toHaveLength(2);
-    expect(timeline.windowDurationMs).toBe(12 * 60 * 60 * 1_000);
-    expect(rows[0]?.windowDurationMs).toBe(12 * 60 * 60 * 1_000);
+    expect(timeline.windowDurationMs).toBe(4 * 60 * 60 * 1_000);
+    expect(rows[0]?.windowDurationMs).toBe(4 * 60 * 60 * 1_000);
+    expect(rows[0]?.segments).toHaveLength(1);
     expect(rows[0]?.segments[0]).toMatchObject({ leftPercent: 0 });
-    expect(rows[0]?.segments[0]?.widthPercent).toBeCloseTo((4 / 12) * 100);
-    expect(rows[0]?.segments[1]?.leftPercent).toBeCloseTo((4 / 12) * 100);
-    expect(rows[0]?.segments[1]?.widthPercent).toBeCloseTo((8 / 12) * 100);
+    expect(rows[0]?.segments[0]?.widthPercent).toBeCloseTo(100);
   });
 
   it('keeps concurrent sessions aligned without double-counting overlapping activity', () => {
@@ -422,11 +425,11 @@ describe('workspace dashboard', () => {
     const first = timeline.rows.find((row) => row.runId === 'run_one');
     const second = timeline.rows.find((row) => row.runId === 'run_two');
 
-    expect(timeline.windowDurationMs).toBe(6 * 60 * 60 * 1_000);
+    expect(timeline.windowDurationMs).toBe(4 * 60 * 60 * 1_000);
     expect(first?.segments[0]?.leftPercent).toBeCloseTo(0);
-    expect(first?.segments[0]?.widthPercent).toBeCloseTo((4 / 6) * 100);
-    expect(second?.segments[0]?.leftPercent).toBeCloseTo((2 / 6) * 100);
-    expect(second?.segments[0]?.widthPercent).toBeCloseTo((4 / 6) * 100);
+    expect(first?.segments[0]?.widthPercent).toBeCloseTo(50);
+    expect(second?.segments[0]?.leftPercent).toBeCloseTo(0);
+    expect(second?.segments[0]?.widthPercent).toBeCloseTo(100);
   });
 
   it('shows Dreaming progress and honors profiles with memory disabled', () => {

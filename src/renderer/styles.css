@@ -119,6 +119,7 @@ body.is-resizing-research-side {
   .sidebar,
   .main-trace-list,
   .main-commentary-list,
+  .workspace-surface-list,
   .research-goal-choice-list,
   .runbook-view-scroll,
   .memory-catalog-list,
@@ -141,6 +142,7 @@ body.is-resizing-research-side {
   .sidebar,
   .main-trace-list,
   .main-commentary-list,
+  .workspace-surface-list,
   .research-goal-choice-list,
   .runbook-view-scroll,
   .memory-catalog-list,
@@ -163,6 +165,7 @@ body.is-resizing-research-side {
   .sidebar,
   .main-trace-list,
   .main-commentary-list,
+  .workspace-surface-list,
   .research-goal-choice-list,
   .runbook-view-scroll,
   .memory-catalog-list,
@@ -184,6 +187,7 @@ body.is-resizing-research-side {
   .sidebar,
   .main-trace-list,
   .main-commentary-list,
+  .workspace-surface-list,
   .research-goal-choice-list,
   .runbook-view-scroll,
   .memory-catalog-list,
@@ -208,6 +212,7 @@ body.is-resizing-research-side {
   .sidebar,
   .main-trace-list,
   .main-commentary-list,
+  .workspace-surface-list,
   .research-goal-choice-list,
   .runbook-view-scroll,
   .memory-catalog-list,
@@ -229,6 +234,7 @@ body.is-resizing-research-side {
   .sidebar,
   .main-trace-list,
   .main-commentary-list,
+  .workspace-surface-list,
   .research-goal-choice-list,
   .runbook-view-scroll,
   .memory-catalog-list,
@@ -248,6 +254,7 @@ body.is-resizing-research-side {
   .sidebar,
   .main-trace-list,
   .main-commentary-list,
+  .workspace-surface-list,
   .runbook-view-scroll,
   .memory-catalog-list,
   .subagent-catalog-list,
@@ -2261,7 +2268,6 @@ body.is-resizing-research-side .main-session-grid {
   gap: 6px;
   overflow: auto;
   padding: 8px 0 0;
-  scrollbar-gutter: stable;
 }
 
 .workspace-surface-item {

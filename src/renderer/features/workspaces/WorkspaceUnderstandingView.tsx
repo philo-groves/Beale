@@ -22,8 +22,8 @@ import {
 import type { WorkspaceTimelineResult } from '../../view-models/workspaceTimeline';
 import type { SessionHeat } from '../../view-models/sessionHeat';
 
-const TIMELINE_WINDOW_HOURS = 12;
-const TIMELINE_TICK_HOURS = [0, 3, 6, 9, 12] as const;
+const TIMELINE_WINDOW_HOURS = 4;
+const TIMELINE_TICK_HOURS = [0, 1, 2, 3, 4] as const;
 
 export function WorkspaceUnderstandingView({
   busy,
@@ -104,7 +104,7 @@ export function WorkspaceUnderstandingView({
   const dejunkHeat = workspaceDejunkHeat(newFileCount);
   const activeSession = runs.some(({ run }) => !['blocked', 'completed', 'failed', 'stopped'].includes(run.status));
   const dejunkDisabled = busy || workspaceDejunkInProgress || activeSession || workspaceDejunk?.available === false;
-  const timelineAriaLabel = `${workspaceName.trim() || 'Workspace'} — most recent 12 hours of session activity`;
+  const timelineAriaLabel = `${workspaceName.trim() || 'Workspace'} — most recent 4 hours of session activity`;
 
   return (
     <main className="workspace-dashboard" aria-label="Workspace dashboard">
