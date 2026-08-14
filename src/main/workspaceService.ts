@@ -120,7 +120,10 @@ import type {
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   SessionTranscriptSearchResult,
+  ScopeAsset,
+  ScopeAssetDirection,
   ScopeAssetInput,
+  ScopeAssetKind,
   StartRunInput,
   SteeringAction,
   VerifierContractRecord,
@@ -730,6 +733,14 @@ export class WorkspaceService {
       }
       case 'list_sessions':
         return this.listIntrospectionSessions(args);
+      case 'list_resources':
+        return this.listIntrospectionResources(args);
+      case 'add_resource':
+        return this.addIntrospectionResource(args);
+      case 'edit_resource':
+        return this.editIntrospectionResource(args);
+      case 'remove_resource':
+        return this.removeIntrospectionResource(args);
       case 'launch_session': {
         this.openIntrospectionWorkspace(args);
         const snapshot = await this.startRunWithSourcePreparation(this.introspectionStartRunInput(args));
@@ -743,6 +754,22 @@ export class WorkspaceService {
         const runId = requiredToolString(args, 'runId');
         const note = optionalToolString(args, 'note') ?? 'Stopped by Beale Introspection plugin.';
         return this.steerRun({ type: 'stop', runId, note });
+      }
+      case 'run_dejunk': {
+        this.requireIntrospectionWorkspace(args);
+        const snapshot = this.runWorkspaceDejunk();
+        return {
+          workspace: snapshot.workspace,
+          dejunk: snapshot.workspace.dejunk
+        };
+      }
+      case 'run_dreaming': {
+        this.requireIntrospectionWorkspace(args);
+        const snapshot = await this.runMemoryDreaming();
+        return {
+          workspace: snapshot.workspace,
+          dreaming: snapshot.honeycrispMemory.dreaming
+        };
       }
       default:
         throw new Error(`Unknown Beale introspection tool: ${tool}`);
@@ -769,6 +796,79 @@ export class WorkspaceService {
     const workspacePath = optionalToolString(args, 'workspacePath');
     if (workspacePath) return this.openWorkspace(workspacePath);
     return this.getSnapshot();
+  }
+
+  private requireIntrospectionWorkspace(args: Record<string, unknown>): WorkspaceSnapshot {
+    const snapshot = this.openIntrospectionWorkspace(args);
+    if (!snapshot) throw new Error('No Beale workspace is open.');
+    return snapshot;
+  }
+
+  private listIntrospectionResources(args: Record<string, unknown>): unknown {
+    const snapshot = this.requireIntrospectionWorkspace(args);
+    const kind = optionalToolString(args, 'kind');
+    const direction = optionalToolString(args, 'direction');
+    if (kind && !isScopeAssetKind(kind)) throw new Error(`Unsupported resource kind: ${kind}`);
+    if (direction && !isScopeAssetDirection(direction)) {
+      throw new Error(`Unsupported resource direction: ${direction}`);
+    }
+    const resources = snapshot.activeScope.assets
+      .filter((resource) => !kind || resource.kind === kind)
+      .filter((resource) => !direction || resource.direction === direction);
+    return {
+      workspace: snapshot.workspace,
+      scopeVersion: snapshot.activeScope.version,
+      resources
+    };
+  }
+
+  private addIntrospectionResource(args: Record<string, unknown>): unknown {
+    const snapshot = this.requireIntrospectionWorkspace(args);
+    const resource = introspectionResourceInput(args);
+    return this.saveIntrospectionResources(snapshot.activeScope, [
+      ...snapshot.activeScope.assets.map(scopeAssetInput),
+      resource
+    ]);
+  }
+
+  private editIntrospectionResource(args: Record<string, unknown>): unknown {
+    const snapshot = this.requireIntrospectionWorkspace(args);
+    const resourceId = requiredToolString(args, 'resourceId');
+    const existing = snapshot.activeScope.assets.find((resource) => resource.id === resourceId);
+    if (!existing) throw new Error(`Resource not found in the active workspace scope: ${resourceId}`);
+    const replacement = introspectionResourceInput(args, existing);
+    const resources = snapshot.activeScope.assets.map((resource) => (
+      resource.id === resourceId ? replacement : scopeAssetInput(resource)
+    ));
+    return this.saveIntrospectionResources(snapshot.activeScope, resources);
+  }
+
+  private removeIntrospectionResource(args: Record<string, unknown>): unknown {
+    const snapshot = this.requireIntrospectionWorkspace(args);
+    const resourceId = requiredToolString(args, 'resourceId');
+    if (!snapshot.activeScope.assets.some((resource) => resource.id === resourceId)) {
+      throw new Error(`Resource not found in the active workspace scope: ${resourceId}`);
+    }
+    const resources = snapshot.activeScope.assets
+      .filter((resource) => resource.id !== resourceId)
+      .map(scopeAssetInput);
+    return this.saveIntrospectionResources(snapshot.activeScope, resources);
+  }
+
+  private saveIntrospectionResources(scope: WorkspaceScopeVersion, resources: ScopeAssetInput[]): unknown {
+    const snapshot = this.saveScope({
+      workspaceName: scope.workspaceName,
+      scopeOwner: scope.scopeOwner,
+      descriptionMarkdown: scope.descriptionMarkdown,
+      rulesMarkdown: scope.rulesMarkdown,
+      expiresAt: scope.expiresAt,
+      assets: resources
+    });
+    return {
+      workspace: snapshot.workspace,
+      scopeVersion: snapshot.activeScope.version,
+      resources: snapshot.activeScope.assets
+    };
   }
 
   private introspectionStartRunInput(args: Record<string, unknown>): StartRunInput {
@@ -5815,6 +5915,68 @@ function requiredToolString(record: Record<string, unknown>, key: string): strin
 function optionalToolString(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+const SCOPE_ASSET_KINDS: readonly ScopeAssetKind[] = [
+  'domain',
+  'host',
+  'ip_range',
+  'repo',
+  'binary',
+  'path',
+  'account',
+  'credential_ref',
+  'service',
+  'documentation',
+  'other'
+];
+
+function isScopeAssetKind(value: string): value is ScopeAssetKind {
+  return (SCOPE_ASSET_KINDS as readonly string[]).includes(value);
+}
+
+function isScopeAssetDirection(value: string): value is ScopeAssetDirection {
+  return value === 'in_scope' || value === 'out_of_scope';
+}
+
+function introspectionResourceInput(
+  args: Record<string, unknown>,
+  existing: ScopeAsset | null = null
+): ScopeAssetInput {
+  const rawKind = optionalToolString(args, 'kind') ?? existing?.kind;
+  if (!rawKind) throw new Error('kind is required.');
+  if (!isScopeAssetKind(rawKind)) throw new Error(`Unsupported resource kind: ${rawKind}`);
+
+  const rawDirection = optionalToolString(args, 'direction') ?? existing?.direction ?? 'in_scope';
+  if (!isScopeAssetDirection(rawDirection)) {
+    throw new Error(`Unsupported resource direction: ${rawDirection}`);
+  }
+
+  const value = optionalToolString(args, 'value') ?? existing?.value;
+  if (!value) throw new Error('value is required.');
+  const sensitivity = optionalToolString(args, 'sensitivity') ?? existing?.sensitivity ?? 'internal';
+  const attributes = { ...(existing?.attributes ?? {}) };
+
+  if (Object.prototype.hasOwnProperty.call(args, 'attributes')) {
+    if (!isRecord(args.attributes)) throw new Error('attributes must be an object.');
+    Object.assign(attributes, args.attributes);
+  }
+  if (Object.prototype.hasOwnProperty.call(args, 'displayName')) {
+    if (typeof args.displayName !== 'string') throw new Error('displayName must be a string.');
+    const displayName = args.displayName.trim();
+    if (displayName) attributes.displayName = displayName;
+    else delete attributes.displayName;
+  }
+  if (rawKind === 'repo') attributes.repositoryUrl = value;
+  else delete attributes.repositoryUrl;
+
+  return {
+    direction: rawDirection,
+    kind: rawKind,
+    value,
+    sensitivity,
+    ...(Object.keys(attributes).length > 0 ? { attributes } : {})
+  };
 }
 
 function toolNumber(record: Record<string, unknown>, key: string, fallback: number): number {

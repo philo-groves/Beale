@@ -1,13 +1,14 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "beale-introspection",
-  "version": "0.1.0",
-  "description": "Default Beale tools for inspecting workspaces and controlling research sessions.",
+  "version": "0.2.0",
+  "description": "Default Beale tools for managing workspaces, resources, research sessions, and maintenance.",
   "author": "Beale",
   "license": "MIT",
   "keywords": [
     "beale",
     "workspace",
+    "resource",
     "session",
     "introspection"
   ]

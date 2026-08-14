@@ -188,6 +188,15 @@ describe('AgentPluginRegistry', () => {
       id: 2,
       result: { tools: expect.any(Array) }
     });
+    const tools = (responses[1].result as { tools: Array<{ name: string }> }).tools;
+    expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
+      'list_resources',
+      'add_resource',
+      'edit_resource',
+      'remove_resource',
+      'run_dejunk',
+      'run_dreaming'
+    ]));
   });
 });
 

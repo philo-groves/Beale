@@ -2478,7 +2478,10 @@ describe('Beale workbench skeleton', () => {
       'network'
     ]));
     expect(launchArgs).not.toContain('--tool-family');
-    expect(launchArgs).not.toContain('--allow-mcp-server');
+    expect(launchArgs).toEqual(expect.arrayContaining([
+      '--allow-mcp-server',
+      'beale-introspection.beale'
+    ]));
     expect(launchArgs).not.toContain('--skill');
     expect(launchArgs).toContain('repository-search');
     expect(launchArgs).toContain('file-read');
@@ -2840,7 +2843,7 @@ describe('Beale workbench skeleton', () => {
     const service = new WorkspaceService();
     service.createWorkspace(workspace);
     const plugins = service.addAgentPluginFromFilesystem(pluginRoot);
-    const sourceRoot = plugins.plugins[0].source.path;
+    const sourceRoot = plugins.plugins.find((plugin) => plugin.name === 'filesystem-plugin')!.source.path;
     const summary = service.getHoneycrispToolingSummary();
     const args = JSON.parse(readFileSync(argsPath, 'utf8')) as string[];
     const mcpConfigPath = args[args.indexOf('--mcp-config') + 1];
@@ -2859,6 +2862,7 @@ describe('Beale workbench skeleton', () => {
     expect(summary.config.preference.skillDirs).toContain(join(sourceRoot, 'skills'));
     expect(summary.config.preference.selectedSkillIds).toContain('recon');
     expect(summary.config.preference.allowedMcpServers).toContain('filesystem-plugin.local');
+    expect(summary.config.preference.allowedMcpServers).toContain('beale-introspection.beale');
     expect(generatedMcpConfig.servers['filesystem-plugin.local']).toMatchObject({
       command: join(sourceRoot, 'server.js'),
       cwd: sourceRoot

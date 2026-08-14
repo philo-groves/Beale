@@ -376,7 +376,10 @@ describe('research profile host integration', () => {
       expect(invocations[0]?.args).not.toContain('--tool-family');
       expect(invocations[0]?.args).toEqual(expect.arrayContaining(['--allowed-side-effect', 'network']));
       expect(invocations[0]?.args).not.toContain('--disable-tool-family');
-      expect(invocations[0]?.args).not.toContain('--allow-mcp-server');
+      expect(invocations[0]?.args).toEqual(expect.arrayContaining([
+        '--allow-mcp-server',
+        'beale-introspection.beale'
+      ]));
       expect(invocations[0]?.args).not.toContain('--skill');
       expect(invocations[0]?.args).not.toContain('--memory-type-descriptions');
       expect(invocations.every((invocation) => existsSync(invocation.profilePath))).toBe(true);
@@ -519,7 +522,10 @@ describe('research profile host integration', () => {
       expect(invocation?.args).not.toContain('--tool-family');
       expect(invocation?.args).toEqual(expect.arrayContaining(['--allowed-side-effect', 'network']));
       expect(invocation?.args).not.toContain('--skill');
-      expect(invocation?.args).not.toContain('--allow-mcp-server');
+      expect(invocation?.args).toEqual(expect.arrayContaining([
+        '--allow-mcp-server',
+        'beale-introspection.beale'
+      ]));
       expect(invocation?.args).not.toContain('profile-literature-skill');
       expect(invocation?.args).not.toContain('profile-library-mcp');
       expect(launchArgs).not.toContain('--title-model');

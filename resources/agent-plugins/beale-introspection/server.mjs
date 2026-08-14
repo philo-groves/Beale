@@ -21,6 +21,82 @@ const TOOLS = [
     }
   },
   {
+    name: 'list_resources',
+    description: 'List resources in the active scope of the current or selected Beale workspace.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        registryWorkspaceId: { type: 'string' },
+        workspacePath: { type: 'string' },
+        kind: {
+          type: 'string',
+          enum: ['domain', 'host', 'ip_range', 'repo', 'binary', 'path', 'account', 'credential_ref', 'service', 'documentation', 'other']
+        },
+        direction: { type: 'string', enum: ['in_scope', 'out_of_scope'] }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: 'add_resource',
+    description: 'Add a resource by creating a new active scope version in the current or selected Beale workspace.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        registryWorkspaceId: { type: 'string' },
+        workspacePath: { type: 'string' },
+        kind: {
+          type: 'string',
+          enum: ['domain', 'host', 'ip_range', 'repo', 'binary', 'path', 'account', 'credential_ref', 'service', 'documentation', 'other']
+        },
+        value: { type: 'string' },
+        direction: { type: 'string', enum: ['in_scope', 'out_of_scope'], default: 'in_scope' },
+        sensitivity: { type: 'string', default: 'internal' },
+        displayName: { type: 'string' },
+        attributes: { type: 'object', additionalProperties: true }
+      },
+      required: ['kind', 'value'],
+      additionalProperties: false
+    }
+  },
+  {
+    name: 'edit_resource',
+    description: 'Edit a resource by ID and create a new active scope version while preserving unspecified fields.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        registryWorkspaceId: { type: 'string' },
+        workspacePath: { type: 'string' },
+        resourceId: { type: 'string' },
+        kind: {
+          type: 'string',
+          enum: ['domain', 'host', 'ip_range', 'repo', 'binary', 'path', 'account', 'credential_ref', 'service', 'documentation', 'other']
+        },
+        value: { type: 'string' },
+        direction: { type: 'string', enum: ['in_scope', 'out_of_scope'] },
+        sensitivity: { type: 'string' },
+        displayName: { type: 'string', description: 'Set to an empty string to remove the display name.' },
+        attributes: { type: 'object', description: 'Attributes to merge into the existing resource metadata.', additionalProperties: true }
+      },
+      required: ['resourceId'],
+      additionalProperties: false
+    }
+  },
+  {
+    name: 'remove_resource',
+    description: 'Remove a resource by ID and create a new active scope version.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        registryWorkspaceId: { type: 'string' },
+        workspacePath: { type: 'string' },
+        resourceId: { type: 'string' }
+      },
+      required: ['resourceId'],
+      additionalProperties: false
+    }
+  },
+  {
     name: 'list_sessions',
     description: 'List recent Beale research sessions, optionally filtered by workspace or status.',
     inputSchema: {
@@ -78,6 +154,30 @@ const TOOLS = [
       required: ['runId'],
       additionalProperties: false
     }
+  },
+  {
+    name: 'run_dejunk',
+    description: 'Run workspace Dejunk maintenance in the current or selected workspace. Unavailable during active research.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        registryWorkspaceId: { type: 'string' },
+        workspacePath: { type: 'string' }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: 'run_dreaming',
+    description: 'Run Honeycrisp memory Dreaming in the current or selected workspace with the configured profile and provider.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        registryWorkspaceId: { type: 'string' },
+        workspacePath: { type: 'string' }
+      },
+      additionalProperties: false
+    }
   }
 ];
 
@@ -124,7 +224,7 @@ async function dispatch(message) {
     sendResult(id, {
       protocolVersion: params?.protocolVersion ?? '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'beale-introspection', version: '0.1.0' }
+      serverInfo: { name: 'beale-introspection', version: '0.2.0' }
     });
     return;
   }
