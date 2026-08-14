@@ -293,9 +293,13 @@ describe('renderer dialog surfaces', () => {
     expect(headerStyles).toContain('border-bottom: 1px solid var(--panel-border)');
     expect(listStyles).toContain('grid-template-rows: repeat(3, auto)');
     expect(listStyles).toContain('align-content: start');
+    expect(listStyles).toContain('--session-next-step-row-height: calc(2.6rem + 14px)');
     expect(rowStyles).toContain('background: transparent');
     expect(rowStyles).toContain('border-radius: 0');
     expect(rowStyles).toContain('border-bottom: 1px solid var(--panel-border)');
+    expect(rowStyles).toContain('min-height: var(--session-next-step-row-height)');
+    const skeletonStyles = styles.match(/\.session-next-step-skeleton\s*\{([^}]*)\}/g)?.at(-1) ?? '';
+    expect(skeletonStyles).toContain('padding: 6px 10px');
     const buttonStyles = styles.match(/\.session-next-step-button\s*\{([^}]*)\}/)?.[1] ?? '';
     const buttonHoverStyles = styles.match(/\.session-next-step-button:hover:not\(:disabled\)\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(buttonStyles).toContain('padding: 6px 0');

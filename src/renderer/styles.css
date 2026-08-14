@@ -5061,6 +5061,7 @@ button.session-summary-item:hover:not(:disabled),
 }
 
 .session-next-steps-list {
+  --session-next-step-row-height: calc(2.6rem + 14px);
   min-height: 0;
   display: grid;
   grid-template-rows: repeat(3, auto);
@@ -5072,7 +5073,7 @@ button.session-summary-item:hover:not(:disabled),
 .session-next-step-skeleton {
   width: 100%;
   min-width: 0;
-  min-height: 0;
+  min-height: var(--session-next-step-row-height);
   box-sizing: border-box;
   border: 0;
   border-bottom: 1px solid var(--panel-border);
@@ -5127,7 +5128,7 @@ button.session-summary-item:hover:not(:disabled),
 }
 
 .session-next-step-skeleton {
-  padding: 0 10px;
+  padding: 6px 10px;
   display: flex;
   align-items: center;
   overflow: hidden;
