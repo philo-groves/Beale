@@ -187,20 +187,20 @@ export function WorkspaceUnderstandingView({
                   ))}
                   {row.runbookRevisionMarkers.map((marker) => (
                     <span
-                      aria-label={`Runbook revision ${marker.revision}: ${marker.title}`}
+                      aria-label={`Runbook update ${marker.revision}: ${marker.title}`}
                       className="workspace-timeline-runbook-marker"
                       key={marker.id}
                       style={{ left: `${marker.leftPercent}%` }}
-                      title={`Runbook · ${marker.title} · Revision ${marker.revision} · ${formatDateTime(marker.createdAt)}`}
+                      title={`Runbook · ${marker.title} · Update ${marker.revision} · ${formatDateTime(marker.createdAt)}`}
                     />
                   ))}
                   {row.reportRevisionMarkers.map((marker) => (
                     <span
-                      aria-label={`Report revision ${marker.revision}: ${marker.title}`}
+                      aria-label={`Report update ${marker.revision}: ${marker.title}`}
                       className="workspace-timeline-report-marker"
                       key={marker.id}
                       style={{ left: `${marker.leftPercent}%` }}
-                      title={`Report · ${marker.title} · Revision ${marker.revision} · ${formatDateTime(marker.createdAt)}`}
+                      title={`Report · ${marker.title} · Update ${marker.revision} · ${formatDateTime(marker.createdAt)}`}
                     />
                   ))}
                 </div>
@@ -297,8 +297,8 @@ function WorkspaceTimelineLegend({ open }: { open: boolean }): JSX.Element {
       <div className="workspace-timeline-legend-row is-session-items">
         <span><i className="workspace-timeline-duration-swatch" />Work duration</span>
         <span><i className="workspace-timeline-memory-swatch" />Memory recorded</span>
-        <span><i className="workspace-timeline-runbook-swatch" />Runbook revision</span>
-        <span><i className="workspace-timeline-report-swatch" />Report revision</span>
+        <span><i className="workspace-timeline-runbook-swatch" />Runbook update</span>
+        <span><i className="workspace-timeline-report-swatch" />Report update</span>
       </div>
       <div className="workspace-timeline-legend-row is-session-results">
         <span><WorkspaceTimelineResultSymbol result="natural_end" />No error</span>

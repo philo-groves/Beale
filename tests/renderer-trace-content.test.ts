@@ -114,7 +114,7 @@ describe('renderer trace content view models', () => {
     expect(honeycrispToolTraceSubtext(honeycrispToolRequest('runbook.create', { title: 'VM crash triage', purpose: 'Repeatable proof' }))).toBe('VM crash triage');
     expect(honeycrispToolTraceSubtext(honeycrispToolObservation('runbook.append', { id: 'runbook_one', expectedRevision: 2 }, {
       id: 'runbook_one', title: 'VM crash triage', status: 'completed', revision: 3
-    }))).toBe('VM crash triage · Completed · rev 3');
+    }))).toBe('VM crash triage · Completed · Update 3');
   });
 
   it('formats reasoning summaries while preserving summary boundaries', () => {

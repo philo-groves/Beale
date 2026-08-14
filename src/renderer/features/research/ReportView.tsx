@@ -19,7 +19,7 @@ export function ReportView({ report, document, loading, error }: {
           {report.summary ? <p>{report.summary}</p> : null}
           <div className="runbook-view-meta">
             <span>{traceLabel(report.status)}</span>
-            <span>Revision {report.revision}</span>
+            <span>Update {report.revision}</span>
           </div>
         </header>
         {loading ? (

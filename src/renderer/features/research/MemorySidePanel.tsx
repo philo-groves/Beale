@@ -526,7 +526,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
                   <BookOpen size={15} aria-hidden="true" />
                   <span>{workspaceRunbooks.length} {runbookLabel}</span>
-                  <span className="session-summary-meta">{workspaceRunbookRevisions} Revisions</span>
+                  <span className="session-summary-meta">{workspaceRunbookRevisions} Updates</span>
                   <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                 </button>
               ) : null}
@@ -534,7 +534,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 <button type="button" className="session-summary-item" onClick={() => openDetails('reports')}>
                   <FileText size={15} aria-hidden="true" />
                   <span>{workspaceReports.length} Reports</span>
-                  <span className="session-summary-meta">{workspaceReportRevisions} Revisions</span>
+                  <span className="session-summary-meta">{workspaceReportRevisions} Updates</span>
                   <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                 </button>
               ) : null}
@@ -573,7 +573,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
                 <BookOpen size={15} aria-hidden="true" />
                 <span>{sessionRunbooks} {runbookLabel}</span>
-                <span className="session-summary-meta">{sessionRunbookRevisions} Revisions</span>
+                <span className="session-summary-meta">{sessionRunbookRevisions} Updates</span>
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
             ) : null}
@@ -581,7 +581,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               <button type="button" className="session-summary-item" onClick={() => openDetails('reports')}>
                 <FileText size={15} aria-hidden="true" />
                 <span>{sessionReports.length} Reports</span>
-                <span className="session-summary-meta">{sessionReportRevisions} Revisions</span>
+                <span className="session-summary-meta">{sessionReportRevisions} Updates</span>
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
             ) : null}
@@ -1561,7 +1561,7 @@ export function MemoryDetailView({
         {node.summary ? <p className="memory-catalog-summary">{node.summary}</p> : null}
         {node.body && node.body !== node.summary ? <p className="memory-catalog-body">{node.body}</p> : null}
         <div className="memory-catalog-meta">
-          <span>rev {node.revision}</span>
+          <span>Update {node.revision}</span>
           <span>{node.evidenceRefs.length} refs</span>
           <span>{relationships.length} links</span>
         </div>

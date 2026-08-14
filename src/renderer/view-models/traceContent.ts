@@ -174,7 +174,7 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
     const title = (result ? stringRecordValue(result, 'title') : null) ?? stringRecordValue(inputs, 'title');
     const status = result ? stringRecordValue(result, 'status') : stringRecordValue(inputs, 'status');
     const revision = result ? numberRecordValue(result, 'revision') : null;
-    return [title, status ? traceLabel(status) : null, revision ? `rev ${revision}` : null].filter((value): value is string => Boolean(value)).join(' · ');
+    return [title, status ? traceLabel(status) : null, revision ? `Update ${revision}` : null].filter((value): value is string => Boolean(value)).join(' · ');
   }
   if (toolName === 'runbook.append') {
     const result = tracePayloadRecord(payload, 'result');
@@ -182,7 +182,7 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
     const title = result ? stringRecordValue(result, 'title') : null;
     const status = result ? stringRecordValue(result, 'status') : stringRecordValue(inputs, 'status');
     const revision = result ? numberRecordValue(result, 'revision') : numberRecordValue(inputs, 'expectedRevision');
-    return [title ?? id, status ? traceLabel(status) : null, revision ? `rev ${revision}` : null].filter((value): value is string => Boolean(value)).join(' · ');
+    return [title ?? id, status ? traceLabel(status) : null, revision ? `Update ${revision}` : null].filter((value): value is string => Boolean(value)).join(' · ');
   }
   if (toolName === 'file.read') return honeycrispToolEventKind(event) === 'tool.requested' ? stringRecordValue(inputs, 'path') ?? '' : '';
   if (toolName === 'shell.run') {

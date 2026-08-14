@@ -86,7 +86,7 @@ export const RunbookView = memo(function RunbookView({
           {runbook.purpose ? <p>{runbookDescriptionText(runbook.purpose)}</p> : null}
           <div className="runbook-view-meta">
             <span>{traceLabel(runbook.status)}</span>
-            <span>Revision {runbook.revision}</span>
+            <span>Update {runbook.revision}</span>
             {document?.language ? <span>{document.language}</span> : null}
           </div>
         </header>

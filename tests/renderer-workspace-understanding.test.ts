@@ -256,9 +256,9 @@ describe('workspace dashboard', () => {
     expect(html).toContain(`workspace-timeline-memory-marker memory-type-${memoryType.id}`);
     expect(html).toContain(`memory recorded: Parser state transition`);
     expect(html.match(/workspace-timeline-runbook-marker/g)).toHaveLength(2);
-    expect(html).toContain('Runbook revision 2: Parser proof');
+    expect(html).toContain('Runbook update 2: Parser proof');
     expect(html).toContain('workspace-timeline-report-marker');
-    expect(html).toContain('Report revision 1: Parser result');
+    expect(html).toContain('Report update 1: Parser result');
     expect(html).toContain('data-dejunk-heat="medium"');
     expect(html).toContain('>50 new files</span>');
     expect(html).toContain('>Dream</button>');
@@ -399,7 +399,7 @@ describe('workspace dashboard', () => {
     const sessionItemsRow = html.match(/<div class="workspace-timeline-legend-row is-session-items">([\s\S]*?)<\/div>/)?.[1] ?? '';
     const sessionResultsRow = html.match(/<div class="workspace-timeline-legend-row is-session-results">([\s\S]*?)<\/div>/)?.[1] ?? '';
     expect(sessionItemsRow).toContain('Work duration');
-    expect(sessionItemsRow).toContain('Report revision');
+    expect(sessionItemsRow).toContain('Report update');
     expect(sessionItemsRow).not.toContain('No error');
     expect(sessionResultsRow).toContain('No error');
     expect(sessionResultsRow).toContain('Unexpected error');

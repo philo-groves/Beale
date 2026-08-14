@@ -472,13 +472,13 @@ describe('renderer memory catalog', () => {
     expect(html.indexOf('>1 Chain</span>')).toBeLessThan(html.indexOf('>1 Sink</span>'));
     expect(html.match(/session-memory-type-item/g)).toHaveLength(4);
     expect(html).toContain('<span>3 Runbooks</span>');
-    expect(html).toContain('class="session-summary-meta">12 Revisions</span>');
+    expect(html).toContain('class="session-summary-meta">12 Updates</span>');
     expect(html).toContain('<span>0 Subagents</span>');
     expect(html).not.toContain('0 Active');
     expect(html).not.toContain('0 Completed');
     expect(html.match(/session-summary-chevron/g)).toHaveLength(4);
     expect(html).toContain('<span>0 Reports</span>');
-    expect(html).toContain('class="session-summary-meta">0 Revisions</span>');
+    expect(html).toContain('class="session-summary-meta">0 Updates</span>');
     expect(html).not.toContain('aria-label="Search memory"');
     const firstDividerIndex = html.indexOf('class="session-summary-divider"');
     const secondDividerIndex = html.indexOf('class="session-summary-divider"', firstDividerIndex + 1);
@@ -535,7 +535,7 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('aria-label="Workspace summary"');
     expect(html).toContain('class="session-summary-title">Workspace</h2>');
     expect(html).toContain('<span>2 Runbooks</span>');
-    expect(html).toContain('class="session-summary-meta">7 Revisions</span>');
+    expect(html).toContain('class="session-summary-meta">7 Updates</span>');
     expect(html).toContain('<span>2 Memories</span>');
     expect(html).toContain('class="session-memory-type-item"><span>1 Primitive</span><span class="session-summary-meta">1 Suspected</span></div>');
     expect(html).toContain('class="session-memory-type-item"><span>1 Chain</span><span class="session-summary-meta">1 Confirmed</span></div>');
@@ -687,7 +687,7 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('Back to Reports');
     expect(html).toContain('A shareable breakthrough');
     expect(html).toContain('Here is the plain-language result.');
-    expect(html).toContain('Revision 2');
+    expect(html).toContain('Update 2');
     expect(html).not.toContain('Open session detail views');
   });
 
