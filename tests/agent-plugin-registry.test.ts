@@ -14,7 +14,7 @@ afterEach(() => {
 
 describe('AgentPluginRegistry', () => {
   it('installs filesystem plugins and persists enablement', () => {
-    const registry = new AgentPluginRegistry(tempDir('beale-plugin-registry-'));
+    const registry = new AgentPluginRegistry(tempDir('beale-plugin-registry-'), { builtinPlugins: [] });
     const pluginRoot = validPluginRoot('filesystem-plugin');
 
     const installed = registry.addFromFilesystem(pluginRoot);
@@ -42,7 +42,7 @@ describe('AgentPluginRegistry', () => {
     const disabled = registry.setEnabled(installed.plugins[0].id, false);
     expect(disabled.plugins[0].enabled).toBe(false);
 
-    const reloaded = new AgentPluginRegistry(dirname(installed.registryPath));
+    const reloaded = new AgentPluginRegistry(dirname(installed.registryPath), { builtinPlugins: [] });
     expect(reloaded.getState().plugins[0].enabled).toBe(false);
 
     const removed = registry.remove(installed.plugins[0].id);
@@ -50,7 +50,7 @@ describe('AgentPluginRegistry', () => {
   });
 
   it('builds Honeycrisp runtime arguments from enabled plugins', () => {
-    const registry = new AgentPluginRegistry(tempDir('beale-plugin-registry-'));
+    const registry = new AgentPluginRegistry(tempDir('beale-plugin-registry-'), { builtinPlugins: [] });
     const pluginRoot = validPluginRoot('filesystem-plugin');
 
     const installed = registry.addFromFilesystem(pluginRoot);
@@ -91,7 +91,7 @@ describe('AgentPluginRegistry', () => {
   });
 
   it('keeps manifest-valid plugins visible when an MCP component is invalid', () => {
-    const registry = new AgentPluginRegistry(tempDir('beale-plugin-registry-'));
+    const registry = new AgentPluginRegistry(tempDir('beale-plugin-registry-'), { builtinPlugins: [] });
     const pluginRoot = validPluginRoot('component-errors');
     writeFileSync(join(pluginRoot, 'mcp.json'), JSON.stringify({
       $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json',
@@ -111,13 +111,55 @@ describe('AgentPluginRegistry', () => {
   });
 
   it('rejects directories without the Agent Plugin manifest schema', () => {
-    const registry = new AgentPluginRegistry(tempDir('beale-plugin-registry-'));
+    const registry = new AgentPluginRegistry(tempDir('beale-plugin-registry-'), { builtinPlugins: [] });
     const pluginRoot = tempDir('not-a-plugin-');
     writeFileSync(join(pluginRoot, 'plugin.json'), JSON.stringify({ name: 'not-a-plugin' }), 'utf8');
 
     expect(() => registry.addFromFilesystem(pluginRoot)).toThrow(
       'Agent Plugin manifest must use schema https://agent-plugins.org/schemas/1.0.0/plugin.schema.json.'
     );
+  });
+
+  it('includes the default Beale Introspection plugin and persists disablement', () => {
+    const registry = new AgentPluginRegistry(tempDir('beale-plugin-registry-'), {
+      runtimeEnvironment: (plugin) => {
+        if (plugin.name !== 'beale-introspection') return {} as Record<string, string>;
+        return {
+          BEALE_INTROSPECTION_URL: 'http://127.0.0.1:12345',
+          BEALE_INTROSPECTION_TOKEN: 'test-token'
+        };
+      }
+    });
+
+    const plugin = registry.getState().plugins.find((candidate) => candidate.name === 'beale-introspection');
+    expect(plugin).toBeTruthy();
+    expect(plugin?.enabled).toBe(true);
+    expect(plugin?.source.kind).toBe('builtin');
+    expect(plugin?.mcpServers).toMatchObject([
+      {
+        name: 'beale',
+        transport: 'stdio',
+        command: 'node',
+        valid: true
+      }
+    ]);
+
+    const runtime = registry.getHoneycrispRuntime();
+    expect(runtime.allowedMcpServers).toEqual(['beale-introspection.beale']);
+    expect(runtime.mcpConfigPath).toBeTruthy();
+    const mcpConfig = JSON.parse(readFileSync(runtime.mcpConfigPath ?? '', 'utf8')) as {
+      mcpServers: Record<string, { env: Record<string, string> }>;
+    };
+    expect(mcpConfig.mcpServers['beale-introspection.beale'].env).toEqual({
+      BEALE_INTROSPECTION_URL: 'http://127.0.0.1:12345',
+      BEALE_INTROSPECTION_TOKEN: 'test-token'
+    });
+
+    const disabled = registry.setEnabled(plugin!.id, false);
+    expect(disabled.plugins.find((candidate) => candidate.id === plugin!.id)?.enabled).toBe(false);
+    const reloaded = new AgentPluginRegistry(dirname(disabled.registryPath));
+    expect(reloaded.getState().plugins.find((candidate) => candidate.id === plugin!.id)?.enabled).toBe(false);
+    expect(() => registry.remove(plugin!.id)).toThrow('Built-in plugins cannot be removed.');
   });
 });
 

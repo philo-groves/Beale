@@ -48,6 +48,17 @@ interface ParsedManifest {
   warnings: string[];
 }
 
+interface BuiltinAgentPluginDefinition {
+  id: string;
+  path: string;
+  installedAt: string;
+}
+
+export interface AgentPluginRegistryOptions {
+  builtinPlugins?: BuiltinAgentPluginDefinition[];
+  runtimeEnvironment?: (plugin: AgentPluginRecord) => Record<string, string>;
+}
+
 export interface AgentPluginHoneycrispRuntime {
   runtimeDirectory: string;
   skillDirs: string[];
@@ -65,7 +76,10 @@ export class AgentPluginRegistry {
   private readonly runtimePath: string;
   private readonly runtimeMcpConfigPath: string;
 
-  public constructor(private readonly registryDirectory: string) {
+  public constructor(
+    private readonly registryDirectory: string,
+    private readonly options: AgentPluginRegistryOptions = {}
+  ) {
     mkdirSync(registryDirectory, { recursive: true });
     this.registryPath = join(registryDirectory, 'agent-plugins.json');
     this.pluginStorePath = resolve(registryDirectory, 'agent-plugin-repositories');
@@ -78,7 +92,7 @@ export class AgentPluginRegistry {
   }
 
   public getState(): AgentPluginRegistryState {
-    const registry = this.readRegistryFile();
+    const registry = this.readRegistryWithBuiltins();
     return {
       registryPath: this.registryPath,
       pluginStorePath: this.pluginStorePath,
@@ -112,7 +126,14 @@ export class AgentPluginRegistry {
           warnings.push(`Plugin ${plugin.name} MCP server ${serverName} was skipped: ${summary.errors.join(' ')}`);
           continue;
         }
-        const runtimeConfig = honeycrispMcpServerConfig(config, summary.transport, plugin.source.path, pluginDataRoot);
+        const extraEnvironment = this.options.runtimeEnvironment?.(plugin) ?? {};
+        const runtimeConfig = honeycrispMcpServerConfig(
+          config,
+          summary.transport,
+          plugin.source.path,
+          pluginDataRoot,
+          extraEnvironment
+        );
         if (!runtimeConfig) continue;
         const runtimeName = uniqueRuntimeMcpServerName(plugin.name, serverName, usedMcpNames);
         mcpServers[runtimeName] = runtimeConfig;
@@ -210,8 +231,18 @@ export class AgentPluginRegistry {
 
   public setEnabled(pluginIdValue: string, enabled: boolean): AgentPluginRegistryState {
     const registry = this.readRegistryFile();
-    const plugin = registry.plugins.find((candidate) => candidate.id === pluginIdValue);
-    if (!plugin) throw new Error('Plugin not found.');
+    let plugin = registry.plugins.find((candidate) => candidate.id === pluginIdValue);
+    if (!plugin) {
+      const builtin = this.builtinPlugins().find((candidate) => candidate.id === pluginIdValue);
+      if (!builtin) throw new Error('Plugin not found.');
+      plugin = {
+        id: builtin.id,
+        source: { kind: 'builtin', path: builtin.path },
+        enabled: true,
+        installedAt: builtin.installedAt
+      };
+      registry.plugins.push(plugin);
+    }
     plugin.enabled = enabled;
     this.writeRegistryFile(registry);
     return this.getState();
@@ -219,8 +250,9 @@ export class AgentPluginRegistry {
 
   public remove(pluginIdValue: string): AgentPluginRegistryState {
     const registry = this.readRegistryFile();
-    const plugin = registry.plugins.find((candidate) => candidate.id === pluginIdValue);
+    const plugin = this.readRegistryWithBuiltins().plugins.find((candidate) => candidate.id === pluginIdValue);
     if (!plugin) throw new Error('Plugin not found.');
+    if (plugin.source.kind === 'builtin') throw new Error('Built-in plugins cannot be removed.');
     const next = {
       ...registry,
       plugins: registry.plugins.filter((candidate) => candidate.id !== pluginIdValue)
@@ -294,6 +326,14 @@ export class AgentPluginRegistry {
     }
   }
 
+  private readRegistryWithBuiltins(): AgentPluginRegistryFile {
+    const registry = this.readRegistryFile();
+    return {
+      ...registry,
+      plugins: mergeBuiltinPlugins(registry.plugins, this.builtinPlugins())
+    };
+  }
+
   private writeRegistryFile(registry: AgentPluginRegistryFile): void {
     mkdirSync(dirname(this.registryPath), { recursive: true });
     const tempPath = join(dirname(this.registryPath), `agent-plugins.${process.pid}.${randomUUID()}.tmp`);
@@ -305,6 +345,10 @@ export class AgentPluginRegistry {
     const resolved = resolve(pluginPath);
     if (!isContainedPath(this.pluginStorePath, resolved)) return;
     rmSync(resolved, { recursive: true, force: true });
+  }
+
+  private builtinPlugins(): BuiltinAgentPluginDefinition[] {
+    return this.options.builtinPlugins ?? defaultBuiltinPlugins();
   }
 }
 
@@ -500,7 +544,8 @@ function honeycrispMcpServerConfig(
   config: unknown,
   transport: AgentPluginMcpTransport,
   pluginRoot: string,
-  pluginDataRoot: string
+  pluginDataRoot: string,
+  extraEnvironment: Record<string, string> = {}
 ): Record<string, unknown> | null {
   if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
   const object = config as Record<string, unknown>;
@@ -514,7 +559,10 @@ function honeycrispMcpServerConfig(
     if (Array.isArray(object.args)) runtimeConfig.args = object.args.filter((arg): arg is string => typeof arg === 'string');
     if (isStringRecord(object.env)) {
       runtimeConfig.env = Object.fromEntries(
-        Object.entries(object.env).map(([key, value]) => [key, expandPluginVariables(value, pluginRoot, pluginDataRoot)])
+        Object.entries(object.env).map(([key, value]) => [
+          key,
+          expandPluginVariables(value, pluginRoot, pluginDataRoot, extraEnvironment)
+        ])
       );
     }
     const cwd = stringValue(object.cwd);
@@ -546,10 +594,19 @@ function resolveExpressionSuffix(root: string, suffix: string): string {
   return child ? resolve(root, child) : resolve(root);
 }
 
-function expandPluginVariables(value: string, pluginRoot: string, pluginDataRoot: string): string {
-  return value
+function expandPluginVariables(
+  value: string,
+  pluginRoot: string,
+  pluginDataRoot: string,
+  extraEnvironment: Record<string, string>
+): string {
+  let expanded = value
     .replaceAll('${PLUGIN_ROOT}', pluginRoot)
     .replaceAll('${PLUGIN_DATA}', pluginDataRoot);
+  for (const [key, replacement] of Object.entries(extraEnvironment)) {
+    expanded = expanded.replaceAll(`\${${key}}`, replacement);
+  }
+  return expanded;
 }
 
 function parseSkillMarkdown(markdown: string): { name: string | null; description: string | null } {
@@ -661,7 +718,7 @@ function normalizeStoredPlugin(value: unknown): StoredAgentPlugin | null {
   const object = value as Partial<StoredAgentPlugin>;
   if (typeof object.id !== 'string' || !object.source || typeof object.source !== 'object') return null;
   const source = object.source;
-  if ((source.kind !== 'filesystem' && source.kind !== 'repository') || typeof source.path !== 'string') return null;
+  if ((source.kind !== 'filesystem' && source.kind !== 'repository' && source.kind !== 'builtin') || typeof source.path !== 'string') return null;
   return {
     id: object.id,
     source: {
@@ -672,6 +729,43 @@ function normalizeStoredPlugin(value: unknown): StoredAgentPlugin | null {
     enabled: object.enabled === true,
     installedAt: typeof object.installedAt === 'string' ? object.installedAt : new Date().toISOString()
   };
+}
+
+function mergeBuiltinPlugins(stored: StoredAgentPlugin[], builtins: BuiltinAgentPluginDefinition[]): StoredAgentPlugin[] {
+  const next = [...stored];
+  for (const builtin of builtins) {
+    const existing = next.find((plugin) => plugin.id === builtin.id);
+    if (existing) {
+      existing.source = { kind: 'builtin', path: builtin.path };
+      existing.installedAt = existing.installedAt || builtin.installedAt;
+      continue;
+    }
+    next.push({
+      id: builtin.id,
+      source: { kind: 'builtin', path: builtin.path },
+      enabled: true,
+      installedAt: builtin.installedAt
+    });
+  }
+  return next;
+}
+
+function defaultBuiltinPlugins(): BuiltinAgentPluginDefinition[] {
+  return [{
+    id: 'beale-introspection-builtin',
+    path: defaultBuiltinPluginPath('beale-introspection'),
+    installedAt: '2026-08-14T00:00:00.000Z'
+  }];
+}
+
+function defaultBuiltinPluginPath(directoryName: string): string {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const candidates = [
+    ...(resourcesPath ? [resolve(resourcesPath, 'agent-plugins', directoryName)] : []),
+    resolve(process.cwd(), 'resources', 'agent-plugins', directoryName),
+    resolve(__dirname, '..', '..', 'resources', 'agent-plugins', directoryName)
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates.at(-1)!;
 }
 
 function comparePlugins(left: AgentPluginRecord, right: AgentPluginRecord): number {

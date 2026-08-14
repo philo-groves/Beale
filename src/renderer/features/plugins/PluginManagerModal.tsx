@@ -102,6 +102,8 @@ function PluginCard({
 }): JSX.Element {
   const sourceLabel = plugin.source.kind === 'repository'
     ? plugin.source.repositoryUrl ?? plugin.source.path
+    : plugin.source.kind === 'builtin'
+      ? 'Bundled with Beale'
     : plugin.source.path;
   const skillCount = plugin.skills.length;
   const serverCount = plugin.mcpServers.length;
@@ -129,10 +131,12 @@ function PluginCard({
             {plugin.enabled ? <Power size={15} /> : <PowerOff size={15} />}
             <span>{plugin.enabled ? 'Enabled' : 'Disabled'}</span>
           </button>
-          <button type="button" title="Remove plugin" disabled={busy} onClick={() => onRemove(plugin.id)}>
-            <Trash2 size={15} />
-            <span>Remove</span>
-          </button>
+          {plugin.source.kind !== 'builtin' ? (
+            <button type="button" title="Remove plugin" disabled={busy} onClick={() => onRemove(plugin.id)}>
+              <Trash2 size={15} />
+              <span>Remove</span>
+            </button>
+          ) : null}
         </div>
       </div>
       {plugin.description ? <p>{plugin.description}</p> : null}

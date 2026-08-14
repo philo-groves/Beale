@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "beale": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "./server.mjs"
+      ],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": {
+        "BEALE_INTROSPECTION_URL": "${BEALE_INTROSPECTION_URL}",
+        "BEALE_INTROSPECTION_TOKEN": "${BEALE_INTROSPECTION_TOKEN}"
+      }
+    }
+  }
+}

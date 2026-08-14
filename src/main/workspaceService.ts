@@ -44,6 +44,7 @@ import { readHoneycrispRunbook } from './honeycrispRunbook';
 import { readHoneycrispReport } from './honeycrispReport';
 import { WorkspaceRegistry } from './workspaceRegistry';
 import { AgentPluginRegistry } from './agentPluginRegistry';
+import { BealeIntrospectionServer } from './bealeIntrospectionServer';
 import { ProfilingService } from './profilingService';
 import {
   getWorkspaceDejunkSummary,
@@ -152,7 +153,9 @@ import type {
   WorkspaceRecoveryReport,
   WorkspaceSnapshot,
   WorkspaceSummary,
-  AgentPluginRegistryState
+  AgentPluginRegistryState,
+  RunEngineKind,
+  ShellSafetyMode
 } from '@shared/types';
 
 const EXECUTION_POSTURE_LABEL = 'Honeycrisp host-process execution. Use an external VM or container when OS isolation is required.';
@@ -567,6 +570,9 @@ export class WorkspaceService {
   private readonly researchProviderAuth: ResearchProviderAuthService;
   private readonly providerCredentials: ProviderCredentialStore;
   private readonly profiling = new ProfilingService();
+  private readonly bealeIntrospectionServer = new BealeIntrospectionServer(
+    (tool, args) => this.invokeBealeIntrospectionTool(tool, args)
+  );
   private workspaceRegistry: WorkspaceRegistry | null = null;
   private agentPluginRegistry: AgentPluginRegistry | null = null;
   private workspacePath: string | null = null;
@@ -706,6 +712,90 @@ export class WorkspaceService {
 
   public removeAgentPlugin(pluginId: string): AgentPluginRegistryState {
     return this.getAgentPluginRegistry().remove(pluginId);
+  }
+
+  private async invokeBealeIntrospectionTool(tool: string, args: Record<string, unknown>): Promise<unknown> {
+    switch (tool) {
+      case 'list_workspaces':
+        return {
+          activeWorkspacePath: this.workspacePath,
+          ...this.getWorkspaceRegistryState()
+        };
+      case 'create_workspace': {
+        const workspacePath = requiredToolString(args, 'workspacePath');
+        return this.createWorkspace(workspacePath);
+      }
+      case 'list_sessions':
+        return this.listIntrospectionSessions(args);
+      case 'launch_session': {
+        this.openIntrospectionWorkspace(args);
+        const snapshot = await this.startRunWithSourcePreparation(this.introspectionStartRunInput(args));
+        return {
+          workspace: snapshot.workspace,
+          runs: snapshot.runs
+        };
+      }
+      case 'stop_session': {
+        this.openIntrospectionWorkspace(args);
+        const runId = requiredToolString(args, 'runId');
+        const note = optionalToolString(args, 'note') ?? 'Stopped by Beale Introspection plugin.';
+        return this.steerRun({ type: 'stop', runId, note });
+      }
+      default:
+        throw new Error(`Unknown Beale introspection tool: ${tool}`);
+    }
+  }
+
+  private listIntrospectionSessions(args: Record<string, unknown>): unknown {
+    const registryWorkspaceId = optionalToolString(args, 'registryWorkspaceId');
+    const workspacePath = optionalToolString(args, 'workspacePath');
+    const status = optionalToolString(args, 'status');
+    const rawLimit = typeof args.limit === 'number' ? args.limit : 50;
+    const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(200, Math.floor(rawLimit))) : 50;
+    const sessions = this.getWorkspaceRegistryState().researchSessions
+      .filter((session) => !registryWorkspaceId || session.registryWorkspaceId === registryWorkspaceId)
+      .filter((session) => !workspacePath || resolve(session.workspacePath) === resolve(workspacePath))
+      .filter((session) => !status || session.status === status)
+      .slice(0, limit);
+    return { sessions };
+  }
+
+  private openIntrospectionWorkspace(args: Record<string, unknown>): WorkspaceSnapshot | null {
+    const registryWorkspaceId = optionalToolString(args, 'registryWorkspaceId');
+    if (registryWorkspaceId) return this.openRegisteredWorkspace(registryWorkspaceId);
+    const workspacePath = optionalToolString(args, 'workspacePath');
+    if (workspacePath) return this.openWorkspace(workspacePath);
+    return this.getSnapshot();
+  }
+
+  private introspectionStartRunInput(args: Record<string, unknown>): StartRunInput {
+    const explicit = isRecord(args.startRunInput) ? args.startRunInput : null;
+    if (explicit) return explicit as unknown as StartRunInput;
+    const runEngine = optionalToolString(args, 'runEngine');
+    const shellSafetyMode = optionalToolString(args, 'shellSafetyMode');
+    return {
+      runEngine: (runEngine === 'fixture' ? 'fixture' : 'honeycrisp') as RunEngineKind,
+      provider: optionalToolString(args, 'provider'),
+      shellSafetyMode: (shellSafetyMode === 'auto_review' || shellSafetyMode === 'danger'
+        ? shellSafetyMode
+        : DEFAULT_SHELL_SAFETY_MODE) as ShellSafetyMode,
+      goalEnabled: args.goalEnabled === true,
+      goalObjective: typeof args.goalObjective === 'string' ? args.goalObjective : null,
+      promptMarkdown: requiredToolString(args, 'promptMarkdown'),
+      workflowId: optionalToolString(args, 'workflowId'),
+      mode: optionalToolString(args, 'mode') ?? '',
+      attemptStrategy: optionalToolString(args, 'attemptStrategy') ?? '',
+      model: optionalToolString(args, 'model') ?? '',
+      reasoningEffort: optionalToolString(args, 'reasoningEffort') ?? 'medium',
+      sandboxProfile: optionalToolString(args, 'sandboxProfile') ?? 'workspace-write',
+      targetAssetId: optionalToolString(args, 'targetAssetId'),
+      targetPath: optionalToolString(args, 'targetPath'),
+      budget: {
+        maxMinutes: toolNumber(args, 'maxMinutes', UNBOUNDED_RUN_MINUTES),
+        maxAttempts: toolNumber(args, 'maxAttempts', 1),
+        maxCostUsd: toolNumber(args, 'maxCostUsd', 0)
+      }
+    };
   }
 
   public getMemorySettings(): MemorySettings {
@@ -2810,6 +2900,7 @@ export class WorkspaceService {
 
   public dispose(): void {
     this.close();
+    this.bealeIntrospectionServer.stop();
     this.profiling.dispose();
     this.openAiAuth.dispose();
     this.researchProviderAuth.dispose();
@@ -3063,7 +3154,18 @@ export class WorkspaceService {
 
   private getAgentPluginRegistry(): AgentPluginRegistry {
     if (!this.agentPluginRegistry) {
-      this.agentPluginRegistry = new AgentPluginRegistry(dirname(this.getWorkspaceRegistry().registryPath));
+      this.agentPluginRegistry = new AgentPluginRegistry(dirname(this.getWorkspaceRegistry().registryPath), {
+        runtimeEnvironment: (plugin) => {
+          if (plugin.source.kind !== 'builtin' || plugin.name !== 'beale-introspection') {
+            return {} as Record<string, string>;
+          }
+          const endpoint = this.bealeIntrospectionServer.ensureStarted();
+          return {
+            BEALE_INTROSPECTION_URL: endpoint.url,
+            BEALE_INTROSPECTION_TOKEN: endpoint.token
+          };
+        }
+      });
     }
     return this.agentPluginRegistry;
   }
@@ -5671,6 +5773,22 @@ function numberFromBudget(budget: Record<string, unknown>, key: string, fallback
 function stringFromRecord(record: Record<string, unknown>, key: string): string {
   const value = record[key];
   return typeof value === 'string' ? value : '';
+}
+
+function requiredToolString(record: Record<string, unknown>, key: string): string {
+  const value = optionalToolString(record, key);
+  if (!value) throw new Error(`${key} is required.`);
+  return value;
+}
+
+function optionalToolString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function toolNumber(record: Record<string, unknown>, key: string, fallback: number): number {
+  const value = record[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function fixtureScenarioFromBudget(budget: Record<string, unknown>): FixtureScenario {

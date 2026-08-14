@@ -898,7 +898,7 @@ export interface WorkspaceRegistryState {
   researchSessions: ResearchSessionSummary[];
 }
 
-export type AgentPluginSourceKind = 'filesystem' | 'repository';
+export type AgentPluginSourceKind = 'filesystem' | 'repository' | 'builtin';
 export type AgentPluginStatus = 'ready' | 'invalid';
 export type AgentPluginMcpTransport = 'stdio' | 'streamable-http' | 'sse' | 'unknown';
 
