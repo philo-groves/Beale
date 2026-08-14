@@ -103,6 +103,54 @@ describe('breakout room view', () => {
     expect(html).not.toContain('Finished review history.');
   });
 
+  it('renders persisted agent messages as collapsed provider-attributed disclosures', () => {
+    const detail = {
+      breakoutRooms: [{
+        id: 'room_messages',
+        title: 'Message review',
+        purpose: '',
+        status: 'completed',
+        phase: 'completed',
+        challengeRound: 1
+      }],
+      breakoutRoomMembers: [{
+        id: 'member_parser',
+        roomId: 'room_messages',
+        agentPath: '/root/parser_reviewer',
+        provider: 'xai',
+        model: 'grok-4.6',
+        role: 'reviewer',
+        status: 'completed'
+      }],
+      breakoutRoomMessages: [{
+        id: 'message_commentary',
+        roomId: 'room_messages',
+        memberId: 'member_parser',
+        senderAgentPath: '/root/parser_reviewer',
+        kind: 'commentary',
+        contentMarkdown: 'Inspecting the parser boundary.',
+        evidenceRefs: [],
+        metadata: { provider: 'xai', model: 'grok-4.6' },
+        createdAt: '2026-08-12T12:00:01.000Z'
+      }]
+    } as unknown as RunDetail;
+
+    const html = renderToStaticMarkup(createElement(BreakoutRoomView, {
+      detail,
+      roomId: 'room_messages',
+      onBack: () => undefined
+    }));
+
+    expect(html).toContain('<details class="breakout-room-message kind-commentary">');
+    expect(html).not.toContain('<details class="breakout-room-message kind-commentary" open="">');
+    expect(html).toContain('class="run-work-header breakout-room-message-header"');
+    expect(html).toContain('class="breakout-room-message-provider" title="grok-4.6"');
+    expect(html).toContain('breakout-room-message-provider-icon');
+    expect(html).toContain('<span>Parser Reviewer</span>');
+    expect(html).toContain('<span class="breakout-room-message-kind">Commentary</span>');
+    expect(html).toContain('Inspecting the parser boundary.');
+  });
+
   it('formats working duration from the member start time', () => {
     expect(breakoutRoomWorkingDurationLabel(
       { startedAt: '2026-08-12T12:00:00.000Z' },

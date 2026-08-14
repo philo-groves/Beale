@@ -25,6 +25,7 @@ export function BreakoutRoomView({
   const members = (detail?.breakoutRoomMembers ?? []).filter((member) => member.roomId === roomId);
   const messages = (detail?.breakoutRoomMessages ?? []).filter((message) => message.roomId === roomId);
   const memberById = new Map(members.map((member) => [member.id, member]));
+  const memberByAgentPath = new Map(members.map((member) => [member.agentPath, member]));
   const workingMembers = members.filter((member) => member.status === 'active');
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -65,13 +66,18 @@ export function BreakoutRoomView({
         <div className="main-commentary-scroll breakout-room-scroll">
           <div className="main-commentary-list breakout-room-transcript">
             {messages.map((message) => (
-              <BreakoutMessage message={message} member={message.memberId ? memberById.get(message.memberId) : undefined} key={message.id} />
+              <BreakoutMessage
+                message={message}
+                member={(message.memberId ? memberById.get(message.memberId) : undefined) ?? memberByAgentPath.get(message.senderAgentPath)}
+                key={message.id}
+              />
             ))}
             {room.outcomeMarkdown && !messages.some((message) => message.kind === 'outcome') ? (
-              <article className="breakout-room-message kind-outcome">
-                <div className="breakout-room-message-meta"><strong>Room outcome</strong></div>
-                <div className="breakout-room-message-content">{renderTraceProseText(room.outcomeMarkdown, 'agent_output')}</div>
-              </article>
+              <BreakoutOutcome
+                contentMarkdown={room.outcomeMarkdown}
+                model={detail.run.model}
+                provider={metadataText(detail.run.budget, 'modelProvider') ?? detail.run.model}
+              />
             ) : null}
             {workingMembers.length > 0 ? (
               <section className="breakout-room-working-subagents" aria-label="Working subagents">
@@ -171,34 +177,79 @@ function BreakoutMessage({
   message: BreakoutRoomMessageRecord;
   member: BreakoutRoomMemberRecord | undefined;
 }): JSX.Element {
-  const sender = message.senderAgentPath === '/root'
-    ? 'Lead agent'
-    : member ? `${providerLabel(member.provider)} · ${member.role || 'researcher'}` : message.senderAgentPath;
+  const sender = breakoutMessageSenderName(message, member);
+  const provider = member?.provider || metadataText(message.metadata, 'provider') || member?.model || metadataText(message.metadata, 'model') || '';
+  const model = member?.model || metadataText(message.metadata, 'model') || provider;
   return (
-    <article className={`breakout-room-message kind-${message.kind}`}>
-      <div className="breakout-room-message-meta">
-        <strong>{sender}</strong>
-        <span>{messageKindLabel(message)}</span>
-        <time dateTime={message.createdAt}>{shortTime(message.createdAt)}</time>
+    <details className={`breakout-room-message kind-${message.kind}`}>
+      <BreakoutMessageHeader kindLabel={messageKindLabel(message)} model={model} provider={provider} sender={sender} />
+      <div className="breakout-room-message-body">
+        <div className="breakout-room-message-content">{renderTraceProseText(message.contentMarkdown, 'agent_output')}</div>
+        {message.evidenceRefs.length > 0 ? (
+          <div className="breakout-room-evidence-refs">Evidence: {message.evidenceRefs.join(', ')}</div>
+        ) : null}
+        {roomPacketDetails(message).length > 0 ? (
+          <dl className="breakout-room-packet-details">
+            {roomPacketDetails(message).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+          </dl>
+        ) : null}
       </div>
-      <div className="breakout-room-message-content">{renderTraceProseText(message.contentMarkdown, 'agent_output')}</div>
-      {message.evidenceRefs.length > 0 ? (
-        <div className="breakout-room-evidence-refs">Evidence: {message.evidenceRefs.join(', ')}</div>
-      ) : null}
-      {roomPacketDetails(message).length > 0 ? (
-        <dl className="breakout-room-packet-details">
-          {roomPacketDetails(message).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
-        </dl>
-      ) : null}
-    </article>
+    </details>
   );
 }
 
-function providerLabel(provider: string): string {
-  if (provider === 'openai-codex') return 'OpenAI';
-  if (provider === 'anthropic') return 'Anthropic';
-  if (provider === 'xai') return 'xAI';
-  return provider;
+function BreakoutOutcome({
+  contentMarkdown,
+  model,
+  provider
+}: {
+  contentMarkdown: string;
+  model: string;
+  provider: string;
+}): JSX.Element {
+  return (
+    <details className="breakout-room-message kind-outcome">
+      <BreakoutMessageHeader kindLabel="Outcome" model={model} provider={provider} sender="Lead Agent" />
+      <div className="breakout-room-message-body">
+        <div className="breakout-room-message-content">{renderTraceProseText(contentMarkdown, 'agent_output')}</div>
+      </div>
+    </details>
+  );
+}
+
+function BreakoutMessageHeader({
+  kindLabel,
+  model,
+  provider,
+  sender
+}: {
+  kindLabel: string;
+  model: string;
+  provider: string;
+  sender: string;
+}): JSX.Element {
+  return (
+    <summary className="run-work-header breakout-room-message-header">
+      <span className="breakout-room-message-sender">
+        <span className="breakout-room-message-provider" title={model}>
+          <ProviderIcon className="breakout-room-message-provider-icon" provider={provider || model} size={14} aria-hidden="true" />
+        </span>
+        <span>{sender}</span>
+        <ChevronRight className="run-work-chevron" size={14} aria-hidden="true" />
+      </span>
+      <span className="breakout-room-message-kind">{kindLabel}</span>
+    </summary>
+  );
+}
+
+function breakoutMessageSenderName(
+  message: Pick<BreakoutRoomMessageRecord, 'senderAgentPath'>,
+  member: BreakoutRoomMemberRecord | undefined
+): string {
+  if (message.senderAgentPath === '/root') return 'Lead Agent';
+  const agentPath = member?.agentPath || message.senderAgentPath;
+  const rawName = agentPath.split('/').filter(Boolean).at(-1) ?? agentPath;
+  return subagentDisplayName(rawName);
 }
 
 function roomStatusLabel(status: string): string {
@@ -235,9 +286,4 @@ function roomPacketDetails(message: BreakoutRoomMessageRecord): [string, string]
 function metadataText(metadata: Record<string, unknown>, key: string): string | null {
   const value = metadata[key];
   return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function shortTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
