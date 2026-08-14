@@ -22,6 +22,12 @@
   initial-value: transparent;
 }
 
+@property --session-heat-glass {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgba(21, 21, 21, 0.88);
+}
+
 @property --session-heat-opacity {
   syntax: "<number>";
   inherits: true;
@@ -407,6 +413,7 @@ code {
   --session-heat-wash: rgba(255, 255, 255, 0.075);
   --session-heat-edge: rgba(255, 255, 255, 0.1);
   --session-heat-accent: transparent;
+  --session-heat-glass: color-mix(in srgb, var(--bg) 76%, var(--session-heat-accent));
   --session-heat-opacity: 1;
   height: 100%;
   position: relative;
@@ -418,15 +425,16 @@ code {
   border: 1px solid var(--app-window-border);
   border-radius: var(--app-window-radius);
   color: var(--text);
-  background:
-    linear-gradient(var(--session-heat-surface), var(--session-heat-surface)),
-    var(--bg);
+  background: var(--session-heat-glass);
+  backdrop-filter: blur(44px) saturate(1.08);
+  -webkit-backdrop-filter: blur(44px) saturate(1.08);
   transition:
     grid-template-columns 180ms ease,
     --session-heat-surface 900ms ease,
     --session-heat-wash 900ms ease,
     --session-heat-edge 900ms ease,
     --session-heat-accent 900ms ease,
+    --session-heat-glass 900ms ease,
     --session-heat-opacity 900ms ease,
     background 260ms ease,
     border-color 180ms ease,
@@ -454,18 +462,9 @@ code {
     --session-heat-edge 900ms ease,
     --session-heat-opacity 900ms ease,
     opacity 900ms ease;
-  background:
-    radial-gradient(ellipse at 68% 0%, var(--session-heat-wash) 0%, transparent 48%),
-    radial-gradient(ellipse at 16% 92%, var(--session-heat-wash) 0%, transparent 44%),
-    linear-gradient(180deg, var(--session-heat-edge) 0%, transparent 20%, transparent 78%, var(--session-heat-edge) 100%);
-  background-position:
-    50% 0%,
-    0% 100%,
-    50% 50%;
-  background-size:
-    136% 136%,
-    142% 142%,
-    100% 100%;
+  background: var(--session-heat-wash);
+  backdrop-filter: blur(64px) saturate(1.14);
+  -webkit-backdrop-filter: blur(64px) saturate(1.14);
 }
 
 .app-background-pulses {
@@ -2360,6 +2359,7 @@ body.is-resizing-research-side .main-session-grid {
 
 .workspace-dejunk-card,
 .workspace-dream-card {
+  --workspace-card-glass: color-mix(in srgb, var(--bg) 68%, var(--session-heat-accent));
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -2369,16 +2369,16 @@ body.is-resizing-research-side .main-session-grid {
   border: 0;
   border-radius: 34px;
   corner-shape: squircle;
-  background:
-    radial-gradient(ellipse at 68% 0%, var(--session-heat-wash) 0%, transparent 48%),
-    radial-gradient(ellipse at 16% 92%, var(--session-heat-wash) 0%, transparent 44%),
-    linear-gradient(180deg, var(--session-heat-edge) 0%, transparent 20%, transparent 78%, var(--session-heat-edge) 100%),
-    linear-gradient(var(--session-heat-surface), var(--session-heat-surface)),
-    var(--bg);
+  background: var(--workspace-card-glass);
+  outline: 1px solid var(--session-heat-edge);
+  outline-offset: -1px;
+  backdrop-filter: blur(52px) saturate(1.18);
+  -webkit-backdrop-filter: blur(52px) saturate(1.18);
   transition:
     --session-heat-surface 900ms ease,
     --session-heat-wash 900ms ease,
     --session-heat-edge 900ms ease,
+    --session-heat-accent 900ms ease,
     background 260ms ease;
 }
 

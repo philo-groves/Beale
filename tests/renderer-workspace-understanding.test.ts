@@ -57,7 +57,11 @@ describe('workspace dashboard', () => {
     expect(housekeepingCardStyles).toContain('border: 0');
     expect(housekeepingCardStyles).toContain('border-radius: 34px');
     expect(housekeepingCardStyles).toContain('corner-shape: squircle');
-    expect(housekeepingCardStyles).toContain('radial-gradient');
+    expect(housekeepingCardStyles).toContain('background: var(--workspace-card-glass)');
+    expect(housekeepingCardStyles).toContain('outline: 1px solid var(--session-heat-edge)');
+    expect(housekeepingCardStyles).toContain('backdrop-filter: blur(52px) saturate(1.18)');
+    expect(housekeepingCardStyles).not.toContain('box-shadow');
+    expect(housekeepingCardStyles).not.toContain('gradient');
   });
 
   it('maps memories created since the latest dream to profile heat thresholds', () => {
