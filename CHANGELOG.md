@@ -80,6 +80,8 @@
 
 ### Fixed
 
+- Breakout-room transcripts now remain locked to the bottom as new messages and live subagent history arrive, while preserving the reader's position after an intentional upward scroll.
+- Selecting a subagent from a breakout-room message now opens that subagent's Commentary directly instead of stopping at the detailed-sidenav view chooser.
 - Session forks now preserve the original run's provider route so later continuations cannot lose their assigned Lead provider.
 - xAI runs that prefer Subscription no longer fall through to an ambient API key when the OAuth credential is unavailable; API-key billing is exposed only after a recognized subscription usage-limit fallback.
 - Active-session detail polling now uses a trigger-maintained per-run revision introduced by workbench migration 21 instead of rescanning complete trace and transcript content.

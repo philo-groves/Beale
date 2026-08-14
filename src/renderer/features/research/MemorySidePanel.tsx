@@ -155,16 +155,32 @@ function initialResearchSideNavigation(
   selectedReportId: string | null,
   enabledViews: readonly ResearchSideView[]
 ): ResearchSideNavigationState {
+  return researchSideNavigationForSelectedDetail(
+    CLOSED_RESEARCH_SIDE_NAVIGATION,
+    selectedSubagentPath,
+    selectedRunbookId,
+    selectedReportId,
+    enabledViews
+  );
+}
+
+export function researchSideNavigationForSelectedDetail(
+  state: ResearchSideNavigationState,
+  selectedSubagentPath: string | null,
+  selectedRunbookId: string | null,
+  selectedReportId: string | null,
+  enabledViews: readonly ResearchSideView[]
+): ResearchSideNavigationState {
   if (selectedSubagentPath && enabledViews.includes('subagents')) {
-    return { openViews: ['subagents'], activeView: 'subagents' };
+    return researchSideNavigationReducer(state, { type: 'open', view: 'subagents' });
   }
   if (selectedRunbookId && enabledViews.includes('runbooks')) {
-    return { openViews: ['runbooks'], activeView: 'runbooks' };
+    return researchSideNavigationReducer(state, { type: 'open', view: 'runbooks' });
   }
   if (selectedReportId && enabledViews.includes('reports')) {
-    return { openViews: ['reports'], activeView: 'reports' };
+    return researchSideNavigationReducer(state, { type: 'open', view: 'reports' });
   }
-  return CLOSED_RESEARCH_SIDE_NAVIGATION;
+  return state;
 }
 
 export const ResearchSidePanel = memo(function ResearchSidePanel({
@@ -259,7 +275,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [type, setType] = useState('all');
   const [expandedMemoryGroups, setExpandedMemoryGroups] = useState<ReadonlySet<MemoryStatusGroup>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const visibleNavigation = restrictResearchSideNavigation(navigation, enabledViews);
+  const restrictedNavigation = restrictResearchSideNavigation(navigation, enabledViews);
+  const visibleNavigation = researchSideNavigationForSelectedDetail(
+    restrictedNavigation,
+    selectedSubagentPath,
+    selectedRunbookId,
+    selectedReportId,
+    enabledViews
+  );
   const detailsOpen = expanded ?? visibleNavigation.openViews.length > 0;
   const activeView = visibleNavigation.activeView;
   const nodes = memory?.nodes ?? [];
@@ -420,6 +443,27 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     dispatchNavigation({ type: 'restrict', views: enabledViews });
     if (!featureAvailability.memory) setSelectedNodeId(null);
   }, [enabledViewsKey, featureAvailability.memory]);
+
+  useEffect(() => {
+    if (selectedSubagentPath && subagentsAvailable) {
+      dispatchNavigation({ type: 'open', view: 'subagents' });
+      return;
+    }
+    if (selectedRunbookId && featureAvailability.runbooks) {
+      dispatchNavigation({ type: 'open', view: 'runbooks' });
+      return;
+    }
+    if (selectedReportId && featureAvailability.reports) {
+      dispatchNavigation({ type: 'open', view: 'reports' });
+    }
+  }, [
+    featureAvailability.reports,
+    featureAvailability.runbooks,
+    selectedReportId,
+    selectedRunbookId,
+    selectedSubagentPath,
+    subagentsAvailable
+  ]);
 
   useEffect(() => {
     if (!featureAvailability.runbooks && selectedRunbookId) onBackToRunbooks();

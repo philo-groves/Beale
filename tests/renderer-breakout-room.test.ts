@@ -1,9 +1,10 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { RunDetail } from '@shared/types';
+import type { BreakoutRoomMemberRecord, BreakoutRoomMessageRecord, RunDetail } from '@shared/types';
 import {
   BreakoutRoomView,
+  breakoutRoomTranscriptUpdateKey,
   breakoutRoomWorkingDurationLabel
 } from '../src/renderer/features/sessions/BreakoutRoomView';
 import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
@@ -163,6 +164,52 @@ describe('breakout room view', () => {
       [],
       Date.parse('2026-08-12T12:02:03.000Z')
     )).toBe('00:02:03');
+  });
+
+  it('changes the transcript follow key when room content arrives', () => {
+    const firstMessage: BreakoutRoomMessageRecord = {
+      id: 'message_one',
+      roomId: 'room_live',
+      runId: 'run_live',
+      attemptId: null,
+      memberId: 'member_live',
+      senderAgentPath: '/root/live_parser',
+      recipientAgentPath: null,
+      kind: 'commentary',
+      contentMarkdown: 'First update.',
+      evidenceRefs: [],
+      metadata: {},
+      createdAt: '2026-08-12T12:00:01.000Z'
+    };
+    const member: BreakoutRoomMemberRecord = {
+      id: 'member_live',
+      roomId: 'room_live',
+      runId: 'run_live',
+      attemptId: null,
+      agentId: 'agent_live',
+      agentPath: '/root/live_parser',
+      provider: 'openai-codex',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      role: 'reviewer',
+      status: 'active',
+      startedAt: '2026-08-12T12:00:00.000Z',
+      endedAt: null,
+      error: null
+    };
+
+    const initialKey = breakoutRoomTranscriptUpdateKey([firstMessage], null, [member], []);
+    const messageKey = breakoutRoomTranscriptUpdateKey([
+      firstMessage,
+      { ...firstMessage, id: 'message_two', contentMarkdown: 'Second update.' }
+    ], null, [member], []);
+    const eventKey = breakoutRoomTranscriptUpdateKey([firstMessage], null, [member], [traceEvent({
+      id: 'live-update',
+      payload: { agentPath: '/root/live_parser' }
+    })]);
+
+    expect(messageKey).not.toBe(initialKey);
+    expect(eventKey).not.toBe(initialKey);
   });
 });
 

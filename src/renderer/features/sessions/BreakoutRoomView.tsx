@@ -1,5 +1,5 @@
 import { ArrowLeft, ChevronRight, MessagesSquare } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
 import type { BreakoutRoomMemberRecord, BreakoutRoomMessageRecord, RunDetail } from '@shared/types';
 import { ProviderIcon } from '../../app/ProviderIcon';
@@ -7,7 +7,7 @@ import { formatDurationHms } from '../../lib/formatting';
 import { commentaryMessagesForSession } from '../../view-models/commentary';
 import { subagentDisplayName, traceEventsForSubagent } from '../../view-models/subagents';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
-import { CommentaryMessageRow, shouldAutoExpandToolMessage } from '../commentary/CommentaryView';
+import { CommentaryMessageRow, commentaryFollowLatestAfterScroll, commentaryScrollFadeClasses, shouldAutoExpandToolMessage } from '../commentary/CommentaryView';
 import { renderTraceProseText } from '../traces/traceMarkup';
 
 export function BreakoutRoomView({
@@ -30,6 +30,77 @@ export function BreakoutRoomView({
   const memberByAgentPath = new Map(members.map((member) => [member.agentPath, member]));
   const workingMembers = members.filter((member) => member.status === 'active');
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const followLatestRef = useRef(true);
+  const userScrollIntentRef = useRef(false);
+  const roomIdRef = useRef(roomId);
+  const transcriptUpdateKey = breakoutRoomTranscriptUpdateKey(messages, room?.outcomeMarkdown ?? null, workingMembers, events);
+
+  const updateScrollEdges = useCallback((): void => {
+    const scroll = scrollRef.current;
+    const list = listRef.current;
+    if (!scroll || !list) return;
+    const fadeClasses = commentaryScrollFadeClasses({
+      scrollHeight: list.scrollHeight,
+      clientHeight: list.clientHeight,
+      scrollTop: list.scrollTop
+    });
+    scroll.classList.toggle('has-top-fade', fadeClasses['has-top-fade']);
+    scroll.classList.toggle('has-bottom-fade', fadeClasses['has-bottom-fade']);
+  }, []);
+
+  const scrollToLatest = useCallback((): void => {
+    const list = listRef.current;
+    if (!list) return;
+    list.scrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+    updateScrollEdges();
+  }, [updateScrollEdges]);
+
+  const syncScrollState = useCallback((): void => {
+    if (followLatestRef.current) {
+      scrollToLatest();
+      return;
+    }
+    updateScrollEdges();
+  }, [scrollToLatest, updateScrollEdges]);
+
+  useLayoutEffect(() => {
+    if (roomIdRef.current !== roomId) {
+      roomIdRef.current = roomId;
+      followLatestRef.current = true;
+      userScrollIntentRef.current = false;
+    }
+    const frame = window.requestAnimationFrame(syncScrollState);
+    return () => window.cancelAnimationFrame(frame);
+  }, [roomId, syncScrollState, transcriptUpdateKey]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(syncScrollState);
+    observer.observe(list);
+    Array.from(list.children).forEach((child) => observer.observe(child));
+    return () => observer.disconnect();
+  }, [syncScrollState, transcriptUpdateKey]);
+
+  const markUserScrollIntent = useCallback((): void => {
+    userScrollIntentRef.current = true;
+    followLatestRef.current = false;
+  }, []);
+
+  const handleScroll = useCallback((): void => {
+    const list = listRef.current;
+    if (!list) return;
+    updateScrollEdges();
+    const distanceFromBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
+    followLatestRef.current = commentaryFollowLatestAfterScroll({
+      wasFollowingLatest: followLatestRef.current,
+      distanceFromBottom,
+      userInitiated: userScrollIntentRef.current
+    });
+    userScrollIntentRef.current = false;
+  }, [updateScrollEdges]);
 
   useEffect(() => {
     if (workingMembers.length === 0) return undefined;
@@ -65,8 +136,23 @@ export function BreakoutRoomView({
       {!detail || !room ? <div className="main-trace-empty">Loading breakout room.</div> : null}
       {detail && room && !hasTranscriptContent ? <div className="main-trace-empty">This room has no recorded messages yet.</div> : null}
       {detail && room && hasTranscriptContent ? (
-        <div className="main-commentary-scroll breakout-room-scroll">
-          <div className="main-commentary-list breakout-room-transcript">
+        <div className="main-commentary-scroll breakout-room-scroll" ref={scrollRef}>
+          <div
+            className="main-commentary-list breakout-room-transcript"
+            ref={listRef}
+            onScroll={handleScroll}
+            onWheel={(event) => {
+              if (event.deltaY < 0) markUserScrollIntent();
+            }}
+            onTouchMove={markUserScrollIntent}
+            onPointerDown={(event) => {
+              const list = listRef.current;
+              if (!list || event.pointerType === 'touch') return;
+              const bounds = list.getBoundingClientRect();
+              const scrollbarWidth = Math.max(12, list.offsetWidth - list.clientWidth + 4);
+              if (event.clientX >= bounds.right - scrollbarWidth) markUserScrollIntent();
+            }}
+          >
             {messages.map((message) => (
               <BreakoutMessage
                 message={message}
@@ -211,6 +297,23 @@ function BreakoutMessage({
       </BreakoutMessageBody>
     </article>
   );
+}
+
+export function breakoutRoomTranscriptUpdateKey(
+  messages: readonly BreakoutRoomMessageRecord[],
+  outcomeMarkdown: string | null,
+  workingMembers: readonly BreakoutRoomMemberRecord[],
+  events: TraceDisplayEvent[]
+): string {
+  const workingEventIds = workingMembers.flatMap((member) => (
+    traceEventsForSubagent(events, member.agentPath).map((event) => event.id)
+  ));
+  return [
+    ...messages.map((message) => `${message.id}:${message.contentMarkdown.length}:${message.evidenceRefs.length}`),
+    `outcome:${outcomeMarkdown?.length ?? 0}`,
+    `working:${workingMembers.map((member) => `${member.id}:${member.status}`).join(',')}`,
+    `events:${workingEventIds.join(',')}`
+  ].join('|');
 }
 
 function BreakoutOutcome({

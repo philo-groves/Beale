@@ -20,6 +20,7 @@ import {
   memoryLevelFiltersForViewSpace,
   researchViewSpaceLabel,
   researchSideViewsForProfile,
+  researchSideNavigationForSelectedDetail,
   researchSideNavigationReducer,
   runbookScopeFiltersForViewSpace,
   restrictResearchSideNavigation,
@@ -125,6 +126,24 @@ describe('renderer memory catalog', () => {
     state = researchSideNavigationReducer(state, { type: 'close', view: 'subagents' });
     state = researchSideNavigationReducer(state, { type: 'close', view: 'memory' });
     expect(state).toEqual({ openViews: [], activeView: null });
+  });
+
+  it('activates an externally selected subagent detail without stopping at the view chooser', () => {
+    expect(researchSideNavigationForSelectedDetail(
+      { openViews: [], activeView: null },
+      '/root/parser_review',
+      null,
+      null,
+      ['memory', 'runbooks', 'reports', 'subagents']
+    )).toEqual({ openViews: ['subagents'], activeView: 'subagents' });
+
+    expect(researchSideNavigationForSelectedDetail(
+      { openViews: ['memory'], activeView: 'memory' },
+      '/root/parser_review',
+      null,
+      null,
+      ['memory', 'subagents']
+    )).toEqual({ openViews: ['memory', 'subagents'], activeView: 'subagents' });
   });
 
   it('collapses only when the final detailed side view is closed', () => {
