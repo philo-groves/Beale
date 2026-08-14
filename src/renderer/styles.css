@@ -1864,7 +1864,7 @@ body.is-resizing-research-side .main-session-grid {
   position: absolute;
   top: 4px;
   z-index: 2;
-  border: 1px solid rgba(12, 12, 12, 0.8);
+  border: 1px solid color-mix(in srgb, var(--memory-type-color) 62%, #050505);
   border-radius: 2px;
   background: var(--memory-type-color);
   transform: translateX(-50%);
@@ -1872,22 +1872,25 @@ body.is-resizing-research-side .main-session-grid {
 
 .workspace-timeline-runbook-marker,
 .workspace-timeline-report-marker {
+  --workspace-timeline-artifact-color: #4f87e8;
   width: 9px;
   height: 9px;
   position: absolute;
   top: 8px;
   z-index: 3;
-  border: 1px solid rgba(12, 12, 12, 0.85);
+  border: 1px solid color-mix(in srgb, var(--workspace-timeline-artifact-color) 58%, #050505);
 }
 
 .workspace-timeline-runbook-marker {
+  --workspace-timeline-artifact-color: #4f87e8;
   border-radius: 50%;
-  background: #4f87e8;
+  background: var(--workspace-timeline-artifact-color);
   transform: translateX(-50%);
 }
 
 .workspace-timeline-report-marker {
-  background: #e4bf3f;
+  --workspace-timeline-artifact-color: #e4bf3f;
+  background: var(--workspace-timeline-artifact-color);
   transform: translateX(-50%) rotate(45deg);
 }
 
@@ -1898,14 +1901,15 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-timeline-result-symbol {
+  --workspace-timeline-result-color: #3fa55b;
   width: 11px;
   height: 11px;
   position: relative;
   display: inline-grid;
   place-items: center;
   box-sizing: border-box;
-  border: 1px solid rgba(12, 12, 12, 0.85);
-  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--workspace-timeline-result-color) 58%, #050505);
+  border-radius: 2px;
 }
 
 .workspace-timeline-legend .workspace-timeline-result-symbol {
@@ -1913,12 +1917,14 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-timeline-result-symbol.is-natural-end {
-  background: #3fa55b;
+  --workspace-timeline-result-color: #3fa55b;
+  background: var(--workspace-timeline-result-color);
 }
 
 .workspace-timeline-result-symbol.is-unexpected-error,
 .workspace-timeline-result-symbol.is-safeguard-error {
-  background: #d94b4b;
+  --workspace-timeline-result-color: #d94b4b;
+  background: var(--workspace-timeline-result-color);
 }
 
 .workspace-timeline-result-symbol.is-safeguard-error::after {
