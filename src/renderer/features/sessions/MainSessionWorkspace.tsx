@@ -57,6 +57,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenTraceFilters,
   onRunWorkspaceDejunk = () => undefined,
   onRunMemoryDreaming,
+  onOpenSession = () => undefined,
   onResearchDetailsOpenChange,
   onOpenHoneycrispRunbook,
   onBackToRunbooks,
@@ -110,6 +111,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenTraceFilters: () => void;
   onRunWorkspaceDejunk?: () => void;
   onRunMemoryDreaming: () => void;
+  onOpenSession?: (runId: string) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
   onBackToRunbooks: () => void;
@@ -159,6 +161,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           runs={runs}
           onRunWorkspaceDejunk={onRunWorkspaceDejunk}
           onRunMemoryDreaming={onRunMemoryDreaming}
+          onOpenSession={onOpenSession}
         />
       ) : selectedBreakoutRoomId ? (
         <BreakoutRoomView

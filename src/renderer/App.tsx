@@ -930,6 +930,14 @@ export function App(): JSX.Element {
     },
     [clearRunDetail, setSelectedRunId]
   );
+  const openWorkspaceDashboardSession = useCallback(
+    (runId: string): void => {
+      clearRunDetail();
+      setSelectedBreakoutRoomId(null);
+      setSelectedRunId(runId);
+    },
+    [clearRunDetail, setSelectedRunId]
+  );
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const openSearchResult = useCallback(
     (result: SessionTranscriptSearchResult, query: string): void => {
@@ -1109,6 +1117,7 @@ export function App(): JSX.Element {
               onOpenTraceFilters={openTraceFilters}
               onRunWorkspaceDejunk={runWorkspaceDejunk}
               onRunMemoryDreaming={runMemoryDreaming}
+              onOpenSession={openWorkspaceDashboardSession}
               onResearchDetailsOpenChange={(expanded) => setRightSidenavExpanded(researchDetailsAvailable && expanded)}
               onOpenHoneycrispRunbook={openHoneycrispRunbook}
               onBackToRunbooks={backToRunbooks}

@@ -20,6 +20,8 @@ describe('renderer background pulses', () => {
     const appShellWashStyles = styles.match(/\.app-shell::before\s*\{([^}]*)\}/)?.[1] ?? '';
     const appBackgroundPulsesStyles = styles.match(/\.app-background-pulses\s*\{([^}]*)\}/)?.[1] ?? '';
     const appBackgroundPulseStyles = styles.match(/\.app-background-pulse\s*\{([^}]*)\}/)?.[1] ?? '';
+    const sidebarStyles = styles.match(/\.sidebar\s*\{([^}]*)\}/)?.[1] ?? '';
+    const highHeatStyles = styles.match(/\.app-shell\.session-heat-high,\s*\.workspace-dream-card\[data-dream-heat="high"\],\s*\.workspace-dejunk-card\[data-dejunk-heat="high"\]\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(styles).not.toContain('animation: app-background-pulse');
     expect(styles).not.toContain('@keyframes app-background-pulse');
@@ -27,13 +29,17 @@ describe('renderer background pulses', () => {
     expect(styles).not.toContain('.app-shell.session-active .app-background-pulse');
     expect(styles).not.toContain('--app-pulse-duration');
     expect(styles).not.toMatch(/\.app-shell\.momentum-[^\s,{]+[^{]*\.app-background-pulse/);
-    expect(appShellStyles).toContain('background: var(--bg)');
+    expect(appShellStyles).toContain('background: var(--session-heat-window-surface)');
     expect(appShellStyles).not.toContain('--session-heat-glass');
     expect(appShellStyles).not.toContain('backdrop-filter');
     expect(appShellStyles).not.toContain('gradient');
     expect(appShellWashStyles).toBe('');
     expect(appBackgroundPulsesStyles).toContain('display: none');
     expect(appBackgroundPulseStyles).toContain('display: none');
+    expect(sidebarStyles).toContain('background: var(--session-heat-window-surface)');
+    expect(highHeatStyles).toContain(
+      '--session-heat-window-surface: color-mix(in srgb, var(--session-heat-high-color) 12%, var(--chrome-soft))'
+    );
     expect(appShellWashStyles).not.toContain('backdrop-filter');
     expect(appShellWashStyles).not.toContain('82px');
     expect(appShellWashStyles).not.toContain('box-shadow');

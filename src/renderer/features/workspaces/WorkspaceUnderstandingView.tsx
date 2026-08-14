@@ -38,6 +38,7 @@ export function WorkspaceUnderstandingView({
   runs,
   onRunWorkspaceDejunk = () => undefined,
   onRunMemoryDreaming,
+  onOpenSession = () => undefined,
   nowMs
 }: {
   busy: boolean;
@@ -54,6 +55,7 @@ export function WorkspaceUnderstandingView({
   runs: RunRow[];
   onRunWorkspaceDejunk?: () => void;
   onRunMemoryDreaming: () => void;
+  onOpenSession?: (runId: string) => void;
   nowMs?: number;
 }): JSX.Element {
   const [clockNowMs, setClockNowMs] = useState(() => Date.now());
@@ -145,9 +147,14 @@ export function WorkspaceUnderstandingView({
           <div className="workspace-timeline-rows">
             {timelineRows.length > 0 ? timelineRows.map((row) => (
               <div className="workspace-timeline-row" key={row.sessionRunId}>
-                <div className="workspace-timeline-session-label" title={row.title}>
+                <button
+                  type="button"
+                  className="workspace-timeline-session-label"
+                  title={`Open ${row.title}`}
+                  onClick={() => onOpenSession(row.runId)}
+                >
                   {row.title}
-                </div>
+                </button>
                 <div className="workspace-timeline-track">
                   {TIMELINE_TICK_HOURS.map((hour) => (
                     <i

@@ -66,7 +66,7 @@ describe('workspace dashboard', () => {
     expect(housekeepingCardStyles).toContain('corner-shape: squircle');
     expect(housekeepingCardStyles).toContain('background: var(--workspace-card-surface)');
     expect(housekeepingCardStyles).not.toContain('--workspace-card-glass');
-    expect(housekeepingCardStyles).toContain('outline: 1px solid var(--session-heat-edge)');
+    expect(housekeepingCardStyles).not.toContain('outline');
     expect(mediumHeatCardStyles).toContain(
       '--workspace-card-surface: color-mix(in srgb, var(--session-heat-medium-color) 24%, var(--panel-strong))'
     );
@@ -249,6 +249,7 @@ describe('workspace dashboard', () => {
     expect(html).toContain('>-3h<');
     expect(html).toContain('>Latest<');
     expect(html).toContain('Recent session');
+    expect(html).toContain('type="button" class="workspace-timeline-session-label" title="Open Recent session"');
     expect(html).not.toContain('<strong>Recent session</strong>');
     expect(html).not.toContain('5h total');
     expect(html.match(/workspace-timeline-segment/g)).toHaveLength(2);

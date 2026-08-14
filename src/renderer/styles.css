@@ -4,6 +4,12 @@
   initial-value: #2a2a2a;
 }
 
+@property --session-heat-window-surface {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #1d1d1d;
+}
+
 :root {
   color-scheme: dark;
   font-family:
@@ -387,6 +393,7 @@ code {
 
 .app-shell {
   --session-heat-edge: var(--panel-border);
+  --session-heat-window-surface: var(--chrome-soft);
   height: 100%;
   position: relative;
   isolation: isolate;
@@ -397,10 +404,11 @@ code {
   border: 1px solid var(--app-window-border);
   border-radius: var(--app-window-radius);
   color: var(--text);
-  background: var(--bg);
+  background: var(--session-heat-window-surface);
   transition:
     grid-template-columns 180ms ease,
     --session-heat-edge 900ms ease,
+    --session-heat-window-surface 900ms ease,
     background 260ms ease,
     border-color 180ms ease,
     border-radius 180ms ease;
@@ -809,7 +817,7 @@ button.app-header-session-title:hover:not(:disabled) {
   grid-row: 2;
   min-width: 0;
   min-height: 0;
-  background: transparent;
+  background: var(--session-heat-window-surface);
   color: var(--text);
   padding: 0 12px 52px;
   display: flex;
@@ -1269,6 +1277,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .workspace-dream-card[data-dream-heat="low"],
 .workspace-dejunk-card[data-dejunk-heat="low"] {
   --session-heat-edge: color-mix(in srgb, var(--session-heat-low-color) 42%, var(--panel-border));
+  --session-heat-window-surface: color-mix(in srgb, var(--session-heat-low-color) 8%, var(--chrome-soft));
   --workspace-card-surface: color-mix(in srgb, var(--session-heat-low-color) 18%, var(--panel-strong));
 }
 
@@ -1276,6 +1285,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .workspace-dream-card[data-dream-heat="medium"],
 .workspace-dejunk-card[data-dejunk-heat="medium"] {
   --session-heat-edge: color-mix(in srgb, var(--session-heat-medium-color) 48%, var(--panel-border));
+  --session-heat-window-surface: color-mix(in srgb, var(--session-heat-medium-color) 10%, var(--chrome-soft));
   --workspace-card-surface: color-mix(in srgb, var(--session-heat-medium-color) 24%, var(--panel-strong));
 }
 
@@ -1283,6 +1293,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .workspace-dream-card[data-dream-heat="high"],
 .workspace-dejunk-card[data-dejunk-heat="high"] {
   --session-heat-edge: color-mix(in srgb, var(--session-heat-high-color) 54%, var(--panel-border));
+  --session-heat-window-surface: color-mix(in srgb, var(--session-heat-high-color) 12%, var(--chrome-soft));
   --workspace-card-surface: color-mix(in srgb, var(--session-heat-high-color) 30%, var(--panel-strong));
 }
 
@@ -1290,6 +1301,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .workspace-dream-card[data-dream-heat="critical"],
 .workspace-dejunk-card[data-dejunk-heat="critical"] {
   --session-heat-edge: color-mix(in srgb, var(--session-heat-critical-color) 62%, var(--panel-border));
+  --session-heat-window-surface: color-mix(in srgb, var(--session-heat-critical-color) 16%, var(--chrome-soft));
   --workspace-card-surface: color-mix(in srgb, var(--session-heat-critical-color) 38%, var(--panel-strong));
 }
 
@@ -1776,6 +1788,10 @@ body.is-resizing-research-side .main-session-grid {
 
 .workspace-timeline-session-label {
   min-width: 0;
+  display: block;
+  border: 0;
+  background: transparent;
+  padding: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1783,6 +1799,20 @@ body.is-resizing-research-side .main-session-grid {
   font-size: 1rem;
   line-height: 1.2;
   font-weight: 400;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.workspace-timeline-session-label:hover,
+.workspace-timeline-session-label:focus-visible {
+  color: var(--text);
+}
+
+.workspace-timeline-session-label:focus-visible {
+  outline: 1px solid var(--line-strong);
+  outline-offset: 2px;
 }
 
 .workspace-timeline-track {
@@ -2118,11 +2148,7 @@ body.is-resizing-research-side .main-session-grid {
   border-radius: 34px;
   corner-shape: squircle;
   background: var(--workspace-card-surface);
-  outline: 1px solid var(--session-heat-edge);
-  outline-offset: -1px;
-  transition:
-    --session-heat-edge 900ms ease,
-    background 260ms ease;
+  transition: background 260ms ease;
 }
 
 .workspace-dejunk-button,
