@@ -8760,6 +8760,10 @@ button.session-summary-item:hover:not(:disabled),
   width: min(980px, calc(100vw - 36px));
 }
 
+.modal-panel.transcript-search-dialog {
+  width: min(940px, calc(100vw - 36px));
+}
+
 .plugin-manager-body {
   min-width: 0;
   display: grid;

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { Loader2, Search } from 'lucide-react';
 import type { SessionTranscriptSearchResponse, SessionTranscriptSearchResult } from '@shared/types';
-import { BottomSheet } from '../../app/Modal';
+import { Modal } from '../../app/Modal';
 import { formatSessionDateTime } from '../../lib/formatting';
 import { renderSearchHighlightedText } from './searchHighlight';
 
@@ -88,7 +88,7 @@ export function TranscriptSearchSheet({
   };
 
   return (
-    <BottomSheet title="Search" wide onClose={onClose}>
+    <Modal title="Find a Session" className="start-run-dialog transcript-search-dialog" wide onClose={onClose}>
       <div className="transcript-search">
         <label className="transcript-search-input-row">
           <Search size={15} />
@@ -151,7 +151,7 @@ export function TranscriptSearchSheet({
           ))}
         </div>
       </div>
-    </BottomSheet>
+    </Modal>
   );
 }
 

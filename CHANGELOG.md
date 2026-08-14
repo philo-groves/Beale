@@ -26,6 +26,8 @@
 
 ### Changed
 
+- Session transcript search now opens as a centered Find a Session dialog matching the New Research modal shape and surface color instead of a bottom sheet.
+- More Sessions now reuses the same centered session-finder dialog styling instead of the bottom-sheet presentation.
 - Beale now permits bundled and host-approved research profiles to use Honeycrisp repository search and file reads by default; repository search may target any readable host directory, including repositories outside the workspace, while configured repositories remain context hints.
 - Removed borders from the Dream and Dejunk housekeeping buttons.
 - Breakout-room messages now use provider-attributed rows at the standard Commentary width, with Working/Worked-style divider headers, clickable subagent names that open detailed Commentary, message-kind labels, and 400px fade-truncated bodies that can be expanded instead of colored side rails.
