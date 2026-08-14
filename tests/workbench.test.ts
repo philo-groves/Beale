@@ -3342,31 +3342,8 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('materializes onboarding repositories marked for immediate indexing', async () => {
+  it('keeps onboarding repositories as references during workspace creation', async () => {
     const workspace = tempWorkspace();
-    const fakeGit = join(workspace, 'fake-git-onboarding.mjs');
-    writeFileSync(
-      fakeGit,
-      [
-        '#!/usr/bin/env node',
-        "import { mkdirSync, writeFileSync } from 'node:fs';",
-        'const args = process.argv.slice(2);',
-        "if (args.includes('clone')) {",
-        '  const target = args.at(-1);',
-        "  mkdirSync(`${target}/.git`, { recursive: true });",
-        "  mkdirSync(`${target}/src`, { recursive: true });",
-        "  writeFileSync(`${target}/src/index.js`, 'export const vulnerable = false;\\n');",
-        '  process.exit(0);',
-        '}',
-        "if (args.includes('rev-parse') && args.at(-1) === 'HEAD') {",
-        '  process.stdout.write("0123456789abcdef0123456789abcdef01234567\\n");',
-        '  process.exit(0);',
-        '}',
-        'process.exit(1);'
-      ].join('\n')
-    );
-    chmodSync(fakeGit, 0o700);
-    process.env.BEALE_GIT_COMMAND = fakeGit;
     const service = new WorkspaceService();
     const progressUpdates: WorkspaceOnboardingProgressUpdate[] = [];
 
@@ -3375,7 +3352,7 @@ describe('Beale workbench skeleton', () => {
         workspacePath: workspace,
         workspaceName: 'Onboarding Source Workspace',
         scopeOwner: 'Example Org',
-        descriptionMarkdown: 'Onboarding should clone selected repositories.',
+        descriptionMarkdown: 'Onboarding should keep repository references only.',
         rulesMarkdown: 'Offline source review.',
         expiresAt: null,
         onboardingRequestId: 'onboarding-index-now-test',
@@ -3394,20 +3371,13 @@ describe('Beale workbench skeleton', () => {
       }
     );
 
-    await waitForCondition(() => service.getSnapshot()?.activeScope.assets.some((asset) => String(asset.value).includes('github.com_Netflix_zuul')) ?? false);
-    await waitForCondition(() => progressUpdates.at(-1)?.phase === 'complete', 5000);
-
     const snapshot = service.getSnapshot();
-    const completedProgress = progressUpdates.at(-1);
-    const sourceReference = snapshot?.activeScope.assets.find((asset) => String(asset.value).includes('github.com_Netflix_zuul'));
-    expect(sourceReference?.value).toContain(join(process.env.BEALE_WORKSPACE_REGISTRY_DIR ?? '', 'repositories'));
+    const sourceReference = snapshot?.activeScope.assets.find((asset) => asset.value === 'https://github.com/Netflix/zuul');
     expect(sourceReference?.attributes).toMatchObject({
-      sourceStorage: 'user_global',
-      sourceReferenceVersion: 1,
-      repositoryUrl: 'https://github.com/Netflix/zuul'
+      bealeOnboardingIndexNow: true
     });
-    expect(completedProgress?.repositories[0]).toMatchObject({ stage: 'indexed' });
-    expect(progressUpdates.some((update) => update.repositories.some((repository) => repository.stage === 'indexing'))).toBe(false);
+    expect(snapshot?.activeScope.assets.some((asset) => String(asset.value).includes('github.com_Netflix_zuul'))).toBe(false);
+    expect(progressUpdates).toHaveLength(0);
     expect(snapshot?.projectSemantic).toMatchObject({ enabled: false, status: 'disabled' });
     service.close();
   });
@@ -3660,6 +3630,42 @@ describe('Beale workbench skeleton', () => {
       effort: 'high'
     });
     expect(completionRequests[0]?.prompt).toContain('github.com');
+    service.close();
+  });
+
+  it('loads every page of a public GitHub organization repository catalog', async () => {
+    const requestedPages: number[] = [];
+    const service = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: tempWorkspace(),
+      githubFetch: async (input, init) => {
+        const url = new URL(String(input));
+        const headers = new Headers(init?.headers);
+        expect(headers.get('accept')).toBe('application/vnd.github+json');
+        expect(headers.get('x-github-api-version')).toBe('2026-03-10');
+        const page = Number(url.searchParams.get('page'));
+        requestedPages.push(page);
+        const count = page === 1 ? 100 : 2;
+        const offset = page === 1 ? 0 : 100;
+        return new Response(
+          JSON.stringify(Array.from({ length: count }, (_value, index) => ({
+            name: `repository-${offset + index}`,
+            html_url: `https://github.com/apple-oss-distributions/repository-${offset + index}`,
+            archived: index === 1
+          }))),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+    });
+
+    const repositories = await service.listGitHubOrganizationRepositories('apple-oss-distributions');
+
+    expect(requestedPages).toEqual([1, 2]);
+    expect(repositories).toHaveLength(102);
+    expect(repositories[101]).toEqual({
+      name: 'repository-101',
+      url: 'https://github.com/apple-oss-distributions/repository-101',
+      archived: true
+    });
     service.close();
   });
 

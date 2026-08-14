@@ -360,21 +360,6 @@ export function App(): JSX.Element {
     setWorkspaceOnboardingProgress(null);
   }, []);
 
-  const skipWorkspaceOnboardingRepository = useCallback(
-    async (repositoryUrl: string, stage: 'clone' | 'index'): Promise<void> => {
-      if (!workspaceOnboardingProgress) return;
-      const update = await window.beale.skipWorkspaceOnboardingRepository({
-        requestId: workspaceOnboardingProgress.requestId,
-        repositoryUrl,
-        stage
-      });
-      if (update) {
-        setWorkspaceOnboardingProgress(update);
-      }
-    },
-    [workspaceOnboardingProgress]
-  );
-
   const openWorkspaceAlert = useCallback(
     (alert: WorkspaceAlert) => {
       if (alert.id.startsWith('semantic-index-')) {
@@ -1306,7 +1291,6 @@ export function App(): JSX.Element {
           setActiveNotification(null);
         }}
         onSubmitWorkspaceOnboarding={submitWorkspaceOnboarding}
-        onSkipWorkspaceOnboardingRepository={skipWorkspaceOnboardingRepository}
         onAddAgentPluginFromFilesystem={addAgentPluginFromFilesystem}
         onAddAgentPluginFromRepository={addAgentPluginFromRepository}
         onSetAgentPluginEnabled={setAgentPluginEnabled}

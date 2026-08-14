@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { WorkspaceOnboardingDefaults } from '@shared/types';
 import {
   addRepositoryToOnboardingForm,
+  applyGitHubRepositoryCatalog,
   applyWorkspaceTemplate,
-  hasIndexNowRepository,
   onboardingFormFromDefaults,
   onboardingFormFromHackerOneLookup,
   onboardingInputFromForm,
   onboardingRepositories,
-  setRepositoryIndexNow,
+  setOnboardingRepositorySelected,
   workspaceOnboardingFormForProfile
 } from '../src/renderer/view-models/workspaceOnboarding';
 
@@ -33,22 +33,19 @@ describe('renderer workspace onboarding view model', () => {
     expect(input.scopeOwner).toBe('Example');
   });
 
-  it('tracks onboarding repository index requests on submitted scope assets', () => {
+  it('keeps repository additions as references when submitting', () => {
     const withRepository = addRepositoryToOnboardingForm(onboardingFormFromDefaults(defaults()), 'github.com/example/project.git');
 
     expect(onboardingRepositories(withRepository)).toMatchObject([
       {
-        url: 'https://github.com/example/project',
-        indexNow: true
+        url: 'https://github.com/example/project'
       }
     ]);
-    expect(hasIndexNowRepository(withRepository)).toBe(true);
-    expect(onboardingInputFromForm(withRepository).assets?.[0]?.attributes).toMatchObject({ bealeOnboardingIndexNow: true });
-
-    const disabled = setRepositoryIndexNow(withRepository, 0, false);
-    expect(onboardingRepositories(disabled)[0]?.indexNow).toBe(false);
-    expect(hasIndexNowRepository(disabled)).toBe(false);
-    expect(onboardingInputFromForm(disabled).assets?.[0]?.attributes).toMatchObject({ bealeOnboardingIndexNow: false });
+    expect(onboardingInputFromForm(withRepository).assets?.[0]?.attributes).toMatchObject({
+      source: 'manual',
+      repositoryUrl: 'https://github.com/example/project'
+    });
+    expect(onboardingInputFromForm(withRepository).assets?.[0]?.attributes).not.toHaveProperty('bealeOnboardingIndexNow');
   });
 
   it('applies global Apple and MSRC template defaults', () => {
@@ -60,6 +57,32 @@ describe('renderer workspace onboarding view model', () => {
     expect(apple.rulesMarkdown).toContain('Target Flags');
     expect(msrc.workspaceName).toBe('Microsoft Security Response Center');
     expect(msrc.rulesMarkdown).toContain('Researcher Portal');
+  });
+
+  it('keeps Apple OSS repositories unchecked until explicitly selected', () => {
+    const apple = applyGitHubRepositoryCatalog(
+      applyWorkspaceTemplate(onboardingFormFromDefaults(defaults()), 'apple'),
+      [
+        { name: 'Security', url: 'https://github.com/apple-oss-distributions/Security', archived: false },
+        { name: 'xnu', url: 'https://github.com/apple-oss-distributions/xnu', archived: false }
+      ]
+    );
+
+    expect(onboardingRepositories(apple)).toMatchObject([
+      { label: 'Security', selected: false, candidateIndex: 0 },
+      { label: 'xnu', selected: false, candidateIndex: 1 }
+    ]);
+    expect(onboardingInputFromForm(apple).assets).toEqual([]);
+
+    const selected = setOnboardingRepositorySelected(apple, 1, true);
+    expect(onboardingInputFromForm(selected).assets).toMatchObject([
+      {
+        direction: 'in_scope',
+        kind: 'repo',
+        value: 'https://github.com/apple-oss-distributions/xnu',
+        attributes: { source: 'apple-oss', repositoryUrl: 'https://github.com/apple-oss-distributions/xnu' }
+      }
+    ]);
   });
 
   it('forces mathematics workspaces back to the manual template', () => {
@@ -96,7 +119,8 @@ describe('renderer workspace onboarding view model', () => {
     expect(form.expiresAt).toBe('');
     expect(form.assets).toHaveLength(1);
     expect(form.assets[0]?.attributes).toMatchObject({ hackerOneHandle: 'example', hackerOneSourceUrl: 'https://hackerone.com/example' });
-    expect(onboardingRepositories(form)).toMatchObject([{ url: 'https://github.com/example/project', indexNow: true }]);
+    expect(onboardingRepositories(form)).toMatchObject([{ url: 'https://github.com/example/project' }]);
+    expect(onboardingInputFromForm(form).assets?.[0]?.attributes).not.toHaveProperty('bealeOnboardingIndexNow');
   });
 });
 

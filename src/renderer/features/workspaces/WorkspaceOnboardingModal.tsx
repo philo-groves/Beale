@@ -1,17 +1,16 @@
 import { useState } from 'react';
 import type { JSX } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
-import type { WorkspaceOnboardingProgressUpdate, WorkspaceOnboardingRepositoryProgress } from '@shared/types';
+import { Loader2, Plus, Trash2 } from 'lucide-react';
+import type { WorkspaceOnboardingProgressUpdate } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { errorMessage } from '../../lib/errors';
 import { emptyDateClass } from '../../lib/formatting';
 import {
   addRepositoryToOnboardingForm,
-  hasIndexNowRepository,
   onboardingRepositories,
   workspaceOnboardingFormForProfile,
   removeRepositoryFromOnboardingForm,
-  setRepositoryIndexNow,
+  setOnboardingRepositorySelected,
   templateLabel,
   type OnboardingRepository,
   type WorkspaceOnboardingFormState,
@@ -25,7 +24,6 @@ export function WorkspaceOnboardingModal({
   onChange,
   onCancel,
   onLookupHackerOne,
-  onSkipRepository,
   onTemplate,
   onSubmit
 }: {
@@ -35,7 +33,6 @@ export function WorkspaceOnboardingModal({
   onChange: (next: WorkspaceOnboardingFormState) => void;
   onCancel: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
-  onSkipRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
   onTemplate: (templateKind: WorkspaceTemplateKind) => void;
   onSubmit: () => void;
 }): JSX.Element {
@@ -49,7 +46,6 @@ export function WorkspaceOnboardingModal({
   };
   const canSubmit = form.workspaceName.trim().length > 0;
   const repositories = onboardingRepositories(form);
-  const indexNowSelected = hasIndexNowRepository(form);
   const submitting = Boolean(progress);
   const progressComplete = progress?.phase === 'complete';
   const lookupHackerOne = (): void => {
@@ -75,15 +71,11 @@ export function WorkspaceOnboardingModal({
     <Modal
       title="New Workspace"
       wide
-      className="workspace-onboarding-modal"
+      className="start-run-dialog workspace-onboarding-modal"
       onClose={submitting && !progressComplete ? () => undefined : onCancel}
       footer={
         <div className="workspace-onboarding-footer-content">
-          {indexNowSelected ? <div className="workspace-onboarding-index-warning">Repository cloning and indexing may take several minutes.</div> : null}
           <div className="workspace-onboarding-footer-actions">
-            <button type="button" disabled={busy || (submitting && !progressComplete)} onClick={onCancel}>
-              {submitting ? 'Close' : 'Cancel'}
-            </button>
             {submitting ? (
               <button className="primary-button" type="button" disabled={!progressComplete} onClick={onCancel}>
                 {progressComplete ? 'Done' : 'Working...'}
@@ -176,14 +168,15 @@ export function WorkspaceOnboardingModal({
         </form>
         <RepositoryOnboardingPanel
           repositories={repositories}
+          repositoryCatalogLoading={form.repositoryCatalogLoading}
+          repositoryCatalogError={form.repositoryCatalogError}
           progress={progress}
           repositoryError={repositoryError}
           repositoryUrl={repositoryUrl}
           onAddRepository={addRepository}
           onChangeRepositoryUrl={setRepositoryUrl}
           onRemoveRepository={(assetIndex) => onChange(removeRepositoryFromOnboardingForm(form, assetIndex))}
-          onSetIndexNow={(assetIndex, indexNow) => onChange(setRepositoryIndexNow(form, assetIndex, indexNow))}
-          onSkipRepository={onSkipRepository}
+          onSelectRepository={(candidateIndex, selected) => onChange(setOnboardingRepositorySelected(form, candidateIndex, selected))}
         />
       </div>
     </Modal>
@@ -192,35 +185,31 @@ export function WorkspaceOnboardingModal({
 
 function RepositoryOnboardingPanel({
   repositories,
+  repositoryCatalogLoading,
+  repositoryCatalogError,
   progress,
   repositoryError,
   repositoryUrl,
   onAddRepository,
   onChangeRepositoryUrl,
   onRemoveRepository,
-  onSetIndexNow,
-  onSkipRepository
+  onSelectRepository
 }: {
   repositories: OnboardingRepository[];
+  repositoryCatalogLoading: boolean;
+  repositoryCatalogError: string | null;
   progress: WorkspaceOnboardingProgressUpdate | null;
   repositoryError: string | null;
   repositoryUrl: string;
   onAddRepository: () => void;
   onChangeRepositoryUrl: (value: string) => void;
   onRemoveRepository: (assetIndex: number) => void;
-  onSetIndexNow: (assetIndex: number, indexNow: boolean) => void;
-  onSkipRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
+  onSelectRepository: (candidateIndex: number, selected: boolean) => void;
 }): JSX.Element {
   const submitting = Boolean(progress);
   const rows = progress ? progress.repositories : repositories;
   return (
     <aside className="workspace-repository-panel" aria-label="Workspace repositories">
-      <div className="workspace-repository-header">
-        <div>
-          <span>Repositories</span>
-          <strong>{rows.length}</strong>
-        </div>
-      </div>
       {!submitting ? (
         <>
           <div className="workspace-repository-add">
@@ -243,85 +232,65 @@ function RepositoryOnboardingPanel({
             </button>
           </div>
           {repositoryError ? <div className="error-box">{repositoryError}</div> : null}
+          {repositoryCatalogError ? <div className="error-box">{repositoryCatalogError}</div> : null}
         </>
       ) : (
-        <div className="workspace-repository-progress-summary">{progress?.phase === 'complete' ? 'Repository onboarding complete.' : 'Creating workspace and preparing selected repositories.'}</div>
+        <div className="workspace-repository-progress-summary">{progress?.phase === 'complete' ? 'Workspace created.' : 'Creating workspace.'}</div>
       )}
-      {rows.length === 0 ? (
+      {repositoryCatalogLoading ? (
+        <div className="workspace-repository-empty workspace-repository-loading">
+          <Loader2 size={15} />
+          <span>Loading Apple OSS repositories...</span>
+        </div>
+      ) : rows.length === 0 ? (
         <div className="workspace-repository-empty">No repositories listed.</div>
       ) : (
         <div className="workspace-repository-list">
           {progress
-            ? progress.repositories.map((repository) => <RepositoryProgressItem key={repository.repositoryUrl} repository={repository} onSkipRepository={onSkipRepository} />)
-            : repositories.map((repository) => (
-                <div className="workspace-repository-item" key={`${repository.assetIndex}:${repository.url}`}>
+            ? progress.repositories.map((repository) => (
+                <div className="workspace-repository-item" key={repository.repositoryUrl}>
                   <div className="workspace-repository-main">
                     <strong>{repository.label}</strong>
-                    <span>{repository.url}</span>
+                    <span>{repository.repositoryUrl}</span>
                   </div>
-                  <label className="workspace-repository-index">
-                    <input type="checkbox" checked={repository.indexNow} onChange={(event) => onSetIndexNow(repository.assetIndex, event.target.checked)} />
-                    <span>Index Now</span>
-                  </label>
-                  <button type="button" title="Remove repository" onClick={() => onRemoveRepository(repository.assetIndex)}>
-                    <Trash2 size={14} />
-                  </button>
                 </div>
-              ))}
+              ))
+            : repositories.map((repository) => {
+                const repositoryContent = (
+                  <div className="workspace-repository-main">
+                    <strong>{repository.label}</strong>
+                    <span title={repository.url}>{repository.url}</span>
+                    {repository.archived ? <em>Archived</em> : null}
+                  </div>
+                );
+                return (
+                  <div
+                    className={`workspace-repository-item ${repository.candidateIndex !== null ? 'has-selection' : ''}`}
+                    key={`${repository.assetIndex ?? `candidate-${repository.candidateIndex}`}:${repository.url}`}
+                  >
+                    {repository.candidateIndex !== null ? (
+                      <label className="workspace-repository-selection">
+                        <input
+                          type="checkbox"
+                          checked={repository.selected}
+                          aria-label={`Include ${repository.label}`}
+                          onChange={(event) => onSelectRepository(repository.candidateIndex!, event.target.checked)}
+                        />
+                        {repositoryContent}
+                      </label>
+                    ) : (
+                      repositoryContent
+                    )}
+                    {repository.assetIndex !== null ? (
+                      <button type="button" title="Remove repository" onClick={() => onRemoveRepository(repository.assetIndex!)}>
+                        <Trash2 size={14} />
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
         </div>
       )}
     </aside>
   );
-}
-
-function RepositoryProgressItem({
-  repository,
-  onSkipRepository
-}: {
-  repository: WorkspaceOnboardingRepositoryProgress;
-  onSkipRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
-}): JSX.Element {
-  const skipStage = repositorySkipStage(repository);
-  return (
-    <div className={`workspace-repository-item progress-stage-${repository.stage}`}>
-      <div className="workspace-repository-main">
-        <strong>{repository.label}</strong>
-        <span>{repository.repositoryUrl}</span>
-        <em>{repository.error ? `${repository.message} ${repository.error}` : repository.message}</em>
-      </div>
-      <span className="workspace-repository-stage">{progressStageLabel(repository.stage)}</span>
-      {skipStage ? (
-        <button type="button" className="workspace-repository-skip-button" onClick={() => void onSkipRepository(repository.repositoryUrl, skipStage)}>
-          {skipStage === 'clone' ? 'Clone Later' : 'Index Later'}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function repositorySkipStage(repository: WorkspaceOnboardingRepositoryProgress): 'clone' | 'index' | null {
-  if (repository.stage === 'queued' || repository.stage === 'cloning' || repository.stage === 'clone_failed') return 'clone';
-  if (repository.stage === 'index_queued' || repository.stage === 'indexing') return 'index';
-  return null;
-}
-
-function progressStageLabel(stage: WorkspaceOnboardingRepositoryProgress['stage']): string {
-  switch (stage) {
-    case 'queued':
-      return 'Queued';
-    case 'cloning':
-      return 'Cloning';
-    case 'clone_skipped':
-      return 'Clone Later';
-    case 'clone_failed':
-      return 'Clone Failed';
-    case 'index_queued':
-      return 'Index Queued';
-    case 'indexing':
-      return 'Indexing';
-    case 'index_skipped':
-      return 'Index Later';
-    case 'indexed':
-      return 'Indexed';
-  }
 }

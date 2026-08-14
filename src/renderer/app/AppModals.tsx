@@ -101,7 +101,6 @@ export function AppModals({
   onOpenAutomationSession,
   onSteerNotification,
   onSubmitWorkspaceOnboarding,
-  onSkipWorkspaceOnboardingRepository,
   onOpenSearchResult,
   onAddAgentPluginFromFilesystem,
   onAddAgentPluginFromRepository,
@@ -173,7 +172,6 @@ export function AppModals({
   onOpenAutomationSession: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
   onSubmitWorkspaceOnboarding: () => void;
-  onSkipWorkspaceOnboardingRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
   onOpenSearchResult: (result: SessionTranscriptSearchResult, query: string) => void;
   onAddAgentPluginFromFilesystem: () => void;
   onAddAgentPluginFromRepository: () => void;
@@ -191,7 +189,6 @@ export function AppModals({
           onCancel={onCancelWorkspaceOnboarding}
           onChange={onChangeWorkspaceDraft}
           onLookupHackerOne={onLookupHackerOne}
-          onSkipRepository={onSkipWorkspaceOnboardingRepository}
           onTemplate={onWorkspaceTemplate}
           onSubmit={onSubmitWorkspaceOnboarding}
         />

@@ -658,9 +658,6 @@ export function StartRunForm({
       onClose={closeModal}
       footer={
         <>
-          <button type="button" disabled={busy} onClick={closeModal}>
-            Nevermind
-          </button>
           {generateEnabled ? (
             <button type="button" disabled={busy || startingRun || !canGenerate} onClick={() => void generateFullPrompt()}>
               <Sparkles size={15} />

@@ -1,4 +1,5 @@
 import type {
+  GitHubRepositorySummary,
   HackerOneScopeLookupResult,
   ResearchProfileId,
   WorkspaceOnboardingDefaults,
@@ -16,6 +17,9 @@ export interface WorkspaceOnboardingFormState {
   rulesMarkdown: string;
   expiresAt: string;
   assets: ScopeAssetInput[];
+  repositoryCandidates: OnboardingRepositoryCandidate[];
+  repositoryCatalogLoading: boolean;
+  repositoryCatalogError: string | null;
 }
 
 export type WorkspaceTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
@@ -25,19 +29,33 @@ export function workspaceOnboardingFormForProfile(
   profileId: ResearchProfileId
 ): WorkspaceOnboardingFormState {
   return profileId === 'mathematics' && form.templateKind !== 'manual'
-    ? { ...form, templateKind: 'manual' }
+    ? {
+        ...form,
+        templateKind: 'manual',
+        repositoryCandidates: [],
+        repositoryCatalogLoading: false,
+        repositoryCatalogError: null
+      }
     : form;
 }
 
 export interface OnboardingRepository {
-  assetIndex: number;
+  assetIndex: number | null;
+  candidateIndex: number | null;
   url: string;
   label: string;
   source: string;
-  indexNow: boolean;
+  selected: boolean;
+  archived: boolean;
 }
 
-export const ONBOARDING_INDEX_NOW_ATTRIBUTE = 'bealeOnboardingIndexNow';
+export interface OnboardingRepositoryCandidate {
+  url: string;
+  label: string;
+  source: string;
+  selected: boolean;
+  archived: boolean;
+}
 
 const SOURCE_REPOSITORY_RE = /\b(?:https?:\/\/)?(?:github\.com|gitlab\.com)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+(?:\.git)?(?:[/?#][^\s<>)\]]*)?/gi;
 
@@ -113,7 +131,10 @@ export function onboardingFormFromDefaults(defaults: WorkspaceOnboardingDefaults
     descriptionMarkdown: defaults.descriptionMarkdown,
     rulesMarkdown: defaults.rulesMarkdown,
     expiresAt: defaults.expiresAt ? defaults.expiresAt.slice(0, 10) : '',
-    assets: defaults.assets
+    assets: defaults.assets,
+    repositoryCandidates: [],
+    repositoryCatalogLoading: false,
+    repositoryCatalogError: null
   };
 }
 
@@ -127,17 +148,7 @@ export function onboardingInputFromForm(form: WorkspaceOnboardingFormState): Wor
     descriptionMarkdown: form.descriptionMarkdown,
     rulesMarkdown: form.rulesMarkdown,
     expiresAt: optionalDateOrNever(form.expiresAt),
-    assets: form.assets.map((asset) => {
-      const isRepository = asset.direction === 'in_scope' && extractOnboardingRepositoryUrls([asset.value, stringAttribute(asset.attributes?.repositoryUrl), stringAttribute(asset.attributes?.instruction)].join('\n')).length > 0;
-      if (!isRepository || asset.attributes?.[ONBOARDING_INDEX_NOW_ATTRIBUTE] !== undefined) return asset;
-      return {
-        ...asset,
-        attributes: {
-          ...(asset.attributes ?? {}),
-          [ONBOARDING_INDEX_NOW_ATTRIBUTE]: true
-        }
-      };
-    })
+    assets: selectedOnboardingAssets(form)
   };
 }
 
@@ -153,22 +164,26 @@ export function onboardingRepositories(form: WorkspaceOnboardingFormState): Onbo
       seenUrls.add(key);
       repositories.push({
         assetIndex,
+        candidateIndex: null,
         url,
         label: stringAttribute(asset.attributes?.displayName) || asset.value || repositoryName(url),
         source: stringAttribute(asset.attributes?.source) || 'manual',
-        indexNow: asset.attributes?.[ONBOARDING_INDEX_NOW_ATTRIBUTE] !== false
+        selected: true,
+        archived: asset.attributes?.archived === true
       });
     }
   });
+  form.repositoryCandidates.forEach((candidate, candidateIndex) => {
+    const key = candidate.url.toLowerCase();
+    if (seenUrls.has(key)) return;
+    seenUrls.add(key);
+    repositories.push({
+      assetIndex: null,
+      candidateIndex,
+      ...candidate
+    });
+  });
   return repositories;
-}
-
-export function hasIndexNowRepository(form: WorkspaceOnboardingFormState): boolean {
-  return onboardingRepositories(form).some((repository) => repository.indexNow);
-}
-
-export function setRepositoryIndexNow(form: WorkspaceOnboardingFormState, assetIndex: number, indexNow: boolean): WorkspaceOnboardingFormState {
-  return updateAssetAttributes(form, assetIndex, { [ONBOARDING_INDEX_NOW_ATTRIBUTE]: indexNow });
 }
 
 export function addRepositoryToOnboardingForm(form: WorkspaceOnboardingFormState, repositoryUrl: string): WorkspaceOnboardingFormState {
@@ -176,6 +191,8 @@ export function addRepositoryToOnboardingForm(form: WorkspaceOnboardingFormState
   if (!normalizedUrl) {
     throw new Error('Enter a GitHub or GitLab repository URL.');
   }
+  const existingCandidateIndex = form.repositoryCandidates.findIndex((candidate) => candidate.url.toLowerCase() === normalizedUrl.toLowerCase());
+  if (existingCandidateIndex >= 0) return setOnboardingRepositorySelected(form, existingCandidateIndex, true);
   const existing = onboardingRepositories(form).some((repository) => repository.url.toLowerCase() === normalizedUrl.toLowerCase());
   if (existing) return form;
   return {
@@ -189,8 +206,7 @@ export function addRepositoryToOnboardingForm(form: WorkspaceOnboardingFormState
         sensitivity: 'public',
         attributes: {
           source: 'manual',
-          repositoryUrl: normalizedUrl,
-          [ONBOARDING_INDEX_NOW_ATTRIBUTE]: true
+          repositoryUrl: normalizedUrl
         }
       }
     ]
@@ -201,6 +217,37 @@ export function removeRepositoryFromOnboardingForm(form: WorkspaceOnboardingForm
   return {
     ...form,
     assets: form.assets.filter((_asset, index) => index !== assetIndex)
+  };
+}
+
+export function setOnboardingRepositorySelected(
+  form: WorkspaceOnboardingFormState,
+  candidateIndex: number,
+  selected: boolean
+): WorkspaceOnboardingFormState {
+  return {
+    ...form,
+    repositoryCandidates: form.repositoryCandidates.map((candidate, index) => (
+      index === candidateIndex ? { ...candidate, selected } : candidate
+    ))
+  };
+}
+
+export function applyGitHubRepositoryCatalog(
+  form: WorkspaceOnboardingFormState,
+  repositories: GitHubRepositorySummary[]
+): WorkspaceOnboardingFormState {
+  return {
+    ...form,
+    repositoryCandidates: repositories.map((repository) => ({
+      url: repository.url,
+      label: repository.name,
+      source: 'apple-oss',
+      selected: false,
+      archived: repository.archived
+    })),
+    repositoryCatalogLoading: false,
+    repositoryCatalogError: null
   };
 }
 
@@ -216,7 +263,10 @@ export function onboardingFormFromHackerOneLookup(
     descriptionMarkdown: lookup.descriptionMarkdown,
     rulesMarkdown: lookup.rulesMarkdown,
     expiresAt: lookup.expiresAt ? lookup.expiresAt.slice(0, 10) : '',
-    assets: lookup.assets
+    assets: lookup.assets,
+    repositoryCandidates: [],
+    repositoryCatalogLoading: false,
+    repositoryCatalogError: null
   };
 }
 
@@ -235,7 +285,13 @@ export function templateLabel(templateKind: WorkspaceTemplateKind): string {
 
 export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templateKind: WorkspaceTemplateKind): WorkspaceOnboardingFormState {
   if (templateKind === 'manual' || templateKind === 'hackerone') {
-    return { ...form, templateKind };
+    return {
+      ...form,
+      templateKind,
+      repositoryCandidates: [],
+      repositoryCatalogLoading: false,
+      repositoryCatalogError: null
+    };
   }
   if (templateKind === 'apple') {
     return {
@@ -246,7 +302,10 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
       descriptionMarkdown: APPLE_SCOPE_DESCRIPTION,
       rulesMarkdown: APPLE_SCOPE_AND_RULES,
       expiresAt: '',
-      assets: []
+      assets: [],
+      repositoryCandidates: [],
+      repositoryCatalogLoading: true,
+      repositoryCatalogError: null
     };
   }
   return {
@@ -257,25 +316,33 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
     descriptionMarkdown: MSRC_SCOPE_DESCRIPTION,
     rulesMarkdown: MSRC_SCOPE_AND_RULES,
     expiresAt: '',
-    assets: []
+    assets: [],
+    repositoryCandidates: [],
+    repositoryCatalogLoading: false,
+    repositoryCatalogError: null
   };
 }
 
-function updateAssetAttributes(form: WorkspaceOnboardingFormState, assetIndex: number, attributes: Record<string, unknown>): WorkspaceOnboardingFormState {
-  return {
-    ...form,
-    assets: form.assets.map((asset, index) =>
-      index === assetIndex
-        ? {
-            ...asset,
-            attributes: {
-              ...(asset.attributes ?? {}),
-              ...attributes
-            }
-          }
-        : asset
-    )
-  };
+function selectedOnboardingAssets(form: WorkspaceOnboardingFormState): ScopeAssetInput[] {
+  const assets = [...form.assets];
+  const existingUrls = new Set(onboardingRepositories({ ...form, repositoryCandidates: [] }).map((repository) => repository.url.toLowerCase()));
+  for (const candidate of form.repositoryCandidates) {
+    if (!candidate.selected || existingUrls.has(candidate.url.toLowerCase())) continue;
+    existingUrls.add(candidate.url.toLowerCase());
+    assets.push({
+      direction: 'in_scope',
+      kind: 'repo',
+      value: candidate.url,
+      sensitivity: 'public',
+      attributes: {
+        source: candidate.source,
+        repositoryUrl: candidate.url,
+        displayName: candidate.label,
+        archived: candidate.archived
+      }
+    });
+  }
+  return assets;
 }
 
 function extractOnboardingRepositoryUrls(text: string): string[] {

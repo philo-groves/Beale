@@ -2,15 +2,16 @@ import { useCallback } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { WorkspaceOnboardingProgressUpdate, WorkspaceRegistryEntry, ResearchSessionSummary, WorkspaceSnapshot } from '@shared/types';
 import {
+  applyGitHubRepositoryCatalog,
   applyWorkspaceTemplate,
   onboardingFormFromDefaults,
   onboardingFormFromHackerOneLookup,
   workspaceOnboardingFormForProfile,
   onboardingInputFromForm,
-  onboardingRepositories,
   type WorkspaceOnboardingFormState,
   type WorkspaceTemplateKind
 } from '../view-models/workspaceOnboarding';
+import { errorMessage } from '../lib/errors';
 
 export interface WorkspaceActions {
   addWorkspace: () => void;
@@ -113,50 +114,15 @@ export function useWorkspaceActions({
     if (!workspaceDraft) return;
     const submittedDraft = workspaceOnboardingFormForProfile(workspaceDraft, workspaceDraft.researchProfileId);
     void runWorkspaceAction(async () => {
-      const requestId = `onboarding_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      const repositoryRows = onboardingRepositories(submittedDraft).filter((repository) => repository.indexNow);
-      const shouldTrackProgress = repositoryRows.length > 0;
-      setWorkspaceOnboardingProgress(
-        shouldTrackProgress
-          ? {
-              requestId,
-              workspacePath: submittedDraft.workspacePath,
-              phase: 'creating',
-              repositories: repositoryRows.map((repository) => ({
-                repositoryUrl: repository.url,
-                label: repository.label,
-                stage: 'queued',
-                message: 'Waiting to create workspace.',
-                localPath: null,
-                error: null,
-                updatedAt: new Date().toISOString()
-              }))
-            }
-          : null
-      );
-      let unsubscribe: (() => void) | null = null;
-      if (shouldTrackProgress) {
-        unsubscribe = window.beale.onWorkspaceOnboardingUpdate((update) => {
-          if (update.requestId !== requestId) return;
-          setWorkspaceOnboardingProgress(update);
-          if (update.phase === 'complete') {
-            unsubscribe?.();
-            unsubscribe = null;
-          }
-        });
-      }
+      setWorkspaceOnboardingProgress(null);
       try {
-        const next = await window.beale.createScopedWorkspace({ ...onboardingInputFromForm(submittedDraft), onboardingRequestId: shouldTrackProgress ? requestId : undefined });
+        const next = await window.beale.createScopedWorkspace(onboardingInputFromForm(submittedDraft));
         clearRunDetail();
         setSelectedRunId(null);
         applySnapshot(next);
         setSelectedRunId(null);
-        if (!shouldTrackProgress) {
-          setWorkspaceDraft(null);
-        }
+        setWorkspaceDraft(null);
       } catch (error) {
-        unsubscribe?.();
-        unsubscribe = null;
         setWorkspaceOnboardingProgress(null);
         throw error;
       }
@@ -167,6 +133,20 @@ export function useWorkspaceActions({
     (templateKind: WorkspaceTemplateKind): void => {
       if (workspaceDraft?.researchProfileId === 'mathematics' && templateKind !== 'manual') return;
       setWorkspaceDraft((current) => (current ? applyWorkspaceTemplate(current, templateKind) : current));
+      if (templateKind !== 'apple') return;
+      void window.beale.listGitHubOrganizationRepositories('apple-oss-distributions')
+        .then((repositories) => {
+          setWorkspaceDraft((current) => (
+            current?.templateKind === 'apple' ? applyGitHubRepositoryCatalog(current, repositories) : current
+          ));
+        })
+        .catch((caught: unknown) => {
+          setWorkspaceDraft((current) => (
+            current?.templateKind === 'apple'
+              ? { ...current, repositoryCatalogLoading: false, repositoryCatalogError: errorMessage(caught) }
+              : current
+          ));
+        });
     },
     [setWorkspaceDraft, workspaceDraft?.researchProfileId]
   );

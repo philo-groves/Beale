@@ -8600,41 +8600,26 @@ button.session-summary-item:hover:not(:disabled),
   padding-right: 2px;
 }
 
+.workspace-onboarding-modal .modal-form label,
+.workspace-onboarding-modal .workspace-repository-add > label {
+  font-size: 0.84rem;
+  font-weight: 400;
+}
+
+.workspace-onboarding-modal .modal-form :is(input, textarea, select),
+.workspace-onboarding-modal .workspace-repository-add input {
+  border: 0;
+  background: var(--panel-column);
+}
+
 .workspace-repository-panel {
   min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   border-left: 1px solid var(--line);
   padding-left: 12px;
-}
-
-.workspace-repository-header > div {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.workspace-repository-header span {
-  color: var(--text);
-  font-size: 0.84rem;
-  font-weight: 760;
-}
-
-.workspace-repository-header strong {
-  min-width: 24px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted-strong);
-  background: #141414;
-  font-size: 0.68rem;
 }
 
 .workspace-repository-add {
@@ -8661,6 +8646,17 @@ button.session-summary-item:hover:not(:disabled),
   font-size: 0.78rem;
 }
 
+.workspace-repository-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-repository-loading svg {
+  flex: 0 0 auto;
+  animation: beale-spin 900ms linear infinite;
+}
+
 .workspace-repository-progress-summary {
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -8672,6 +8668,7 @@ button.session-summary-item:hover:not(:disabled),
 }
 
 .workspace-repository-list {
+  flex: 1 1 auto;
   min-height: 0;
   display: grid;
   align-content: start;
@@ -8683,7 +8680,7 @@ button.session-summary-item:hover:not(:disabled),
 .workspace-repository-item {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 30px;
+  grid-template-columns: minmax(0, 1fr) 30px;
   align-items: center;
   gap: 8px;
   border: 1px solid var(--line);
@@ -8727,67 +8724,11 @@ button.session-summary-item:hover:not(:disabled),
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
-.workspace-repository-index {
-  min-width: 86px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted-strong);
-  font-size: 0.72rem;
-  font-weight: 720;
-  white-space: nowrap;
-}
-
-.workspace-repository-index input {
-  width: 13px;
-  min-width: 13px;
-  height: 13px;
-  min-height: 13px;
-  accent-color: var(--text);
-  margin: 0;
-}
-
 .workspace-repository-item > button {
   width: 30px;
   height: 30px;
   min-height: 30px;
   padding: 0;
-}
-
-.workspace-repository-item[class*='progress-stage-'] {
-  grid-template-columns: minmax(0, 1fr) auto auto;
-}
-
-.workspace-repository-stage {
-  min-width: 78px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted-strong);
-  background: #141414;
-  padding: 4px 7px;
-  text-align: center;
-  font-size: 0.66rem;
-  font-weight: 760;
-  white-space: nowrap;
-}
-
-.workspace-repository-skip-button {
-  width: auto !important;
-  min-width: 88px;
-  padding: 0 8px !important;
-  font-size: 0.7rem;
-}
-
-.progress-stage-indexed .workspace-repository-stage {
-  border-color: rgba(91, 195, 164, 0.32);
-  color: #8fd5bf;
-  background: rgba(91, 195, 164, 0.08);
-}
-
-.progress-stage-clone_failed .workspace-repository-stage {
-  border-color: rgba(255, 111, 120, 0.4);
-  color: #ff9a9a;
-  background: rgba(255, 111, 120, 0.08);
 }
 
 .workspace-onboarding-footer-content {
@@ -8802,17 +8743,6 @@ button.session-summary-item:hover:not(:disabled),
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-}
-
-.workspace-onboarding-index-warning {
-  max-width: 520px;
-  border: 1px solid rgba(240, 196, 97, 0.25);
-  border-radius: 6px;
-  color: #dfc27d;
-  background: rgba(240, 196, 97, 0.08);
-  padding: 7px 9px;
-  font-size: 0.76rem;
-  line-height: 1.35;
 }
 
 .start-run-modal-body {
@@ -8851,6 +8781,29 @@ button.session-summary-item:hover:not(:disabled),
 
 .modal-panel.start-run-dialog .modal-footer button {
   border: 0;
+}
+
+.workspace-repository-item.has-selection {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-repository-selection {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  color: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.workspace-repository-selection input {
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  margin: 0;
 }
 
 .modal-panel.plugin-manager-dialog {
@@ -11286,6 +11239,7 @@ button.research-goal-choice:focus-visible {
   width: 120px;
   max-width: 120px;
   border: 0;
+  background-color: var(--panel-column);
   font-weight: 400;
 }
 
@@ -11295,7 +11249,7 @@ button.research-goal-choice:focus-visible {
 
 .collaboration-inline-control select:hover:not(:disabled),
 .collaboration-inline-control select:focus-visible {
-  box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.09);
 }
 
 .research-model-team {
@@ -11326,7 +11280,7 @@ button.research-goal-choice:focus-visible {
   border: 0;
   border-radius: 26px;
   corner-shape: squircle;
-  background: color-mix(in srgb, var(--panel) 62%, #000000);
+  background: var(--panel-column);
 }
 
 .research-lead-model-picker,
@@ -11355,7 +11309,7 @@ button.research-goal-choice:focus-visible {
 .research-model-squircle .model-selection-picker-trigger:focus-visible,
 .research-model-squircle.is-open .model-selection-picker-trigger {
   border: 0;
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(255, 255, 255, 0.09);
 }
 
 .research-collaborator-stack {
@@ -11373,7 +11327,7 @@ button.research-goal-choice:focus-visible {
 .research-collaborator-squircle:has(.research-collaborator-picker .model-selection-picker-trigger:hover:not(:disabled)),
 .research-collaborator-squircle:has(.research-collaborator-picker .model-selection-picker-trigger:focus-visible),
 .research-collaborator-squircle:has(.research-collaborator-picker.is-open) {
-  box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.09);
 }
 
 .research-collaborator-squircle .research-collaborator-picker .model-selection-picker-trigger:hover:not(:disabled),
@@ -11413,8 +11367,8 @@ button.research-goal-choice:focus-visible {
 .research-collaborator-add:hover:not(:disabled),
 .research-collaborator-add:focus-visible:not(:disabled) {
   border: 0;
-  background: color-mix(in srgb, var(--panel) 62%, #000000);
-  box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.045);
+  background: var(--panel-column);
+  box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.09);
   color: var(--text);
 }
 

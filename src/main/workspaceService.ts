@@ -84,6 +84,7 @@ import type {
   GeneratedResearchGoalSuggestions,
   GeneratedResearchPrompt,
   HackerOneScopeLookupResult,
+  GitHubRepositorySummary,
   HoneycrispMemoryDirectorySummary,
   HoneycrispMemoryEdgeSummary,
   HoneycrispMemoryNodeSummary,
@@ -171,7 +172,6 @@ const DEFAULT_VM_PREFERENCE: VmPreference = {
   updatedAt: null
 };
 const MAX_CACHED_BACKGROUND_RUNTIMES = 4;
-const ONBOARDING_INDEX_NOW_ATTRIBUTE = 'bealeOnboardingIndexNow';
 type DisclosureExportKind = 'artifact_bundle' | 'research_bundle' | 'redacted_trace' | 'report_draft';
 type ResearchPromptGenerationUpdateHandler = (update: ResearchPromptGenerationUpdate) => void;
 type WorkspaceOnboardingProgressHandler = (update: WorkspaceOnboardingProgressUpdate) => void;
@@ -456,6 +456,7 @@ export interface WorkspaceServiceOptions {
   honeycrispArtifactDirectory?: string;
   repositoryStoreDirectory?: string;
   hackerOneFetch?: typeof fetch;
+  githubFetch?: typeof fetch;
   openAiFetch?: FetchLike;
   researchProfileResolver?: (workspacePath: string, profileId: ResearchProfileId) => ResolvedResearchProfile;
   researchSubjectResolver?: (workspacePath: string) => ResearchSubjectInput | null;
@@ -587,6 +588,7 @@ export class WorkspaceService {
   private readonly disposedRuntimeDatabases = new WeakSet<WorkspaceDatabase>();
   private readonly onboardingRepositoryJobs = new Map<string, WorkspaceOnboardingRepositoryJob>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
+  private readonly githubOrganizationRepositoryCache = new Map<string, GitHubRepositorySummary[]>();
 
   public constructor(
     private readonly onChange: (change: WorkspaceChange) => void = () => undefined,
@@ -1223,24 +1225,7 @@ export class WorkspaceService {
       assets: input.assets ?? []
     });
     db.setResearchSubject({ name: researchSubjectName });
-    const onboardingRepositoryIndexUrls = onboardingRepositoryIndexRequests(input.assets ?? []);
-    const requestId = input.onboardingRequestId?.trim() ?? '';
-    if (onboardingRepositoryIndexUrls.length > 0 && requestId) {
-      const job = this.createOnboardingRepositoryJob(requestId, workspacePath, onboardingRepositoryIndexUrls, onProgress);
-      this.onboardingRepositoryJobs.set(requestId, job);
-      this.emitOnboardingRepositoryProgress(job);
-      void this.runOnboardingRepositoryJob(job)
-        .catch((error: unknown) => {
-          this.recordProfilingMainTiming('onboarding.repositoryMaterialize.error', 0, { error: errorMessage(error) });
-        })
-        .finally(() => {
-          this.onboardingRepositoryJobs.delete(requestId);
-        });
-    } else if (onboardingRepositoryIndexUrls.length > 0) {
-      void this.materializeOnboardingRepositoriesWithoutProgress(workspacePath, onboardingRepositoryIndexUrls).catch((error: unknown) => {
-        this.recordProfilingMainTiming('onboarding.repositoryMaterialize.error', 0, { error: errorMessage(error) });
-      });
-    }
+    void onProgress;
     this.syncWorkspaceRegistry();
     this.emitChange();
     return this.requireSnapshot();
@@ -1516,6 +1501,54 @@ export class WorkspaceService {
 
   public getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]> {
     return this.researchProviderAuth.getModelCatalog();
+  }
+
+  public async listGitHubOrganizationRepositories(organization: string): Promise<GitHubRepositorySummary[]> {
+    const normalizedOrganization = organization.trim();
+    if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(normalizedOrganization)) {
+      throw new Error('A valid GitHub organization is required.');
+    }
+    const cacheKey = normalizedOrganization.toLowerCase();
+    const cached = this.githubOrganizationRepositoryCache.get(cacheKey);
+    if (cached) return cached.map((repository) => ({ ...repository }));
+
+    const repositories: GitHubRepositorySummary[] = [];
+    const seenUrls = new Set<string>();
+    for (let page = 1; page <= 10; page += 1) {
+      const response = await (this.options.githubFetch ?? fetch)(
+        `https://api.github.com/orgs/${encodeURIComponent(normalizedOrganization)}/repos?type=public&sort=full_name&direction=asc&per_page=100&page=${page}`,
+        {
+          headers: {
+            accept: 'application/vnd.github+json',
+            'user-agent': 'Beale/0.1 local workspace onboarding',
+            'x-github-api-version': '2026-03-10'
+          }
+        }
+      );
+      if (!response.ok) {
+        const rateLimitRemaining = response.headers.get('x-ratelimit-remaining');
+        const detail = response.status === 403 && rateLimitRemaining === '0'
+          ? ' GitHub API rate limit reached; try again later.'
+          : '';
+        throw new Error(`GitHub repository lookup failed with HTTP ${response.status}.${detail}`);
+      }
+
+      const payload = await response.json();
+      if (!Array.isArray(payload)) {
+        throw new Error('GitHub repository lookup returned an invalid response.');
+      }
+      for (const item of payload) {
+        if (!item || typeof item !== 'object') continue;
+        const name = typeof item.name === 'string' ? item.name.trim() : '';
+        const url = typeof item.html_url === 'string' ? item.html_url.trim() : '';
+        if (!name || !url || seenUrls.has(url.toLowerCase())) continue;
+        seenUrls.add(url.toLowerCase());
+        repositories.push({ name, url, archived: item.archived === true });
+      }
+      if (payload.length < 100) break;
+    }
+    this.githubOrganizationRepositoryCache.set(cacheKey, repositories);
+    return repositories.map((repository) => ({ ...repository }));
   }
 
   private async resolveAuxiliaryModelRoute(
@@ -4133,17 +4166,6 @@ function requireOpenAiAuthenticationForResearchPrompt(auth: OpenAiAuthService): 
 function requireOpenAiAuthenticationForMemoryDreaming(auth: OpenAiAuthService): void {
   if (auth.getStatus().configured) return;
   throw new Error('Authenticate with OpenAI first before running Memory Dreaming.');
-}
-
-function onboardingRepositoryIndexRequests(assets: ScopeAssetInput[]): string[] {
-  const urls = new Set<string>();
-  for (const asset of assets) {
-    if (asset.direction !== 'in_scope' || asset.attributes?.[ONBOARDING_INDEX_NOW_ATTRIBUTE] !== true) continue;
-    for (const url of extractSourceRepositoryUrls([asset.value, stringValue(asset.attributes?.repositoryUrl, ''), stringValue(asset.attributes?.instruction, '')].join('\n'))) {
-      urls.add(url);
-    }
-  }
-  return [...urls];
 }
 
 function scopeAssetInput(asset: WorkspaceScopeVersion['assets'][number]): ScopeAssetInput {

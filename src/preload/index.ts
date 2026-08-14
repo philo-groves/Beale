@@ -14,6 +14,7 @@ import type {
   GeneratedResearchPrompt,
   HostEnvironment,
   HackerOneScopeLookupResult,
+  GitHubRepositorySummary,
   HoneycrispMemoryDirectorySummary,
   MemoryDreamingProgressUpdate,
   HoneycrispRunbookDocument,
@@ -126,6 +127,9 @@ const api: BealeApi = {
   },
   lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.lookupHackerOneScope, identifier);
+  },
+  listGitHubOrganizationRepositories(organization: string): Promise<GitHubRepositorySummary[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.listGitHubOrganizationRepositories, organization);
   },
   createScopedWorkspace(input: WorkspaceOnboardingInput) {
     return ipcRenderer.invoke(IPC_CHANNELS.createScopedWorkspace, input);

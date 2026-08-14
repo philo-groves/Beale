@@ -1072,6 +1072,12 @@ export interface HackerOneScopeLookupResult {
   importedScopeCount: number;
 }
 
+export interface GitHubRepositorySummary {
+  name: string;
+  url: string;
+  archived: boolean;
+}
+
 export interface WorkspaceDirectorySelection {
   canceled: boolean;
   path: string | null;
@@ -1767,6 +1773,7 @@ export interface BealeApi {
   getShellOptions(): Promise<ShellOptions>;
   setShellOptions(options: ShellOptions): Promise<ShellOptions>;
   lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult>;
+  listGitHubOrganizationRepositories(organization: string): Promise<GitHubRepositorySummary[]>;
   createScopedWorkspace(input: WorkspaceOnboardingInput): Promise<WorkspaceSnapshot>;
   skipWorkspaceOnboardingRepository(input: WorkspaceOnboardingSkipInput): Promise<WorkspaceOnboardingProgressUpdate | null>;
   onWorkspaceOnboardingUpdate(listener: (update: WorkspaceOnboardingProgressUpdate) => void): () => void;

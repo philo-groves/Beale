@@ -73,7 +73,6 @@ describe('renderer dialog surfaces', () => {
         onChange: () => undefined,
         onCancel: () => undefined,
         onLookupHackerOne: async () => undefined,
-        onSkipRepository: async () => undefined,
         onTemplate: () => undefined,
         onSubmit: () => undefined
       })
@@ -82,9 +81,15 @@ describe('renderer dialog surfaces', () => {
     const securityHtml = render('security-research');
     const mathematicsHtml = render('mathematics');
     expect(securityHtml).toContain('aria-label="Workspace template"');
+    expect(securityHtml).toContain('start-run-dialog workspace-onboarding-modal');
     expect(securityHtml).toContain('<select');
     expect(securityHtml).toContain('<option value="security-research" selected="">Cybersecurity</option>');
     expect(securityHtml).not.toContain('Authorization owner');
+    expect(securityHtml).not.toContain('Index Now');
+    expect(securityHtml).not.toContain('Repository cloning');
+    expect(securityHtml).not.toContain('Clone Later');
+    expect(securityHtml).not.toContain('>Repositories<');
+    expect(securityHtml).not.toContain('>Cancel</button>');
     expect(securityHtml).toContain('>HackerOne</button>');
     expect(securityHtml).toContain('>Apple</button>');
     expect(securityHtml).toContain('>MSRC</button>');
@@ -160,6 +165,7 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('title="Controls how broadly and deeply collaborators are used during the session."');
     expect(html).toContain('>Generate</button>');
     expect(html).toContain('>Generate &amp; Start</button>');
+    expect(html).not.toContain('>Nevermind</button>');
     expect(html).not.toContain('new-research-send');
     expect(html).not.toContain('<label>Network');
     for (const suggestion of suggestions.discovery ?? []) expect(html).toContain(suggestion);
@@ -178,6 +184,8 @@ describe('renderer dialog surfaces', () => {
     const selectStyles = styles.match(/\.collaboration-inline-control select\s*\{([^}]*)\}/)?.[1] ?? '';
     const selectHoverStyles = styles.match(/\.collaboration-inline-control select:hover:not\(:disabled\),\s*\.collaboration-inline-control select:focus-visible\s*\{([^}]*)\}/)?.[1] ?? '';
     const teamLabelStyles = styles.match(/\.research-model-team-label\s*\{([^}]*)\}/)?.[1] ?? '';
+    const modelSurfaceStyles = styles.match(/\.research-model-squircle\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceInputStyles = styles.match(/\.workspace-onboarding-modal \.modal-form :is\(input, textarea, select\),\s*\.workspace-onboarding-modal \.workspace-repository-add input\s*\{([^}]*)\}/)?.[1] ?? '';
     const startRunDialogStyles = styles.match(/\.modal-panel\.start-run-dialog\s*\{([^}]*)\}/)?.[1] ?? '';
     const startRunBodyStyles = styles.match(/\.modal-panel\.start-run-dialog \.modal-body\s*\{([^}]*)\}/)?.[1] ?? '';
     const startRunTitleStyles = styles.match(/\.modal-panel\.start-run-dialog \.modal-header h2\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -201,12 +209,15 @@ describe('renderer dialog surfaces', () => {
     expect(controlStyles).toContain('font-weight: 400');
     expect(selectStyles).toContain('max-width: 120px');
     expect(selectStyles).toContain('border: 0');
+    expect(selectStyles).toContain('background-color: var(--panel-column)');
     expect(selectStyles).toContain('font-weight: 400');
-    expect(selectHoverStyles).toContain('box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.045)');
+    expect(selectHoverStyles).toContain('box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.09)');
     expect(teamLabelStyles).toContain('color: var(--muted)');
     expect(teamLabelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
     expect(teamLabelStyles).toContain('font-weight: 400');
     expect(teamLabelStyles).toContain('line-height: normal');
+    expect(modelSurfaceStyles).toContain('background: var(--panel-column)');
+    expect(workspaceInputStyles).toContain('background: var(--panel-column)');
     expect(startRunDialogStyles).toContain('min-height: 0');
     expect(startRunDialogStyles).toContain('border-radius: 34px');
     expect(startRunDialogStyles).toContain('corner-shape: squircle');
@@ -236,9 +247,9 @@ describe('renderer dialog surfaces', () => {
     expect(researchGoalChoiceHoverStyles).toContain('background: transparent');
     expect(researchGoalChoiceHoverStyles).toContain('color: var(--text)');
     expect(styles).toContain('.research-collaborator-squircle:has(.research-collaborator-picker .model-selection-picker-trigger:hover:not(:disabled))');
-    expect(styles).toContain('box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.045)');
+    expect(styles).toContain('box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.09)');
     expect(styles).toContain('.research-collaborator-squircle .research-collaborator-picker .model-selection-picker-trigger:hover:not(:disabled)');
-    expect(styles).toMatch(/\.research-collaborator-add:hover:not\(:disabled\),[\s\S]*?box-shadow: inset 0 0 0 999px rgba\(255, 255, 255, 0\.045\)/);
+    expect(styles).toMatch(/\.research-collaborator-add:hover:not\(:disabled\),[\s\S]*?box-shadow: inset 0 0 0 999px rgba\(255, 255, 255, 0\.09\)/);
   });
 
   it('keeps the terminal-session next-step widget structurally stable while suggestions load', () => {
