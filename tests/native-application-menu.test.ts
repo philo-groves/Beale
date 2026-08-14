@@ -3,7 +3,7 @@ import type { MenuItemConstructorOptions } from 'electron';
 import { nativeMacApplicationMenuTemplate } from '../src/main/nativeApplicationMenu';
 
 describe('native macOS application menu', () => {
-  it('builds the native File, View, and Window menus', () => {
+  it('builds the native File, Edit, View, and Window menus', () => {
     const dispatchRendererAction = vi.fn();
     const zoomOut = vi.fn();
     const zoomIn = vi.fn();
@@ -20,9 +20,17 @@ describe('native macOS application menu', () => {
     });
 
     expect(template[0]).toMatchObject({ role: 'appMenu' });
-    expect(menuLabels(template)).toEqual(['File', 'View', 'Window']);
+    expect(menuLabels(template)).toEqual(['File', 'Edit', 'View', 'Window']);
     expect(submenuLabels(template, 'File')).toEqual(['New Research Workspace']);
-    expect(menuLabels(template)).not.toContain('Edit');
+    expect(submenuLabels(template, 'Edit')).toEqual(['Copy', 'Paste']);
+    expect(submenuItem(template, 'Edit', 'Copy')).toMatchObject({
+      role: 'copy',
+      accelerator: 'CommandOrControl+C'
+    });
+    expect(submenuItem(template, 'Edit', 'Paste')).toMatchObject({
+      role: 'paste',
+      accelerator: 'CommandOrControl+V'
+    });
     expect(submenuLabels(template, 'View')).toEqual(['Zoom Level', 'Zoom Out', 'Zoom In']);
     expect(submenuLabels(template, 'Window')).toEqual(['Minimize', 'Maximize', 'Close']);
     expect(submenuItem(template, 'View', 'Zoom Level')).toMatchObject({ sublabel: '125%', enabled: false });

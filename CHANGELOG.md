@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Restored native macOS copy and paste menu roles so Command-C and Command-V work in focused renderer content and editable fields.
+
 ### Added
 
 - Added a repeat schedule picker to New Research with a default No Repeat state and persisted repeat metadata on started runs.
@@ -278,7 +282,6 @@
 
 ### Removed
 
-- Removed the Edit menu from native and custom window headers; standard keyboard copy and paste shortcuts remain available.
 - Removed the unused per-session minute-limit control and its empty New Research settings section; new research remains unlimited by default.
 - Removed the redundant Honeycrisp host-privilege warning banner from the New Research dialog; safety-mode controls and documented execution posture remain unchanged.
 - Removed the experimental Shell Options and Developer sections from Agent Settings; host shell defaults and profiling internals remain unchanged.
