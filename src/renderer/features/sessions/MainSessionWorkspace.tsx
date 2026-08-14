@@ -168,6 +168,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         <BreakoutRoomView
           detail={detail}
           events={allEvents}
+          providerModelCatalog={providerModelCatalog}
           roomId={selectedBreakoutRoomId}
           onBack={onBackToSession}
           onSelectSubagent={onSelectSubagent}

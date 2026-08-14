@@ -552,12 +552,13 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   const hasSearchHighlight = searchHighlightTerms(searchHighlightQuery).length > 0;
   const label = commentaryMessageLabel(message.kind, message.taskAction);
   const icon = commentaryMessageIcon(message.kind, message.toolName);
+  const communicationClass = message.kind === 'task' ? 'agent-communication-outbound' : '';
   const reasoningTraceLines = message.kind === 'progress'
     ? message.reasoningTraceLines?.length ? message.reasoningTraceLines : [message.contentMarkdown]
     : [];
   return (
     <article
-      className={`main-commentary-message kind-${message.kind} ${selected ? 'selected' : ''}`}
+      className={`main-commentary-message kind-${message.kind} ${communicationClass} ${selected ? 'selected' : ''}`}
       data-commentary-event-id={message.id}
       data-commentary-trace-id={message.traceEventId ?? undefined}
     >

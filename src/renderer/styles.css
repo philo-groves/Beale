@@ -4031,9 +4031,92 @@ button.session-summary-item:hover:not(:disabled),
   padding: 10px 13px;
 }
 
+.main-commentary-message.agent-communication-outbound {
+  justify-items: end;
+  border-left: 0;
+  padding-left: 0;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-label {
+  justify-self: end;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content {
+  max-width: min(86%, 620px);
+  border-radius: 14px;
+  background: var(--accent);
+  color: #050505;
+  padding: 10px 13px;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-prose,
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown,
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown strong,
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown em,
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown h1,
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown h2,
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown h3,
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown h4,
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown h5,
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown h6,
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown th,
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown td {
+  color: #050505;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown blockquote {
+  border-left-color: #c7c7c7;
+  color: #303030;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown a {
+  color: #175d92;
+  text-decoration-color: #9cbad1;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-inline-code {
+  background: #e8e8e8;
+  color: #111111;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown table {
+  background: #f3f3f3;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown th {
+  background: #e2e2e2;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown tr + tr td {
+  border-top-color: #d3d3d3;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown-code-block {
+  background: #efefef;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown-code-language {
+  background: #dedede;
+  color: #333333;
+}
+
+.main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown-code-block pre {
+  color: #111111;
+}
+
+.main-commentary-message.agent-communication-outbound .main-search-highlight {
+  background: rgba(183, 128, 12, 0.22);
+  color: #4a3200;
+}
+
 .main-commentary-message.kind-task {
   border-left: 2px solid color-mix(in srgb, var(--accent) 48%, transparent);
   padding-left: 12px;
+}
+
+.main-commentary-message.kind-task.agent-communication-outbound {
+  border-left: 0;
+  padding-left: 0;
 }
 
 .main-commentary-message:is(.kind-progress, .kind-tool, .kind-error) {
@@ -11327,25 +11410,45 @@ button.research-goal-choice:focus-visible {
   width: 100%;
   max-width: var(--trace-content-max-width);
   min-width: 0;
+  display: grid;
   margin-inline: auto;
 }
 
 .breakout-room-message-header {
+  padding: 0 0 7px;
+  border-bottom-color: color-mix(in srgb, var(--panel-border) 82%, transparent);
   cursor: default;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.breakout-room-message.direction-outbound {
+  justify-items: end;
+}
+
+.breakout-room-message.direction-incoming {
+  justify-items: start;
 }
 
 .breakout-room-message-sender {
   min-width: 0;
+  flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.breakout-room-message-sender > span:nth-child(2) {
+.breakout-room-message-sender > span:nth-child(2),
+.breakout-room-message-model {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.breakout-room-message-separator {
+  flex: 0 0 auto;
+  color: var(--text-muted);
 }
 
 .breakout-room-message-subagent {
@@ -11380,17 +11483,129 @@ button.research-goal-choice:focus-visible {
 
 .breakout-room-message-kind {
   flex: 0 0 auto;
-  color: inherit;
+  color: var(--text-muted);
   font: inherit;
   white-space: nowrap;
 }
 
+.breakout-room-message-meta {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.breakout-room-message-time {
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
 .breakout-room-message-body {
+  width: fit-content;
+  max-width: min(86%, 620px);
   min-width: 0;
   display: grid;
-  justify-items: start;
-  gap: 5px;
-  padding: 8px 2px 0;
+  justify-items: stretch;
+  gap: 8px;
+  border-radius: 14px;
+  background: var(--panel-raised);
+  color: var(--text);
+  padding: 10px 13px;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-body {
+  background: var(--accent);
+  color: #050505;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-header {
+  border-bottom-color: #d3d3d3;
+  color: #5a5a5a;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-subagent,
+.breakout-room-message.direction-outbound .breakout-room-message-sender > span:nth-child(2) {
+  color: #050505;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-kind,
+.breakout-room-message.direction-outbound .breakout-room-message-model,
+.breakout-room-message.direction-outbound .breakout-room-message-meta,
+.breakout-room-message.direction-outbound .breakout-room-message-separator {
+  color: #555555;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-content,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-prose,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown strong,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown em,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown h1,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown h2,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown h3,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown h4,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown h5,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown h6,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown th,
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown td {
+  color: #050505;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown blockquote {
+  border-left-color: #c7c7c7;
+  color: #303030;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown a {
+  color: #175d92;
+  text-decoration-color: #9cbad1;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-inline-code {
+  background: #e8e8e8;
+  color: #111111;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown table {
+  background: #f3f3f3;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown th {
+  background: #e2e2e2;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown tr + tr td {
+  border-top-color: #d3d3d3;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown-code-block {
+  background: #efefef;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown-code-language {
+  background: #dedede;
+  color: #333333;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-content .main-trace-markdown-code-block pre {
+  color: #111111;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-message-body.is-overflowing:not(.is-expanded) .breakout-room-message-clip::after {
+  background: linear-gradient(to bottom, transparent, var(--accent));
+}
+
+.breakout-room-message.direction-outbound .breakout-room-evidence-refs,
+.breakout-room-message.direction-outbound .breakout-room-packet-details dt {
+  color: #555555;
+}
+
+.breakout-room-message.direction-outbound .breakout-room-packet-details dd {
+  color: #202020;
 }
 
 .breakout-room-message-clip {
@@ -11411,7 +11626,7 @@ button.research-goal-choice:focus-visible {
   inset: auto 0 0;
   height: 64px;
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--panel));
+  background: linear-gradient(to bottom, transparent, var(--panel-raised));
 }
 
 .breakout-room-message-measure {

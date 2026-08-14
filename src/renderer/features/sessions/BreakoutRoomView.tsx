@@ -1,9 +1,9 @@
 import { ArrowLeft, ChevronRight, MessagesSquare } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import type { BreakoutRoomMemberRecord, BreakoutRoomMessageRecord, RunDetail } from '@shared/types';
+import type { BreakoutRoomMemberRecord, BreakoutRoomMessageRecord, ResearchModelProviderId, ResearchProviderModelCatalog, RunDetail } from '@shared/types';
 import { ProviderIcon } from '../../app/ProviderIcon';
-import { formatDurationHms } from '../../lib/formatting';
+import { formatDurationHms, formatSessionDateTime, formatSessionTime, researchModelNameLabel } from '../../lib/formatting';
 import { commentaryMessagesForSession } from '../../view-models/commentary';
 import { subagentDisplayName, traceAgentPath, traceEventsForSubagent } from '../../view-models/subagents';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
@@ -13,12 +13,14 @@ import { renderTraceProseText } from '../traces/traceMarkup';
 export function BreakoutRoomView({
   detail,
   events = [],
+  providerModelCatalog = [],
   roomId,
   onBack,
   onSelectSubagent
 }: {
   detail: RunDetail | null;
   events?: TraceDisplayEvent[];
+  providerModelCatalog?: ResearchProviderModelCatalog[];
   roomId: string;
   onBack: () => void;
   onSelectSubagent: (path: string) => void;
@@ -155,6 +157,7 @@ export function BreakoutRoomView({
               <BreakoutMessage
                 message={message}
                 member={(message.memberId ? memberById.get(message.memberId) : undefined) ?? memberByAgentPath.get(message.senderAgentPath)}
+                providerModelCatalog={providerModelCatalog}
                 onSelectSubagent={onSelectSubagent}
                 key={message.id}
               />
@@ -162,8 +165,10 @@ export function BreakoutRoomView({
             {room.outcomeMarkdown && !messages.some((message) => message.kind === 'outcome') ? (
               <BreakoutOutcome
                 contentMarkdown={room.outcomeMarkdown}
+                createdAt={room.closedAt ?? room.createdAt}
                 model={detail.run.model}
                 provider={metadataText(detail.run.budget, 'modelProvider') ?? detail.run.model}
+                providerModelCatalog={providerModelCatalog}
               />
             ) : null}
             {workingMembers.length > 0 ? (
@@ -263,29 +268,38 @@ function BreakoutMemberChip({ member }: { member: BreakoutRoomMemberRecord }): J
 function BreakoutMessage({
   message,
   member,
+  providerModelCatalog,
   onSelectSubagent
 }: {
   message: BreakoutRoomMessageRecord;
   member: BreakoutRoomMemberRecord | undefined;
+  providerModelCatalog: ResearchProviderModelCatalog[];
   onSelectSubagent: (path: string) => void;
 }): JSX.Element {
   const sender = breakoutMessageSenderName(message, member);
   const provider = member?.provider || metadataText(message.metadata, 'provider') || member?.model || metadataText(message.metadata, 'model') || '';
   const model = member?.model || metadataText(message.metadata, 'model') || provider;
+  const modelDisplayName = breakoutModelDisplayName(provider, model, providerModelCatalog);
   const subagentPath = message.senderAgentPath === '/root'
     ? null
     : member?.agentPath || message.senderAgentPath;
+  const direction = breakoutMessageDirection(message);
   return (
-    <article className={`breakout-room-message kind-${message.kind}`}>
-      <BreakoutMessageHeader
-        kindLabel={messageKindLabel(message)}
-        model={model}
-        provider={provider}
-        sender={sender}
-        subagentPath={subagentPath}
-        onSelectSubagent={onSelectSubagent}
-      />
-      <BreakoutMessageBody>
+    <article className={`breakout-room-message kind-${message.kind} direction-${direction}`}>
+      <BreakoutMessageBody
+        header={(
+          <BreakoutMessageHeader
+            kindLabel={messageKindLabel(message)}
+            model={modelDisplayName}
+            modelTitle={model}
+            provider={provider}
+            sender={sender}
+            subagentPath={subagentPath}
+            timestamp={message.createdAt}
+            onSelectSubagent={onSelectSubagent}
+          />
+        )}
+      >
         <div className="breakout-room-message-content">{renderTraceProseText(message.contentMarkdown, 'agent_output')}</div>
         {message.evidenceRefs.length > 0 ? (
           <div className="breakout-room-evidence-refs">Evidence: {message.evidenceRefs.join(', ')}</div>
@@ -298,6 +312,12 @@ function BreakoutMessage({
       </BreakoutMessageBody>
     </article>
   );
+}
+
+function breakoutMessageDirection(
+  message: Pick<BreakoutRoomMessageRecord, 'kind' | 'senderAgentPath'>
+): 'incoming' | 'outbound' {
+  return message.senderAgentPath === '/root' && message.kind !== 'outcome' ? 'outbound' : 'incoming';
 }
 
 export function breakoutRoomTranscriptUpdateKey(
@@ -339,24 +359,34 @@ function breakoutRoomEventsForAgentPath(
 
 function BreakoutOutcome({
   contentMarkdown,
+  createdAt,
   model,
-  provider
+  provider,
+  providerModelCatalog
 }: {
   contentMarkdown: string;
+  createdAt: string;
   model: string;
   provider: string;
+  providerModelCatalog: ResearchProviderModelCatalog[];
 }): JSX.Element {
+  const modelDisplayName = breakoutModelDisplayName(provider, model, providerModelCatalog);
   return (
-    <article className="breakout-room-message kind-outcome">
-      <BreakoutMessageHeader
-        kindLabel="Outcome"
-        model={model}
-        provider={provider}
-        sender="Lead Agent"
-        subagentPath={null}
-        onSelectSubagent={() => undefined}
-      />
-      <BreakoutMessageBody>
+    <article className="breakout-room-message kind-outcome direction-incoming">
+      <BreakoutMessageBody
+        header={(
+          <BreakoutMessageHeader
+            kindLabel="Outcome"
+            model={modelDisplayName}
+            modelTitle={model}
+            provider={provider}
+            sender="Lead Agent"
+            subagentPath={null}
+            timestamp={createdAt}
+            onSelectSubagent={() => undefined}
+          />
+        )}
+      >
         <div className="breakout-room-message-content">{renderTraceProseText(contentMarkdown, 'agent_output')}</div>
       </BreakoutMessageBody>
     </article>
@@ -366,23 +396,28 @@ function BreakoutOutcome({
 function BreakoutMessageHeader({
   kindLabel,
   model,
+  modelTitle,
   provider,
   sender,
   subagentPath,
+  timestamp,
   onSelectSubagent
 }: {
   kindLabel: string;
   model: string;
+  modelTitle: string;
   provider: string;
   sender: string;
   subagentPath: string | null;
+  timestamp: string;
   onSelectSubagent: (path: string) => void;
 }): JSX.Element {
+  const timestampLabel = breakoutMessageTimestampLabel(timestamp);
   return (
     <div className="run-work-header breakout-room-message-header">
       <span className="breakout-room-message-sender">
-        <span className="breakout-room-message-provider" title={model}>
-          <ProviderIcon className="breakout-room-message-provider-icon" provider={provider || model} size={14} aria-hidden="true" />
+        <span className="breakout-room-message-provider" title={modelTitle}>
+          <ProviderIcon className="breakout-room-message-provider-icon" provider={provider || modelTitle} size={14} aria-hidden="true" />
         </span>
         {subagentPath ? (
           <button
@@ -394,13 +429,27 @@ function BreakoutMessageHeader({
             {sender}
           </button>
         ) : <span>{sender}</span>}
+        {model ? (
+          <>
+            <span className="breakout-room-message-separator" aria-hidden="true">&bull;</span>
+            <span className="breakout-room-message-model" title={modelTitle}>{model}</span>
+          </>
+        ) : null}
       </span>
-      <span className="breakout-room-message-kind">{kindLabel}</span>
+      <span className="breakout-room-message-meta">
+        <span className="breakout-room-message-kind">{kindLabel}</span>
+        {timestampLabel ? (
+          <>
+            <span className="breakout-room-message-separator" aria-hidden="true">&bull;</span>
+            <time className="breakout-room-message-time" dateTime={timestamp} title={timestampLabel.title}>{timestampLabel.label}</time>
+          </>
+        ) : null}
+      </span>
     </div>
   );
 }
 
-function BreakoutMessageBody({ children }: { children: ReactNode }): JSX.Element {
+function BreakoutMessageBody({ children, header }: { children: ReactNode; header: ReactNode }): JSX.Element {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [overflowing, setOverflowing] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -421,6 +470,7 @@ function BreakoutMessageBody({ children }: { children: ReactNode }): JSX.Element
 
   return (
     <div className={`breakout-room-message-body${overflowing ? ' is-overflowing' : ''}${expanded ? ' is-expanded' : ''}`}>
+      {header}
       <div className="breakout-room-message-clip">
         <div className="breakout-room-message-measure" ref={contentRef}>{children}</div>
       </div>
@@ -477,6 +527,66 @@ function roomPacketDetails(message: BreakoutRoomMessageRecord): [string, string]
   if (uncertainty) entries.push(['Uncertainty', uncertainty]);
   if (nextExperiment) entries.push(['Next check', nextExperiment]);
   return entries;
+}
+
+function breakoutModelDisplayName(
+  provider: string,
+  model: string,
+  catalogs: readonly ResearchProviderModelCatalog[]
+): string {
+  const providerId = breakoutResearchProviderId(provider) ?? breakoutResearchProviderId(model);
+  const matchingCatalog = providerId
+    ? catalogs.find((catalog) => catalog.providerId === providerId)
+    : catalogs.find((catalog) => catalog.models.some((candidate) => candidate.id === model));
+  const matchingModel = matchingCatalog?.models.find((candidate) => candidate.id === model);
+  if (matchingCatalog && matchingModel) return researchModelNameLabel(matchingCatalog.providerId, matchingModel.name);
+  const fallback = fallbackModelDisplayName(model);
+  return providerId ? researchModelNameLabel(providerId, fallback) : fallback;
+}
+
+function breakoutResearchProviderId(value: string): ResearchModelProviderId | null {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === 'openai' || normalized === 'openai-codex' || normalized.startsWith('gpt-') || /^o\d(?:-|$)/u.test(normalized)) return 'openai-codex';
+  if (normalized === 'anthropic' || normalized === 'claude' || normalized.startsWith('claude-')) return 'anthropic';
+  if (normalized === 'xai' || normalized === 'grok' || normalized.startsWith('grok-')) return 'xai';
+  if (normalized === 'zai' || normalized === 'z.ai' || normalized === 'glm' || normalized.startsWith('glm-')) return 'zai';
+  return null;
+}
+
+function fallbackModelDisplayName(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) return '';
+  const lower = normalized.toLowerCase();
+  if (lower === 'gpt-daybreak-blue-latest') return 'Daybreak Blue';
+  if (lower === 'gpt-daybreak-red-latest') return 'Daybreak Red';
+  if (lower.startsWith('gpt-')) return titleModelTokens(lower.slice(4));
+  if (lower.startsWith('claude-')) return titleModelTokens(lower.slice(7));
+  if (lower.startsWith('grok-')) return `Grok ${titleModelTokens(lower.slice(5))}`;
+  if (lower.startsWith('glm-')) return `GLM-${titleModelTokens(lower.slice(4))}`;
+  return titleModelTokens(normalized);
+}
+
+function titleModelTokens(value: string): string {
+  return value
+    .split(/[-_]+/u)
+    .filter(Boolean)
+    .map((part) => {
+      if (/^\d+(?:\.\d+)*$/u.test(part)) return part;
+      if (part.toLowerCase() === 'glm') return 'GLM';
+      if (part.toLowerCase() === 'gpt') return 'GPT';
+      return `${part.charAt(0).toUpperCase()}${part.slice(1)}`;
+    })
+    .join(' ');
+}
+
+function breakoutMessageTimestampLabel(value: string): { label: string; title: string } | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return {
+    label: formatSessionTime(date),
+    title: formatSessionDateTime(value)
+  };
 }
 
 function metadataText(metadata: Record<string, unknown>, key: string): string | null {

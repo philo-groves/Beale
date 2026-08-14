@@ -156,14 +156,16 @@ describe('breakout room view', () => {
       onSelectSubagent: () => undefined
     }));
 
-    expect(html).toContain('<article class="breakout-room-message kind-commentary">');
+    expect(html).toContain('<article class="breakout-room-message kind-commentary direction-incoming">');
     expect(html).not.toContain('<details class="breakout-room-message kind-commentary"');
     expect(html).toContain('class="run-work-header breakout-room-message-header"');
     expect(html).toContain('class="breakout-room-message-provider" title="grok-4.6"');
     expect(html).toContain('breakout-room-message-provider-icon');
     expect(html).toContain('class="breakout-room-message-subagent" title="View Parser Reviewer commentary"');
     expect(html).toContain('Parser Reviewer</button>');
+    expect(html).toContain('<span class="breakout-room-message-model" title="grok-4.6">Grok 4.6</span>');
     expect(html).toContain('<span class="breakout-room-message-kind">Commentary</span>');
+    expect(html).toContain('<time class="breakout-room-message-time" dateTime="2026-08-12T12:00:01.000Z" title="Aug 12, 8:00a">8:00a</time>');
     expect(html).toContain('Inspecting the parser boundary.');
     expect(html).toContain('class="breakout-room-message-clip"');
     expect(html).not.toContain('class="breakout-room-message-more"');

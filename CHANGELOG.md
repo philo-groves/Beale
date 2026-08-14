@@ -26,6 +26,7 @@
 
 ### Changed
 
+- Outbound agent-to-agent messages now render as right-aligned white bubbles in Commentary and breakout-room transcripts, while breakout-room incoming messages and outcomes use left-aligned dark bubbles with in-bubble provider, agent, display-model, type, and timestamp headers.
 - Session transcript search now opens as a centered Find a Session dialog matching the New Research modal shape and surface color instead of a bottom sheet.
 - More Sessions now reuses the same centered session-finder dialog styling instead of the bottom-sheet presentation.
 - Beale now permits bundled and host-approved research profiles to use Honeycrisp repository search and file reads by default; repository search may target any readable host directory, including repositories outside the workspace, while configured repositories remain context hints.
