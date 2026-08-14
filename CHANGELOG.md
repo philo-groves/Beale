@@ -5,6 +5,7 @@
 ### Added
 
 - Added a first-class Agent Plugins manager with local/repository install paths, persistent enablement, removal, and v1 manifest/skill/MCP discovery surfaced from the left sidebar.
+- Enabled Agent Plugins now extend Honeycrisp runs and tooling discovery through generated skill-dir, selected-skill, MCP-config, and MCP server allow-list arguments, with plugin MCP paths rewritten into a Beale-owned runtime overlay.
 - Added Z.ai as a first-class provider with GLM-5.3 and GLM-5-Turbo model choices, official ZCode subscription sign-in/logout and execution, encrypted `ZAI_API_KEY` configuration, provider-specific authentication preference, provider marks, and a one-time policy-use acknowledgement for cybersecurity research.
 - Added live Memory Dreaming phase tracking from preparation through synthesis, compact-context and provider retries, plan correction, validation, atomic application, and completion; the workspace Dream card now fades between centered phase messages.
 - Added durable workspace-level research goal suggestions in workbench migration 23, with stale-while-refresh restoration across dialog and application reopen cycles.

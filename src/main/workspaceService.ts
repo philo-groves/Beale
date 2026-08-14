@@ -1013,7 +1013,11 @@ export class WorkspaceService {
       throw new Error('No Beale workspace is open');
     }
     return normalizeHoneycrispToolingSummary(
-      invokeHoneycrispToolsList(runtime.workspacePath, this.getWorkspaceRegistry().getShellOptionsPath()),
+      invokeHoneycrispToolsList(
+        runtime.workspacePath,
+        this.getWorkspaceRegistry().getShellOptionsPath(),
+        this.getAgentPluginRegistry().getHoneycrispRuntime().args
+      ),
       runtime.workspacePath
     );
   }
@@ -1025,7 +1029,11 @@ export class WorkspaceService {
     }
     invokeHoneycrispToolsConfig(runtime.workspacePath, honeycrispToolingConfigUpdateArgs(update));
     return normalizeHoneycrispToolingSummary(
-      invokeHoneycrispToolsList(runtime.workspacePath, this.getWorkspaceRegistry().getShellOptionsPath()),
+      invokeHoneycrispToolsList(
+        runtime.workspacePath,
+        this.getWorkspaceRegistry().getShellOptionsPath(),
+        this.getAgentPluginRegistry().getHoneycrispRuntime().args
+      ),
       runtime.workspacePath
     );
   }
@@ -2882,7 +2890,8 @@ export class WorkspaceService {
           this.getWorkspaceRegistry().getShellOptionsPath(),
           () => this.getWorkspaceRegistry().getMemorySettings().typeDescriptions,
           () => this.options.researchSubjectResolver?.(workspacePath) ?? db.getResearchSubject(),
-          () => this.getWorkspaceRegistry().getProviderSettings()
+          () => this.getWorkspaceRegistry().getProviderSettings(),
+          () => this.getAgentPluginRegistry().getHoneycrispRuntime()
         )
       };
     } catch (error) {

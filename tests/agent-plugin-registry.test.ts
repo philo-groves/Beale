@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -23,6 +23,7 @@ describe('AgentPluginRegistry', () => {
     expect(installed.plugins[0].enabled).toBe(true);
     expect(installed.plugins[0].skills).toEqual([
       {
+        id: 'recon',
         name: 'Recon helper',
         directoryName: 'recon',
         relativePath: './skills/recon/SKILL.md',
@@ -46,6 +47,47 @@ describe('AgentPluginRegistry', () => {
 
     const removed = registry.remove(installed.plugins[0].id);
     expect(removed.plugins).toHaveLength(0);
+  });
+
+  it('builds Honeycrisp runtime arguments from enabled plugins', () => {
+    const registry = new AgentPluginRegistry(tempDir('beale-plugin-registry-'));
+    const pluginRoot = validPluginRoot('filesystem-plugin');
+
+    const installed = registry.addFromFilesystem(pluginRoot);
+    const sourceRoot = installed.plugins[0].source.path;
+    const runtime = registry.getHoneycrispRuntime();
+    const mcpConfigPath = runtime.mcpConfigPath ?? '';
+    const mcpConfig = JSON.parse(readFileSync(mcpConfigPath, 'utf8')) as {
+      mcpServers: Record<string, { type: string; command: string; cwd: string }>;
+    };
+
+    expect(runtime.skillDirs).toEqual([join(sourceRoot, 'skills')]);
+    expect(runtime.selectedSkillIds).toEqual(['recon']);
+    expect(runtime.allowedMcpServers).toEqual(['filesystem-plugin.local']);
+    expect(runtime.args).toEqual(expect.arrayContaining([
+      '--skill-dir',
+      join(sourceRoot, 'skills'),
+      '--skill',
+      'recon',
+      '--mcp-config',
+      mcpConfigPath,
+      '--allow-mcp-server',
+      'filesystem-plugin.local'
+    ]));
+    expect(mcpConfig.mcpServers['filesystem-plugin.local']).toMatchObject({
+      type: 'stdio',
+      command: join(sourceRoot, 'server.js'),
+      cwd: sourceRoot
+    });
+
+    registry.setEnabled(installed.plugins[0].id, false);
+    expect(registry.getHoneycrispRuntime()).toMatchObject({
+      skillDirs: [],
+      selectedSkillIds: [],
+      mcpConfigPath: null,
+      allowedMcpServers: [],
+      args: []
+    });
   });
 
   it('keeps manifest-valid plugins visible when an MCP component is invalid', () => {

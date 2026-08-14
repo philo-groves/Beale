@@ -2788,6 +2788,84 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('passes enabled Agent Plugins into Honeycrisp tooling discovery', () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-honeycrisp-plugin-tools.mjs');
+    const argsPath = join(workspace, 'plugin-tooling-args.json');
+    const pluginRoot = validAgentPluginRoot('filesystem-plugin');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { writeFileSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        "if (args[0] !== 'tools' || args[1] !== 'list') throw new Error(`unexpected command ${args.join(' ')}`);",
+        'const valuesAfter = (flag) => args.flatMap((arg, index) => arg === flag ? [args[index + 1]] : []);',
+        "writeFileSync(process.env.BEALE_TOOLING_ARGS_PATH, JSON.stringify(args));",
+        'console.log(JSON.stringify({',
+        '  toolConfig: {',
+        '    configPath: "/workspace/.honeycrisp/tools.json",',
+        '    exists: true,',
+        '    loaded: true,',
+        '    defaultDisabled: false,',
+        '    preference: {',
+        '      skillDirs: valuesAfter("--skill-dir"),',
+        '      selectedSkillIds: valuesAfter("--skill"),',
+        '      mcpConfigPath: valuesAfter("--mcp-config")[0] ?? null,',
+        '      allowedMcpServers: valuesAfter("--allow-mcp-server"),',
+        '      mcpTimeoutMs: null',
+        '    }',
+        '  },',
+        '  tools: [],',
+        '  toolFamilies: { enabled: [], requested: [], disabled: [] },',
+        '  skills: { loaded: [], selectedIds: valuesAfter("--skill") },',
+        '  mcp: {',
+        '    status: valuesAfter("--mcp-config").length ? "configured" : "not_configured",',
+        '    configPath: valuesAfter("--mcp-config")[0] ?? null,',
+        '    configuredServers: valuesAfter("--allow-mcp-server"),',
+        '    allowedServers: valuesAfter("--allow-mcp-server"),',
+        '    timeoutMs: null,',
+        '    discoveredCapabilities: [],',
+        '    deniedCapabilities: [],',
+        '    resourceTemplates: []',
+        '  }',
+        '}));'
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
+    process.env.BEALE_TOOLING_ARGS_PATH = argsPath;
+
+    const service = new WorkspaceService();
+    service.createWorkspace(workspace);
+    const plugins = service.addAgentPluginFromFilesystem(pluginRoot);
+    const sourceRoot = plugins.plugins[0].source.path;
+    const summary = service.getHoneycrispToolingSummary();
+    const args = JSON.parse(readFileSync(argsPath, 'utf8')) as string[];
+    const mcpConfigPath = args[args.indexOf('--mcp-config') + 1];
+    const generatedMcpConfig = JSON.parse(readFileSync(mcpConfigPath, 'utf8')) as {
+      mcpServers: Record<string, { command: string; cwd: string }>;
+    };
+
+    expect(args).toEqual(expect.arrayContaining([
+      '--skill-dir',
+      join(sourceRoot, 'skills'),
+      '--skill',
+      'recon',
+      '--allow-mcp-server',
+      'filesystem-plugin.local'
+    ]));
+    expect(summary.config.preference.skillDirs).toContain(join(sourceRoot, 'skills'));
+    expect(summary.config.preference.selectedSkillIds).toContain('recon');
+    expect(summary.config.preference.allowedMcpServers).toContain('filesystem-plugin.local');
+    expect(generatedMcpConfig.mcpServers['filesystem-plugin.local']).toMatchObject({
+      command: join(sourceRoot, 'server.js'),
+      cwd: sourceRoot
+    });
+    service.close();
+  });
+
   it('updates Honeycrisp Skills and MCP configuration through Honeycrisp CLI', () => {
     const workspace = tempWorkspace();
     const fakeHoneycrisp = join(workspace, 'fake-honeycrisp-tools-config.mjs');
@@ -4859,6 +4937,39 @@ function openService(): WorkspaceService {
   const service = new WorkspaceService();
   service.createWorkspace(tempWorkspace());
   return service;
+}
+
+function validAgentPluginRoot(name: string): string {
+  const pluginRoot = tempWorkspace();
+  writeFileSync(join(pluginRoot, 'plugin.json'), JSON.stringify({
+    $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
+    name,
+    version: '0.1.0',
+    description: 'Test Agent Plugin.'
+  }), 'utf8');
+  mkdirSync(join(pluginRoot, 'skills', 'recon'), { recursive: true });
+  writeFileSync(join(pluginRoot, 'skills', 'recon', 'SKILL.md'), [
+    '---',
+    'name: Recon helper',
+    'description: Find promising reconnaissance paths.',
+    '---',
+    '',
+    'Use this skill for focused recon.'
+  ].join('\n'), 'utf8');
+  writeFileSync(join(pluginRoot, 'server.js'), '', 'utf8');
+  writeFileSync(join(pluginRoot, 'mcp.json'), JSON.stringify({
+    $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json',
+    mcpServers: {
+      local: {
+        type: 'stdio',
+        command: './server.js',
+        args: [],
+        env: {},
+        cwd: './'
+      }
+    }
+  }), 'utf8');
+  return pluginRoot;
 }
 
 function tempWorkspace(): string {

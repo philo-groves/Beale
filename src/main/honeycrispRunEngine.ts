@@ -40,6 +40,7 @@ import {
 import { resolveGoalObjective } from '../shared/goalObjective';
 import { decodeResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
 import { redactCommandArgumentsForModel, redactForModelText, redactJsonForModel } from './redaction';
+import type { AgentPluginHoneycrispRuntime } from './agentPluginRegistry';
 
 export interface HoneycrispRunHandle {
   context: CreatedRunContext;
@@ -296,7 +297,8 @@ export class HoneycrispRunEngine {
     private readonly shellOptionsPath?: string,
     private readonly getMemoryTypeDescriptions?: () => MemoryTypeDescriptions,
     private readonly getResearchSubject?: () => ResearchSubjectInput | null,
-    private readonly getProviderSettings?: () => ProviderSettings
+    private readonly getProviderSettings?: () => ProviderSettings,
+    private readonly getAgentPluginHoneycrispRuntime?: () => AgentPluginHoneycrispRuntime
   ) {}
 
   public startRun(input: StartRunInput, researchProfile: ResearchProfileSnapshot): HoneycrispRunHandle {
@@ -542,6 +544,7 @@ export class HoneycrispRunEngine {
       writeFileSync(collaborationConfigPath, JSON.stringify(normalizeResearchCollaboration(input.collaboration), null, 2), { encoding: 'utf8', mode: 0o600 });
     }
     const providerSettings = this.getProviderSettings?.();
+    const agentPluginRuntime = this.getAgentPluginHoneycrispRuntime?.();
     const args = [
       ...(invocation.usesNodeRuntime ? [HONEYCRISP_MAX_OLD_SPACE_ARG] : []),
       ...invocation.prefixArgs,
@@ -565,7 +568,8 @@ export class HoneycrispRunEngine {
           : undefined,
         researchProfile ? undefined : this.getMemoryTypeDescriptions?.(),
         providerSettings,
-        collaborationConfigPath ?? undefined
+        collaborationConfigPath ?? undefined,
+        agentPluginRuntime?.args
       )
     ];
     this.db.appendTraceEvent({
@@ -591,6 +595,15 @@ export class HoneycrispRunEngine {
         researchWorkflowId: workflowId,
         resolvedResearchProfilePath: researchProfilePath ? '[run-local-profile]' : null,
         collaborationConfigPath: collaborationConfigPath ? '[run-local-collaboration-config]' : null,
+        agentPluginRuntime: agentPluginRuntime
+          ? {
+              skillDirCount: agentPluginRuntime.skillDirs.length,
+              selectedSkillCount: agentPluginRuntime.selectedSkillIds.length,
+              mcpConfigPath: agentPluginRuntime.mcpConfigPath ? '[agent-plugin-mcp-config]' : null,
+              allowedMcpServerCount: agentPluginRuntime.allowedMcpServers.length,
+              warnings: agentPluginRuntime.warnings
+            }
+          : null,
         researchProfileHash: researchProfile ? '[profile-hash]' : null,
         legacyMemoryTypeDescriptions: !researchProfile && Boolean(this.getMemoryTypeDescriptions?.()),
         automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0
@@ -2434,7 +2447,8 @@ function honeycrispRunArgs(
   researchProfile?: HoneycrispResearchProfileLaunch,
   memoryTypeDescriptions?: MemoryTypeDescriptions,
   providerSettings?: ProviderSettings,
-  collaborationConfigPath?: string
+  collaborationConfigPath?: string,
+  agentPluginRuntimeArgs: readonly string[] = []
 ): string[] {
   const args = [
     '--workspace-root',
@@ -2516,7 +2530,7 @@ function honeycrispRunArgs(
     args.push('--research-profile-hash', researchProfile.hash);
     args.push('--workflow', researchProfile.workflowId);
   }
-  args.push(...bealeHoneycrispRuntimeArgs(shellOptionsPath, Boolean(researchProfile)));
+  args.push(...bealeHoneycrispRuntimeArgs(shellOptionsPath, Boolean(researchProfile), agentPluginRuntimeArgs));
   // Keep Beale-owned safety mode and reviewer routing after extension arguments.
   // A workspace profile cannot choose the model that authorizes host shell execution.
   args.push('--shell-safety-mode', input.shellSafetyMode);
@@ -2782,7 +2796,11 @@ export function resolveHoneycrispInvocation(): HoneycrispInvocation {
   };
 }
 
-export function invokeHoneycrispToolsList(workspacePath: string, shellOptionsPath?: string): Record<string, unknown> {
+export function invokeHoneycrispToolsList(
+  workspacePath: string,
+  shellOptionsPath?: string,
+  agentPluginRuntimeArgs: readonly string[] = []
+): Record<string, unknown> {
   const invocation = resolveHoneycrispInvocation();
   const fullArgs = [
     ...invocation.prefixArgs,
@@ -2790,7 +2808,7 @@ export function invokeHoneycrispToolsList(workspacePath: string, shellOptionsPat
     'list',
     '--workspace-root',
     workspacePath,
-    ...bealeHoneycrispRuntimeArgs(shellOptionsPath),
+    ...bealeHoneycrispRuntimeArgs(shellOptionsPath, false, agentPluginRuntimeArgs),
     '--json'
   ];
   const result = spawnSync(invocation.command, fullArgs, {
@@ -3379,7 +3397,8 @@ function parseCapabilityCeiling(
 
 function bealeHoneycrispRuntimeArgs(
   shellOptionsPath: string | undefined,
-  profileAware = false
+  profileAware = false,
+  agentPluginRuntimeArgs: readonly string[] = []
 ): string[] {
   const profileCeilings = profileAware ? resolveBealeProfileCapabilityCeilings() : null;
   const capabilityArgs = profileAware
@@ -3420,6 +3439,7 @@ function bealeHoneycrispRuntimeArgs(
   return [
     ...additionalHoneycrispRuntimeArgs(),
     '--no-default-tool-config',
+    ...agentPluginRuntimeArgs,
     ...capabilityArgs,
     '--allowed-side-effect',
     'network',

@@ -48,18 +48,33 @@ interface ParsedManifest {
   warnings: string[];
 }
 
+export interface AgentPluginHoneycrispRuntime {
+  runtimeDirectory: string;
+  skillDirs: string[];
+  selectedSkillIds: string[];
+  mcpConfigPath: string | null;
+  allowedMcpServers: string[];
+  args: string[];
+  warnings: string[];
+}
+
 export class AgentPluginRegistry {
   private readonly registryPath: string;
   private readonly pluginStorePath: string;
   private readonly pluginDataPath: string;
+  private readonly runtimePath: string;
+  private readonly runtimeMcpConfigPath: string;
 
   public constructor(private readonly registryDirectory: string) {
     mkdirSync(registryDirectory, { recursive: true });
     this.registryPath = join(registryDirectory, 'agent-plugins.json');
     this.pluginStorePath = resolve(registryDirectory, 'agent-plugin-repositories');
     this.pluginDataPath = join(registryDirectory, 'agent-plugin-data');
+    this.runtimePath = join(registryDirectory, 'agent-plugin-runtime');
+    this.runtimeMcpConfigPath = join(this.runtimePath, 'mcp.json');
     mkdirSync(this.pluginStorePath, { recursive: true });
     mkdirSync(this.pluginDataPath, { recursive: true });
+    mkdirSync(this.runtimePath, { recursive: true });
   }
 
   public getState(): AgentPluginRegistryState {
@@ -69,6 +84,68 @@ export class AgentPluginRegistry {
       pluginStorePath: this.pluginStorePath,
       specVersion: AGENT_PLUGIN_SPEC_VERSION,
       plugins: registry.plugins.map((stored) => this.materializeRecord(stored)).sort(comparePlugins)
+    };
+  }
+
+  public getHoneycrispRuntime(): AgentPluginHoneycrispRuntime {
+    const state = this.getState();
+    const skillDirs: string[] = [];
+    const selectedSkillIds: string[] = [];
+    const mcpServers: Record<string, Record<string, unknown>> = {};
+    const allowedMcpServers: string[] = [];
+    const warnings: string[] = [];
+    const usedMcpNames = new Set<string>();
+
+    for (const plugin of state.plugins) {
+      if (!plugin.enabled || plugin.status !== 'ready') continue;
+      if (plugin.skills.length > 0) {
+        skillDirs.push(containedPath(plugin.source.path, 'skills'));
+        selectedSkillIds.push(...plugin.skills.map((skill) => skill.id));
+      }
+      const pluginDataRoot = resolve(this.pluginDataPath, plugin.id);
+      mkdirSync(pluginDataRoot, { recursive: true });
+      const parsedMcp = readMcpServers(plugin.source.path, warnings, []);
+      if (!parsedMcp) continue;
+      for (const [serverName, config] of Object.entries(parsedMcp)) {
+        const summary = scanMcpServer(serverName, config, plugin.source.path, pluginDataRoot);
+        if (!summary.valid) {
+          warnings.push(`Plugin ${plugin.name} MCP server ${serverName} was skipped: ${summary.errors.join(' ')}`);
+          continue;
+        }
+        const runtimeConfig = honeycrispMcpServerConfig(config, summary.transport, plugin.source.path, pluginDataRoot);
+        if (!runtimeConfig) continue;
+        const runtimeName = uniqueRuntimeMcpServerName(plugin.name, serverName, usedMcpNames);
+        mcpServers[runtimeName] = runtimeConfig;
+        allowedMcpServers.push(runtimeName);
+      }
+    }
+
+    const args = [
+      ...dedupeSorted(skillDirs).flatMap((path) => ['--skill-dir', path]),
+      ...dedupeSorted(selectedSkillIds).flatMap((id) => ['--skill', id])
+    ];
+    const mcpConfigPath = allowedMcpServers.length > 0 ? this.runtimeMcpConfigPath : null;
+    if (mcpConfigPath) {
+      mkdirSync(this.runtimePath, { recursive: true });
+      writeFileSync(
+        mcpConfigPath,
+        `${JSON.stringify({ mcpServers }, null, 2)}\n`,
+        { encoding: 'utf8', mode: 0o600 }
+      );
+      args.push('--mcp-config', mcpConfigPath);
+      for (const serverName of allowedMcpServers) {
+        args.push('--allow-mcp-server', serverName);
+      }
+    }
+
+    return {
+      runtimeDirectory: this.runtimePath,
+      skillDirs: dedupeSorted(skillDirs),
+      selectedSkillIds: dedupeSorted(selectedSkillIds),
+      mcpConfigPath,
+      allowedMcpServers,
+      args,
+      warnings
     };
   }
 
@@ -280,6 +357,7 @@ function scanSkills(pluginRoot: string, warnings: string[]): AgentPluginSkillSum
       assertExistingPathContained(pluginRoot, skillMarkdownPath, `skills/${entry.name}/SKILL.md`);
       const metadata = parseSkillMarkdown(readFileSync(skillMarkdownPath, 'utf8'));
       return [{
+        id: entry.name,
         name: metadata.name ?? entry.name,
         directoryName: entry.name,
         relativePath: `./skills/${entry.name}/SKILL.md`,
@@ -290,11 +368,23 @@ function scanSkills(pluginRoot: string, warnings: string[]): AgentPluginSkillSum
 }
 
 function scanMcpServers(pluginRoot: string, pluginDataRoot: string, warnings: string[], pluginErrors: string[]): AgentPluginMcpServerSummary[] {
+  const mcpServers = readMcpServers(pluginRoot, warnings, pluginErrors);
+  if (!mcpServers) return [];
+  return Object.entries(mcpServers)
+    .map(([name, config]) => scanMcpServer(name, config, pluginRoot, pluginDataRoot))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function readMcpServers(
+  pluginRoot: string,
+  warnings: string[],
+  pluginErrors: string[]
+): Record<string, unknown> | null {
   const mcpPath = containedPath(pluginRoot, 'mcp.json');
-  if (!existsSync(mcpPath)) return [];
+  if (!existsSync(mcpPath)) return null;
   if (!statSync(mcpPath).isFile()) {
     warnings.push('mcp.json exists but is not a file, so MCP servers were skipped.');
-    return [];
+    return null;
   }
   assertExistingPathContained(pluginRoot, mcpPath, 'mcp.json');
   let parsed: unknown;
@@ -302,11 +392,11 @@ function scanMcpServers(pluginRoot: string, pluginDataRoot: string, warnings: st
     parsed = JSON.parse(readFileSync(mcpPath, 'utf8')) as unknown;
   } catch (error) {
     pluginErrors.push(`mcp.json could not be parsed: ${errorMessage(error)}`);
-    return [];
+    return null;
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     pluginErrors.push('mcp.json must be a JSON object.');
-    return [];
+    return null;
   }
   const object = parsed as Record<string, unknown>;
   if (stringValue(object.$schema) !== AGENT_PLUGIN_MCP_SCHEMA) {
@@ -315,11 +405,9 @@ function scanMcpServers(pluginRoot: string, pluginDataRoot: string, warnings: st
   const mcpServers = object.mcpServers;
   if (!mcpServers || typeof mcpServers !== 'object' || Array.isArray(mcpServers)) {
     pluginErrors.push('mcp.json must include an mcpServers object.');
-    return [];
+    return null;
   }
-  return Object.entries(mcpServers as Record<string, unknown>)
-    .map(([name, config]) => scanMcpServer(name, config, pluginRoot, pluginDataRoot))
-    .sort((left, right) => left.name.localeCompare(right.name));
+  return mcpServers as Record<string, unknown>;
 }
 
 function scanMcpServer(name: string, config: unknown, pluginRoot: string, pluginDataRoot: string): AgentPluginMcpServerSummary {
@@ -408,6 +496,62 @@ function validateMcpUrl(value: string, errors: string[]): void {
   }
 }
 
+function honeycrispMcpServerConfig(
+  config: unknown,
+  transport: AgentPluginMcpTransport,
+  pluginRoot: string,
+  pluginDataRoot: string
+): Record<string, unknown> | null {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
+  const object = config as Record<string, unknown>;
+  if (transport === 'stdio') {
+    const command = stringValue(object.command);
+    if (!command) return null;
+    const runtimeConfig: Record<string, unknown> = {
+      type: 'stdio',
+      command: command.startsWith('./') ? resolve(pluginRoot, command) : command
+    };
+    if (Array.isArray(object.args)) runtimeConfig.args = object.args.filter((arg): arg is string => typeof arg === 'string');
+    if (isStringRecord(object.env)) {
+      runtimeConfig.env = Object.fromEntries(
+        Object.entries(object.env).map(([key, value]) => [key, expandPluginVariables(value, pluginRoot, pluginDataRoot)])
+      );
+    }
+    const cwd = stringValue(object.cwd);
+    if (cwd) runtimeConfig.cwd = resolvePluginPathExpression(cwd, pluginRoot, pluginDataRoot);
+    return runtimeConfig;
+  }
+  if (transport === 'streamable-http' || transport === 'sse') {
+    const url = stringValue(object.url);
+    if (!url) return null;
+    const runtimeConfig: Record<string, unknown> = { type: transport, url };
+    if (isStringRecord(object.headers)) runtimeConfig.headers = { ...object.headers };
+    return runtimeConfig;
+  }
+  return null;
+}
+
+function resolvePluginPathExpression(value: string, pluginRoot: string, pluginDataRoot: string): string {
+  if (value.startsWith('${PLUGIN_ROOT}')) {
+    return resolveExpressionSuffix(pluginRoot, value.slice('${PLUGIN_ROOT}'.length));
+  }
+  if (value.startsWith('${PLUGIN_DATA}')) {
+    return resolveExpressionSuffix(pluginDataRoot, value.slice('${PLUGIN_DATA}'.length));
+  }
+  return resolve(pluginRoot, value);
+}
+
+function resolveExpressionSuffix(root: string, suffix: string): string {
+  const child = suffix.replace(/^[\\/]+/u, '');
+  return child ? resolve(root, child) : resolve(root);
+}
+
+function expandPluginVariables(value: string, pluginRoot: string, pluginDataRoot: string): string {
+  return value
+    .replaceAll('${PLUGIN_ROOT}', pluginRoot)
+    .replaceAll('${PLUGIN_DATA}', pluginDataRoot);
+}
+
 function parseSkillMarkdown(markdown: string): { name: string | null; description: string | null } {
   const frontmatter = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/u)?.[1] ?? '';
   return {
@@ -435,6 +579,39 @@ function validateStringRecord(value: unknown, label: string, errors: string[]): 
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.values(value as Record<string, unknown>).some((entry) => typeof entry !== 'string')) {
     errors.push(`${label} must be an object with string values when provided.`);
   }
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return Boolean(value)
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'string');
+}
+
+function uniqueRuntimeMcpServerName(pluginName: string, serverName: string, usedNames: Set<string>): string {
+  const base = `${sanitizeRuntimeNamePart(pluginName, 'plugin')}.${sanitizeRuntimeNamePart(serverName, 'server')}`.slice(0, 180);
+  let candidate = base;
+  let suffix = 2;
+  while (usedNames.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  usedNames.add(candidate);
+  return candidate;
+}
+
+function sanitizeRuntimeNamePart(value: string, fallback: string): string {
+  const sanitized = value
+    .trim()
+    .replace(/[^A-Za-z0-9_.-]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+    .slice(0, 80);
+  if (sanitized) return sanitized;
+  return `${fallback}-${createHash('sha256').update(value).digest('hex').slice(0, 8)}`;
+}
+
+function dedupeSorted(values: string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
 function canonicalDirectory(path: string): string {

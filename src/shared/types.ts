@@ -909,6 +909,7 @@ export interface AgentPluginSource {
 }
 
 export interface AgentPluginSkillSummary {
+  id: string;
   name: string;
   directoryName: string;
   relativePath: string;
