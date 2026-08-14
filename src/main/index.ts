@@ -526,8 +526,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.runWorkspaceDejunk, () =>
     timedMainIpc('runWorkspaceDejunk', {}, () => workspaceService.runWorkspaceDejunk())
   );
-  ipcMain.handle(IPC_CHANNELS.runMemoryDreaming, () =>
-    timedMainIpcAsync('runMemoryDreaming', {}, () => workspaceService.runMemoryDreaming())
+  ipcMain.handle(IPC_CHANNELS.runMemoryDreaming, (event) =>
+    timedMainIpcAsync('runMemoryDreaming', {}, () => workspaceService.runMemoryDreaming((update) => {
+      if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.memoryDreamingUpdated, update);
+    }))
   );
   ipcMain.handle(IPC_CHANNELS.restoreMemoryDreamingChange, (_event, changeId: string) =>
     timedMainIpc('restoreMemoryDreamingChange', { change: shortMetricId(changeId) }, () =>

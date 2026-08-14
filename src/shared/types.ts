@@ -707,6 +707,27 @@ export interface MemoryDreamingRunSummary {
   errorMessage: string | null;
 }
 
+export type MemoryDreamingProgressPhase =
+  | 'preparing'
+  | 'gathering'
+  | 'synthesizing'
+  | 'compacting'
+  | 'retrying'
+  | 'correcting'
+  | 'validating'
+  | 'applying'
+  | 'completed'
+  | 'failed';
+
+export interface MemoryDreamingProgressUpdate {
+  workspaceId: string;
+  phase: MemoryDreamingProgressPhase;
+  inputNodeCount: number;
+  inputSessionCount: number;
+  decisionCount: number;
+  updatedAt: string;
+}
+
 export interface MemoryDreamingSummary {
   available: boolean;
   scope: 'workspace';
@@ -1115,7 +1136,6 @@ export interface ResearchCollaborationPreferences {
   peerChallengeRounds: number;
   maxConcurrentRooms: number;
   maxMembersPerRoom: number;
-  maxTotalInvocations: number;
 }
 
 export type ResearchProviderReadiness = 'ready' | 'not_configured' | 'unavailable';
@@ -1710,6 +1730,7 @@ export interface BealeApi {
   getHoneycrispReport(reportId: string): Promise<HoneycrispReportDocument>;
   runWorkspaceDejunk(): Promise<WorkspaceSnapshot>;
   runMemoryDreaming(): Promise<WorkspaceSnapshot>;
+  onMemoryDreamingProgress(listener: (update: MemoryDreamingProgressUpdate) => void): () => void;
   restoreMemoryDreamingChange(changeId: string): Promise<WorkspaceSnapshot>;
   getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;
   updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate): Promise<HoneycrispToolingSummary>;

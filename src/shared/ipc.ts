@@ -43,6 +43,7 @@ export const IPC_CHANNELS = {
   getHoneycrispReport: 'beale:get-honeycrisp-report',
   runWorkspaceDejunk: 'beale:run-workspace-dejunk',
   runMemoryDreaming: 'beale:run-memory-dreaming',
+  memoryDreamingUpdated: 'beale:memory-dreaming-updated',
   restoreMemoryDreamingChange: 'beale:restore-memory-dreaming-change',
   getHoneycrispToolingSummary: 'beale:get-honeycrisp-tooling-summary',
   updateHoneycrispToolingConfig: 'beale:update-honeycrisp-tooling-config',

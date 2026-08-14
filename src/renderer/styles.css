@@ -2372,7 +2372,7 @@ body.is-resizing-research-side .main-session-grid {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px solid #3a3a3a;
+  border: 0;
   border-radius: 8px;
   background: #242424;
   color: var(--text);
@@ -2381,14 +2381,23 @@ body.is-resizing-research-side .main-session-grid {
   font-size: 1rem;
   font-weight: 740;
   cursor: pointer;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    background 140ms ease;
 }
 
 .workspace-dejunk-button:hover:not(:disabled),
 .workspace-dejunk-button:focus-visible:not(:disabled),
 .workspace-dream-button:hover:not(:disabled),
 .workspace-dream-button:focus-visible:not(:disabled) {
-  border-color: #505050;
   background: #2b2b2b;
+}
+
+.workspace-dejunk-button:focus-visible,
+.workspace-dream-button:focus-visible {
+  outline: 1px solid #505050;
+  outline-offset: 2px;
 }
 
 .workspace-dejunk-button:disabled,
@@ -2396,6 +2405,44 @@ body.is-resizing-research-side .main-session-grid {
   color: var(--muted);
   cursor: not-allowed;
   opacity: 0.58;
+}
+
+.workspace-housekeeping-control {
+  min-width: 0;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+}
+
+.workspace-housekeeping-control > * {
+  grid-area: 1 / 1;
+}
+
+.workspace-dream-button.is-hidden {
+  opacity: 0;
+  transform: translateY(2px) scale(0.98);
+  pointer-events: none;
+}
+
+.workspace-dream-state {
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 520;
+  line-height: 1.3;
+  text-align: center;
+  animation: workspace-dream-state-enter 240ms ease both;
+}
+
+@keyframes workspace-dream-state-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .report-markdown-content {
@@ -11824,6 +11871,12 @@ button.research-goal-choice:focus-visible {
 
   .breakout-room-working-title svg {
     transition: none;
+  }
+
+  .workspace-dream-button,
+  .workspace-dream-state {
+    transition: none;
+    animation: none;
   }
 }
 

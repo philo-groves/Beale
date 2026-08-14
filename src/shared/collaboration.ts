@@ -14,8 +14,7 @@ export const DEFAULT_RESEARCH_COLLABORATION = Object.freeze({
   independentFirstPass: true,
   peerChallengeRounds: 1,
   maxConcurrentRooms: 2,
-  maxMembersPerRoom: 3,
-  maxTotalInvocations: 8
+  maxMembersPerRoom: 3
 } satisfies ResearchCollaborationPreferences);
 
 const MODES = new Set<ResearchCollaborationMode>(['solo', 'adaptive', 'always']);
@@ -43,18 +42,17 @@ export function normalizeResearchCollaboration(
     independentFirstPass: true,
     peerChallengeRounds: boundedInteger(record.peerChallengeRounds, 0, 3, DEFAULT_RESEARCH_COLLABORATION.peerChallengeRounds),
     maxConcurrentRooms: boundedInteger(record.maxConcurrentRooms, 1, 5, limits.maxConcurrentRooms),
-    maxMembersPerRoom: boundedInteger(record.maxMembersPerRoom, 2, 5, limits.maxMembersPerRoom),
-    maxTotalInvocations: boundedInteger(record.maxTotalInvocations, 2, 24, limits.maxTotalInvocations)
+    maxMembersPerRoom: boundedInteger(record.maxMembersPerRoom, 2, 5, limits.maxMembersPerRoom)
   };
 }
 
 export function collaborationLimits(intensity: ResearchCollaborationIntensity): Pick<
   ResearchCollaborationPreferences,
-  'maxConcurrentRooms' | 'maxMembersPerRoom' | 'maxTotalInvocations'
+  'maxConcurrentRooms' | 'maxMembersPerRoom'
 > {
-  if (intensity === 'focused') return { maxConcurrentRooms: 1, maxMembersPerRoom: 2, maxTotalInvocations: 4 };
-  if (intensity === 'deep') return { maxConcurrentRooms: 4, maxMembersPerRoom: 4, maxTotalInvocations: 16 };
-  return { maxConcurrentRooms: 2, maxMembersPerRoom: 3, maxTotalInvocations: 8 };
+  if (intensity === 'focused') return { maxConcurrentRooms: 1, maxMembersPerRoom: 2 };
+  if (intensity === 'deep') return { maxConcurrentRooms: 4, maxMembersPerRoom: 4 };
+  return { maxConcurrentRooms: 2, maxMembersPerRoom: 3 };
 }
 
 export function ensureDefaultResearchCollaborator(

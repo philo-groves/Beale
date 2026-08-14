@@ -85,6 +85,7 @@ import type {
   HoneycrispMemoryEdgeSummary,
   HoneycrispMemoryNodeSummary,
   HoneycrispMemorySummary,
+  MemoryDreamingProgressUpdate,
   MemorySettings,
   MemoryTypeDescriptions,
   HoneycrispRunbookDocument,
@@ -168,6 +169,7 @@ const ONBOARDING_INDEX_NOW_ATTRIBUTE = 'bealeOnboardingIndexNow';
 type DisclosureExportKind = 'artifact_bundle' | 'research_bundle' | 'redacted_trace' | 'report_draft';
 type ResearchPromptGenerationUpdateHandler = (update: ResearchPromptGenerationUpdate) => void;
 type WorkspaceOnboardingProgressHandler = (update: WorkspaceOnboardingProgressUpdate) => void;
+type MemoryDreamingProgressHandler = (update: MemoryDreamingProgressUpdate) => void;
 
 interface WorkspaceOnboardingRepositoryJob {
   requestId: string;
@@ -778,35 +780,62 @@ export class WorkspaceService {
     return this.requireSnapshot();
   }
 
-  public async runMemoryDreaming(): Promise<WorkspaceSnapshot> {
+  public async runMemoryDreaming(onProgress: MemoryDreamingProgressHandler | null = null): Promise<WorkspaceSnapshot> {
     const runtime = this.getForegroundRuntime();
     if (!runtime) {
       throw new Error('No Beale workspace is open');
     }
     const workspaceId = runtime.db.getWorkspaceId();
-    const researchProfile = this.refreshResearchProfile(runtime);
-    if (!researchProfile.profile.capabilities.memoryEnabled) {
-      throw new Error('Memory Dreaming is disabled by the active research profile.');
-    }
-    const profileInput: MemoryDreamingProfileInput = { profileSnapshot: researchProfile };
-    const profileRoute = await this.resolveAuxiliaryModelRoute(
-      researchProfile.profile,
-      'memoryCuration',
-      {
-        size: 'large',
-        fallbackEffort: MEMORY_DREAMING_REASONING_EFFORT
-      }
-    );
-    const failureContext = {
-      provider: profileRoute.provider,
-      model: profileRoute.model,
-      reasoningEffort: profileRoute.effort,
-      inputNodeCount: 0,
-      inputSessionCount: 0
+    let inputNodeCount = 0;
+    let inputSessionCount = 0;
+    let decisionCount = 0;
+    let profileInput: MemoryDreamingProfileInput | null = null;
+    let failureContext: {
+      provider: ResearchModelProviderId;
+      model: string;
+      reasoningEffort: string;
+      inputNodeCount: number;
+      inputSessionCount: number;
+    } | null = null;
+    const emitProgress = (
+      phase: MemoryDreamingProgressUpdate['phase'],
+      nextDecisionCount = decisionCount
+    ): void => {
+      decisionCount = nextDecisionCount;
+      onProgress?.({
+        workspaceId,
+        phase,
+        inputNodeCount,
+        inputSessionCount,
+        decisionCount,
+        updatedAt: new Date().toISOString()
+      });
     };
+    emitProgress('preparing');
     try {
+      const researchProfile = this.refreshResearchProfile(runtime);
+      if (!researchProfile.profile.capabilities.memoryEnabled) {
+        throw new Error('Memory Dreaming is disabled by the active research profile.');
+      }
+      profileInput = { profileSnapshot: researchProfile };
+      const profileRoute = await this.resolveAuxiliaryModelRoute(
+        researchProfile.profile,
+        'memoryCuration',
+        {
+          size: 'large',
+          fallbackEffort: MEMORY_DREAMING_REASONING_EFFORT
+        }
+      );
+      failureContext = {
+        provider: profileRoute.provider,
+        model: profileRoute.model,
+        reasoningEffort: profileRoute.effort,
+        inputNodeCount: 0,
+        inputSessionCount: 0
+      };
       if (profileRoute.provider === 'openai-codex') requireOpenAiAuthenticationForMemoryDreaming(this.openAiAuth);
       const status = profileRoute.provider === 'openai-codex' ? this.openAiAuth.getStatus() : null;
+      emitProgress('gathering');
       const memorySettings = this.getWorkspaceRegistry().getMemorySettings();
       const typeDescriptions = getMemoryDreamingTypeDescriptions(memorySettings.typeDescriptions, profileInput);
       const memorySummary = this.memorySummaryForRuntime(runtime);
@@ -814,8 +843,10 @@ export class WorkspaceService {
         node.workspaces.some((workspace) => workspace.id === workspaceId)
       );
       const sessions = runtime.db.listRunRows().slice(0, 100).map((row) => runtime.db.getRunDetail(row.run.id));
-      failureContext.inputNodeCount = memory.length;
-      failureContext.inputSessionCount = sessions.length;
+      inputNodeCount = memory.length;
+      inputSessionCount = sessions.length;
+      failureContext.inputNodeCount = inputNodeCount;
+      failureContext.inputSessionCount = inputSessionCount;
       const instructions = buildMemoryDreamingInstructions(memorySettings.typeDescriptions, profileInput);
       const requestModelOutput = async (
         originalInputText: string,
@@ -823,7 +854,13 @@ export class WorkspaceService {
         planAttempt: number,
         correctionMessage: string | null = null
       ): Promise<string> => {
+        emitProgress(correctionMessage !== null
+          ? 'correcting'
+          : profileIndex > 0
+            ? 'compacting'
+            : 'synthesizing');
         for (let providerAttempt = 0; providerAttempt < 2; providerAttempt += 1) {
+          if (providerAttempt > 0) emitProgress('retrying');
           const adapter = profileRoute.provider === 'openai-codex'
             ? new OpenAiResponsesAdapter(
                 this.openAiAuth,
@@ -890,8 +927,16 @@ export class WorkspaceService {
       if (!firstAttempt) throw new Error('Memory Dreaming did not produce a curation plan.');
 
       try {
+        emitProgress('validating');
         const plan = parseMemoryDreamingPlan(firstAttempt.output, profileInput);
-        runMemoryDreamingMaintenance(runtime.db.getDatabasePath(), workspaceId, plan, failureContext, profileInput);
+        runMemoryDreamingMaintenance(
+          runtime.db.getDatabasePath(),
+          workspaceId,
+          plan,
+          failureContext,
+          profileInput,
+          (summary) => emitProgress('applying', summary.decisionCount)
+        );
       } catch (error) {
         if (!(error instanceof MemoryDreamingPlanError)) throw error;
         const correctionMessage = buildMemoryDreamingCorrectionMessage(firstAttempt.output, error);
@@ -901,18 +946,30 @@ export class WorkspaceService {
           2,
           correctionMessage
         );
+        emitProgress('validating');
         const correctedPlan = parseMemoryDreamingPlan(correctedOutput, profileInput);
-        runMemoryDreamingMaintenance(runtime.db.getDatabasePath(), workspaceId, correctedPlan, failureContext, profileInput);
+        runMemoryDreamingMaintenance(
+          runtime.db.getDatabasePath(),
+          workspaceId,
+          correctedPlan,
+          failureContext,
+          profileInput,
+          (summary) => emitProgress('applying', summary.decisionCount)
+        );
       }
     } catch (error) {
-      try {
-        recordFailedMemoryDreaming(runtime.db.getDatabasePath(), workspaceId, failureContext, error, profileInput);
-        this.emitChange({ syncWorkspaceRegistry: false, workspaceRegistryChanged: false });
-      } catch {
-        this.recordProfilingMainTiming('memoryDreaming.failurePersistence.error', 0, { persisted: false });
+      if (failureContext && profileInput) {
+        try {
+          recordFailedMemoryDreaming(runtime.db.getDatabasePath(), workspaceId, failureContext, error, profileInput);
+          this.emitChange({ syncWorkspaceRegistry: false, workspaceRegistryChanged: false });
+        } catch {
+          this.recordProfilingMainTiming('memoryDreaming.failurePersistence.error', 0, { persisted: false });
+        }
       }
+      emitProgress('failed');
       throw error;
     }
+    emitProgress('completed');
     this.emitChange({ syncWorkspaceRegistry: false, workspaceRegistryChanged: false });
     return this.requireSnapshot();
   }

@@ -9,6 +9,7 @@ import type {
   ProviderModelDefaults,
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
+  MemoryDreamingProgressUpdate,
   NotificationRecord,
   OpenAiOAuthStartResult,
   PolicyReviewDecision,
@@ -133,6 +134,8 @@ export function App(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [workspaceDejunkInProgress, setWorkspaceDejunkInProgress] = useState(false);
   const [memoryDreamingInProgress, setMemoryDreamingInProgress] = useState(false);
+  const [memoryDreamingProgress, setMemoryDreamingProgress] = useState<MemoryDreamingProgressUpdate | null>(null);
+  const memoryDreamingProgressClearTimerRef = useRef<number | null>(null);
   const [shellApprovalDecisionInFlight, setShellApprovalDecisionInFlight] = useState<string | null>(null);
   const shellApprovalDecisionRef = useRef<string | null>(null);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
@@ -177,6 +180,36 @@ export function App(): JSX.Element {
   useDevInputLatencyProbe();
   useSidebarPerformanceProbe({ appShellRef, profile: sidebarToggleProfile });
   useInsetScrollbarActivation();
+
+  useEffect(() => {
+    if (memoryDreamingProgressClearTimerRef.current !== null) {
+      window.clearTimeout(memoryDreamingProgressClearTimerRef.current);
+      memoryDreamingProgressClearTimerRef.current = null;
+    }
+    setMemoryDreamingProgress(null);
+    const workspaceId = snapshot?.workspace.workspaceId;
+    const unsubscribe = window.beale.onMemoryDreamingProgress((update) => {
+      if (workspaceId && update.workspaceId !== workspaceId) return;
+      if (memoryDreamingProgressClearTimerRef.current !== null) {
+        window.clearTimeout(memoryDreamingProgressClearTimerRef.current);
+        memoryDreamingProgressClearTimerRef.current = null;
+      }
+      setMemoryDreamingProgress(update);
+      if (update.phase === 'completed' || update.phase === 'failed') {
+        memoryDreamingProgressClearTimerRef.current = window.setTimeout(() => {
+          setMemoryDreamingProgress((current) => current?.updatedAt === update.updatedAt ? null : current);
+          memoryDreamingProgressClearTimerRef.current = null;
+        }, 1_400);
+      }
+    });
+    return () => {
+      unsubscribe();
+      if (memoryDreamingProgressClearTimerRef.current !== null) {
+        window.clearTimeout(memoryDreamingProgressClearTimerRef.current);
+        memoryDreamingProgressClearTimerRef.current = null;
+      }
+    };
+  }, [snapshot?.workspace.workspaceId]);
 
   const researchViewContextKey = selectedRunId
     ?? snapshot?.workspace.workspaceId
@@ -318,6 +351,11 @@ export function App(): JSX.Element {
 
   const runMemoryDreaming = useCallback((): void => {
     if (snapshot?.researchProfile.profile.capabilities.memoryEnabled === false) return;
+    if (memoryDreamingProgressClearTimerRef.current !== null) {
+      window.clearTimeout(memoryDreamingProgressClearTimerRef.current);
+      memoryDreamingProgressClearTimerRef.current = null;
+    }
+    setMemoryDreamingProgress(null);
     setMemoryDreamingInProgress(true);
     void runAction(() => window.beale.runMemoryDreaming())
       .finally(() => setMemoryDreamingInProgress(false));
@@ -1065,6 +1103,7 @@ export function App(): JSX.Element {
               workspaceDejunk={selectedRunId ? null : snapshot?.workspace.dejunk ?? null}
               workspaceDejunkInProgress={workspaceDejunkInProgress}
               memoryDreamingInProgress={memoryDreamingInProgress}
+              memoryDreamingProgress={memoryDreamingProgress}
               traceFilterCount={visibleTraceCategories.length}
               totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
               onOpenTraceFilters={openTraceFilters}

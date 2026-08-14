@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ProjectGraphSummary, ProjectSemanticSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
+import type { HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, ProjectGraphSummary, ProjectSemanticSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
@@ -51,6 +51,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   workspaceDejunk = null,
   workspaceDejunkInProgress = false,
   memoryDreamingInProgress,
+  memoryDreamingProgress = null,
   traceFilterCount,
   totalTraceFilterCount,
   onOpenTraceFilters,
@@ -103,6 +104,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   workspaceDejunk?: WorkspaceDejunkSummary | null;
   workspaceDejunkInProgress?: boolean;
   memoryDreamingInProgress: boolean;
+  memoryDreamingProgress?: MemoryDreamingProgressUpdate | null;
   traceFilterCount: number;
   totalTraceFilterCount: number;
   onOpenTraceFilters: () => void;
@@ -148,6 +150,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           workspaceDejunk={workspaceDejunk}
           workspaceDejunkInProgress={workspaceDejunkInProgress}
           memoryDreamingInProgress={memoryDreamingInProgress}
+          memoryDreamingProgress={memoryDreamingProgress}
           honeycrispMemory={honeycrispMemory}
           projectGraph={projectGraph}
           projectSemantic={projectSemantic}

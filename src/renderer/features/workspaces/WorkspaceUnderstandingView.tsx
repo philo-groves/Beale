@@ -3,6 +3,8 @@ import type { CSSProperties, JSX } from 'react';
 import { Binary, BookOpen, Folder, GitBranch, Globe2, Info, Layers3, MoonStar, Server, Sparkles } from 'lucide-react';
 import type {
   HoneycrispMemorySummary,
+  MemoryDreamingProgressPhase,
+  MemoryDreamingProgressUpdate,
   ProjectGraphSummary,
   ProjectSemanticSummary,
   ResearchProfile,
@@ -28,6 +30,7 @@ export function WorkspaceUnderstandingView({
   workspaceDejunk = null,
   workspaceDejunkInProgress = false,
   memoryDreamingInProgress,
+  memoryDreamingProgress = null,
   honeycrispMemory,
   activeScope = null,
   researchProfile = null,
@@ -41,6 +44,7 @@ export function WorkspaceUnderstandingView({
   workspaceDejunk?: WorkspaceDejunkSummary | null;
   workspaceDejunkInProgress?: boolean;
   memoryDreamingInProgress: boolean;
+  memoryDreamingProgress?: MemoryDreamingProgressUpdate | null;
   honeycrispMemory: HoneycrispMemorySummary | null;
   activeScope?: WorkspaceScopeVersion | null;
   projectGraph?: ProjectGraphSummary | null;
@@ -92,6 +96,8 @@ export function WorkspaceUnderstandingView({
   const axisWindowDurationMs = timeline.windowDurationMs || TIMELINE_WINDOW_HOURS * 60 * 60 * 1_000;
   const memoryEnabled = researchProfile?.capabilities.memoryEnabled !== false;
   const dreamDisabled = busy || memoryDreamingInProgress || !memoryEnabled || honeycrispMemory?.dreaming.available === false;
+  const dreamProgressPhase = memoryDreamingProgress?.phase ?? (memoryDreamingInProgress ? 'preparing' : null);
+  const dreamProgressLabel = dreamProgressPhase ? memoryDreamingProgressLabel(dreamProgressPhase) : null;
   const memoriesSinceDream = memoryCountSinceLastDream(honeycrispMemory);
   const dreamHeat = memoryDreamHeat(memoriesSinceDream);
   const newFileCount = workspaceDejunk?.newFileCount ?? 0;
@@ -223,32 +229,49 @@ export function WorkspaceUnderstandingView({
             data-dejunk-heat={dejunkHeat}
             data-new-file-count={newFileCount}
           >
-            <button
-              type="button"
-              className="workspace-dejunk-button"
-              disabled={dejunkDisabled}
-              title={activeSession ? 'Dejunk is unavailable while a research session is active' : 'Organize loose research files and remove large reclaimable artifacts'}
-              onClick={onRunWorkspaceDejunk}
-            >
-              <Sparkles size={18} />
-              {workspaceDejunkInProgress ? 'Dejunking…' : 'Dejunk'}
-            </button>
+            <div className="workspace-housekeeping-control">
+              <button
+                type="button"
+                className="workspace-dejunk-button"
+                disabled={dejunkDisabled}
+                title={activeSession ? 'Dejunk is unavailable while a research session is active' : 'Organize loose research files and remove large reclaimable artifacts'}
+                onClick={onRunWorkspaceDejunk}
+              >
+                <Sparkles size={18} />
+                {workspaceDejunkInProgress ? 'Dejunking…' : 'Dejunk'}
+              </button>
+            </div>
           </article>
           <article
             className="workspace-dream-card"
             data-dream-heat={dreamHeat}
             data-memory-count-since-dream={memoriesSinceDream}
           >
-            <button
-              type="button"
-              className="workspace-dream-button"
-              disabled={dreamDisabled}
-              title={!memoryEnabled ? 'Memory Dreaming is disabled by the active research profile' : 'Dream across workspace memories'}
-              onClick={onRunMemoryDreaming}
-            >
-              <MoonStar size={18} />
-              {memoryDreamingInProgress ? 'Dreaming…' : 'Dream'}
-            </button>
+            <div className="workspace-housekeeping-control">
+              <button
+                type="button"
+                aria-hidden={dreamProgressLabel ? 'true' : undefined}
+                className={`workspace-dream-button ${dreamProgressLabel ? 'is-hidden' : ''}`.trim()}
+                disabled={dreamDisabled}
+                tabIndex={dreamProgressLabel ? -1 : undefined}
+                title={!memoryEnabled ? 'Memory Dreaming is disabled by the active research profile' : 'Dream across workspace memories'}
+                onClick={onRunMemoryDreaming}
+              >
+                <MoonStar size={18} />
+                Dream
+              </button>
+              {dreamProgressLabel ? (
+                <span
+                  aria-live="polite"
+                  className={`workspace-dream-state is-${dreamProgressPhase}`}
+                  data-dream-phase={dreamProgressPhase}
+                  key={dreamProgressPhase}
+                  role="status"
+                >
+                  {dreamProgressLabel}
+                </span>
+              ) : null}
+            </div>
           </article>
         </div>
       </section>
@@ -447,6 +470,19 @@ export function memoryDreamHeat(memoryCount: number): SessionHeat {
   if (memoryCount >= 50) return 'medium';
   if (memoryCount >= 20) return 'low';
   return 'none';
+}
+
+export function memoryDreamingProgressLabel(phase: MemoryDreamingProgressPhase): string {
+  if (phase === 'preparing') return 'Preparing…';
+  if (phase === 'gathering') return 'Gathering memories…';
+  if (phase === 'synthesizing') return 'Dreaming across memories…';
+  if (phase === 'compacting') return 'Compacting context…';
+  if (phase === 'retrying') return 'Trying again…';
+  if (phase === 'correcting') return 'Refining the plan…';
+  if (phase === 'validating') return 'Validating changes…';
+  if (phase === 'applying') return 'Applying changes…';
+  if (phase === 'completed') return 'Dream complete';
+  return 'Dream failed';
 }
 
 export function workspaceDejunkHeat(newFileCount: number): SessionHeat {

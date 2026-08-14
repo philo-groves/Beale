@@ -139,6 +139,10 @@ export interface MemoryDreamingRunContext {
   inputSessionCount: number;
 }
 
+export interface MemoryDreamingValidatedPlanSummary {
+  decisionCount: number;
+}
+
 export class MemoryDreamingPlanError extends Error {
   public constructor(
     message: string,
@@ -800,7 +804,8 @@ export function runMemoryDreaming(
   workspaceId: string,
   requestedPlan: MemoryDreamingPlan,
   context: MemoryDreamingRunContext,
-  profileInput?: MemoryDreamingProfileInput
+  profileInput?: MemoryDreamingProfileInput,
+  onValidated?: (summary: MemoryDreamingValidatedPlanSummary) => void
 ): MemoryDreamingRunSummary {
   const database = openDreamingDatabase(databasePath);
   try {
@@ -830,6 +835,9 @@ export function runMemoryDreaming(
       if (error instanceof MemoryDreamingPlanError) throw error;
       throw new MemoryDreamingPlanError(memoryDreamingErrorMessage(error), 'validation');
     }
+    onValidated?.({
+      decisionCount: plan.prune.length + plan.merge.length + plan.revise.length + plan.reclassify.length
+    });
     const runId = `dream_${randomUUID()}`;
     const now = new Date().toISOString();
     let prunedNodeCount = 0;

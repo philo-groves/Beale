@@ -64,7 +64,6 @@ export function researchGoalSuggestionTextFormat(candidateCount: number): {
                 type: 'array',
                 minItems: 1,
                 maxItems: MAX_GROUNDING_REFS_PER_CANDIDATE,
-                uniqueItems: true,
                 items: { type: 'string' }
               },
               rationale: { type: 'string', minLength: 12, maxLength: 500 },

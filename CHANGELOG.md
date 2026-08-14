@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added live Memory Dreaming phase tracking from preparation through synthesis, compact-context and provider retries, plan correction, validation, atomic application, and completion; the workspace Dream card now fades between centered phase messages.
 - Added durable workspace-level research goal suggestions in workbench migration 23, with stale-while-refresh restoration across dialog and application reopen cycles.
 - Added durable structured collaboration-room protocol state in workbench migration 22, including independent, challenge, response, synthesis, and completed phases; bounded challenge rounds; evidence references; confidence; uncertainty; proposed next checks; and a lead-owned room outcome.
 - Added access-restricted OpenAI Daybreak Red (`gpt-daybreak-red-latest`) as an optional model. It remains hidden from model selectors and defaults until explicitly enabled in OpenAI Provider Settings.
@@ -22,6 +23,7 @@
 
 ### Changed
 
+- Removed borders from the Dream and Dejunk housekeeping buttons.
 - Breakout-room messages now use provider-attributed rows at the standard Commentary width, with Working/Worked-style divider headers, clickable subagent names that open detailed Commentary, message-kind labels, and 400px fade-truncated bodies that can be expanded instead of colored side rails.
 - Lead-provider routing now covers New Research prompt generation, workspace and session suggestions, Memory Dreaming, HackerOne scope review, and provider-omitted run starts instead of assuming OpenAI; Anthropic auxiliary work stays on Honeycrisp's official Claude Agent SDK and CLI boundary.
 - Research goal generation now defaults to OpenAI's configured small model at low effort, reuses a measured per-revision context, requests structured grounded candidate pools, and deterministically ranks them for workflow relevance, novelty, and semantic diversity. Cybersecurity Chaining requires an evidence-backed confirmed primitive, while Reporting requires a confirmed chain with impact, reachability, and proof evidence.
@@ -80,6 +82,8 @@
 
 ### Fixed
 
+- Removed the lifetime collaborator-invocation cap. Collaboration is now limited only by concurrent subagent, breakout-room, and room-member capacity, so completed turns never reduce later delegation capacity.
+- Research-goal suggestion requests no longer send the unsupported `uniqueItems` JSON Schema keyword to OpenAI Structured Outputs; duplicate grounding references remain rejected by host validation.
 - Breakout-room transcripts now remain locked to the bottom as new messages and live subagent history arrive, while preserving the reader's position after an intentional upward scroll.
 - Selecting a subagent from a breakout-room message now opens that subagent's Commentary directly instead of stopping at the detailed-sidenav view chooser.
 - Session forks now preserve the original run's provider route so later continuations cannot lose their assigned Lead provider.

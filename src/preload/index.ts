@@ -14,6 +14,7 @@ import type {
   HostEnvironment,
   HackerOneScopeLookupResult,
   HoneycrispMemoryDirectorySummary,
+  MemoryDreamingProgressUpdate,
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
   HoneycrispToolingConfigUpdate,
@@ -192,6 +193,11 @@ const api: BealeApi = {
   },
   runMemoryDreaming() {
     return ipcRenderer.invoke(IPC_CHANNELS.runMemoryDreaming);
+  },
+  onMemoryDreamingProgress(listener: (update: MemoryDreamingProgressUpdate) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, update: MemoryDreamingProgressUpdate): void => listener(update);
+    ipcRenderer.on(IPC_CHANNELS.memoryDreamingUpdated, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.memoryDreamingUpdated, wrapped);
   },
   restoreMemoryDreamingChange(changeId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.restoreMemoryDreamingChange, changeId);

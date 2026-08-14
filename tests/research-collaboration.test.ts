@@ -9,6 +9,17 @@ describe('research collaboration normalization', () => {
     expect(normalizeResearchCollaboration(undefined).independentFirstPass).toBe(true);
   });
 
+  it('drops legacy invocation budgets while retaining concurrent room limits', () => {
+    const collaboration = normalizeResearchCollaboration({
+      intensity: 'deep',
+      maxActiveInvocations: 7,
+      maxTotalInvocations: 6
+    });
+    expect(collaboration).not.toHaveProperty('maxActiveInvocations');
+    expect(collaboration).not.toHaveProperty('maxTotalInvocations');
+    expect(collaboration).toMatchObject({ maxConcurrentRooms: 4, maxMembersPerRoom: 4 });
+  });
+
   it('requires cybersecurity acknowledgement only for the security profile', () => {
     expect(collaborationRequiresCyberPolicyAcknowledgement('security-research')).toBe(true);
     expect(collaborationRequiresCyberPolicyAcknowledgement('mathematics')).toBe(false);

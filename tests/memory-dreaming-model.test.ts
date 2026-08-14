@@ -21,6 +21,7 @@ describe('model-reasoned memory Dreaming', () => {
   it('routes memory curation through the configured Lead provider', async () => {
     const root = temporaryDirectory();
     const calls: Array<{ provider: string; model: string; prompt: string }> = [];
+    const phases: string[] = [];
     const service = new WorkspaceService(() => undefined, {
       workspaceRegistryDirectory: join(root, 'registry'),
       honeycrispDatabasePath: join(root, 'memory.sqlite'),
@@ -41,11 +42,19 @@ describe('model-reasoned memory Dreaming', () => {
         reasoningEffort: 'high'
       });
 
-      await service.runMemoryDreaming();
+      await service.runMemoryDreaming((update) => phases.push(update.phase));
 
       expect(calls).toHaveLength(1);
       expect(calls[0]).toMatchObject({ provider: 'xai', model: 'grok-4.6' });
       expect(calls[0]?.prompt).toContain('misclassified_invariant');
+      expect(phases).toEqual([
+        'preparing',
+        'gathering',
+        'synthesizing',
+        'validating',
+        'applying',
+        'completed'
+      ]);
     } finally {
       service.close();
     }
@@ -57,6 +66,7 @@ describe('model-reasoned memory Dreaming', () => {
     const workspace = join(root, 'workspace');
     const databasePath = join(root, 'memory.sqlite');
     const requestBodies: Record<string, unknown>[] = [];
+    const phases: string[] = [];
     const service = new WorkspaceService(() => undefined, {
       workspaceRegistryDirectory: join(root, 'registry'),
       honeycrispDatabasePath: databasePath,
@@ -213,12 +223,22 @@ describe('model-reasoned memory Dreaming', () => {
       }
       database.close();
 
-      const dreamed = await service.runMemoryDreaming();
+      const dreamed = await service.runMemoryDreaming((update) => phases.push(update.phase));
       const reclassifiedNodeId = `invariant_${createHash('sha256')
         .update(`${subjectId}:invariant:mounted images synthesize quarantine state`)
         .digest('hex')
         .slice(0, 20)}`;
       expect(requestBodies).toHaveLength(3);
+      expect(phases).toEqual([
+        'preparing',
+        'gathering',
+        'synthesizing',
+        'compacting',
+        'retrying',
+        'validating',
+        'applying',
+        'completed'
+      ]);
       expect(JSON.stringify(requestBodies[0])).toContain('Perform a deliberate synthesis pass');
       expect(JSON.stringify(requestBodies[0])).toContain('supported structural metadata backfilled');
       expect(JSON.stringify(requestBodies[0])).toContain('Never invent structural metadata');
@@ -274,6 +294,7 @@ describe('model-reasoned memory Dreaming', () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'dreaming-test-token';
     const root = temporaryDirectory();
     const requestBodies: Record<string, unknown>[] = [];
+    const phases: string[] = [];
     const invalidPlan = {
       prune: [],
       merge: [],
@@ -308,9 +329,19 @@ describe('model-reasoned memory Dreaming', () => {
 
     try {
       const opened = initializeDreamingMemory(service, join(root, 'workspace'));
-      const dreamed = await service.runMemoryDreaming();
+      const dreamed = await service.runMemoryDreaming((update) => phases.push(update.phase));
 
       expect(requestBodies).toHaveLength(2);
+      expect(phases).toEqual([
+        'preparing',
+        'gathering',
+        'synthesizing',
+        'validating',
+        'correcting',
+        'validating',
+        'applying',
+        'completed'
+      ]);
       const firstInput = requestBodies[0]!.input as Array<{ content: Array<{ text: string }> }>;
       const correctedInput = requestBodies[1]!.input as Array<{ content: Array<{ text: string }> }>;
       expect(correctedInput).toHaveLength(2);

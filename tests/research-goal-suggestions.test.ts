@@ -22,13 +22,35 @@ describe('research goal candidate selection', () => {
     expect(researchGoalCandidateCount(1)).toBe(3);
     expect(researchGoalCandidateCount(4)).toBe(8);
     expect(researchGoalCandidateCount(12)).toBe(12);
-    expect(researchGoalSuggestionTextFormat(8)).toMatchObject({
+    const format = researchGoalSuggestionTextFormat(8);
+    expect(format).toMatchObject({
       type: 'json_schema',
       strict: true,
       schema: {
         properties: { candidates: { minItems: 8, maxItems: 8 } }
       }
     });
+    expect(JSON.stringify(format.schema)).not.toContain('"uniqueItems"');
+  });
+
+  it('rejects repeated grounding references in host validation', () => {
+    const candidates = Array.from({ length: 3 }, (_, index) => candidate(
+      `Inspect distinct grounded research boundary ${index + 1} for authorization weaknesses.`,
+      `boundary-${index + 1}`
+    ));
+    candidates[0] = {
+      ...candidates[0]!,
+      groundingRefs: ['workspace:scope', 'workspace:scope']
+    };
+
+    expect(() => parseAndSelectResearchGoalCandidates(JSON.stringify({ candidates }), {
+      workflow: WORKFLOW,
+      suggestionCount: 3,
+      candidateCount: 3,
+      allowedGroundingRefs: new Set(['workspace:scope']),
+      previousResearchTexts: [],
+      relevanceTexts: []
+    })).toThrow(/repeats a grounding reference/i);
   });
 
   it('selects grounded semantically distinct candidates while penalizing repeated prior research', () => {

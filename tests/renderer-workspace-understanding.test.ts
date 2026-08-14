@@ -7,6 +7,7 @@ import { MainSessionWorkspace } from '../src/renderer/features/sessions/MainSess
 import {
   memoryCountSinceLastDream,
   memoryDreamHeat,
+  memoryDreamingProgressLabel,
   workspaceDejunkHeat,
   WorkspaceUnderstandingView
 } from '../src/renderer/features/workspaces/WorkspaceUnderstandingView';
@@ -436,8 +437,30 @@ describe('workspace dashboard', () => {
       nowMs: NOW,
       onRunMemoryDreaming: () => undefined
     }));
-    expect(inProgressHtml).toContain('Dreaming…');
+    expect(inProgressHtml).toContain('Preparing…');
+    expect(inProgressHtml).toContain('workspace-dream-button is-hidden');
     expect(inProgressHtml).toContain('disabled=""');
+
+    const correctingHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: true,
+      memoryDreamingInProgress: true,
+      memoryDreamingProgress: {
+        workspaceId: 'workspace_one',
+        phase: 'correcting',
+        inputNodeCount: 12,
+        inputSessionCount: 4,
+        decisionCount: 0,
+        updatedAt: '2026-08-12T12:00:00.000Z'
+      },
+      honeycrispMemory: memorySummary(),
+      researchProfile: profile,
+      workspaceName: 'Parser Workspace',
+      runs: [],
+      nowMs: NOW,
+      onRunMemoryDreaming: () => undefined
+    }));
+    expect(correctingHtml).toContain('Refining the plan…');
+    expect(correctingHtml).toContain('data-dream-phase="correcting"');
 
     const disabledHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
@@ -453,6 +476,24 @@ describe('workspace dashboard', () => {
       onRunMemoryDreaming: () => undefined
     }));
     expect(disabledHtml).toContain('disabled="" title="Memory Dreaming is disabled by the active research profile"');
+  });
+
+  it('uses real Dreaming phase labels and borderless fading housekeeping controls', () => {
+    expect(memoryDreamingProgressLabel('gathering')).toBe('Gathering memories…');
+    expect(memoryDreamingProgressLabel('compacting')).toBe('Compacting context…');
+    expect(memoryDreamingProgressLabel('applying')).toBe('Applying changes…');
+    expect(memoryDreamingProgressLabel('completed')).toBe('Dream complete');
+    expect(memoryDreamingProgressLabel('failed')).toBe('Dream failed');
+
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const buttonStyles = styles.match(/\.workspace-dejunk-button,\s*\.workspace-dream-button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const hiddenButtonStyles = styles.match(/\.workspace-dream-button\.is-hidden\s*\{([^}]*)\}/)?.[1] ?? '';
+    const stateStyles = styles.match(/\.workspace-dream-state\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(buttonStyles).toContain('border: 0');
+    expect(buttonStyles).toContain('opacity 180ms ease');
+    expect(hiddenButtonStyles).toContain('opacity: 0');
+    expect(stateStyles).toContain('animation: workspace-dream-state-enter 240ms ease both');
+    expect(styles).toContain('@keyframes workspace-dream-state-enter');
   });
 });
 
