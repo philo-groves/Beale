@@ -36,6 +36,7 @@
 
 ### Changed
 
+- New Research now starts user-written objectives directly by default. Optional Add Context generation produces a 100-250 word cyber objective brief capped at 4,000 characters, uses only a bounded set of relevant assets, memories, prior outcomes, and source coverage, and leaves authorization, profile, AGENTS.md, tools, and full memory context to Honeycrisp's runtime injection.
 - Shell execution now supports complete platform shell commands, executable paths, and host HOME-family environment variables through Honeycrisp while retaining the selected Manual Approval, Auto-Review, or Danger Mode authorization flow.
 - Main headers now separate workspace, session, and active breakout-room names with vertical dividers, and breakout-room views no longer render a duplicate room header.
 - Active breakout-room names in the main header now match session-title styling, with brighter vertical dividers.

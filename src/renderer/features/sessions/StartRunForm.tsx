@@ -149,7 +149,7 @@ export function StartRunForm({
   }));
   const [startingRun, setStartingRun] = useState(false);
   const [editorStage, setEditorStage] = useState<PromptEditorStage>('goal');
-  const [generateEnabled, setGenerateEnabled] = useState(true);
+  const [generateEnabled, setGenerateEnabled] = useState(false);
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId | null>(defaultProviderId ?? null);
@@ -661,7 +661,7 @@ export function StartRunForm({
           {generateEnabled ? (
             <button type="button" disabled={busy || startingRun || !canGenerate} onClick={() => void generateFullPrompt()}>
               <Sparkles size={15} />
-              Generate
+              Add Context
             </button>
           ) : null}
           <button
@@ -671,14 +671,14 @@ export function StartRunForm({
             onClick={generateEnabled ? generateAndStart : start}
           >
             {generateEnabled ? <Sparkles size={16} /> : <Play size={16} />}
-            {generateEnabled ? 'Generate & Start' : 'Start'}
+            {generateEnabled ? 'Add Context & Start' : 'Start'}
           </button>
         </>
       }
     >
       <div className="start-run-modal-body">
         <div className="new-research-compose-layout">
-          <section className="new-research-composer" aria-label="Research prompt composer" aria-busy={generatingPrompt}>
+          <section className="new-research-composer" aria-label="Research objective composer" aria-busy={generatingPrompt}>
             <textarea
               ref={promptBoxRef}
               autoFocus
@@ -686,12 +686,12 @@ export function StartRunForm({
               disabled={generatingPrompt}
               placeholder={editorStage === 'goal'
                 ? 'Describe the research outcome you want.'
-                : 'Review and edit the full research prompt.'}
-              aria-label={editorStage === 'goal' ? 'Research goal' : 'Full research prompt'}
+                : 'Review and edit the enriched objective.'}
+              aria-label={editorStage === 'goal' ? 'Research goal' : 'Research objective brief'}
               onChange={(event) => update('promptMarkdown', event.target.value)}
             />
             <div className="new-research-composer-feedback" aria-live="polite">
-              {generatingPrompt ? 'Writing a full prompt…' : generationError ? `Could not write the research prompt: ${generationError}` : ''}
+              {generatingPrompt ? 'Adding useful context…' : generationError ? `Could not add context: ${generationError}` : ''}
             </div>
             <div className="new-research-composer-actions">
               <FloatingTextPicker
@@ -731,7 +731,7 @@ export function StartRunForm({
               </label>
               <label
                 className="new-research-generate-toggle"
-                title="Generate a complete research prompt from the current content before starting."
+                title="Add relevant workspace context to the objective before starting."
               >
                 <input
                   type="checkbox"
@@ -739,7 +739,7 @@ export function StartRunForm({
                   disabled={generatingPrompt}
                   onChange={(event) => setGenerateEnabled(event.target.checked)}
                 />
-                <span>Generate</span>
+                <span>Add Context</span>
               </label>
             </div>
           </section>

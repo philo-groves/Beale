@@ -80,7 +80,7 @@ describe('renderer research profile presentation', () => {
     expect(html).not.toContain('>Minutes<');
     expect(html).toContain('aria-label="Research workflow"');
     expect(html).toContain('>Survey</span>');
-    expect(html).toContain('>Generate &amp; Start</button>');
+    expect(html).toContain('>Start</button>');
   });
 
   it('orders exact profile statuses and retains unknown stored values', () => {

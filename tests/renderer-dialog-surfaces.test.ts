@@ -122,7 +122,7 @@ describe('renderer dialog surfaces', () => {
     for (const suggestion of [...(suggestions.chaining ?? []), ...(suggestions.reporting ?? [])]) expect(html).not.toContain(suggestion);
   });
 
-  it('shows goal mode enabled by default in New Research', () => {
+  it('starts goals directly by default in New Research', () => {
     const suggestions = phaseSuggestions();
     const html = renderToStaticMarkup(
       createElement(StartRunForm, {
@@ -150,7 +150,7 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('class="new-research-generate-toggle"');
     expect(html).toMatch(/<input type="checkbox" checked=""\/>/);
     expect(html).toContain('<span>Goal</span>');
-    expect(html).toContain('<span>Generate</span>');
+    expect(html).toContain('<span>Add Context</span>');
     expect(html).toContain('aria-label="Shell safety mode"');
     expect(html).toContain('Auto-Review');
     expect(html).toContain('aria-label="Research workflow"');
@@ -164,8 +164,8 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('title="Sets how many rounds collaborators use to challenge and refine one another&#x27;s conclusions."');
     expect(html).toContain('title="Controls whether research runs solo, calls collaborators adaptively, or always uses the configured team."');
     expect(html).toContain('title="Controls how broadly and deeply collaborators are used during the session."');
-    expect(html).toContain('>Generate</button>');
-    expect(html).toContain('>Generate &amp; Start</button>');
+    expect(html).not.toContain('>Add Context</button>');
+    expect(html).toContain('>Start</button>');
     expect(html).not.toContain('>Nevermind</button>');
     expect(html).not.toContain('new-research-send');
     expect(html).not.toContain('<label>Network');
@@ -360,7 +360,7 @@ describe('renderer dialog surfaces', () => {
 
     expect(html).toContain(sentence);
     expect(html).toContain('aria-label="Research goal"');
-    expect(html).toContain('>Generate &amp; Start</button>');
+    expect(html).toContain('>Start</button>');
     expect(html).toContain('aria-label="Research suggestions"');
     expect(html).not.toContain('Discovery suggestions');
     expect(html).toContain('research-goal-choice-scroll');

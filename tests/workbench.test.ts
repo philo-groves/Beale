@@ -4222,29 +4222,27 @@ describe('Beale workbench skeleton', () => {
     expect(result.promptMarkdown.length).toBeGreaterThan(goalSentence.length + 120);
     expect(request.model).toBe(DEFAULT_RESEARCH_MODEL);
     expect(request.model).not.toBe(sessionModel);
-    expect(request.instructions).toMatch(/^You are a world-class security researcher/);
+    expect(request.instructions).toMatch(/^You compile compact objective briefs/);
+    expect(request.instructions).toContain('Target 100 to 250 words.');
     expect(request.instructions).toContain('The selected workflow is Discovery (discovery): Explore a bounded subject.');
     expect(request.instructions).toContain('Keep research open-ended.');
-    expect(request.instructions).toContain('Required session output: Support conclusions with evidence.');
-    expect(request.instructions).toContain('host-discovered AGENTS.md guidance');
-    expect(request.instructions).toContain('Carry relevant environment details and operational constraints from AGENTS.md into the recommendation');
-    expect(payload.task).toBe('expand_selected_goal_into_research_session_prompt');
+    expect(request.instructions).toContain('Required outcome: Support conclusions with evidence.');
+    expect(request.instructions).toContain('Do not restate the authorization boundary');
+    expect(request.instructions).not.toContain('host-discovered AGENTS.md guidance');
+    expect(payload.task).toBe('sharpen_selected_security_objective');
     expect(payload.goalSentence).toBe(goalSentence);
     expect(payload.draftPromptMarkdown).toBeNull();
     expect(payload.requestedSession).toMatchObject({
       operation: 'expand_goal',
-      researchPhase: 'discovery',
-      model: sessionModel,
-      reasoningEffort: 'high'
+      workflow: { id: 'discovery', name: 'Discovery' },
+      mode: 'dynamic'
     });
+    expect(payload.requestedSession).not.toHaveProperty('model');
+    expect(payload.requestedSession).not.toHaveProperty('reasoningEffort');
     expect(payload.requestedSession).not.toHaveProperty('networkProfile');
-    expect(payload.workspace).toMatchObject({
-      hostDiscoveredAgentInstructions: {
-        sourceFile: 'AGENTS.md',
-        content: expect.stringContaining('security-test-vm'),
-        truncated: false
-      }
-    });
+    expect(payload.workspace).not.toHaveProperty('hostDiscoveredAgentInstructions');
+    expect(JSON.stringify(payload)).not.toContain('security-test-vm');
+    expect(payload.runtimeSuppliedContext).toContain('AGENTS.md workspace guidance');
     service.close();
   });
 
@@ -4261,7 +4259,7 @@ describe('Beale workbench skeleton', () => {
       expectedPrimary: 'Document supported conclusions and their limitations.',
       expectedInstruction: 'Preserve material evidence limitations.'
     }
-  ])('carries the $phase phase into full-prompt generation', async ({ phase, goalSentence, expectedPrimary, expectedInstruction }) => {
+  ])('carries the $phase workflow into objective generation', async ({ phase, goalSentence, expectedPrimary, expectedInstruction }) => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = `oauth-token-for-${phase}-prompt`;
     const capturedRequests: Record<string, unknown>[] = [];
     const expandedPrompt = `# ${phase} research\n\n${goalSentence}\n\nUse the recorded evidence and workspace constraints to produce the requested outcome without inventing reachability, impact, or unsupported conclusions. Preserve controls, limitations, reproduction details, and the exact authorized boundary in the final artifact.`;
@@ -4287,8 +4285,8 @@ describe('Beale workbench skeleton', () => {
     const capturedRequest = capturedRequests[0];
     expect(capturedRequest).toBeTruthy();
     const payload = modelRequestPayload(capturedRequest ?? {});
-    expect(payload.requestedSession).toMatchObject({ researchPhase: phase });
-    expect(payload.prioritizationPolicy).toMatchObject({ primary: expect.stringContaining(expectedPrimary) });
+    expect(payload.requestedSession).toMatchObject({ workflow: { id: phase } });
+    expect(capturedRequest?.instructions).toContain(expectedPrimary);
     expect(capturedRequest?.instructions).toContain(expectedInstruction);
     service.close();
   });
@@ -4311,33 +4309,21 @@ describe('Beale workbench skeleton', () => {
         expect(serialized).toContain('sourceCoverage');
         expect(serialized).not.toContain('likelyUnderexploredInScopeAssets');
         expect(serialized).not.toContain('mentionCount');
-        expect(payload.coverageHints).toMatchObject({
-          activeMemoryNodes: [],
-          recentMemoryEvidenceRefs: []
+        expect(payload.relevantContext).toMatchObject({
+          activeMemories: [],
+          previousResearch: expect.any(Array)
         });
-        expect(serialized).toContain('promptQualityRules');
-        expect(payload.researchProfile).toMatchObject({
-          id: 'security-research',
-          workflow: {
-            id: 'discovery',
-            description: 'Explore a bounded subject.',
-            promptInstructions: ['Keep research open-ended.'],
-            outputRequirements: ['Support conclusions with evidence.']
-          }
-        });
-        expect(payload.prioritizationPolicy).toMatchObject({
-          primary: 'Explore a bounded subject.',
-          workflowInstructions: ['Keep research open-ended.']
-        });
-        expect(serialized).toContain('hasUsableCredentialAssets');
-        expect(serialized).toContain('do not assume authenticated access');
-        expect(serialized).toContain('let the autonomous researcher choose methods');
+        expect(serialized).not.toContain('promptQualityRules');
+        expect(serialized).not.toContain('researchProfile');
+        expect(serialized).not.toContain('prioritizationPolicy');
+        expect(serialized).not.toContain('hostDiscoveredAgentInstructions');
+        expect(serialized).not.toContain('rulesMarkdown');
+        expect(serialized).toContain('No recorded account or credential reference material is available.');
         expect(serialized).not.toContain('one short preflight step');
-        expect(serialized).toContain('recentMemoryEvidenceRefs');
         expect(serialized).toContain('requestedSession');
-        expect(serialized).toContain('\\"reasoningEffort\\": \\"xhigh\\"');
+        expect(serialized).not.toContain('\\"reasoningEffort\\": \\"xhigh\\"');
         expect(serialized).not.toContain('\\"networkProfile\\"');
-        expect(serialized).toContain('\\"sandboxProfile\\": \\"host\\"');
+        expect(serialized).not.toContain('\\"sandboxProfile\\": \\"host\\"');
         return new Response(
           sse(
             event('response.output_text.done', {
@@ -4374,7 +4360,7 @@ describe('Beale workbench skeleton', () => {
     });
     expect(result.promptMarkdown).toBe('# Kernel parser security research\nResearch the least explored kernel parser subsystem for memory-safety and state-confusion vulnerabilities.');
     expect(modelRequests).toHaveLength(1);
-    expect(modelRequests[0]?.instructions).toMatch(/^You are a world-class security researcher/);
+    expect(modelRequests[0]?.instructions).toMatch(/^You compile compact objective briefs/);
     service.close();
   });
 
@@ -4409,7 +4395,7 @@ describe('Beale workbench skeleton', () => {
       openAiFetch: async (_url, init) => {
         const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
         const payload = modelRequestPayload(request);
-        capturedCoverage.push((payload.coverageHints as Record<string, unknown>).sourceCoverage as Record<string, unknown>);
+        capturedCoverage.push((payload.relevantContext as Record<string, unknown>).sourceCoverage as Record<string, unknown>);
         return modelJsonResponse({ promptMarkdown: '# Structural coverage prompt\nReview an unreviewed entry-point-to-sink path.' }, 'resp_source_coverage');
       }
     });
@@ -4451,19 +4437,19 @@ describe('Beale workbench skeleton', () => {
       expect.objectContaining({ component: 'src/imports', reviewedFunctionCount: 1 }),
       expect.objectContaining({ component: 'src/storage', sinkCount: 1 })
     ]));
-    expect(coverage.entryPoints).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'route', path: expect.stringContaining(join('src', 'api', 'routes.ts')), reviewed: false })
+    expect(coverage.unreviewedEntryPoints).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'route', path: expect.stringContaining(join('src', 'api', 'routes.ts')) })
     ]));
-    expect(coverage.sinks).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: 'exec', reviewed: false }),
-      expect.objectContaining({ name: 'readFile', reviewed: false })
+    expect(coverage.unreviewedSinks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'exec' }),
+      expect.objectContaining({ name: 'readFile' })
     ]));
     expect(coverage.reviewedFunctions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: 'handleImport', path: expect.stringContaining(join('src', 'imports', 'importProject.ts')), reviewed: true })
+      expect.objectContaining({ name: 'handleImport', path: expect.stringContaining(join('src', 'imports', 'importProject.ts')) })
     ]));
     expect(coverage.unreviewedFunctions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: 'uploadArchive', reviewed: false }),
-      expect.objectContaining({ name: 'readBlob', reviewed: false })
+      expect.objectContaining({ name: 'uploadArchive' }),
+      expect.objectContaining({ name: 'readBlob' })
     ]));
     expect(JSON.stringify(coverage)).not.toContain('mentionCount');
 
@@ -4515,10 +4501,10 @@ describe('Beale workbench skeleton', () => {
     });
     const shellCoverage = capturedCoverage[1];
     expect(shellCoverage.reviewedFunctions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: 'readBlob', reviewed: true, reviewRunIds: [reviewedRunId] })
+      expect.objectContaining({ name: 'readBlob', reviewRunIds: [reviewedRunId] })
     ]));
     expect(shellCoverage.unreviewedFunctions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: 'uploadArchive', reviewed: false })
+      expect.objectContaining({ name: 'uploadArchive' })
     ]));
     service.close();
   });
@@ -4600,7 +4586,7 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('keeps generated research prompts up to the 25k character cap', async () => {
+  it('caps generated security objective briefs at 4k characters', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-prompt-generation';
     const generatedPromptPrefix = '# Long generated plan\n';
     const generatedPrompt = `${generatedPromptPrefix}${'A'.repeat(25_000 - generatedPromptPrefix.length)}`;
@@ -4628,8 +4614,8 @@ describe('Beale workbench skeleton', () => {
       targetPath: null
     });
 
-    expect(result.promptMarkdown).toHaveLength(25_000);
-    expect(result.promptMarkdown).toBe(generatedPrompt);
+    expect(result.promptMarkdown).toHaveLength(4_000);
+    expect(result.promptMarkdown).toBe(generatedPrompt.slice(0, 4_000));
     service.close();
   });
 
