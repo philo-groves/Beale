@@ -22,7 +22,7 @@
 
 ### Changed
 
-- Breakout-room messages now use collapsed provider-attributed disclosures at the standard Commentary width, with Working/Worked-style divider headers and message-kind labels instead of colored side rails.
+- Breakout-room messages now use provider-attributed rows at the standard Commentary width, with Working/Worked-style divider headers, clickable subagent names that open detailed Commentary, message-kind labels, and 400px fade-truncated bodies that can be expanded instead of colored side rails.
 - Lead-provider routing now covers New Research prompt generation, workspace and session suggestions, Memory Dreaming, HackerOne scope review, and provider-omitted run starts instead of assuming OpenAI; Anthropic auxiliary work stays on Honeycrisp's official Claude Agent SDK and CLI boundary.
 - Research goal generation now defaults to OpenAI's configured small model at low effort, reuses a measured per-revision context, requests structured grounded candidate pools, and deterministically ranks them for workflow relevance, novelty, and semantic diversity. Cybersecurity Chaining requires an evidence-backed confirmed primitive, while Reporting requires a confirmed chain with impact, reachability, and proof evidence.
 - New Research now opens as a centered floating squircle dialog that layers its darker Suggestions surface beneath the right edge of its lighter prompt composer.

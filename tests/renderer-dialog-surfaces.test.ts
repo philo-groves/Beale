@@ -284,7 +284,7 @@ describe('renderer dialog surfaces', () => {
     expect(rowStyles).toContain('border-bottom: 1px solid var(--panel-border)');
     const buttonStyles = styles.match(/\.session-next-step-button\s*\{([^}]*)\}/)?.[1] ?? '';
     const buttonHoverStyles = styles.match(/\.session-next-step-button:hover:not\(:disabled\)\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(buttonStyles).toContain('padding: 6px 10px 6px 0');
+    expect(buttonStyles).toContain('padding: 6px 0');
     expect(buttonStyles).toContain('border-top: 1px solid transparent');
     expect(buttonStyles).toContain('grid-template-columns: auto minmax(0, 1fr) auto');
     expect(buttonHoverStyles).toContain('border-top-color: var(--text)');

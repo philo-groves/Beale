@@ -32,7 +32,8 @@ describe('breakout room view', () => {
     const html = renderToStaticMarkup(createElement(BreakoutRoomView, {
       detail,
       roomId: 'room_review',
-      onBack: () => undefined
+      onBack: () => undefined,
+      onSelectSubagent: () => undefined
     }));
 
     expect(html).toContain('breakout-room-member-provider-icon');
@@ -94,7 +95,8 @@ describe('breakout room view', () => {
       detail,
       events,
       roomId: 'room_live',
-      onBack: () => undefined
+      onBack: () => undefined,
+      onSelectSubagent: () => undefined
     }));
 
     expect(html).toContain('<strong>Live Parser Working</strong>');
@@ -103,7 +105,7 @@ describe('breakout room view', () => {
     expect(html).not.toContain('Finished review history.');
   });
 
-  it('renders persisted agent messages as collapsed provider-attributed disclosures', () => {
+  it('renders persisted agent messages with provider-attributed subagent navigation', () => {
     const detail = {
       breakoutRooms: [{
         id: 'room_messages',
@@ -138,17 +140,21 @@ describe('breakout room view', () => {
     const html = renderToStaticMarkup(createElement(BreakoutRoomView, {
       detail,
       roomId: 'room_messages',
-      onBack: () => undefined
+      onBack: () => undefined,
+      onSelectSubagent: () => undefined
     }));
 
-    expect(html).toContain('<details class="breakout-room-message kind-commentary">');
-    expect(html).not.toContain('<details class="breakout-room-message kind-commentary" open="">');
+    expect(html).toContain('<article class="breakout-room-message kind-commentary">');
+    expect(html).not.toContain('<details class="breakout-room-message kind-commentary"');
     expect(html).toContain('class="run-work-header breakout-room-message-header"');
     expect(html).toContain('class="breakout-room-message-provider" title="grok-4.6"');
     expect(html).toContain('breakout-room-message-provider-icon');
-    expect(html).toContain('<span>Parser Reviewer</span>');
+    expect(html).toContain('class="breakout-room-message-subagent" title="View Parser Reviewer commentary"');
+    expect(html).toContain('Parser Reviewer</button>');
     expect(html).toContain('<span class="breakout-room-message-kind">Commentary</span>');
     expect(html).toContain('Inspecting the parser boundary.');
+    expect(html).toContain('class="breakout-room-message-clip"');
+    expect(html).not.toContain('class="breakout-room-message-more"');
   });
 
   it('formats working duration from the member start time', () => {

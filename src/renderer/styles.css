@@ -10893,20 +10893,8 @@ button.research-goal-choice:focus-visible {
   margin-inline: auto;
 }
 
-.breakout-room-message > summary::-webkit-details-marker {
-  display: none;
-}
-
 .breakout-room-message-header {
-  cursor: pointer;
-  list-style: none;
-  transition: color 120ms ease;
-}
-
-.breakout-room-message-header:hover,
-.breakout-room-message-header:focus-visible {
-  color: var(--text);
-  outline: none;
+  cursor: default;
 }
 
 .breakout-room-message-sender {
@@ -10923,6 +10911,30 @@ button.research-goal-choice:focus-visible {
   white-space: nowrap;
 }
 
+.breakout-room-message-subagent {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.breakout-room-message-subagent:hover,
+.breakout-room-message-subagent:focus-visible {
+  background: transparent;
+  color: var(--text);
+  outline: none;
+}
+
 .breakout-room-message-provider {
   flex: 0 0 auto;
   display: inline-flex;
@@ -10936,20 +10948,58 @@ button.research-goal-choice:focus-visible {
   white-space: nowrap;
 }
 
-.breakout-room-message-header:hover .run-work-chevron,
-.breakout-room-message-header:focus-visible .run-work-chevron {
-  opacity: 1;
-}
-
-.breakout-room-message[open] .run-work-chevron {
-  transform: rotate(90deg);
-}
-
 .breakout-room-message-body {
   min-width: 0;
   display: grid;
-  gap: 7px;
+  justify-items: start;
+  gap: 5px;
   padding: 8px 2px 0;
+}
+
+.breakout-room-message-clip {
+  width: 100%;
+  min-width: 0;
+  max-height: 400px;
+  position: relative;
+  overflow: hidden;
+}
+
+.breakout-room-message-body.is-expanded .breakout-room-message-clip {
+  max-height: none;
+}
+
+.breakout-room-message-body.is-overflowing:not(.is-expanded) .breakout-room-message-clip::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 64px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--panel));
+}
+
+.breakout-room-message-measure {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.breakout-room-message-more {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  font-size: 0.85rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.breakout-room-message-more:hover,
+.breakout-room-message-more:focus-visible {
+  background: transparent;
+  color: var(--text);
+  outline: none;
 }
 
 .breakout-room-message-content {

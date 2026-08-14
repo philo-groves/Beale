@@ -1,6 +1,6 @@
 import { ArrowLeft, ChevronRight, MessagesSquare } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import type { JSX } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { JSX, ReactNode } from 'react';
 import type { BreakoutRoomMemberRecord, BreakoutRoomMessageRecord, RunDetail } from '@shared/types';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import { formatDurationHms } from '../../lib/formatting';
@@ -14,12 +14,14 @@ export function BreakoutRoomView({
   detail,
   events = [],
   roomId,
-  onBack
+  onBack,
+  onSelectSubagent
 }: {
   detail: RunDetail | null;
   events?: TraceDisplayEvent[];
   roomId: string;
   onBack: () => void;
+  onSelectSubagent: (path: string) => void;
 }): JSX.Element {
   const room = detail?.breakoutRooms?.find((candidate) => candidate.id === roomId) ?? null;
   const members = (detail?.breakoutRoomMembers ?? []).filter((member) => member.roomId === roomId);
@@ -69,6 +71,7 @@ export function BreakoutRoomView({
               <BreakoutMessage
                 message={message}
                 member={(message.memberId ? memberById.get(message.memberId) : undefined) ?? memberByAgentPath.get(message.senderAgentPath)}
+                onSelectSubagent={onSelectSubagent}
                 key={message.id}
               />
             ))}
@@ -172,18 +175,30 @@ function BreakoutMemberChip({ member }: { member: BreakoutRoomMemberRecord }): J
 
 function BreakoutMessage({
   message,
-  member
+  member,
+  onSelectSubagent
 }: {
   message: BreakoutRoomMessageRecord;
   member: BreakoutRoomMemberRecord | undefined;
+  onSelectSubagent: (path: string) => void;
 }): JSX.Element {
   const sender = breakoutMessageSenderName(message, member);
   const provider = member?.provider || metadataText(message.metadata, 'provider') || member?.model || metadataText(message.metadata, 'model') || '';
   const model = member?.model || metadataText(message.metadata, 'model') || provider;
+  const subagentPath = message.senderAgentPath === '/root'
+    ? null
+    : member?.agentPath || message.senderAgentPath;
   return (
-    <details className={`breakout-room-message kind-${message.kind}`}>
-      <BreakoutMessageHeader kindLabel={messageKindLabel(message)} model={model} provider={provider} sender={sender} />
-      <div className="breakout-room-message-body">
+    <article className={`breakout-room-message kind-${message.kind}`}>
+      <BreakoutMessageHeader
+        kindLabel={messageKindLabel(message)}
+        model={model}
+        provider={provider}
+        sender={sender}
+        subagentPath={subagentPath}
+        onSelectSubagent={onSelectSubagent}
+      />
+      <BreakoutMessageBody>
         <div className="breakout-room-message-content">{renderTraceProseText(message.contentMarkdown, 'agent_output')}</div>
         {message.evidenceRefs.length > 0 ? (
           <div className="breakout-room-evidence-refs">Evidence: {message.evidenceRefs.join(', ')}</div>
@@ -193,8 +208,8 @@ function BreakoutMessage({
             {roomPacketDetails(message).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
           </dl>
         ) : null}
-      </div>
-    </details>
+      </BreakoutMessageBody>
+    </article>
   );
 }
 
@@ -208,12 +223,19 @@ function BreakoutOutcome({
   provider: string;
 }): JSX.Element {
   return (
-    <details className="breakout-room-message kind-outcome">
-      <BreakoutMessageHeader kindLabel="Outcome" model={model} provider={provider} sender="Lead Agent" />
-      <div className="breakout-room-message-body">
+    <article className="breakout-room-message kind-outcome">
+      <BreakoutMessageHeader
+        kindLabel="Outcome"
+        model={model}
+        provider={provider}
+        sender="Lead Agent"
+        subagentPath={null}
+        onSelectSubagent={() => undefined}
+      />
+      <BreakoutMessageBody>
         <div className="breakout-room-message-content">{renderTraceProseText(contentMarkdown, 'agent_output')}</div>
-      </div>
-    </details>
+      </BreakoutMessageBody>
+    </article>
   );
 }
 
@@ -221,24 +243,74 @@ function BreakoutMessageHeader({
   kindLabel,
   model,
   provider,
-  sender
+  sender,
+  subagentPath,
+  onSelectSubagent
 }: {
   kindLabel: string;
   model: string;
   provider: string;
   sender: string;
+  subagentPath: string | null;
+  onSelectSubagent: (path: string) => void;
 }): JSX.Element {
   return (
-    <summary className="run-work-header breakout-room-message-header">
+    <div className="run-work-header breakout-room-message-header">
       <span className="breakout-room-message-sender">
         <span className="breakout-room-message-provider" title={model}>
           <ProviderIcon className="breakout-room-message-provider-icon" provider={provider || model} size={14} aria-hidden="true" />
         </span>
-        <span>{sender}</span>
-        <ChevronRight className="run-work-chevron" size={14} aria-hidden="true" />
+        {subagentPath ? (
+          <button
+            type="button"
+            className="breakout-room-message-subagent"
+            title={`View ${sender} commentary`}
+            onClick={() => onSelectSubagent(subagentPath)}
+          >
+            {sender}
+          </button>
+        ) : <span>{sender}</span>}
       </span>
       <span className="breakout-room-message-kind">{kindLabel}</span>
-    </summary>
+    </div>
+  );
+}
+
+function BreakoutMessageBody({ children }: { children: ReactNode }): JSX.Element {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [overflowing, setOverflowing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return undefined;
+    const updateOverflow = (): void => setOverflowing(content.scrollHeight > 400);
+    updateOverflow();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateOverflow);
+      return () => window.removeEventListener('resize', updateOverflow);
+    }
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div className={`breakout-room-message-body${overflowing ? ' is-overflowing' : ''}${expanded ? ' is-expanded' : ''}`}>
+      <div className="breakout-room-message-clip">
+        <div className="breakout-room-message-measure" ref={contentRef}>{children}</div>
+      </div>
+      {overflowing ? (
+        <button
+          type="button"
+          className="breakout-room-message-more"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
