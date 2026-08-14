@@ -68,7 +68,10 @@ describe('workspace dashboard', () => {
     expect(housekeepingCardStyles).not.toContain('--workspace-card-glass');
     expect(housekeepingCardStyles).not.toContain('outline');
     expect(mediumHeatCardStyles).toContain(
-      '--workspace-card-surface: color-mix(in srgb, var(--session-heat-medium-color) 24%, var(--panel-strong))'
+      '--session-heat-edge: color-mix(in srgb, var(--session-heat-medium-color) 48%, var(--panel-border))'
+    );
+    expect(mediumHeatCardStyles).toContain(
+      '--workspace-card-surface: var(--session-heat-edge)'
     );
     expect(housekeepingCardStyles).not.toContain('backdrop-filter');
     expect(housekeepingCardStyles).not.toContain('box-shadow');

@@ -17,6 +17,7 @@ import {
   ResearchGoalChooser,
   StartRunForm
 } from '../src/renderer/features/sessions/StartRunForm';
+import { ProfileSettingsView } from '../src/renderer/features/settings/SettingsModal';
 import {
   memoryCatalogStatusSections,
   sessionMemoryTypeSummaries
@@ -180,6 +181,35 @@ describe('renderer research profile presentation', () => {
     expect(html).toContain('0 Runbooks');
     expect(html).not.toContain('0 Notes');
     expect(html).not.toContain('0 Guides');
+  });
+
+  it('renders configurable light and dark session heat palette controls', () => {
+    const profile = customProfile();
+    const html = renderToStaticMarkup(createElement(ProfileSettingsView, {
+      researchProfile: snapshot(profile).researchProfile,
+      researchProfiles: [{ profile, hash: 'a'.repeat(64), source: 'explicit' }],
+      sessionHeatPreferences: {
+        heatOverrides: {},
+        paletteOverrides: {
+          [profile.id]: {
+            light: { low: '#112233' },
+            dark: { critical: '#445566' }
+          }
+        }
+      },
+      onSetSessionHeatPreference: () => undefined,
+      onSetSessionHeatPalettePreference: () => undefined
+    }));
+
+    expect(html).not.toContain('Session Heat Colors');
+    expect(html).toContain('>Light Heat</h5>');
+    expect(html).toContain('>Dark Heat</h5>');
+    expect(html).toContain('aria-label="Reset Light Heat colors"');
+    expect(html).toContain('aria-label="Reset Dark Heat colors"');
+    expect(html).toContain('aria-label="Light Heat Low session heat color"');
+    expect(html).toContain('value="#112233"');
+    expect(html).toContain('aria-label="Dark Heat Critical session heat color"');
+    expect(html).toContain('value="#445566"');
   });
 });
 

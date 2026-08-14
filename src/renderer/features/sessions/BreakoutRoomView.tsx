@@ -77,12 +77,9 @@ export function BreakoutRoomView({
   }, [roomId, syncScrollState, transcriptUpdateKey]);
 
   useEffect(() => {
-    const list = listRef.current;
-    if (!list || typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(syncScrollState);
-    observer.observe(list);
-    Array.from(list.children).forEach((child) => observer.observe(child));
-    return () => observer.disconnect();
+    if (!followLatestRef.current) return undefined;
+    const frame = window.requestAnimationFrame(syncScrollState);
+    return () => window.cancelAnimationFrame(frame);
   }, [syncScrollState, transcriptUpdateKey]);
 
   const markUserScrollIntent = useCallback((): void => {

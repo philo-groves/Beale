@@ -106,7 +106,7 @@ export function filterSubagentSummaries(
 }
 
 export function subagentSummaries(
-  events: TraceEventRecord[],
+  events: readonly TraceEventRecord[],
   runStatus?: RunStatus | null,
   chatView: ChatView = 'traces'
 ): SubagentSummary[] {

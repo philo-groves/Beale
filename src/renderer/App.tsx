@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
   ApprovalRecord,
+  AgentPluginRegistryState,
   ProviderSettings,
   ProviderAuthenticationMethod,
   ProviderModelDefaults,
@@ -60,7 +61,7 @@ import {
   windowControlPlatformForState
 } from './view-models/appShell';
 import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
-import { sessionHeatForDetail, sessionHeatPaletteStyle } from './view-models/sessionHeat';
+import { sessionHeatForDetail, sessionHeatPaletteForProfile, sessionHeatPaletteStyle } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
@@ -104,7 +105,7 @@ export function App(): JSX.Element {
     [providerSettings, researchProviderModelCatalog]
   );
   const [chatView, setChatView] = useChatViewPreference();
-  const [sessionHeatPreferences, setSessionHeatPreference] = useSessionHeatPreferences();
+  const [sessionHeatPreferences, setSessionHeatPreference, setSessionHeatPalettePreference] = useSessionHeatPreferences();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
   const [workspaceOnboardingProgress, setWorkspaceOnboardingProgress] = useState<WorkspaceOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -112,6 +113,12 @@ export function App(): JSX.Element {
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [newResearchInitialGoal, setNewResearchInitialGoal] = useState<ResearchGoalSeed | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [agentPluginState, setAgentPluginState] = useState<AgentPluginRegistryState | null>(null);
+  const [agentPluginsLoading, setAgentPluginsLoading] = useState(false);
+  const [agentPluginsBusy, setAgentPluginsBusy] = useState(false);
+  const [agentPluginsError, setAgentPluginsError] = useState<string | null>(null);
+  const [pluginRepositoryUrl, setPluginRepositoryUrl] = useState('');
   const [pendingSearchTarget, setPendingSearchTarget] = useState<SessionTranscriptSearchResult | null>(null);
   const [traceSearchHighlightQuery, setTraceSearchHighlightQuery] = useState('');
   const [profilingOpen, setProfilingOpen] = useState(false);
@@ -268,6 +275,57 @@ export function App(): JSX.Element {
     },
     [applySnapshot, loadSnapshot]
   );
+
+  const loadAgentPlugins = useCallback(async (): Promise<void> => {
+    setAgentPluginsLoading(true);
+    setAgentPluginsError(null);
+    try {
+      setAgentPluginState(await window.beale.getAgentPlugins());
+    } catch (caught) {
+      setAgentPluginsError(errorMessage(caught));
+    } finally {
+      setAgentPluginsLoading(false);
+    }
+  }, []);
+
+  const openPlugins = useCallback((): void => {
+    setPluginsOpen(true);
+    void loadAgentPlugins();
+  }, [loadAgentPlugins]);
+
+  const runAgentPluginAction = useCallback(async (action: () => Promise<AgentPluginRegistryState>): Promise<void> => {
+    setAgentPluginsBusy(true);
+    setAgentPluginsError(null);
+    try {
+      setAgentPluginState(await action());
+    } catch (caught) {
+      setAgentPluginsError(errorMessage(caught));
+    } finally {
+      setAgentPluginsBusy(false);
+    }
+  }, []);
+
+  const addAgentPluginFromFilesystem = useCallback((): void => {
+    void runAgentPluginAction(() => window.beale.addAgentPluginFromFilesystem());
+  }, [runAgentPluginAction]);
+
+  const addAgentPluginFromRepository = useCallback((): void => {
+    const repositoryUrl = pluginRepositoryUrl.trim();
+    if (!repositoryUrl) return;
+    void runAgentPluginAction(async () => {
+      const state = await window.beale.addAgentPluginFromRepository(repositoryUrl);
+      setPluginRepositoryUrl('');
+      return state;
+    });
+  }, [pluginRepositoryUrl, runAgentPluginAction]);
+
+  const setAgentPluginEnabled = useCallback((pluginId: string, enabled: boolean): void => {
+    void runAgentPluginAction(() => window.beale.setAgentPluginEnabled(pluginId, enabled));
+  }, [runAgentPluginAction]);
+
+  const removeAgentPlugin = useCallback((pluginId: string): void => {
+    void runAgentPluginAction(() => window.beale.removeAgentPlugin(pluginId));
+  }, [runAgentPluginAction]);
 
   const openNotification = useCallback(
     async (notification: NotificationRecord) => {
@@ -861,7 +919,7 @@ export function App(): JSX.Element {
     return () => { cancelled = true; };
   }, [selectedReport?.revision, selectedReportId]);
 
-  const needsFullTraceEvents = Boolean(activeRunDetail && (selectedBreakoutRoomId || selectedSubagentPath || rightSidenavExpanded || pendingSearchTarget));
+  const needsFullTraceEvents = Boolean(activeRunDetail && (selectedBreakoutRoomId || selectedSubagentPath || pendingSearchTarget));
   const activeTraceEvents = useMemo(
     () => (activeRunDetail && needsFullTraceEvents
       ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail))
@@ -877,7 +935,7 @@ export function App(): JSX.Element {
     },
     [activeRunDetail, activeTraceEvents, needsFullTraceEvents]
   );
-  const needsSubagentSummaries = Boolean(selectedSubagentPath || (rightSidenavExpanded && activeRunDetail !== null));
+  const needsSubagentSummaries = Boolean(selectedSubagentPath);
   const activeSubagents = useMemo(
     () => needsSubagentSummaries
       ? subagentSummaries(activeTraceEvents, activeRunDetail?.run.status, chatView)
@@ -906,7 +964,7 @@ export function App(): JSX.Element {
   const sessionHeatProfile = activeRunDetail?.researchProfile?.profile ?? snapshot?.researchProfile.profile ?? null;
   const shellStyle = {
     '--sidebar-width': `${sidebarWidth}px`,
-    ...sessionHeatPaletteStyle(sessionHeatProfile?.presentation.sessionHeatPalette)
+    ...sessionHeatPaletteStyle(sessionHeatPaletteForProfile(sessionHeatProfile, sessionHeatPreferences, 'dark'))
   } as CSSProperties;
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const shellClassName = `${appShellClassName({
@@ -1048,6 +1106,7 @@ export function App(): JSX.Element {
           onResizePointerDown={beginSidebarResize}
           onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
           onShowMoreSessions={setSessionHistoryWorkspaceId}
+          onOpenPlugins={openPlugins}
           onSearch={openSearch}
           onStartNewResearch={startNewResearch}
         />
@@ -1084,6 +1143,7 @@ export function App(): JSX.Element {
             onSetProviderCyberPolicyRiskAcknowledged={setProviderCyberPolicyRiskAcknowledged}
             onSetProviderPreferredAuthenticationMethod={setProviderPreferredAuthenticationMethod}
             onSetSessionHeatPreference={setSessionHeatPreference}
+            onSetSessionHeatPalettePreference={setSessionHeatPalettePreference}
           />
         ) : (
           <div className="workspace-page">
@@ -1161,6 +1221,12 @@ export function App(): JSX.Element {
         busy={busy}
         newResearchOpen={newResearchOpen}
         newResearchInitialGoal={newResearchInitialGoal}
+        pluginsOpen={pluginsOpen}
+        agentPluginState={agentPluginState}
+        agentPluginsLoading={agentPluginsLoading}
+        agentPluginsBusy={agentPluginsBusy}
+        agentPluginsError={agentPluginsError}
+        pluginRepositoryUrl={pluginRepositoryUrl}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
         defaultProviderId={providerSettings?.defaultProviderId}
         providerModelDefaults={providerSettings?.modelDefaults}
@@ -1190,7 +1256,9 @@ export function App(): JSX.Element {
           setNewResearchInitialGoal(null);
           setNewResearchOpen(false);
         }}
+        onClosePlugins={() => setPluginsOpen(false)}
         onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
+        onPluginRepositoryUrlChange={setPluginRepositoryUrl}
         onChangeWorkspaceDraft={setWorkspaceDraft}
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
         onCloseNotification={() => setActiveNotification(null)}
@@ -1218,6 +1286,10 @@ export function App(): JSX.Element {
         }}
         onSubmitWorkspaceOnboarding={submitWorkspaceOnboarding}
         onSkipWorkspaceOnboardingRepository={skipWorkspaceOnboardingRepository}
+        onAddAgentPluginFromFilesystem={addAgentPluginFromFilesystem}
+        onAddAgentPluginFromRepository={addAgentPluginFromRepository}
+        onSetAgentPluginEnabled={setAgentPluginEnabled}
+        onRemoveAgentPlugin={removeAgentPlugin}
         runAction={runAction}
       />
       {activeShellApproval ? (

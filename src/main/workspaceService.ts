@@ -43,6 +43,7 @@ import {
 import { readHoneycrispRunbook } from './honeycrispRunbook';
 import { readHoneycrispReport } from './honeycrispReport';
 import { WorkspaceRegistry } from './workspaceRegistry';
+import { AgentPluginRegistry } from './agentPluginRegistry';
 import { ProfilingService } from './profilingService';
 import {
   getWorkspaceDejunkSummary,
@@ -150,7 +151,8 @@ import type {
   WorkspacePolicyReview,
   WorkspaceRecoveryReport,
   WorkspaceSnapshot,
-  WorkspaceSummary
+  WorkspaceSummary,
+  AgentPluginRegistryState
 } from '@shared/types';
 
 const EXECUTION_POSTURE_LABEL = 'Honeycrisp host-process execution. Use an external VM or container when OS isolation is required.';
@@ -566,6 +568,7 @@ export class WorkspaceService {
   private readonly providerCredentials: ProviderCredentialStore;
   private readonly profiling = new ProfilingService();
   private workspaceRegistry: WorkspaceRegistry | null = null;
+  private agentPluginRegistry: AgentPluginRegistry | null = null;
   private workspacePath: string | null = null;
   private openedAt: string | null = null;
   private lastRecovery: WorkspaceRecoveryReport | null = null;
@@ -683,6 +686,26 @@ export class WorkspaceService {
     return Promise.all(
       RESEARCH_PROFILE_IDS.map((profileId) => this.researchProfileService.resolveAsync(workspacePath, profileId))
     );
+  }
+
+  public getAgentPlugins(): AgentPluginRegistryState {
+    return this.getAgentPluginRegistry().getState();
+  }
+
+  public addAgentPluginFromFilesystem(pluginRoot: string): AgentPluginRegistryState {
+    return this.getAgentPluginRegistry().addFromFilesystem(pluginRoot);
+  }
+
+  public addAgentPluginFromRepository(repositoryUrl: string): Promise<AgentPluginRegistryState> {
+    return this.getAgentPluginRegistry().addFromRepository(repositoryUrl);
+  }
+
+  public setAgentPluginEnabled(pluginId: string, enabled: boolean): AgentPluginRegistryState {
+    return this.getAgentPluginRegistry().setEnabled(pluginId, enabled);
+  }
+
+  public removeAgentPlugin(pluginId: string): AgentPluginRegistryState {
+    return this.getAgentPluginRegistry().remove(pluginId);
   }
 
   public getMemorySettings(): MemorySettings {
@@ -3027,6 +3050,13 @@ export class WorkspaceService {
       this.workspaceRegistry = new WorkspaceRegistry(this.options.workspaceRegistryDirectory);
     }
     return this.workspaceRegistry;
+  }
+
+  private getAgentPluginRegistry(): AgentPluginRegistry {
+    if (!this.agentPluginRegistry) {
+      this.agentPluginRegistry = new AgentPluginRegistry(dirname(this.getWorkspaceRegistry().registryPath));
+    }
+    return this.agentPluginRegistry;
   }
 
   private getVmPreferenceForSnapshot(): VmPreference {

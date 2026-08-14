@@ -85,8 +85,9 @@ export function stringRecordValue(record: Record<string, unknown>, key: string):
 export function honeycrispToolEventKind(event: TraceEventRecord): HoneycrispToolEventKind | null {
   const explicitKind = tracePayloadPrimitive(event.payload, 'honeycrispKind');
   if (explicitKind === 'tool.requested' || explicitKind === 'tool.observed') return explicitKind;
-  if (event.summary.startsWith('Honeycrisp tool.requested')) return 'tool.requested';
-  if (event.summary.startsWith('Honeycrisp tool.observed')) return 'tool.observed';
+  const summary = typeof event.summary === 'string' ? event.summary : '';
+  if (summary.startsWith('Honeycrisp tool.requested')) return 'tool.requested';
+  if (summary.startsWith('Honeycrisp tool.observed')) return 'tool.observed';
   return null;
 }
 

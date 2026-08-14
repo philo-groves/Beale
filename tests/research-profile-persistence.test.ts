@@ -8,6 +8,7 @@ import { WorkspaceDatabase, type StartRunRecordInput } from '../src/main/databas
 import { WorkspaceService, type WorkspaceServiceOptions } from '../src/main/workspaceService';
 import {
   decodeResearchProfile,
+  migrateResearchProfile,
   serializeResearchProfile,
   type ResearchProfile,
   type ResolvedResearchProfile
@@ -32,6 +33,47 @@ describe('research profile persistence', () => {
       synthesisInstructions: ['Preserve dissent.']
     }];
     expect(() => decodeResearchProfile(profile)).toThrow(/references unknown workflow typoed-workflow/);
+  });
+
+  it('migrates unversioned local profile drafts into the current schema', () => {
+    const profile = researchProfile('1.0.0', 'Local Draft') as unknown as Record<string, unknown>;
+    delete profile.schemaVersion;
+    delete profile.modelJobs;
+    delete profile.collaboration;
+    const capabilities = profile.capabilities as Record<string, unknown>;
+    delete capabilities.selectedSkillIds;
+    delete capabilities.disabledSkillIds;
+    delete capabilities.allowedMcpServerIds;
+
+    const migrated = migrateResearchProfile(profile);
+
+    expect(profile.schemaVersion).toBeUndefined();
+    expect(profile.modelJobs).toBeUndefined();
+    expect(capabilities.selectedSkillIds).toBeUndefined();
+    expect(migrated).toMatchObject({
+      originalSchemaVersion: 0,
+      schemaVersion: 1,
+      appliedMigrations: ['research-profile:v0-to-v1'],
+      profile: {
+        schemaVersion: 1,
+        name: 'Local Draft',
+        modelJobs: {},
+        collaboration: { protocolInstructions: [], recipes: [] },
+        capabilities: {
+          selectedSkillIds: [],
+          disabledSkillIds: [],
+          allowedMcpServerIds: []
+        }
+      }
+    });
+    expect(decodeResearchProfile(profile)).toEqual(migrated.profile);
+    expect(serializeResearchProfile(migrated.profile)).toContain('"schemaVersion":1');
+  });
+
+  it('rejects future profile schemas until a migration exists', () => {
+    expect(() => migrateResearchProfile({ ...researchProfile('1.0.0', 'Future Profile'), schemaVersion: 99 })).toThrow(
+      /Unsupported research profile schemaVersion: 99/
+    );
   });
 
   it('stores immutable snapshots and reuses only the same resolution provenance', () => {

@@ -9,7 +9,8 @@ import { TraceView } from '../traces/TraceView';
 import { isEndedResearchRunStatus, SessionNextSteps, type ResearchGoalSeed } from './SessionNextSteps';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { ChatView } from '../../view-models/chatView';
-import type { SessionHeatPreferenceOverrides } from '../../view-models/sessionHeat';
+import { EMPTY_SESSION_HEAT_PREFERENCES } from '../../view-models/sessionHeat';
+import type { SessionHeatPreferences } from '../../view-models/sessionHeat';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import {
   MIN_RESEARCH_SIDE_PANEL_WIDTH,
@@ -27,7 +28,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   projectGraph = null,
   projectSemantic = null,
   researchProfile,
-  sessionHeatPreferences = {},
+  sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   workspaceName,
   runs,
   selectedRunId,
@@ -81,7 +82,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   projectGraph?: ProjectGraphSummary | null;
   projectSemantic?: ProjectSemanticSummary | null;
   researchProfile: ResearchProfile | null;
-  sessionHeatPreferences?: SessionHeatPreferenceOverrides;
+  sessionHeatPreferences?: SessionHeatPreferences;
   workspaceName: string;
   runs: RunRow[];
   selectedRunId: string | null;

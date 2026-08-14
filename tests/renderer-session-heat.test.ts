@@ -4,7 +4,9 @@ import {
   readSessionHeatPreferences,
   sessionHeatForDetail,
   sessionHeatForHoneycrispMemory,
+  sessionHeatPaletteForProfile,
   sessionHeatPaletteStyle,
+  withSessionHeatPalettePreference,
   withSessionHeatPreference
 } from '../src/renderer/view-models/sessionHeat';
 import { testResearchProfile } from './researchProfileFixture';
@@ -62,13 +64,49 @@ describe('renderer session heat view models', () => {
     const preferences = readSessionHeatPreferences({
       getItem: () => JSON.stringify({ mathematics: { theorem: { verified: 'critical', draft: 'invalid' } } })
     });
-    expect(preferences).toEqual({ mathematics: { theorem: { verified: 'critical' } } });
+    expect(preferences).toEqual({
+      heatOverrides: { mathematics: { theorem: { verified: 'critical' } } },
+      paletteOverrides: {}
+    });
     expect(sessionHeatPaletteStyle(mathematicsHeatProfile().presentation.sessionHeatPalette)).toEqual({
       '--session-heat-low-color': '#45b8d8',
       '--session-heat-medium-color': '#4f87e8',
       '--session-heat-high-color': '#7768e8',
       '--session-heat-critical-color': '#b14ee8'
     });
+  });
+
+  it('applies theme-scoped palette overrides while preserving profile defaults', () => {
+    const profile = mathematicsHeatProfile();
+    const preferences = withSessionHeatPalettePreference(
+      { heatOverrides: {}, paletteOverrides: {} },
+      'mathematics',
+      'light',
+      'critical',
+      'f0a'
+    );
+
+    expect(sessionHeatPaletteForProfile(profile, preferences, 'light')).toEqual({
+      low: '#45b8d8',
+      medium: '#4f87e8',
+      high: '#7768e8',
+      critical: '#ff00aa'
+    });
+    expect(sessionHeatPaletteForProfile(profile, preferences, 'dark')).toEqual(profile.presentation.sessionHeatPalette);
+  });
+
+  it('uses cyber-specific dark heat defaults without changing light or mathematics palettes', () => {
+    const cyberProfile = heatProfile();
+    const mathematicsProfile = mathematicsHeatProfile();
+
+    expect(sessionHeatPaletteForProfile(cyberProfile, undefined, 'dark')).toEqual({
+      low: '#b5a017',
+      medium: '#703400',
+      high: '#7f1a1f',
+      critical: '#610006'
+    });
+    expect(sessionHeatPaletteForProfile(cyberProfile, undefined, 'light')).toEqual(cyberProfile.presentation.sessionHeatPalette);
+    expect(sessionHeatPaletteForProfile(mathematicsProfile, undefined, 'dark')).toEqual(mathematicsProfile.presentation.sessionHeatPalette);
   });
 });
 

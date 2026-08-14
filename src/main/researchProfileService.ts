@@ -2,7 +2,12 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { decodeResolvedResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
+import {
+  RESEARCH_PROFILE_MIN_SCHEMA_VERSION,
+  decodeResolvedResearchProfile,
+  migrateResearchProfile,
+  serializeResearchProfile
+} from '../shared/researchProfile';
 import type { ResearchProfileId, ResolvedResearchProfile } from '@shared/types';
 import { redactForModelText } from './redaction';
 import type { HoneycrispInvocation } from './honeycrispRunEngine';
@@ -96,21 +101,22 @@ export function decodeResearchProfileCatalogEnvelope(value: unknown): ResearchPr
   if (
     !Array.isArray(supportedVersions)
     || supportedVersions.length === 0
-    || !supportedVersions.every((version) => typeof version === 'number' && Number.isSafeInteger(version) && version > 0)
+    || !supportedVersions.every((version) => typeof version === 'number' && Number.isSafeInteger(version) && version >= RESEARCH_PROFILE_MIN_SCHEMA_VERSION)
   ) {
     throw new Error('Honeycrisp profile catalog returned invalid supported schema versions.');
   }
-  if (!supportedVersions.includes(1)) {
-    throw new Error('Honeycrisp does not advertise research profile schema version 1 support.');
+  const migratedProfile = migrateResearchProfile(envelope.profile);
+  if (!supportedVersions.includes(migratedProfile.schemaVersion) && !supportedVersions.includes(migratedProfile.originalSchemaVersion)) {
+    throw new Error('Honeycrisp does not advertise research profile schema version 1 support or a migratable legacy schema.');
   }
 
   const resolvedProfile = decodeResolvedResearchProfile({
-    profile: envelope.profile,
+    profile: migratedProfile.profile,
     hash: envelope.hash,
     source: envelope.source,
     ...(envelope.path === undefined ? {} : { path: envelope.path })
   });
-  if (!supportedVersions.includes(resolvedProfile.profile.schemaVersion)) {
+  if (!supportedVersions.includes(resolvedProfile.profile.schemaVersion) && !supportedVersions.includes(migratedProfile.originalSchemaVersion)) {
     throw new Error(`Honeycrisp profile schema version ${resolvedProfile.profile.schemaVersion} is not advertised by the catalog.`);
   }
   const calculatedHash = createHash('sha256')

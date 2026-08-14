@@ -29,7 +29,8 @@ import type { SubagentSummary } from '../../view-models/subagents';
 import { runbookCatalogGroups, runbookDescriptionText } from '../../view-models/runbooks';
 import { reportCatalogGroups } from '../../view-models/reports';
 import type { ChatView } from '../../view-models/chatView';
-import type { SessionHeatPreferenceOverrides } from '../../view-models/sessionHeat';
+import { EMPTY_SESSION_HEAT_PREFERENCES } from '../../view-models/sessionHeat';
+import type { SessionHeatPreferences } from '../../view-models/sessionHeat';
 import { researchProfileFeatureAvailability } from '../../view-models/researchProfileFeatures';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import type { TraceCategoryId } from '../../traceClassification';
@@ -191,7 +192,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   events,
   memory,
   researchProfile = null,
-  sessionHeatPreferences = {},
+  sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   runId,
   runStatus,
   chatView = 'commentary',
@@ -225,7 +226,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   events: TraceDisplayEvent[];
   memory: HoneycrispMemorySummary | null;
   researchProfile?: ResearchProfile | null;
-  sessionHeatPreferences?: SessionHeatPreferenceOverrides;
+  sessionHeatPreferences?: SessionHeatPreferences;
   runId: string;
   runStatus: RunStatus | null;
   chatView?: ChatView;
@@ -314,9 +315,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       sessionMemoryTypeSummaries(sessionMemoryNodes, memoryProfile),
       memoryProfile,
       researchProfile?.id,
-      sessionHeatPreferences
+      sessionHeatPreferences.heatOverrides
     ),
-    [memoryProfile, researchProfile?.id, sessionHeatPreferences, sessionMemoryNodes]
+    [memoryProfile, researchProfile?.id, sessionHeatPreferences.heatOverrides, sessionMemoryNodes]
   );
   const sessionRunbooks = useMemo(
     () => runbooks.filter((runbook) => runbook.sessionId === runId).length,
@@ -352,9 +353,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       sessionMemoryTypeSummaries(workspaceMemoryNodes, memoryProfile),
       memoryProfile,
       researchProfile?.id,
-      sessionHeatPreferences
+      sessionHeatPreferences.heatOverrides
     ),
-    [memoryProfile, researchProfile?.id, sessionHeatPreferences, workspaceMemoryNodes]
+    [memoryProfile, researchProfile?.id, sessionHeatPreferences.heatOverrides, workspaceMemoryNodes]
   );
   const workspaceRunbooks = useMemo(
     () => runbooks.filter((runbook) => workspaceId !== null && runbook.workspaceId === workspaceId),
@@ -374,8 +375,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   );
   const needsFullSubagents = subagentsAvailable && (detailsOpen || selectedSubagentPath !== null);
   const subagents = useMemo(
-    () => needsFullSubagents ? subagentSummaries(events, runStatus, chatView) : [],
-    [chatView, events, needsFullSubagents, runStatus]
+    () => needsFullSubagents ? subagentSummaries(summaryEvents, runStatus, chatView) : [],
+    [chatView, needsFullSubagents, runStatus, summaryEvents]
   );
   const subagentOverview = useMemo(
     () => {

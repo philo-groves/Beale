@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -11,6 +12,7 @@ import {
 import { WorkspaceDatabase } from '../src/main/database';
 import { HoneycrispRunEngine, resolveBealeProfileCapabilityCeilings } from '../src/main/honeycrispRunEngine';
 import { isResearchProfileMemoryStatusActive, WorkspaceService } from '../src/main/workspaceService';
+import { migrateResearchProfile, serializeResearchProfile } from '../src/shared/researchProfile';
 import type { ResearchProfile, ResearchProfileModelJob, ResolvedResearchProfile, StartRunInput } from '@shared/types';
 import {
   resolvedTestResearchProfile,
@@ -71,6 +73,51 @@ describe('research profile host integration', () => {
       supportedResearchProfileSchemaVersions: [2]
     })).toThrow(/schema version 1 support/);
     expect(() => decodeResearchProfileCatalogEnvelope({ ...envelope, hash: '0'.repeat(64) })).toThrow(/hash mismatch/);
+  });
+
+  it('migrates legacy local catalog profiles before validating the canonical hash', () => {
+    const legacyProfile = testResearchProfile() as unknown as Record<string, unknown>;
+    delete legacyProfile.schemaVersion;
+    delete legacyProfile.modelJobs;
+    const capabilities = legacyProfile.capabilities as Record<string, unknown>;
+    delete capabilities.selectedSkillIds;
+    delete capabilities.disabledSkillIds;
+    delete capabilities.allowedMcpServerIds;
+    const migratedProfile = migrateResearchProfile(legacyProfile).profile;
+    const hash = createHash('sha256')
+      .update('honeycrisp:research-profile:v1\0')
+      .update(serializeResearchProfile(migratedProfile))
+      .digest('hex');
+
+    const decoded = decodeResearchProfileCatalogEnvelope({
+      catalogProtocolVersion: 1,
+      supportedResearchProfileSchemaVersions: [0],
+      profile: legacyProfile,
+      hash,
+      source: 'explicit',
+      path: 'C:\\workspace\\.beale\\profiles\\security.json'
+    });
+
+    expect(decoded.resolvedProfile).toMatchObject({
+      hash,
+      source: 'explicit',
+      profile: {
+        schemaVersion: 1,
+        modelJobs: {},
+        capabilities: {
+          selectedSkillIds: [],
+          disabledSkillIds: [],
+          allowedMcpServerIds: []
+        }
+      }
+    });
+    expect(() => decodeResearchProfileCatalogEnvelope({
+      catalogProtocolVersion: 1,
+      supportedResearchProfileSchemaVersions: [0],
+      profile: legacyProfile,
+      hash: '0'.repeat(64),
+      source: 'explicit'
+    })).toThrow(/hash mismatch/);
   });
 
   it('resolves profile catalogs asynchronously in parallel and caches duplicate requests', async () => {

@@ -6,6 +6,7 @@ import type {
   ProviderSettings,
   ProviderAuthenticationMethod,
   ProviderModelDefaults,
+  AgentPluginRegistryState,
   MemorySettings,
   MemoryTypeDescriptions,
   ShellOptions,
@@ -95,6 +96,21 @@ const api: BealeApi = {
   },
   getResearchProfiles(): Promise<ResolvedResearchProfile[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.getResearchProfiles);
+  },
+  getAgentPlugins(): Promise<AgentPluginRegistryState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getAgentPlugins);
+  },
+  addAgentPluginFromFilesystem(): Promise<AgentPluginRegistryState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.addAgentPluginFromFilesystem);
+  },
+  addAgentPluginFromRepository(repositoryUrl: string): Promise<AgentPluginRegistryState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.addAgentPluginFromRepository, repositoryUrl);
+  },
+  setAgentPluginEnabled(pluginId: string, enabled: boolean): Promise<AgentPluginRegistryState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setAgentPluginEnabled, pluginId, enabled);
+  },
+  removeAgentPlugin(pluginId: string): Promise<AgentPluginRegistryState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.removeAgentPlugin, pluginId);
   },
   getMemorySettings(): Promise<MemorySettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.getMemorySettings);

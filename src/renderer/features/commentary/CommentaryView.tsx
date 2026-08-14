@@ -237,12 +237,9 @@ export const CommentaryView = memo(function CommentaryView({
   }, [maxWindowStart]);
 
   useEffect(() => {
-    const list = listRef.current;
-    if (!list || typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(syncScrollState);
-    observer.observe(list);
-    commentaryMessageNodes(list).forEach((child) => observer.observe(child));
-    return () => observer.disconnect();
+    if (!followLatestRef.current) return undefined;
+    const frame = window.requestAnimationFrame(syncScrollState);
+    return () => window.cancelAnimationFrame(frame);
   }, [messageUpdateKey, normalizedWindowStart, renderedMessages.length, scrollScopeKey, syncScrollState]);
 
   useEffect(() => {

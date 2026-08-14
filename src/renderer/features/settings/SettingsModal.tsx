@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
+import type { CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   DEFAULT_RESEARCH_REASONING_EFFORT,
@@ -12,6 +13,8 @@ import type {
   ProviderSettings,
   ProviderAuthenticationMethod,
   ProviderModelDefaults,
+  ResearchProfile,
+  ResearchProfileSessionHeatPalette,
   ResolvedResearchProfile,
   ResearchProfileSnapshot,
   ResearchModelProviderId,
@@ -32,9 +35,15 @@ import {
 } from '../../../shared/optionalProviderModels';
 import type { ChatView } from '../../view-models/chatView';
 import {
+  EMPTY_SESSION_HEAT_PREFERENCES,
+  SESSION_HEAT_COLOR_LEVELS,
   SESSION_HEAT_LEVELS,
+  normalizeHexColor,
+  sessionHeatPaletteForProfile,
   type SessionHeat,
-  type SessionHeatPreferenceOverrides
+  type SessionHeatColorLevel,
+  type SessionHeatPreferences,
+  type SessionHeatTheme
 } from '../../view-models/sessionHeat';
 
 export type SettingsSection = 'general' | 'providers' | 'profile';
@@ -101,7 +110,7 @@ export function SettingsView({
   researchProviderModelCatalog,
   providerSettings,
   providerStatusesLoaded,
-  sessionHeatPreferences = {},
+  sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   busy,
   onChangeChatView,
   onRefreshOpenAi,
@@ -116,7 +125,8 @@ export function SettingsView({
   onSetProviderOptionalModelEnabled = async () => undefined,
   onSetProviderCyberPolicyRiskAcknowledged = async () => undefined,
   onSetProviderPreferredAuthenticationMethod = async () => undefined,
-  onSetSessionHeatPreference = () => undefined
+  onSetSessionHeatPreference = () => undefined,
+  onSetSessionHeatPalettePreference = () => undefined
 }: {
   section: SettingsSection;
   researchProfile: ResearchProfileSnapshot | null;
@@ -130,7 +140,7 @@ export function SettingsView({
   researchProviderModelCatalog: ResearchProviderModelCatalog[];
   providerSettings: ProviderSettings | null;
   providerStatusesLoaded: boolean;
-  sessionHeatPreferences?: SessionHeatPreferenceOverrides;
+  sessionHeatPreferences?: SessionHeatPreferences;
   busy: boolean;
   onChangeChatView: (chatView: ChatView) => void;
   onRefreshOpenAi: () => Promise<void>;
@@ -156,6 +166,12 @@ export function SettingsView({
     method: ProviderAuthenticationMethod
   ) => Promise<void>;
   onSetSessionHeatPreference?: (profileId: string, memoryTypeId: string, status: string, heat: SessionHeat | null) => void;
+  onSetSessionHeatPalettePreference?: (
+    profileId: string,
+    theme: SessionHeatTheme,
+    level: SessionHeatColorLevel,
+    color: string | null
+  ) => void;
 }): JSX.Element {
   const activeSection = activeSettingsSection(section);
 
@@ -197,6 +213,7 @@ export function SettingsView({
             loading={researchProfilesLoading}
             sessionHeatPreferences={sessionHeatPreferences}
             onSetSessionHeatPreference={onSetSessionHeatPreference}
+            onSetSessionHeatPalettePreference={onSetSessionHeatPalettePreference}
           />
         )}
       </section>
@@ -208,18 +225,30 @@ function activeSettingsSection(section: SettingsSection): SettingsSection {
   return SETTINGS_SECTIONS.includes(section) ? section : 'general';
 }
 
+const SESSION_HEAT_THEME_LABELS: Record<SessionHeatTheme, string> = {
+  light: 'Light Heat',
+  dark: 'Dark Heat'
+};
+
 export function ProfileSettingsView({
   researchProfile,
   researchProfiles,
   loading = false,
-  sessionHeatPreferences = {},
-  onSetSessionHeatPreference = () => undefined
+  sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
+  onSetSessionHeatPreference = () => undefined,
+  onSetSessionHeatPalettePreference = () => undefined
 }: {
   researchProfile: ResearchProfileSnapshot | null;
   researchProfiles: readonly ResolvedResearchProfile[];
   loading?: boolean;
-  sessionHeatPreferences?: SessionHeatPreferenceOverrides;
+  sessionHeatPreferences?: SessionHeatPreferences;
   onSetSessionHeatPreference?: (profileId: string, memoryTypeId: string, status: string, heat: SessionHeat | null) => void;
+  onSetSessionHeatPalettePreference?: (
+    profileId: string,
+    theme: SessionHeatTheme,
+    level: SessionHeatColorLevel,
+    color: string | null
+  ) => void;
 }): JSX.Element {
   const profiles = profileSettingsCatalog(researchProfiles, researchProfile);
   const initialProfile = profiles.find((profile) => profile.profile.id === researchProfile?.profileId) ?? profiles[0] ?? null;
@@ -294,6 +323,11 @@ export function ProfileSettingsView({
         <div className="profile-settings-summary">
           <p>{selectedProfile.profile.description}</p>
         </div>
+        <SessionHeatPaletteSettings
+          profile={selectedProfile.profile}
+          sessionHeatPreferences={sessionHeatPreferences}
+          onSetColor={onSetSessionHeatPalettePreference}
+        />
         <div className="profile-settings-tab-row research-side-view-tabs research-side-view-tabs-scrollable" role="tablist" aria-label={`${profileName} memory types`}>
           {memoryTypes.map((memoryType) => {
             const selected = memoryType.id === selectedMemoryType?.id;
@@ -345,7 +379,7 @@ export function ProfileSettingsView({
                 .filter((statusId) => statusesById.get(statusId)?.polarity !== 'negative')
                 .map((statusId) => {
                   const defaultHeat = selectedMemoryType.sessionHeat?.[statusId] ?? 'none';
-                  const override = sessionHeatPreferences[selectedProfile.profile.id]?.[selectedMemoryType.id]?.[statusId];
+                  const override = sessionHeatPreferences.heatOverrides[selectedProfile.profile.id]?.[selectedMemoryType.id]?.[statusId];
                   return (
                     <label key={statusId}>
                       <span>{statusesById.get(statusId)?.name ?? statusId}</span>
@@ -373,6 +407,117 @@ export function ProfileSettingsView({
       ) : (
         <section className="profile-settings-empty" role="status">This profile does not define memory types.</section>
       )}
+    </div>
+  );
+}
+
+function SessionHeatPaletteSettings({
+  profile,
+  sessionHeatPreferences,
+  onSetColor
+}: {
+  profile: ResearchProfile;
+  sessionHeatPreferences: SessionHeatPreferences;
+  onSetColor: (profileId: string, theme: SessionHeatTheme, level: SessionHeatColorLevel, color: string | null) => void;
+}): JSX.Element {
+  const palettes: Record<SessionHeatTheme, ResearchProfileSessionHeatPalette> = {
+    light: sessionHeatPaletteForProfile(profile, sessionHeatPreferences, 'light'),
+    dark: sessionHeatPaletteForProfile(profile, sessionHeatPreferences, 'dark')
+  };
+
+  return (
+    <section className="profile-session-heat-colors" aria-label={`${profile.name} session heat colors`}>
+      <div className="profile-session-heat-color-grid">
+        {(['light', 'dark'] as const).map((theme) => (
+          <div className="profile-session-heat-color-column" key={theme}>
+            <div className="profile-session-heat-color-heading">
+              <h5>{SESSION_HEAT_THEME_LABELS[theme]}</h5>
+              <button
+                type="button"
+                aria-label={`Reset ${SESSION_HEAT_THEME_LABELS[theme]} colors`}
+                title={`Reset ${SESSION_HEAT_THEME_LABELS[theme]} colors`}
+                onClick={() => SESSION_HEAT_COLOR_LEVELS.forEach((level) => onSetColor(profile.id, theme, level, null))}
+              >
+                <RefreshCw size={13} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="profile-session-heat-color-list">
+              {SESSION_HEAT_COLOR_LEVELS.map((level) => (
+                <SessionHeatColorControl
+                  key={level}
+                  profileId={profile.id}
+                  theme={theme}
+                  level={level}
+                  color={palettes[theme][level]}
+                  onSetColor={onSetColor}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SessionHeatColorControl({
+  profileId,
+  theme,
+  level,
+  color,
+  onSetColor
+}: {
+  profileId: string;
+  theme: SessionHeatTheme;
+  level: SessionHeatColorLevel;
+  color: string;
+  onSetColor: (profileId: string, theme: SessionHeatTheme, level: SessionHeatColorLevel, color: string | null) => void;
+}): JSX.Element {
+  const [draft, setDraft] = useState(color);
+
+  useEffect(() => {
+    setDraft(color);
+  }, [color]);
+
+  const commitColor = (value: string): void => {
+    const normalized = normalizeHexColor(value);
+    if (!normalized) return;
+    onSetColor(profileId, theme, level, normalized);
+  };
+
+  const colorLabel = `${SESSION_HEAT_THEME_LABELS[theme]} ${sessionHeatLabel(level)} session heat color`;
+
+  return (
+    <div className="profile-session-heat-color-row" role="group" aria-label={colorLabel}>
+      <span>{sessionHeatLabel(level)}</span>
+      <label
+        className="profile-session-heat-color-picker"
+        data-heat-level={level}
+        style={{ '--profile-session-heat-color': color } as CSSProperties}
+      >
+        <input
+          type="color"
+          aria-label={colorLabel}
+          value={color}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            onSetColor(profileId, theme, level, event.target.value);
+          }}
+        />
+      </label>
+      <input
+        className="profile-session-heat-color-hex"
+        type="text"
+        aria-label={`${colorLabel} hex`}
+        spellCheck={false}
+        value={draft}
+        onChange={(event) => {
+          const nextDraft = event.target.value;
+          setDraft(nextDraft);
+          commitColor(nextDraft);
+        }}
+        onBlur={() => setDraft(normalizeHexColor(draft) ?? color)}
+      />
     </div>
   );
 }

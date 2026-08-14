@@ -1,4 +1,5 @@
 export const RESEARCH_PROFILE_SCHEMA_VERSION = 1 as const;
+export const RESEARCH_PROFILE_MIN_SCHEMA_VERSION = 0 as const;
 export const RESEARCH_PROFILE_IDS = ['security-research', 'mathematics'] as const;
 export type ResearchProfileId = typeof RESEARCH_PROFILE_IDS[number];
 
@@ -215,6 +216,13 @@ export interface ResearchProfileSnapshot {
   createdAt: string;
 }
 
+export interface ResearchProfileMigrationResult {
+  profile: ResearchProfile;
+  originalSchemaVersion: number;
+  schemaVersion: typeof RESEARCH_PROFILE_SCHEMA_VERSION;
+  appliedMigrations: readonly string[];
+}
+
 const PROFILE_SOURCES = new Set<ResolvedResearchProfile['source']>([
   'bundled-default',
   'workspace-default',
@@ -229,8 +237,26 @@ const SIDE_EFFECTS = new Set<ResearchProfileCapabilities['allowedSideEffects'][n
   'process'
 ]);
 
+/**
+ * Migrate a locally edited or historical profile draft into the current
+ * normalized profile contract, then validate it.
+ */
+export function migrateResearchProfile(value: unknown): ResearchProfileMigrationResult {
+  const migration = migrateResearchProfileValue(value);
+  return {
+    profile: decodeCurrentResearchProfile(migration.value),
+    originalSchemaVersion: migration.originalSchemaVersion,
+    schemaVersion: RESEARCH_PROFILE_SCHEMA_VERSION,
+    appliedMigrations: migration.appliedMigrations
+  };
+}
+
 /** Decode the normalized Honeycrisp wire contract at the Beale host boundary. */
 export function decodeResearchProfile(value: unknown): ResearchProfile {
+  return migrateResearchProfile(value).profile;
+}
+
+function decodeCurrentResearchProfile(value: unknown): ResearchProfile {
   const input = objectValue(value, 'Research profile');
   if (input.schemaVersion !== RESEARCH_PROFILE_SCHEMA_VERSION) {
     throw new Error(`Unsupported research profile schemaVersion: ${String(input.schemaVersion)}`);
@@ -358,6 +384,60 @@ export function decodeResearchProfile(value: unknown): ResearchProfile {
     }
   }
   return profile;
+}
+
+function migrateResearchProfileValue(value: unknown): {
+  value: unknown;
+  originalSchemaVersion: number;
+  appliedMigrations: string[];
+} {
+  const input = objectValue(value, 'Research profile');
+  const rawSchemaVersion = input.schemaVersion;
+  const originalSchemaVersion = rawSchemaVersion === undefined
+    ? RESEARCH_PROFILE_MIN_SCHEMA_VERSION
+    : schemaVersionNumber(rawSchemaVersion);
+  if (originalSchemaVersion === RESEARCH_PROFILE_SCHEMA_VERSION) {
+    return { value, originalSchemaVersion, appliedMigrations: [] };
+  }
+  if (originalSchemaVersion !== RESEARCH_PROFILE_MIN_SCHEMA_VERSION) {
+    throw new Error(`Unsupported research profile schemaVersion: ${String(rawSchemaVersion)}`);
+  }
+
+  return {
+    value: migrateResearchProfileV0ToV1(input),
+    originalSchemaVersion,
+    appliedMigrations: ['research-profile:v0-to-v1']
+  };
+}
+
+function migrateResearchProfileV0ToV1(input: Record<string, unknown>): Record<string, unknown> {
+  const migrated = cloneJsonRecord(input);
+  migrated.schemaVersion = RESEARCH_PROFILE_SCHEMA_VERSION;
+  if (migrated.collaboration === undefined) {
+    migrated.collaboration = { protocolInstructions: [], recipes: [] };
+  }
+  if (migrated.modelJobs === undefined) {
+    migrated.modelJobs = {};
+  }
+  const capabilities = migrated.capabilities;
+  if (capabilities && typeof capabilities === 'object' && !Array.isArray(capabilities)) {
+    const capabilityRecord = capabilities as Record<string, unknown>;
+    if (capabilityRecord.selectedSkillIds === undefined) capabilityRecord.selectedSkillIds = [];
+    if (capabilityRecord.disabledSkillIds === undefined) capabilityRecord.disabledSkillIds = [];
+    if (capabilityRecord.allowedMcpServerIds === undefined) capabilityRecord.allowedMcpServerIds = [];
+  }
+  return migrated;
+}
+
+function schemaVersionNumber(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < RESEARCH_PROFILE_MIN_SCHEMA_VERSION) {
+    throw new Error(`Unsupported research profile schemaVersion: ${String(value)}`);
+  }
+  return value;
+}
+
+function cloneJsonRecord(input: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(input)) as Record<string, unknown>;
 }
 
 export function decodeResolvedResearchProfile(value: unknown): ResolvedResearchProfile {

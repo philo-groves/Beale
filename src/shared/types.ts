@@ -898,6 +898,55 @@ export interface WorkspaceRegistryState {
   researchSessions: ResearchSessionSummary[];
 }
 
+export type AgentPluginSourceKind = 'filesystem' | 'repository';
+export type AgentPluginStatus = 'ready' | 'invalid';
+export type AgentPluginMcpTransport = 'stdio' | 'streamable-http' | 'sse' | 'unknown';
+
+export interface AgentPluginSource {
+  kind: AgentPluginSourceKind;
+  path: string;
+  repositoryUrl?: string;
+}
+
+export interface AgentPluginSkillSummary {
+  name: string;
+  directoryName: string;
+  relativePath: string;
+  description: string | null;
+}
+
+export interface AgentPluginMcpServerSummary {
+  name: string;
+  transport: AgentPluginMcpTransport;
+  command: string | null;
+  url: string | null;
+  valid: boolean;
+  errors: string[];
+}
+
+export interface AgentPluginRecord {
+  id: string;
+  name: string;
+  version: string | null;
+  description: string | null;
+  enabled: boolean;
+  status: AgentPluginStatus;
+  source: AgentPluginSource;
+  installedAt: string;
+  updatedAt: string;
+  skills: AgentPluginSkillSummary[];
+  mcpServers: AgentPluginMcpServerSummary[];
+  warnings: string[];
+  errors: string[];
+}
+
+export interface AgentPluginRegistryState {
+  registryPath: string;
+  pluginStorePath: string;
+  specVersion: string;
+  plugins: AgentPluginRecord[];
+}
+
 export interface DeveloperSettings {
   developerModeEnabled: boolean;
 }
@@ -1698,6 +1747,11 @@ export interface BealeApi {
   setProviderCyberPolicyRiskAcknowledged(providerId: ResearchModelProviderId, acknowledged: boolean): Promise<ProviderSettings>;
   setProviderPreferredAuthenticationMethod(providerId: ResearchModelProviderId, method: ProviderAuthenticationMethod): Promise<ProviderSettings>;
   getResearchProfiles(): Promise<ResolvedResearchProfile[]>;
+  getAgentPlugins(): Promise<AgentPluginRegistryState>;
+  addAgentPluginFromFilesystem(): Promise<AgentPluginRegistryState>;
+  addAgentPluginFromRepository(repositoryUrl: string): Promise<AgentPluginRegistryState>;
+  setAgentPluginEnabled(pluginId: string, enabled: boolean): Promise<AgentPluginRegistryState>;
+  removeAgentPlugin(pluginId: string): Promise<AgentPluginRegistryState>;
   getMemorySettings(): Promise<MemorySettings>;
   setMemoryTypeDescriptions(descriptions: MemoryTypeDescriptions): Promise<MemorySettings>;
   getShellOptions(): Promise<ShellOptions>;

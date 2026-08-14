@@ -464,6 +464,24 @@ function registerIpc(): void {
     method: ProviderAuthenticationMethod
   ) => workspaceService.setProviderPreferredAuthenticationMethod(providerId, method));
   ipcMain.handle(IPC_CHANNELS.getResearchProfiles, () => workspaceService.getResearchProfiles());
+  ipcMain.handle(IPC_CHANNELS.getAgentPlugins, () => workspaceService.getAgentPlugins());
+  ipcMain.handle(IPC_CHANNELS.addAgentPluginFromFilesystem, async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Add Agent Plugin',
+      properties: ['openDirectory']
+    });
+    const path = result.filePaths[0] ?? null;
+    return result.canceled || !path
+      ? workspaceService.getAgentPlugins()
+      : workspaceService.addAgentPluginFromFilesystem(path);
+  });
+  ipcMain.handle(IPC_CHANNELS.addAgentPluginFromRepository, (_event, repositoryUrl: string) =>
+    workspaceService.addAgentPluginFromRepository(repositoryUrl)
+  );
+  ipcMain.handle(IPC_CHANNELS.setAgentPluginEnabled, (_event, pluginId: string, enabled: boolean) =>
+    workspaceService.setAgentPluginEnabled(pluginId, enabled)
+  );
+  ipcMain.handle(IPC_CHANNELS.removeAgentPlugin, (_event, pluginId: string) => workspaceService.removeAgentPlugin(pluginId));
   ipcMain.handle(IPC_CHANNELS.getMemorySettings, () => workspaceService.getMemorySettings());
   ipcMain.handle(IPC_CHANNELS.setMemoryTypeDescriptions, (_event, descriptions: MemoryTypeDescriptions) => workspaceService.setMemoryTypeDescriptions(descriptions));
   ipcMain.handle(IPC_CHANNELS.getShellOptions, () => workspaceService.getShellOptions());
