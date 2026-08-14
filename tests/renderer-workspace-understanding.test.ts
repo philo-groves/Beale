@@ -2,13 +2,14 @@ import { createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispMemorySummary, RunRow, SessionRunActivity } from '../src/shared/types';
+import type { HoneycrispMemorySummary, RunRow, ScopeAsset, SessionRunActivity } from '../src/shared/types';
 import { MainSessionWorkspace } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import {
   memoryCountSinceLastDream,
   memoryDreamHeat,
   memoryDreamingProgressLabel,
   workspaceDejunkHeat,
+  workspaceResearchSurfaceItems,
   WorkspaceUnderstandingView
 } from '../src/renderer/features/workspaces/WorkspaceUnderstandingView';
 import { buildWorkspaceTimeline } from '../src/renderer/view-models/workspaceTimeline';
@@ -313,6 +314,62 @@ describe('workspace dashboard', () => {
     expect(html).toContain('>1 session</span>');
     expect(html).toContain('>1 memory</span>');
     expect(html).toContain('>Last 2h ago</span>');
+  });
+
+  it('labels materialized repository checkouts from repository metadata instead of the checkout folder', () => {
+    const run = runRow('run_gitlab', [['2026-08-12T10:00:00.000Z', '2026-08-12T11:00:00.000Z']]);
+    run.run.targetAssetId = 'asset_gitlab_disk';
+    const memory = memorySummary({
+      nodes: [{ id: 'memory_gitlab', assetIds: ['asset_gitlab_url'], createdAt: '2026-08-12T11:30:00.000Z' }]
+    });
+    const assets: ScopeAsset[] = [{
+      id: 'asset_gitlab_url',
+      scopeVersionId: 'scope_surface',
+      direction: 'in_scope',
+      kind: 'repo',
+      value: 'https://gitlab.com/gitlab-org/gitlab',
+      sensitivity: 'public',
+      attributes: { repositoryUrl: 'https://gitlab.com/gitlab-org/gitlab' },
+      createdAt: '2026-08-12T00:00:00.000Z'
+    }, {
+      id: 'asset_gitlab_disk',
+      scopeVersionId: 'scope_surface',
+      direction: 'in_scope',
+      kind: 'repo',
+      value: 'C:\\Users\\research\\.beale\\repositories\\gitlab.com_gitlab-org_gitlab\\default',
+      sensitivity: 'public',
+      attributes: { repositoryUrl: 'https://gitlab.com/gitlab-org/gitlab', sourceAssetId: 'asset_gitlab_url' },
+      createdAt: '2026-08-12T00:00:00.000Z'
+    }, {
+      id: 'asset_gitlab',
+      scopeVersionId: 'scope_surface',
+      direction: 'in_scope',
+      kind: 'repo',
+      value: 'C:\\Users\\research\\.beale\\repositories\\gitlab.com_gitlab-org_gitlab\\default',
+      sensitivity: 'public',
+      attributes: { repositoryUrl: 'https://gitlab.com/gitlab-org/gitlab' },
+      createdAt: '2026-08-12T00:00:00.000Z'
+    }, {
+      id: 'asset_gitaly',
+      scopeVersionId: 'scope_surface',
+      direction: 'in_scope',
+      kind: 'repo',
+      value: 'C:\\Users\\research\\.beale\\repositories\\gitlab.com_gitlab-org_gitaly\\default',
+      sensitivity: 'public',
+      attributes: {},
+      createdAt: '2026-08-12T00:00:00.000Z'
+    }];
+
+    const items = workspaceResearchSurfaceItems(assets, [run], memory);
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(['gitaly', 'gitlab']);
+    expect(labels).not.toContain('default');
+    expect(items.find((item) => item.label === 'gitlab')).toMatchObject({
+      sessionCount: 1,
+      memoryCount: 1
+    });
+    expect(items.find((item) => item.label === 'gitlab')?.asset.value).toBe('https://gitlab.com/gitlab-org/gitlab');
   });
 
   it('keeps terminal session runs immutable when the session is continued', () => {

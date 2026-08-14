@@ -161,8 +161,26 @@ function addRepositoryNameAlias(aliases: Set<string>, value: string): void {
 }
 
 function addMaterializedRepositoryNameAlias(aliases: Set<string>, value: string): void {
-  const name = basename(value).match(/^github\.com_[^_]+_(.+)$/i)?.[1];
+  const name = materializedRepositoryName(value);
   if (name && !GENERIC_ALIASES.has(name.toLowerCase())) aliases.add(name);
+}
+
+function materializedRepositoryName(value: string): string | null {
+  const parts = value.replace(/[\\/]+$/u, '').split(/[\\/]/u).filter(Boolean);
+  const leaf = parts.at(-1) ?? '';
+  const parent = parts.at(-2) ?? '';
+  const leafName = repositoryNameFromMaterializedSlug(leaf);
+  if (leafName) return leafName;
+  if (leaf === 'default' || /^[A-Za-z0-9_.-]+-[a-f0-9]{12}$/u.test(leaf)) {
+    return repositoryNameFromMaterializedSlug(parent);
+  }
+  return null;
+}
+
+function repositoryNameFromMaterializedSlug(value: string): string | null {
+  const segments = value.split('_').filter(Boolean);
+  if (segments.length < 3 || !/^(?:github|gitlab)\.com$/iu.test(segments[0])) return null;
+  return segments.at(-1)?.replace(/\.git$/iu, '') ?? null;
 }
 
 function isScopedLocalAsset(asset: ScopeAsset): boolean {

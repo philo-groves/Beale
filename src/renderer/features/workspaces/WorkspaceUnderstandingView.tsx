@@ -322,8 +322,15 @@ export function workspaceResearchSurfaceItems(
   runs: readonly RunRow[],
   memory: HoneycrispMemorySummary | null | undefined
 ): WorkspaceResearchSurfaceItem[] {
-  return assets.map((asset) => {
-    const assetRuns = runs.filter(({ run }) => run.targetAssetId === asset.id);
+  const assetGroups = new Map<string, ScopeAsset[]>();
+  for (const asset of assets) {
+    const key = workspaceAssetGroupKey(asset);
+    assetGroups.set(key, [...(assetGroups.get(key) ?? []), asset]);
+  }
+  return [...assetGroups.values()].map((groupAssets) => {
+    const asset = preferredWorkspaceSurfaceAsset(groupAssets);
+    const assetIds = new Set(groupAssets.map((candidate) => candidate.id));
+    const assetRuns = runs.filter(({ run }) => run.targetAssetId !== null && assetIds.has(run.targetAssetId));
     const lastResearchedAt = assetRuns
       .map(({ run }) => run.startedAt ?? run.createdAt)
       .filter((value): value is string => Boolean(value) && Number.isFinite(Date.parse(value)))
@@ -332,7 +339,7 @@ export function workspaceResearchSurfaceItems(
       asset,
       label: workspaceAssetLabel(asset),
       sessionCount: assetRuns.length,
-      memoryCount: memory?.nodes.filter((node) => node.assetIds.includes(asset.id)).length ?? 0,
+      memoryCount: memory?.nodes.filter((node) => node.assetIds.some((assetId) => assetIds.has(assetId))).length ?? 0,
       lastResearchedAt
     };
   }).sort((left, right) => {
@@ -340,6 +347,20 @@ export function workspaceResearchSurfaceItems(
     return workspaceAssetKindOrder(left.asset.kind) - workspaceAssetKindOrder(right.asset.kind)
       || left.label.localeCompare(right.label);
   });
+}
+
+function workspaceAssetGroupKey(asset: ScopeAsset): string {
+  if (asset.kind === 'repo') {
+    const repositoryIdentity = repositoryIdentityFromAsset(asset);
+    if (repositoryIdentity) return `${asset.direction}:repo:${repositoryIdentity}`;
+  }
+  return `${asset.direction}:${asset.kind}:${asset.id}`;
+}
+
+function preferredWorkspaceSurfaceAsset(assets: ScopeAsset[]): ScopeAsset {
+  return assets.find((asset) => typeof asset.attributes?.displayName === 'string' && asset.attributes.displayName.trim())
+    ?? assets.find((asset) => repositoryNameFromUrl(asset.value))
+    ?? assets[0];
 }
 
 function WorkspaceResearchSurface({
@@ -432,10 +453,80 @@ function workspaceAssetLabel(asset: ScopeAsset): string {
   const displayName = typeof asset.attributes?.displayName === 'string' ? asset.attributes.displayName.trim() : '';
   if (displayName) return displayName;
   if (asset.kind === 'repo') {
-    const repositoryName = asset.value.replace(/[\\/]+$/u, '').split(/[\\/]/u).at(-1)?.replace(/\.git$/u, '');
+    const repositoryName = repositoryNameFromAsset(asset);
     if (repositoryName) return repositoryName;
   }
   return asset.value;
+}
+
+function repositoryNameFromAsset(asset: ScopeAsset): string | null {
+  const repositoryUrl = typeof asset.attributes?.repositoryUrl === 'string' ? asset.attributes.repositoryUrl : '';
+  const urlName = repositoryNameFromUrl(repositoryUrl);
+  if (urlName) return urlName;
+  const directUrlName = repositoryNameFromUrl(asset.value);
+  if (directUrlName) return directUrlName;
+  return repositoryNameFromPath(asset.value);
+}
+
+function repositoryIdentityFromAsset(asset: ScopeAsset): string | null {
+  const repositoryUrl = typeof asset.attributes?.repositoryUrl === 'string' ? asset.attributes.repositoryUrl : '';
+  return repositoryIdentityFromUrl(repositoryUrl)
+    ?? repositoryIdentityFromUrl(asset.value)
+    ?? repositoryIdentityFromPath(asset.value);
+}
+
+function repositoryNameFromUrl(value: string): string | null {
+  const trimmed = value.trim().replace(/\.git$/iu, '').replace(/\/+$/u, '');
+  if (!trimmed || !/^[a-z][a-z0-9+.-]*:\/\//iu.test(trimmed)) return null;
+  const name = trimmed.split('/').filter(Boolean).at(-1);
+  return name && !/^[a-z][a-z0-9+.-]*:$/iu.test(name) ? name : null;
+}
+
+function repositoryIdentityFromUrl(value: string): string | null {
+  const trimmed = value.trim().replace(/\.git$/iu, '').replace(/\/+$/u, '');
+  if (!trimmed || !/^[a-z][a-z0-9+.-]*:\/\//iu.test(trimmed)) return null;
+  try {
+    const parsed = new URL(trimmed);
+    const pathname = parsed.pathname.split('/').filter(Boolean).join('/').toLowerCase();
+    return pathname ? `${parsed.hostname.toLowerCase()}/${pathname}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function repositoryNameFromPath(value: string): string | null {
+  const parts = value.replace(/[\\/]+$/u, '').split(/[\\/]/u).filter(Boolean);
+  const leaf = parts.at(-1)?.replace(/\.git$/iu, '');
+  const parent = parts.at(-2);
+  const materializedName = parent ? repositoryNameFromMaterializedSlug(parent) : null;
+  if (materializedName && (!leaf || leaf === 'default' || /^[A-Za-z0-9_.-]+-[a-f0-9]{12}$/u.test(leaf))) {
+    return materializedName;
+  }
+  return leaf || materializedName;
+}
+
+function repositoryIdentityFromPath(value: string): string | null {
+  const parts = value.replace(/[\\/]+$/u, '').split(/[\\/]/u).filter(Boolean);
+  const leaf = parts.at(-1)?.replace(/\.git$/iu, '') ?? '';
+  const parent = parts.at(-2) ?? '';
+  const materializedIdentity = repositoryIdentityFromMaterializedSlug(parent);
+  if (materializedIdentity && (!leaf || leaf === 'default' || /^[A-Za-z0-9_.-]+-[a-f0-9]{12}$/u.test(leaf))) {
+    return materializedIdentity;
+  }
+  return repositoryIdentityFromMaterializedSlug(leaf);
+}
+
+function repositoryNameFromMaterializedSlug(value: string): string | null {
+  const segments = value.split('_').filter(Boolean);
+  if (segments.length < 3 || !/^(?:github|gitlab)\.com$/iu.test(segments[0])) return null;
+  const name = segments.at(-1)?.replace(/\.git$/iu, '');
+  return name || null;
+}
+
+function repositoryIdentityFromMaterializedSlug(value: string): string | null {
+  const segments = value.split('_').filter(Boolean);
+  if (segments.length < 3 || !/^(?:github|gitlab)\.com$/iu.test(segments[0])) return null;
+  return `${segments[0].toLowerCase()}/${segments.slice(1).join('/').replace(/\.git$/iu, '').toLowerCase()}`;
 }
 
 function workspaceAssetKindOrder(kind: ScopeAssetKind): number {
