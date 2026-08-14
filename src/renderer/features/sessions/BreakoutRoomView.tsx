@@ -1,11 +1,11 @@
 import { ArrowLeft, ChevronRight, MessagesSquare } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
 import type { BreakoutRoomMemberRecord, BreakoutRoomMessageRecord, RunDetail } from '@shared/types';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import { formatDurationHms } from '../../lib/formatting';
 import { commentaryMessagesForSession } from '../../view-models/commentary';
-import { subagentDisplayName, traceEventsForSubagent } from '../../view-models/subagents';
+import { subagentDisplayName, traceAgentPath, traceEventsForSubagent } from '../../view-models/subagents';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { CommentaryMessageRow, commentaryFollowLatestAfterScroll, commentaryScrollFadeClasses, shouldAutoExpandToolMessage } from '../commentary/CommentaryView';
 import { renderTraceProseText } from '../traces/traceMarkup';
@@ -23,19 +23,20 @@ export function BreakoutRoomView({
   onBack: () => void;
   onSelectSubagent: (path: string) => void;
 }): JSX.Element {
-  const room = detail?.breakoutRooms?.find((candidate) => candidate.id === roomId) ?? null;
-  const members = (detail?.breakoutRoomMembers ?? []).filter((member) => member.roomId === roomId);
-  const messages = (detail?.breakoutRoomMessages ?? []).filter((message) => message.roomId === roomId);
-  const memberById = new Map(members.map((member) => [member.id, member]));
-  const memberByAgentPath = new Map(members.map((member) => [member.agentPath, member]));
-  const workingMembers = members.filter((member) => member.status === 'active');
+  const room = useMemo(() => detail?.breakoutRooms?.find((candidate) => candidate.id === roomId) ?? null, [detail?.breakoutRooms, roomId]);
+  const members = useMemo(() => (detail?.breakoutRoomMembers ?? []).filter((member) => member.roomId === roomId), [detail?.breakoutRoomMembers, roomId]);
+  const messages = useMemo(() => (detail?.breakoutRoomMessages ?? []).filter((message) => message.roomId === roomId), [detail?.breakoutRoomMessages, roomId]);
+  const memberById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
+  const memberByAgentPath = useMemo(() => new Map(members.map((member) => [member.agentPath, member])), [members]);
+  const workingMembers = useMemo(() => members.filter((member) => member.status === 'active'), [members]);
+  const eventsByAgentPath = useMemo(() => traceEventsByAgentPath(events), [events]);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const followLatestRef = useRef(true);
   const userScrollIntentRef = useRef(false);
   const roomIdRef = useRef(roomId);
-  const transcriptUpdateKey = breakoutRoomTranscriptUpdateKey(messages, room?.outcomeMarkdown ?? null, workingMembers, events);
+  const transcriptUpdateKey = breakoutRoomTranscriptUpdateKey(messages, room?.outcomeMarkdown ?? null, workingMembers, eventsByAgentPath);
 
   const updateScrollEdges = useCallback((): void => {
     const scroll = scrollRef.current;
@@ -170,18 +171,15 @@ export function BreakoutRoomView({
             ) : null}
             {workingMembers.length > 0 ? (
               <section className="breakout-room-working-subagents" aria-label="Working subagents">
-                {workingMembers.map((member) => {
-                  const memberEvents = traceEventsForSubagent(events, member.agentPath);
-                  return (
-                    <WorkingSubagentDisclosure
-                      detail={detail}
-                      events={memberEvents}
-                      member={member}
-                      nowMs={nowMs}
-                      key={member.id}
-                    />
-                  );
-                })}
+                {workingMembers.map((member) => (
+                  <WorkingSubagentDisclosure
+                    detail={detail}
+                    events={eventsByAgentPath.get(member.agentPath) ?? []}
+                    member={member}
+                    nowMs={nowMs}
+                    key={member.id}
+                  />
+                ))}
               </section>
             ) : null}
           </div>
@@ -198,17 +196,21 @@ function WorkingSubagentDisclosure({
   nowMs
 }: {
   detail: RunDetail;
-  events: TraceDisplayEvent[];
+  events: readonly TraceDisplayEvent[];
   member: BreakoutRoomMemberRecord;
   nowMs: number;
 }): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
   const rawName = member.agentPath.split('/').filter(Boolean).at(-1) ?? member.agentPath;
   const name = subagentDisplayName(rawName);
   const durationLabel = breakoutRoomWorkingDurationLabel(member, events, nowMs);
-  const messages = commentaryMessagesForSession(detail, events, { includeInitialPrompt: false });
+  const messages = useMemo(
+    () => expanded ? commentaryMessagesForSession(detail, events, { includeInitialPrompt: false }) : [],
+    [detail, events, expanded]
+  );
 
   return (
-    <details className="breakout-room-working-subagent">
+    <details className="breakout-room-working-subagent" open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
       <summary aria-label={`${name} working for ${durationLabel}`}>
         <span className="breakout-room-working-title">
           <ChevronRight size={15} aria-hidden="true" />
@@ -216,19 +218,21 @@ function WorkingSubagentDisclosure({
         </span>
         <span className="breakout-room-working-duration">{durationLabel}</span>
       </summary>
-      <div className="breakout-room-working-history">
-        {messages.length > 0 ? messages.map((message, index) => (
-          <CommentaryMessageRow
-            key={message.id}
-            message={message}
-            autoExpandToolKey={shouldAutoExpandToolMessage(messages, index)
-              ? `${message.id}:${message.toolCalls?.length ?? 0}`
-              : null}
-            searchHighlightQuery=""
-            selected={false}
-          />
-        )) : <p className="breakout-room-working-empty">No commentary recorded yet.</p>}
-      </div>
+      {expanded ? (
+        <div className="breakout-room-working-history">
+          {messages.length > 0 ? messages.map((message, index) => (
+            <CommentaryMessageRow
+              key={message.id}
+              message={message}
+              autoExpandToolKey={shouldAutoExpandToolMessage(messages, index)
+                ? `${message.id}:${message.toolCalls?.length ?? 0}`
+                : null}
+              searchHighlightQuery=""
+              selected={false}
+            />
+          )) : <p className="breakout-room-working-empty">No commentary recorded yet.</p>}
+        </div>
+      ) : null}
     </details>
   );
 }
@@ -303,10 +307,10 @@ export function breakoutRoomTranscriptUpdateKey(
   messages: readonly BreakoutRoomMessageRecord[],
   outcomeMarkdown: string | null,
   workingMembers: readonly BreakoutRoomMemberRecord[],
-  events: TraceDisplayEvent[]
+  events: readonly TraceDisplayEvent[] | ReadonlyMap<string, readonly TraceDisplayEvent[]>
 ): string {
   const workingEventIds = workingMembers.flatMap((member) => (
-    traceEventsForSubagent(events, member.agentPath).map((event) => event.id)
+    breakoutRoomEventsForAgentPath(events, member.agentPath).map((event) => event.id)
   ));
   return [
     ...messages.map((message) => `${message.id}:${message.contentMarkdown.length}:${message.evidenceRefs.length}`),
@@ -314,6 +318,26 @@ export function breakoutRoomTranscriptUpdateKey(
     `working:${workingMembers.map((member) => `${member.id}:${member.status}`).join(',')}`,
     `events:${workingEventIds.join(',')}`
   ].join('|');
+}
+
+export function traceEventsByAgentPath(events: readonly TraceDisplayEvent[]): Map<string, TraceDisplayEvent[]> {
+  const eventsByAgentPath = new Map<string, TraceDisplayEvent[]>();
+  for (const event of events) {
+    const agentPath = traceAgentPath(event);
+    if (!agentPath || agentPath === '/root') continue;
+    const pathEvents = eventsByAgentPath.get(agentPath);
+    if (pathEvents) pathEvents.push(event);
+    else eventsByAgentPath.set(agentPath, [event]);
+  }
+  return eventsByAgentPath;
+}
+
+function breakoutRoomEventsForAgentPath(
+  events: readonly TraceDisplayEvent[] | ReadonlyMap<string, readonly TraceDisplayEvent[]>,
+  agentPath: string
+): readonly TraceDisplayEvent[] {
+  if (Array.isArray(events)) return traceEventsForSubagent(events, agentPath);
+  return (events as ReadonlyMap<string, readonly TraceDisplayEvent[]>).get(agentPath) ?? [];
 }
 
 function BreakoutOutcome({

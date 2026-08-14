@@ -61,7 +61,7 @@ import {
 } from './view-models/appShell';
 import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
 import { sessionHeatForDetail, sessionHeatPaletteStyle } from './view-models/sessionHeat';
-import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
+import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
 import {
@@ -861,13 +861,21 @@ export function App(): JSX.Element {
     return () => { cancelled = true; };
   }, [selectedReport?.revision, selectedReportId]);
 
+  const needsFullTraceEvents = Boolean(activeRunDetail && (selectedBreakoutRoomId || selectedSubagentPath || rightSidenavExpanded || pendingSearchTarget));
   const activeTraceEvents = useMemo(
-    () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
-    [activeRunDetail]
+    () => (activeRunDetail && needsFullTraceEvents
+      ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail))
+      : []),
+    [activeRunDetail, needsFullTraceEvents]
   );
   const mainSessionTraceEvents = useMemo(
-    () => traceEventsForSubagent(activeTraceEvents, null),
-    [activeTraceEvents]
+    () => {
+      if (!activeRunDetail) return [];
+      return needsFullTraceEvents
+        ? traceEventsForSubagent(activeTraceEvents, null)
+        : devInstrumentation.time('trace.buildDisplayEvents.root', () => buildTraceDisplayEventsForAgentPath(activeRunDetail, null), runDetailMetricDetail(activeRunDetail));
+    },
+    [activeRunDetail, activeTraceEvents, needsFullTraceEvents]
   );
   const needsSubagentSummaries = Boolean(selectedSubagentPath || (rightSidenavExpanded && activeRunDetail !== null));
   const activeSubagents = useMemo(
@@ -888,7 +896,7 @@ export function App(): JSX.Element {
     focusTraceEvent,
     closeTraceDetail
   } = useTraceSelection({
-    events: activeTraceEvents,
+    events: needsFullTraceEvents ? activeTraceEvents : mainSessionTraceEvents,
     selectedRunId
   });
   const sessionHeat = useMemo(

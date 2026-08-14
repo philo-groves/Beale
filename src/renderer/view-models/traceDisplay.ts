@@ -258,13 +258,29 @@ export function traceGroupStatusLabel(group: TraceTimelineGroup, latest: boolean
 }
 
 export function buildTraceDisplayEvents(detail: RunDetail): TraceDisplayEvent[] {
-  const transcriptTraceIds = new Set(detail.transcriptMessages.map((message) => message.traceEventId).filter((id): id is string => Boolean(id)));
+  return buildTraceDisplayEventsFromRecords(detail.traceEvents, detail.transcriptMessages);
+}
+
+export function buildTraceDisplayEventsForAgentPath(detail: RunDetail, agentPath: string | null): TraceDisplayEvent[] {
   const traceById = new Map(detail.traceEvents.map((event) => [event.id, event]));
-  const baseEvents = detail.traceEvents.filter((event) => !transcriptTraceIds.has(event.id));
-  const transcriptEvents = uniqueTranscriptMessages(detail.transcriptMessages).map((message, index) =>
+  const traceEvents = detail.traceEvents.filter((event) => traceEventMatchesAgentPath(event, agentPath));
+  const transcriptMessages = detail.transcriptMessages.filter((message) =>
+    transcriptMessageMatchesAgentPath(message, agentPath, traceById.get(message.traceEventId ?? ''))
+  );
+  return buildTraceDisplayEventsFromRecords(traceEvents, transcriptMessages, detail.traceEvents);
+}
+
+function buildTraceDisplayEventsFromRecords(
+  traceEvents: readonly TraceEventRecord[],
+  transcriptMessages: readonly TranscriptMessageRecord[],
+  linkedTraceEvents: readonly TraceEventRecord[] = traceEvents
+): TraceDisplayEvent[] {
+  const transcriptTraceIds = new Set(transcriptMessages.map((message) => message.traceEventId).filter((id): id is string => Boolean(id)));
+  const traceById = new Map(linkedTraceEvents.map((event) => [event.id, event]));
+  const baseEvents = traceEvents.filter((event) => !transcriptTraceIds.has(event.id));
+  const transcriptEvents = uniqueTranscriptMessages(transcriptMessages).map((message, index) =>
     transcriptMessageToTraceEvent(message, index, traceById.get(message.traceEventId ?? ''))
   );
-
   return [...baseEvents, ...transcriptEvents].sort((left, right) => {
     const leftTime = Date.parse(left.createdAt);
     const rightTime = Date.parse(right.createdAt);
@@ -272,6 +288,26 @@ export function buildTraceDisplayEvents(detail: RunDetail): TraceDisplayEvent[] 
     if (left.sequence !== right.sequence) return left.sequence - right.sequence;
     return left.id.localeCompare(right.id);
   });
+}
+
+function traceEventMatchesAgentPath(event: TraceEventRecord, agentPath: string | null): boolean {
+  const eventAgentPath = traceAgentPath(event);
+  return agentPath
+    ? eventAgentPath === agentPath
+    : !eventAgentPath || eventAgentPath === '/root';
+}
+
+function transcriptMessageMatchesAgentPath(
+  message: TranscriptMessageRecord,
+  agentPath: string | null,
+  linkedTraceEvent?: TraceEventRecord
+): boolean {
+  const messageAgentPath = linkedTraceEvent
+    ? traceAgentPath(linkedTraceEvent)
+    : stringRecordValue(message.metadata, 'agentPath');
+  return agentPath
+    ? messageAgentPath === agentPath
+    : !messageAgentPath || messageAgentPath === '/root';
 }
 
 function createTraceTimelineGroup(key: string, label: string, startedAt: string): TraceTimelineGroup {
@@ -287,7 +323,7 @@ function createTraceTimelineGroup(key: string, label: string, startedAt: string)
   };
 }
 
-function uniqueTranscriptMessages(messages: TranscriptMessageRecord[]): TranscriptMessageRecord[] {
+function uniqueTranscriptMessages(messages: readonly TranscriptMessageRecord[]): TranscriptMessageRecord[] {
   const seen = new Set<string>();
   return messages.filter((message) => {
     const key = transcriptMessageDisplayKey(message);

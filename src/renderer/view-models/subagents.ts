@@ -237,7 +237,7 @@ export function subagentOverviewForEvents(
   };
 }
 
-export function traceEventsForSubagent<TEvent extends TraceEventRecord>(events: TEvent[], path: string | null): TEvent[] {
+export function traceEventsForSubagent<TEvent extends TraceEventRecord>(events: readonly TEvent[], path: string | null): TEvent[] {
   if (!path) {
     return events.filter((event) => {
       const agentPath = traceAgentPath(event);

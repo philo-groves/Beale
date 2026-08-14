@@ -3,6 +3,7 @@ import type { RunDetail, TraceEventRecord, TranscriptMessageRecord } from '@shar
 import { traceCategoryForEvent, type TraceCategoryId } from '../src/renderer/traceClassification';
 import {
   buildTraceDisplayEvents,
+  buildTraceDisplayEventsForAgentPath,
   buildTraceTimelineEntries,
   coalesceConsecutiveReasoningEntries,
   groupRenderedTraceEntries,
@@ -288,6 +289,35 @@ describe('renderer trace display view models', () => {
     }))).toEqual([
       { id: 'transcript:message_root', agentPath: '/root', messagePhase: 'commentary' },
       { id: 'transcript:message_child', agentPath: '/root/parser_review', messagePhase: 'commentary' }
+    ]);
+  });
+
+  it('builds root-only display events without projecting child-agent transcripts', () => {
+    const rootTrace = traceEvent({ id: 'trace_root', sequence: 1, payload: { agentPath: '/root', turn: 1 } });
+    const childTrace = traceEvent({ id: 'trace_child', sequence: 2, payload: { agentPath: '/root/parser_review', turn: 1 } });
+    const detail = runDetail({
+      traceEvents: [rootTrace, childTrace],
+      transcriptMessages: [
+        transcriptMessage({
+          id: 'message_root',
+          traceEventId: 'trace_root',
+          contentMarkdown: 'Root commentary.',
+          metadata: { agentPath: '/root' }
+        }),
+        transcriptMessage({
+          id: 'message_child',
+          traceEventId: 'trace_child',
+          contentMarkdown: 'Child commentary.',
+          metadata: { agentPath: '/root/parser_review' }
+        })
+      ]
+    });
+
+    expect(buildTraceDisplayEventsForAgentPath(detail, null).map((event) => event.id)).toEqual([
+      'transcript:message_root'
+    ]);
+    expect(buildTraceDisplayEventsForAgentPath(detail, '/root/parser_review').map((event) => event.id)).toEqual([
+      'transcript:message_child'
     ]);
   });
 });

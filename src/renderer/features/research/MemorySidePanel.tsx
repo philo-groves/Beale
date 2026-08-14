@@ -14,7 +14,8 @@ import type {
   ResearchProfileMemoryType,
   ResearchProviderModelCatalog,
   RunDetail,
-  RunStatus
+  RunStatus,
+  TraceEventRecord
 } from '@shared/types';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
@@ -298,6 +299,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const runbookLabel = 'Runbooks';
   const reportLabel = 'Reports';
   const viewSpaceLabel = researchViewSpaceLabel(viewSpace);
+  const summaryEvents: readonly TraceEventRecord[] = events.length > 0 ? events : detail?.traceEvents ?? [];
   const sessionMemoryNodes = useMemo(
     () => sessionMemoryCatalogNodes(nodes, runId),
     [nodes, runId]
@@ -306,7 +308,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => activeMemoryCount(sessionMemoryNodes, memoryProfile?.statuses),
     [memoryProfile?.statuses, sessionMemoryNodes]
   );
-  const sessionMemoryActivity = useMemo(() => sessionMemoryActivitySummary(events), [events]);
+  const sessionMemoryActivity = useMemo(() => sessionMemoryActivitySummary(summaryEvents), [summaryEvents]);
   const sessionMemoryTypes = useMemo(
     () => memoryTypeSummaryPresentation(
       sessionMemoryTypeSummaries(sessionMemoryNodes, memoryProfile),
@@ -378,9 +380,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const subagentOverview = useMemo(
     () => {
       if (!subagentsAvailable) return EMPTY_SUBAGENT_OVERVIEW;
-      return needsFullSubagents ? subagentOverviewFromSummaries(subagents) : subagentOverviewForEvents(events, runStatus);
+      return needsFullSubagents ? subagentOverviewFromSummaries(subagents) : subagentOverviewForEvents(summaryEvents, runStatus);
     },
-    [events, needsFullSubagents, runStatus, subagents, subagentsAvailable]
+    [needsFullSubagents, runStatus, subagents, subagentsAvailable, summaryEvents]
   );
   const filteredSubagents = useMemo(
     () => needsFullSubagents ? filterSubagentSummaries(subagents, subagentQuery) : [],

@@ -6,7 +6,8 @@ import type { BreakoutRoomMemberRecord, BreakoutRoomMessageRecord, RunDetail } f
 import {
   BreakoutRoomView,
   breakoutRoomTranscriptUpdateKey,
-  breakoutRoomWorkingDurationLabel
+  breakoutRoomWorkingDurationLabel,
+  traceEventsByAgentPath
 } from '../src/renderer/features/sessions/BreakoutRoomView';
 import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
 
@@ -55,7 +56,7 @@ describe('breakout room view', () => {
     expect(html).not.toContain('<details class="breakout-room-working-subagent" open="">');
   });
 
-  it('projects live subagent commentary inside the collapsed working disclosure', () => {
+  it('defers live subagent commentary while the working disclosure is collapsed', () => {
     const detail = {
       breakoutRooms: [{
         id: 'room_live',
@@ -111,7 +112,7 @@ describe('breakout room view', () => {
     }));
 
     expect(html).toContain('<strong>Live Parser Working</strong>');
-    expect(html).toContain('Inspecting live parser state.');
+    expect(html).not.toContain('Inspecting live parser state.');
     expect(html).not.toContain('<strong>Finished Worker Working</strong>');
     expect(html).not.toContain('Finished review history.');
   });
@@ -217,9 +218,14 @@ describe('breakout room view', () => {
       id: 'live-update',
       payload: { agentPath: '/root/live_parser' }
     })]);
+    const groupedEventKey = breakoutRoomTranscriptUpdateKey([firstMessage], null, [member], traceEventsByAgentPath([traceEvent({
+      id: 'live-update',
+      payload: { agentPath: '/root/live_parser' }
+    })]));
 
     expect(messageKey).not.toBe(initialKey);
     expect(eventKey).not.toBe(initialKey);
+    expect(groupedEventKey).toBe(eventKey);
   });
 });
 
