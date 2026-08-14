@@ -466,7 +466,8 @@ interface ProviderSettingsOption {
 function providerCompanyName(providerId: ResearchModelProviderId): string {
   if (providerId === 'openai-codex') return 'OpenAI';
   if (providerId === 'anthropic') return 'Anthropic';
-  return 'xAI';
+  if (providerId === 'xai') return 'xAI';
+  return 'Z.ai';
 }
 
 type ProviderHealthState = 'healthy' | 'unhealthy' | 'authenticating';
@@ -1450,12 +1451,16 @@ function ProviderCyberPolicyAcknowledgement({
     ? 'Cybersecurity use is intended for OpenAI Trusted Access for Cyber members. Program membership does not waive OpenAI policy requirements: requests may still be blocked or treated as usage violations.'
     : providerId === 'anthropic'
       ? 'Subscription sign-in is experimental and only intended for Anthropic Cyber Verification Program members. CVP membership does not waive Anthropic\'s Usage Policy: requests may still be blocked or treated as usage violations. Beale delegates Claude sessions to the official Claude Agent SDK and Claude Code CLI; it does not copy or replay subscription tokens.'
-      : 'Cybersecurity use remains subject to xAI policy requirements. Requests may be blocked or treated as usage violations.';
+      : providerId === 'xai'
+        ? 'Cybersecurity use remains subject to xAI policy requirements. Requests may be blocked or treated as usage violations.'
+        : 'Cybersecurity use remains subject to Z.ai policy and Coding Plan terms. Requests may be blocked or treated as usage violations. Subscription sessions are delegated to the official ZCode agent; Beale does not copy or replay subscription credentials.';
   const label = providerId === 'openai-codex'
     ? 'I confirm this account has OpenAI Trusted Access for Cyber membership and I accept the policy-use risk.'
     : providerId === 'anthropic'
       ? 'I confirm this account is enrolled in Anthropic\'s Cyber Verification Program and I accept the usage-policy risk.'
-      : 'I accept the policy-use risk for cybersecurity research with xAI.';
+      : providerId === 'xai'
+        ? 'I accept the policy-use risk for cybersecurity research with xAI.'
+        : 'I accept the policy-use risk for cybersecurity research with Z.ai.';
   return (
     <div className="provider-policy-warning">
       <h3>Acknowledgment</h3>

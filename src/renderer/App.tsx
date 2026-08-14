@@ -586,7 +586,7 @@ export function App(): JSX.Element {
         providerId,
         started: true,
         command: `honeycrisp auth login ${providerId}`,
-        detail: `Starting ${providerId === 'anthropic' ? 'Claude.ai subscription' : 'provider'} authentication…`,
+        detail: `Starting ${providerId === 'anthropic' ? 'Claude.ai subscription' : providerId === 'zai' ? 'Z.ai subscription' : 'provider'} authentication…`,
         verificationUri: null,
         userCode: null,
         instructions: null

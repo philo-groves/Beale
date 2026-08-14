@@ -75,7 +75,8 @@ describe('Beale workbench skeleton', () => {
     expect(JSON.parse(env.HONEYCRISP_PROVIDER_AUTH_PREFERENCES!)).toEqual({
       'openai-codex': 'subscription',
       anthropic: 'subscription',
-      xai: 'subscription'
+      xai: 'subscription',
+      zai: 'subscription'
     });
     expect(JSON.stringify(env)).not.toContain('access_token');
   });
@@ -89,7 +90,8 @@ describe('Beale workbench skeleton', () => {
     expect(JSON.parse(env.HONEYCRISP_PROVIDER_AUTH_PREFERENCES!)).toEqual({
       'openai-codex': 'api_key',
       anthropic: 'subscription',
-      xai: 'subscription'
+      xai: 'subscription',
+      zai: 'subscription'
     });
     expect(env.HONEYCRISP_PROVIDER_AUTH_PREFERENCES).not.toContain('OPENAI_API_KEY');
   });
@@ -1225,7 +1227,8 @@ describe('Beale workbench skeleton', () => {
     expect(JSON.parse(launchArgs[launchArgs.indexOf('--shell-review-models') + 1] ?? '{}')).toEqual({
       'openai-codex': 'gpt-5.6-luna',
       anthropic: 'claude-haiku-4-5',
-      xai: 'grok-4'
+      xai: 'grok-4',
+      zai: 'glm-5-turbo'
     });
     expect(launchArgs[launchArgs.indexOf('--shell-review-effort') + 1]).toBe('medium');
     expect(launchArgs).not.toContain('--memory-models');

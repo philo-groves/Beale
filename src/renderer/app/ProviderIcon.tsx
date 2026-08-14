@@ -1,7 +1,7 @@
 import type { JSX, SVGProps } from 'react';
 import { CircleHelp } from 'lucide-react';
 
-export type ProviderIconKind = 'openai' | 'anthropic' | 'xai' | 'unknown';
+export type ProviderIconKind = 'openai' | 'anthropic' | 'xai' | 'zai' | 'unknown';
 
 export function providerIconKind(provider: string | null | undefined): ProviderIconKind {
   const normalized = provider?.trim().toLocaleLowerCase() ?? '';
@@ -12,6 +12,7 @@ export function providerIconKind(provider: string | null | undefined): ProviderI
   ) return 'openai';
   if (['anthropic', 'claude'].includes(normalized) || normalized.startsWith('claude-')) return 'anthropic';
   if (['xai', 'x.ai', 'grok'].includes(normalized) || normalized.startsWith('grok-')) return 'xai';
+  if (['zai', 'z.ai', 'zcode', 'glm'].includes(normalized) || normalized.startsWith('glm-')) return 'zai';
   return 'unknown';
 }
 
@@ -27,6 +28,7 @@ export function ProviderIcon({
   if (kind === 'openai') return <OpenAIIcon size={size} {...props} />;
   if (kind === 'anthropic') return <AnthropicIcon size={size} {...props} />;
   if (kind === 'xai') return <XAIIcon size={size} {...props} />;
+  if (kind === 'zai') return <ZAIIcon size={size} {...props} />;
   return <CircleHelp size={size} {...props} />;
 }
 
@@ -52,6 +54,14 @@ function XAIIcon({ size, ...props }: IconProps): JSX.Element {
   return (
     <svg {...props} fill="currentColor" fillRule="evenodd" height={size} viewBox="0 0 24 24" width={size} xmlns="http://www.w3.org/2000/svg">
       <path d="M6.469 8.776L16.512 23h-4.464L2.005 8.776H6.47zm-.004 7.9l2.233 3.164L6.467 23H2l4.465-6.324zM22 2.582V23h-3.659V7.764L22 2.582zM22 1l-9.952 14.095-2.233-3.163L17.533 1H22z" />
+    </svg>
+  );
+}
+
+function ZAIIcon({ size, ...props }: IconProps): JSX.Element {
+  return (
+    <svg {...props} fill="currentColor" height={size} viewBox="0 0 24 24" width={size} xmlns="http://www.w3.org/2000/svg">
+      <path d="M3.25 3.5h17.5v3.12L8.96 17.08h11.79v3.42H3.25v-3.12L15.04 6.92H3.25V3.5zm15.2 6.2h2.3v5.08h-2.3V9.7z" />
     </svg>
   );
 }

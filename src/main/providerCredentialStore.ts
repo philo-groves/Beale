@@ -5,7 +5,8 @@ import type { ResearchModelProviderId } from '@shared/types';
 const API_KEY_ENVIRONMENT_VARIABLES: Readonly<Record<ResearchModelProviderId, string>> = {
   'openai-codex': 'OPENAI_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
-  xai: 'XAI_API_KEY'
+  xai: 'XAI_API_KEY',
+  zai: 'ZAI_API_KEY'
 };
 const MAX_API_KEY_LENGTH = 16_384;
 
@@ -127,7 +128,7 @@ export class ProviderCredentialStore {
 }
 
 function providerIds(): ResearchModelProviderId[] {
-  return ['openai-codex', 'anthropic', 'xai'];
+  return ['openai-codex', 'anthropic', 'xai', 'zai'];
 }
 
 function environmentVariable(providerId: ResearchModelProviderId): string {

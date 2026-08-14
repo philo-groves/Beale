@@ -125,6 +125,9 @@ export class WorkspaceRegistry {
     if (this.getMeta('xai_policy_use_risk_acknowledged') === '1') {
       cyberPolicyRiskAcknowledgements.xai = true;
     }
+    if (this.getMeta('zai_policy_use_risk_acknowledged') === '1') {
+      cyberPolicyRiskAcknowledgements.zai = true;
+    }
     return {
       defaultProviderId: normalizeDefaultProviderId(this.getMeta('default_provider_id')),
       modelDefaults: normalizeProviderModelDefaultsRecord(this.getMeta('provider_model_defaults_json')),
@@ -197,11 +200,7 @@ export class WorkspaceRegistry {
     acknowledged: boolean
   ): ProviderSettings {
     if (!isResearchModelProviderId(providerId)) throw new Error('Invalid cyber policy acknowledgement provider.');
-    const metaKey = providerId === 'openai-codex'
-      ? 'openai_trusted_access_cyber_risk_acknowledged'
-      : providerId === 'anthropic'
-        ? 'anthropic_cvp_risk_acknowledged'
-        : 'xai_policy_use_risk_acknowledged';
+    const metaKey = providerCyberPolicyAcknowledgementMetaKey(providerId);
     if (acknowledged) this.setMeta(metaKey, '1');
     else this.deleteMeta(metaKey);
     return this.getProviderSettings();
@@ -789,7 +788,14 @@ function normalizeDefaultProviderId(value: unknown): ResearchModelProviderId | n
 }
 
 function isResearchModelProviderId(value: unknown): value is ResearchModelProviderId {
-  return value === 'openai-codex' || value === 'anthropic' || value === 'xai';
+  return value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai';
+}
+
+function providerCyberPolicyAcknowledgementMetaKey(providerId: ResearchModelProviderId): string {
+  if (providerId === 'openai-codex') return 'openai_trusted_access_cyber_risk_acknowledged';
+  if (providerId === 'anthropic') return 'anthropic_cvp_risk_acknowledged';
+  if (providerId === 'xai') return 'xai_policy_use_risk_acknowledged';
+  return 'zai_policy_use_risk_acknowledged';
 }
 
 function normalizeProviderModelDefaultsRecord(value: unknown): Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> {
@@ -798,7 +804,7 @@ function normalizeProviderModelDefaultsRecord(value: unknown): Partial<Record<Re
     const parsed = JSON.parse(value) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const normalized: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> = {};
-    for (const providerId of ['openai-codex', 'anthropic', 'xai'] as const) {
+    for (const providerId of ['openai-codex', 'anthropic', 'xai', 'zai'] as const) {
       const defaults = (parsed as Record<string, unknown>)[providerId];
       if (defaults === undefined) continue;
       try {
@@ -821,7 +827,7 @@ function normalizeEnabledOptionalModelsRecord(
     const parsed = JSON.parse(value) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const normalized: Partial<Record<ResearchModelProviderId, string[]>> = {};
-    for (const providerId of ['openai-codex', 'anthropic', 'xai'] as const) {
+    for (const providerId of ['openai-codex', 'anthropic', 'xai', 'zai'] as const) {
       const modelIds = (parsed as Record<string, unknown>)[providerId];
       if (!Array.isArray(modelIds)) continue;
       const enabled = [...new Set(modelIds.filter((modelId): modelId is string => (
@@ -843,7 +849,7 @@ function normalizePreferredAuthenticationMethodsRecord(
     const parsed = JSON.parse(value) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const normalized: Partial<Record<ResearchModelProviderId, ProviderAuthenticationMethod>> = {};
-    for (const providerId of ['openai-codex', 'anthropic', 'xai'] as const) {
+    for (const providerId of ['openai-codex', 'anthropic', 'xai', 'zai'] as const) {
       const method = (parsed as Record<string, unknown>)[providerId];
       if (method === 'subscription' || method === 'api_key') normalized[providerId] = method;
     }

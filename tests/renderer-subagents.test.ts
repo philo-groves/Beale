@@ -11,6 +11,8 @@ describe('subagent trace view models', () => {
     expect(providerIconKind('claude-opus-4-8')).toBe('anthropic');
     expect(providerIconKind('xai')).toBe('xai');
     expect(providerIconKind('grok-4.6')).toBe('xai');
+    expect(providerIconKind('zai')).toBe('zai');
+    expect(providerIconKind('glm-5.3')).toBe('zai');
     expect(providerIconKind(null)).toBe('unknown');
   });
 

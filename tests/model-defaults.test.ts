@@ -11,9 +11,11 @@ describe('research session title models', () => {
     expect(sessionTitleModelForProvider('openai-codex')).toBe('gpt-5.6-luna');
     expect(sessionTitleModelForProvider('anthropic')).toBe('claude-haiku-4-5');
     expect(sessionTitleModelForProvider('xai')).toBe('grok-4.3');
+    expect(sessionTitleModelForProvider('zai')).toBe('glm-5-turbo');
     expect(smallModelForProvider('openai-codex')).toBe('gpt-5.6-luna');
     expect(smallModelForProvider('anthropic')).toBe('claude-haiku-4-5');
     expect(smallModelForProvider('xai')).toBe('grok-4.3');
+    expect(smallModelForProvider('zai')).toBe('glm-5-turbo');
     expect(SESSION_TITLE_REASONING_EFFORT).toBe('medium');
     expect(SHELL_SAFETY_REVIEW_REASONING_EFFORT).toBe('medium');
   });

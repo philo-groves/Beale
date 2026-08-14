@@ -1,4 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type {
   ResearchModelEffortLevel,
   ResearchModelProviderId,
@@ -10,12 +13,13 @@ import type {
 } from '@shared/types';
 import { honeycrispProcessEnvironment, resolveHoneycrispInvocation } from './honeycrispRunEngine';
 
-const SUPPORTED_PROVIDERS: readonly ResearchProviderId[] = ['anthropic', 'xai'];
-const MODEL_PROVIDERS: readonly ResearchModelProviderId[] = ['openai-codex', 'anthropic', 'xai'];
+const SUPPORTED_PROVIDERS: readonly ResearchProviderId[] = ['anthropic', 'xai', 'zai'];
+const MODEL_PROVIDERS: readonly ResearchModelProviderId[] = ['openai-codex', 'anthropic', 'xai', 'zai'];
 const EFFORT_LEVELS: readonly ResearchModelEffortLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const STATUS_TIMEOUT_MS = 10_000;
 const INITIAL_OAUTH_OUTPUT_MS = 2_500;
 const MAX_AUTH_OUTPUT_CHARS = 16_000;
+const EXTERNAL_AUTH_TIMEOUT_MS = 5 * 60_000;
 
 interface AuthCommandResult {
   stdout: string;
@@ -39,6 +43,7 @@ interface ParsedAuthVerification {
 
 export class ResearchProviderAuthService {
   private readonly loginProcesses = new Map<ResearchProviderId, ChildProcessWithoutNullStreams>();
+  private readonly externalLoginDeadlines = new Map<ResearchProviderId, number>();
   private readonly latestStarts = new Map<ResearchProviderId, ResearchProviderOAuthStartResult>();
   private modelCatalog: ResearchProviderModelCatalog[] | null = null;
 
@@ -64,8 +69,20 @@ export class ResearchProviderAuthService {
 
   public async startOAuthLogin(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult> {
     requireSupportedProvider(providerId);
+    if (providerId === 'zai' && zcodeSubscriptionConfigured()) {
+      return {
+        providerId,
+        started: false,
+        command: 'ZCode',
+        detail: 'Z.ai subscription authentication is already configured through ZCode.',
+        verificationUri: null,
+        userCode: null,
+        instructions: null
+      };
+    }
     const running = this.loginProcesses.get(providerId);
-    if (running && running.exitCode === null && !running.killed) {
+    const externalLoginDeadline = this.externalLoginDeadlines.get(providerId) ?? 0;
+    if ((running && running.exitCode === null && !running.killed) || externalLoginDeadline > Date.now()) {
       return this.latestStarts.get(providerId) ?? {
         providerId,
         started: false,
@@ -76,11 +93,35 @@ export class ResearchProviderAuthService {
         instructions: null
       };
     }
+    this.externalLoginDeadlines.delete(providerId);
+
+    const zcodeDesktop = providerId === 'zai' ? zcodeDesktopInvocation() : null;
+    if (zcodeDesktop) {
+      await launchDetachedApplication(zcodeDesktop);
+      this.externalLoginDeadlines.set(providerId, Date.now() + EXTERNAL_AUTH_TIMEOUT_MS);
+      const result: ResearchProviderOAuthStartResult = {
+        providerId,
+        started: true,
+        command: zcodeDesktop.displayCommand,
+        detail: 'ZCode opened. In Model Settings, select Z.ai and connect your account. Beale will detect the shared sign-in automatically.',
+        verificationUri: null,
+        userCode: null,
+        instructions: null
+      };
+      this.latestStarts.set(providerId, result);
+      return result;
+    }
 
     const honeycrispInvocation = resolveHoneycrispInvocation();
     const claudeInvocation = claudeSubscriptionLoginInvocation();
+    const zcodeInvocation = providerId === 'zai' ? zcodeCliInvocation(['login']) : null;
+    if (providerId === 'zai' && !zcodeInvocation) {
+      throw new Error('The official ZCode CLI was not found. Install ZCode before signing in with a Z.ai subscription.');
+    }
     const invocation = providerId === 'anthropic' && claudeInvocation
       ? claudeInvocation
+      : zcodeInvocation
+        ? { ...zcodeInvocation, displayCommand: 'zcode login' }
       : {
           command: honeycrispInvocation.command,
           args: [...honeycrispInvocation.prefixArgs, 'auth', 'login', providerId],
@@ -89,7 +130,7 @@ export class ResearchProviderAuthService {
         };
     const child = spawn(invocation.command, invocation.args, {
       cwd: invocation.cwd,
-      env: honeycrispProcessEnvironment(),
+      env: providerAuthProcessEnvironment(providerId),
       windowsHide: true
     });
     this.loginProcesses.set(providerId, child);
@@ -109,6 +150,8 @@ export class ResearchProviderAuthService {
       command: invocation.displayCommand,
       detail: providerId === 'anthropic' && claudeInvocation
         ? 'Complete Anthropic authentication in the opened Claude CLI window. Beale will refresh when the official CLI finishes.'
+        : providerId === 'zai'
+          ? 'Complete Z.ai authentication in the browser. Beale will refresh when the official ZCode CLI finishes.'
         : parsed.verificationUri
         ? `Complete ${providerDisplayName(providerId)} authentication in the browser, then refresh provider status.`
         : `${providerDisplayName(providerId)} authentication started. Complete the provider sign-in, then refresh status.`,
@@ -124,6 +167,7 @@ export class ResearchProviderAuthService {
     requireSupportedProvider(providerId);
     const child = this.loginProcesses.get(providerId);
     this.loginProcesses.delete(providerId);
+    this.externalLoginDeadlines.delete(providerId);
     this.latestStarts.delete(providerId);
     child?.kill();
   }
@@ -131,6 +175,16 @@ export class ResearchProviderAuthService {
   public async forgetSubscription(providerId: ResearchProviderId): Promise<void> {
     requireSupportedProvider(providerId);
     this.cancelOAuthLogin(providerId);
+    if (providerId === 'zai') {
+      const invocation = zcodeCliInvocation(['logout']);
+      if (!invocation) throw new Error('The official ZCode CLI was not found. Install ZCode before forgetting its subscription.');
+      await collectCommandOutput(spawn(invocation.command, invocation.args, {
+        cwd: invocation.cwd,
+        env: providerAuthProcessEnvironment(providerId),
+        windowsHide: true
+      }), STATUS_TIMEOUT_MS);
+      return;
+    }
     await runHoneycrispCommand(['auth', 'logout', providerId]);
   }
 
@@ -139,6 +193,7 @@ export class ResearchProviderAuthService {
   }
 
   private async getStatus(providerId: ResearchProviderId): Promise<ResearchProviderStatus> {
+    if (providerId === 'zai') return this.getZaiStatus();
     const apiKeyEnvironmentVariable = providerId === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'XAI_API_KEY';
     const environmentApiKeyConfigured = Boolean(process.env[apiKeyEnvironmentVariable]?.trim());
     try {
@@ -187,6 +242,51 @@ export class ResearchProviderAuthService {
         apiKeyEnvironmentVariable
       };
     }
+  }
+
+  private async getZaiStatus(): Promise<ResearchProviderStatus> {
+    const apiKeyEnvironmentVariable = 'ZAI_API_KEY' as const;
+    const apiKeyConfigured = Boolean(process.env[apiKeyEnvironmentVariable]?.trim());
+    const subscriptionConfigured = zcodeSubscriptionConfigured();
+    if (subscriptionConfigured || (this.externalLoginDeadlines.get('zai') ?? 0) <= Date.now()) {
+      this.externalLoginDeadlines.delete('zai');
+    }
+    const cliAvailable = zcodeCliInvocation(['version']) !== null;
+    const loginInProgress = this.loginProcesses.has('zai') || this.externalLoginDeadlines.has('zai');
+    let defaultModel = 'glm-5.3';
+    let honeycrispApiKeyConfigured = false;
+    try {
+      const verification = parseHoneycrispAuthVerification(
+        (await runHoneycrispCommand(['auth', 'verify', 'zai', 'glm-5.3'])).stdout
+      );
+      if (verification?.providerId === 'zai') {
+        defaultModel = verification.modelId;
+        honeycrispApiKeyConfigured = verification.configured && verification.source === apiKeyEnvironmentVariable;
+      }
+    } catch {
+      // Subscription readiness is owned by official ZCode state, not Honeycrisp's Pi route.
+    }
+    const configuredApiKey = apiKeyConfigured || honeycrispApiKeyConfigured;
+    const configured = subscriptionConfigured || configuredApiKey;
+    const source = subscriptionConfigured ? 'official ZCode subscription' : configuredApiKey ? apiKeyEnvironmentVariable : null;
+    return {
+      id: 'zai',
+      name: providerDisplayName('zai'),
+      configured,
+      subscriptionConfigured,
+      apiKeyConfigured: configuredApiKey,
+      readiness: configured ? 'ready' : cliAvailable ? 'not_configured' : 'unavailable',
+      authMethods: ['api_key', 'oauth'],
+      credentialType: subscriptionConfigured ? 'oauth' : configuredApiKey ? 'api_key' : null,
+      source,
+      defaultModel,
+      credentialsHostOnly: true,
+      loginInProgress,
+      statusDetail: !cliAvailable && !configuredApiKey
+        ? 'The official ZCode CLI was not found. Install ZCode for subscription access, or configure a Z.ai API key.'
+        : providerStatusDetail('zai', configured, source, loginInProgress),
+      apiKeyEnvironmentVariable
+    };
   }
 }
 
@@ -337,6 +437,7 @@ function cleanOutput(value: string): string {
 function safeAuthOutput(value: string): string {
   return cleanOutput(value)
     .replace(/(?:sk|xai)-[A-Za-z0-9_-]+/gu, '...redacted')
+    .replace(/\beyJ[A-Za-z0-9._~-]+/gu, '...redacted')
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/giu, 'Bearer ...redacted')
     .slice(0, 2_000);
 }
@@ -347,6 +448,9 @@ function providerStatusDetail(providerId: ResearchProviderId, configured: boolea
   if (configured) return `${name} is available to Honeycrisp${source ? ` via ${source}` : ''}.`;
   if (providerId === 'anthropic') {
     return `${name} is not configured. Sign in through the official Claude CLI with a Cyber Verification Program account, or provide ANTHROPIC_API_KEY in Beale's host environment.`;
+  }
+  if (providerId === 'zai') {
+    return `${name} is not configured. Sign in through the official ZCode app, or provide ZAI_API_KEY in Beale's host environment.`;
   }
 
   return `${name} is not configured. Use subscription OAuth here or provide the provider API key in Beale's host environment.`;
@@ -379,8 +483,83 @@ export function claudeSubscriptionLoginInvocation(
   };
 }
 
+export function zcodeCliInvocation(
+  args: readonly string[],
+  platform = process.platform,
+  userHome = homedir(),
+  localAppData = process.env.LOCALAPPDATA,
+  cwd = process.cwd()
+): Omit<InteractiveAuthInvocation, 'displayCommand'> | null {
+  if (platform === 'win32') {
+    const bundle = localAppData
+      ? join(localAppData, 'Programs', 'ZCode', 'resources', 'glm', 'zcode.cjs')
+      : '';
+    if (!bundle || !existsSync(bundle)) return null;
+    return { command: process.execPath, args: [bundle, ...args], cwd };
+  }
+  const macBundle = '/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs';
+  if (platform === 'darwin' && existsSync(macBundle)) {
+    return { command: process.execPath, args: [macBundle, ...args], cwd };
+  }
+  if (!userHome) return null;
+  return { command: 'zcode', args: [...args], cwd };
+}
+
+export function zcodeDesktopInvocation(
+  platform = process.platform,
+  localAppData = process.env.LOCALAPPDATA,
+  cwd = process.cwd()
+): InteractiveAuthInvocation | null {
+  if (platform === 'win32') {
+    const executable = localAppData ? join(localAppData, 'Programs', 'ZCode', 'ZCode.exe') : '';
+    return executable && existsSync(executable)
+      ? { command: executable, args: [], cwd, displayCommand: 'ZCode' }
+      : null;
+  }
+  if (platform === 'darwin' && existsSync('/Applications/ZCode.app')) {
+    return { command: 'open', args: ['-a', 'ZCode'], cwd, displayCommand: 'ZCode' };
+  }
+  return null;
+}
+
+export function zcodeSubscriptionConfigured(userHome = homedir()): boolean {
+  const credentialsPath = join(userHome, '.zcode', 'v2', 'credentials.json');
+  if (!existsSync(credentialsPath)) return false;
+  try {
+    const credentials = recordValue(JSON.parse(readFileSync(credentialsPath, 'utf8')) as unknown);
+    const accessToken = credentials?.['oauth:zai:access_token'];
+    return typeof accessToken === 'string' && accessToken.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function launchDetachedApplication(invocation: InteractiveAuthInvocation): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(invocation.command, invocation.args, {
+      cwd: invocation.cwd,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false
+    });
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
+
 function providerDisplayName(providerId: ResearchProviderId): string {
-  return providerId === 'anthropic' ? 'Anthropic (Claude)' : 'xAI (Grok/X)';
+  if (providerId === 'anthropic') return 'Anthropic (Claude)';
+  if (providerId === 'xai') return 'xAI (Grok/X)';
+  return 'Z.ai (ZCode/GLM)';
+}
+
+function providerAuthProcessEnvironment(providerId: ResearchProviderId): NodeJS.ProcessEnv {
+  const env = honeycrispProcessEnvironment();
+  if (providerId === 'zai' && process.versions.electron) env.ELECTRON_RUN_AS_NODE = '1';
+  return env;
 }
 
 function requireSupportedProvider(providerId: ResearchProviderId): void {

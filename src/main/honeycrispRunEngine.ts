@@ -2257,7 +2257,8 @@ export function honeycrispProcessEnvironment(
   env.HONEYCRISP_PROVIDER_AUTH_PREFERENCES = JSON.stringify({
     'openai-codex': preferredAuthenticationMethods?.['openai-codex'] ?? 'subscription',
     anthropic: preferredAuthenticationMethods?.anthropic ?? 'subscription',
-    xai: preferredAuthenticationMethods?.xai ?? 'subscription'
+    xai: preferredAuthenticationMethods?.xai ?? 'subscription',
+    zai: preferredAuthenticationMethods?.zai ?? 'subscription'
   });
   if (env.HONEYCRISP_CODEX_AUTH_FILE?.trim()) return env;
 
@@ -2479,6 +2480,9 @@ function honeycrispRunArgs(
   }
   if (providerSettings?.cyberPolicyRiskAcknowledgements?.xai === true) {
     args.push('--xai-policy-risk-acknowledged');
+  }
+  if (providerSettings?.cyberPolicyRiskAcknowledgements?.zai === true) {
+    args.push('--zai-policy-risk-acknowledged');
   }
   const providerModelDefaults = providerSettings?.modelDefaults[effectiveProvider as keyof ProviderSettings['modelDefaults']];
   const profileTitleJob = applicableResearchProfileModelJob(

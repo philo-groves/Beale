@@ -4990,7 +4990,7 @@ function validateProfileModelRoute(
 }
 
 function isResearchModelProviderId(value: unknown): value is ResearchModelProviderId {
-  return value === 'openai-codex' || value === 'anthropic' || value === 'xai';
+  return value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai';
 }
 
 function resolveRecommendationResearchSubject(
@@ -5657,7 +5657,7 @@ function requireEnabledProviderModel(
   providerId: string,
   modelId: string
 ): void {
-  if (providerId !== 'openai-codex' && providerId !== 'anthropic' && providerId !== 'xai') return;
+  if (providerId !== 'openai-codex' && providerId !== 'anthropic' && providerId !== 'xai' && providerId !== 'zai') return;
   if (isProviderModelEnabled(settings, providerId, modelId)) return;
   throw new Error(`${modelId} is an optional ${providerId} model. Enable it in Settings > Providers before continuing.`);
 }
@@ -5672,7 +5672,9 @@ function requireCollaborationPolicyAcknowledgements(
     ? 'OpenAI Trusted Access for Cyber and policy-use risk'
     : provider === 'anthropic'
       ? 'Anthropic Cyber Verification Program usage-risk'
-      : 'xAI policy-use risk');
+      : provider === 'xai'
+        ? 'xAI policy-use risk'
+        : 'Z.ai policy-use risk');
   throw new Error(`Breakout-room collaboration requires acknowledgement for ${labels.join(', ')}. Accept it in Settings > Providers before continuing.`);
 }
 

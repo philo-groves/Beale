@@ -7,7 +7,8 @@ import { ProviderCredentialStore } from '../src/main/providerCredentialStore';
 const originalEnvironment = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-  XAI_API_KEY: process.env.XAI_API_KEY
+  XAI_API_KEY: process.env.XAI_API_KEY,
+  ZAI_API_KEY: process.env.ZAI_API_KEY
 };
 const directories: string[] = [];
 
@@ -15,6 +16,7 @@ afterEach(() => {
   restoreEnvironment('OPENAI_API_KEY');
   restoreEnvironment('ANTHROPIC_API_KEY');
   restoreEnvironment('XAI_API_KEY');
+  restoreEnvironment('ZAI_API_KEY');
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
@@ -38,6 +40,15 @@ describe('provider credential store', () => {
     delete process.env.XAI_API_KEY;
     new ProviderCredentialStore(path, encryption);
     expect(process.env.XAI_API_KEY).toBe(key);
+  });
+
+  it('maps Z.ai API-key credentials to the dedicated host environment variable', () => {
+    delete process.env.ZAI_API_KEY;
+    const store = new ProviderCredentialStore();
+    store.setApiKey('zai', 'zai-test-secret');
+    expect(process.env.ZAI_API_KEY).toBe('zai-test-secret');
+    store.removeApiKey('zai');
+    expect(process.env.ZAI_API_KEY).toBeUndefined();
   });
 
   it('removes only Beale-managed keys and preserves host-environment ownership', () => {

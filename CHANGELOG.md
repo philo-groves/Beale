@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added Z.ai as a first-class provider with GLM-5.3 and GLM-5-Turbo model choices, official ZCode subscription sign-in/logout and execution, encrypted `ZAI_API_KEY` configuration, provider-specific authentication preference, provider marks, and a one-time policy-use acknowledgement for cybersecurity research.
 - Added live Memory Dreaming phase tracking from preparation through synthesis, compact-context and provider retries, plan correction, validation, atomic application, and completion; the workspace Dream card now fades between centered phase messages.
 - Added durable workspace-level research goal suggestions in workbench migration 23, with stale-while-refresh restoration across dialog and application reopen cycles.
 - Added durable structured collaboration-room protocol state in workbench migration 22, including independent, challenge, response, synthesis, and completed phases; bounded challenge rounds; evidence references; confidence; uncertainty; proposed next checks; and a lead-owned room outcome.
@@ -83,6 +84,7 @@
 
 ### Fixed
 
+- Z.ai subscription status now recognizes credentials shared by the official ZCode desktop app without requiring a separate CLI config file, and subscription sign-in opens ZCode's supported Model Settings flow instead of surfacing malformed CLI OAuth responses.
 - Removed the lifetime collaborator-invocation cap. Collaboration is now limited only by concurrent subagent, breakout-room, and room-member capacity, so completed turns never reduce later delegation capacity.
 - Research-goal suggestion requests no longer send the unsupported `uniqueItems` JSON Schema keyword to OpenAI Structured Outputs; duplicate grounding references remain rejected by host validation.
 - Breakout-room transcripts now remain locked to the bottom as new messages and live subagent history arrive, while preserving the reader's position after an intentional upward scroll.

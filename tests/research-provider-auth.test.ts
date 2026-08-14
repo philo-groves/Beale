@@ -1,11 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   ResearchProviderAuthService,
   claudeSubscriptionLoginInvocation,
   parseHoneycrispAuthStatus,
   parseHoneycrispAuthVerification,
   parseHoneycrispModelCatalog,
-  parseProviderOAuthInstructions
+  parseProviderOAuthInstructions,
+  zcodeCliInvocation,
+  zcodeDesktopInvocation,
+  zcodeSubscriptionConfigured
 } from '../src/main/researchProviderAuth';
 
 describe('research provider auth parsing', () => {
@@ -24,8 +30,8 @@ describe('research provider auth parsing', () => {
     const kill = vi.fn();
     const otherKill = vi.fn();
     const internals = auth as unknown as {
-      loginProcesses: Map<'anthropic' | 'xai', { kill: () => void }>;
-      latestStarts: Map<'anthropic' | 'xai', unknown>;
+      loginProcesses: Map<'anthropic' | 'xai' | 'zai', { kill: () => void }>;
+      latestStarts: Map<'anthropic' | 'xai' | 'zai', unknown>;
     };
     internals.loginProcesses.set('anthropic', { kill });
     internals.loginProcesses.set('xai', { kill: otherKill });
@@ -37,6 +43,45 @@ describe('research provider auth parsing', () => {
     expect(otherKill).not.toHaveBeenCalled();
     expect(internals.loginProcesses.has('anthropic')).toBe(false);
     expect(internals.latestStarts.has('anthropic')).toBe(false);
+  });
+
+  it('uses the official ZCode CLI for subscription authentication', () => {
+    const invocation = zcodeCliInvocation(['login'], 'linux', '/home/researcher', undefined, '/workspace');
+    expect(invocation).toEqual({ command: 'zcode', args: ['login'], cwd: '/workspace' });
+  });
+
+  it('uses the official ZCode desktop app for interactive subscription sign-in when installed', () => {
+    const localAppData = mkdtempSync(join(tmpdir(), 'beale-zcode-app-'));
+    try {
+      const executable = join(localAppData, 'Programs', 'ZCode', 'ZCode.exe');
+      mkdirSync(join(localAppData, 'Programs', 'ZCode'), { recursive: true });
+      writeFileSync(executable, '');
+
+      expect(zcodeDesktopInvocation('win32', localAppData, 'C:\\workspace')).toEqual({
+        command: executable,
+        args: [],
+        cwd: 'C:\\workspace',
+        displayCommand: 'ZCode'
+      });
+    } finally {
+      rmSync(localAppData, { recursive: true, force: true });
+    }
+  });
+
+  it('recognizes shared ZCode desktop credentials without requiring CLI configuration', () => {
+    const userHome = mkdtempSync(join(tmpdir(), 'beale-zcode-auth-'));
+    try {
+      const credentialsDirectory = join(userHome, '.zcode', 'v2');
+      mkdirSync(credentialsDirectory, { recursive: true });
+      writeFileSync(
+        join(credentialsDirectory, 'credentials.json'),
+        JSON.stringify({ 'oauth:zai:access_token': 'test-token' })
+      );
+
+      expect(zcodeSubscriptionConfigured(userHome)).toBe(true);
+    } finally {
+      rmSync(userHome, { recursive: true, force: true });
+    }
   });
 
   it('parses Honeycrisp stored OAuth state', () => {
