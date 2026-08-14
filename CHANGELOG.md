@@ -78,6 +78,7 @@
 
 ### Fixed
 
+- xAI runs that prefer Subscription no longer fall through to an ambient API key when the OAuth credential is unavailable; API-key billing is exposed only after a recognized subscription usage-limit fallback.
 - Active-session detail polling now uses a trigger-maintained per-run revision introduced by workbench migration 21 instead of rescanning complete trace and transcript content.
 - Cross-workspace transcript search now queries each profile database once and applies the requested result limit globally while preserving complete workspace and match totals.
 - Workspace actions now treat their returned snapshot as authoritative and rely on change broadcasts for registry synchronization instead of immediately reloading both resources.
