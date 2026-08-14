@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -58,7 +59,7 @@ describe('AgentPluginRegistry', () => {
     const runtime = registry.getHoneycrispRuntime();
     const mcpConfigPath = runtime.mcpConfigPath ?? '';
     const mcpConfig = JSON.parse(readFileSync(mcpConfigPath, 'utf8')) as {
-      mcpServers: Record<string, { type: string; command: string; cwd: string }>;
+      servers: Record<string, { type: string; command: string; cwd: string }>;
     };
 
     expect(runtime.skillDirs).toEqual([join(sourceRoot, 'skills')]);
@@ -74,7 +75,7 @@ describe('AgentPluginRegistry', () => {
       '--allow-mcp-server',
       'filesystem-plugin.local'
     ]));
-    expect(mcpConfig.mcpServers['filesystem-plugin.local']).toMatchObject({
+    expect(mcpConfig.servers['filesystem-plugin.local']).toMatchObject({
       type: 'stdio',
       command: join(sourceRoot, 'server.js'),
       cwd: sourceRoot
@@ -148,9 +149,9 @@ describe('AgentPluginRegistry', () => {
     expect(runtime.allowedMcpServers).toEqual(['beale-introspection.beale']);
     expect(runtime.mcpConfigPath).toBeTruthy();
     const mcpConfig = JSON.parse(readFileSync(runtime.mcpConfigPath ?? '', 'utf8')) as {
-      mcpServers: Record<string, { env: Record<string, string> }>;
+      servers: Record<string, { env: Record<string, string> }>;
     };
-    expect(mcpConfig.mcpServers['beale-introspection.beale'].env).toEqual({
+    expect(mcpConfig.servers['beale-introspection.beale'].env).toEqual({
       BEALE_INTROSPECTION_URL: 'http://127.0.0.1:12345',
       BEALE_INTROSPECTION_TOKEN: 'test-token'
     });
@@ -160,6 +161,33 @@ describe('AgentPluginRegistry', () => {
     const reloaded = new AgentPluginRegistry(dirname(disabled.registryPath));
     expect(reloaded.getState().plugins.find((candidate) => candidate.id === plugin!.id)?.enabled).toBe(false);
     expect(() => registry.remove(plugin!.id)).toThrow('Built-in plugins cannot be removed.');
+  });
+
+  it('speaks Honeycrisp newline-delimited JSON-RPC over stdio', () => {
+    const serverPath = join(process.cwd(), 'resources', 'agent-plugins', 'beale-introspection', 'server.mjs');
+    const input = [
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } },
+      { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }
+    ].map((message) => JSON.stringify(message)).join('\n') + '\n';
+    const result = spawnSync(process.execPath, [serverPath], { input, encoding: 'utf8', timeout: 5_000 });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    const responses = result.stdout.trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(responses).toHaveLength(2);
+    expect(responses[0]).toMatchObject({
+      jsonrpc: '2.0',
+      id: 1,
+      result: {
+        protocolVersion: '2025-11-25',
+        serverInfo: { name: 'beale-introspection' }
+      }
+    });
+    expect(responses[1]).toMatchObject({
+      jsonrpc: '2.0',
+      id: 2,
+      result: { tools: expect.any(Array) }
+    });
   });
 });
 

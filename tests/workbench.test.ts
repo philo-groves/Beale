@@ -2845,7 +2845,7 @@ describe('Beale workbench skeleton', () => {
     const args = JSON.parse(readFileSync(argsPath, 'utf8')) as string[];
     const mcpConfigPath = args[args.indexOf('--mcp-config') + 1];
     const generatedMcpConfig = JSON.parse(readFileSync(mcpConfigPath, 'utf8')) as {
-      mcpServers: Record<string, { command: string; cwd: string }>;
+      servers: Record<string, { command: string; cwd: string }>;
     };
 
     expect(args).toEqual(expect.arrayContaining([
@@ -2859,7 +2859,7 @@ describe('Beale workbench skeleton', () => {
     expect(summary.config.preference.skillDirs).toContain(join(sourceRoot, 'skills'));
     expect(summary.config.preference.selectedSkillIds).toContain('recon');
     expect(summary.config.preference.allowedMcpServers).toContain('filesystem-plugin.local');
-    expect(generatedMcpConfig.mcpServers['filesystem-plugin.local']).toMatchObject({
+    expect(generatedMcpConfig.servers['filesystem-plugin.local']).toMatchObject({
       command: join(sourceRoot, 'server.js'),
       cwd: sourceRoot
     });

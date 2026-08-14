@@ -82,6 +82,35 @@ describe('research goal candidate selection', () => {
     }
   });
 
+  it('discards invalid surplus candidates without weakening selected-candidate grounding', () => {
+    const candidates = [
+      candidate('Map parser allocation boundaries for integer overflow and memory corruption.', 'parser-memory'),
+      candidate('Audit archive path normalization for traversal across extraction boundaries.', 'archive-paths'),
+      candidate('Trace workspace ownership checks for confused-deputy authorization failures.', 'workspace-ownership'),
+      candidate('Explore metadata decoder object lifetimes for use-after-free conditions.', 'metadata-lifetime'),
+      candidate('Review package signature transitions for trust-confusion vulnerabilities.', 'package-trust'),
+      candidate('Assess update manifest parsing for canonicalization and trust-boundary weaknesses.', 'update-trust')
+    ];
+    candidates[2] = {
+      ...candidates[2]!,
+      groundingRefs: ['memory:asset_unknown']
+    };
+
+    const selection = parseAndSelectResearchGoalCandidates(JSON.stringify({ candidates }), {
+      workflow: WORKFLOW,
+      suggestionCount: 3,
+      candidateCount: 6,
+      allowedGroundingRefs: new Set(['workspace:scope']),
+      previousResearchTexts: [],
+      relevanceTexts: []
+    });
+
+    expect(selection.selected).toHaveLength(3);
+    expect(selection.rejectedInvalidCandidates).toBe(1);
+    expect(selection.candidates).toHaveLength(5);
+    expect(selection.selected.every((candidateValue) => candidateValue.groundingRefs.includes('workspace:scope'))).toBe(true);
+  });
+
   it('rejects invented grounding references and candidates that omit workflow eligibility evidence', () => {
     const candidates = Array.from({ length: 3 }, (_, index) => candidate(
       `Develop confirmed primitive ${index + 1} toward a bounded reachability and impact chain.`,

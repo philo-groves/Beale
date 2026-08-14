@@ -1744,6 +1744,7 @@ export class WorkspaceService {
       candidateCount
     });
     try {
+      let validationFeedback: string | null = null;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const phaseInstructions = researchGoalSuggestionInstructions(
           profileSnapshot,
@@ -1756,7 +1757,7 @@ export class WorkspaceService {
           ? phaseInstructions
           : [
               phaseInstructions,
-              `The previous ${boundedProfileText(workflow.name, 160)} response was rejected by the host validator. Return exactly ${candidateCount} valid, grounded, materially distinct candidates and follow the workflow contract above.`
+              `The previous ${boundedProfileText(workflow.name, 160)} response was rejected by the host validator: ${boundedProfileText(validationFeedback ?? 'invalid candidate output', 240)} Return exactly ${candidateCount} valid, grounded, materially distinct candidates and follow the workflow contract above.`
             ].join('\n');
         const body = adapter?.buildRequest({
           model: route.model,
@@ -1822,13 +1823,15 @@ export class WorkspaceService {
             attempt: attempt + 1,
             candidates: selection.candidates.length,
             selected: selection.selected.length,
+            invalidCandidates: selection.rejectedInvalidCandidates,
             semanticDuplicates: selection.rejectedSemanticDuplicates
           });
         } catch (error) {
+          validationFeedback = errorMessage(error);
           this.recordProfilingMainTiming('goalSuggestions.validationRetry', 0, {
             phase,
             attempt: attempt + 1,
-            error: errorMessage(error).slice(0, 240)
+            error: validationFeedback.slice(0, 240)
           });
           if (attempt > 0) throw error;
           continue;

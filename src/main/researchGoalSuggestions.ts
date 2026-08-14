@@ -28,6 +28,7 @@ export interface ResearchGoalCandidateSelection {
   result: GeneratedResearchGoalSuggestions;
   candidates: ResearchGoalCandidate[];
   selected: ResearchGoalCandidate[];
+  rejectedInvalidCandidates: number;
   rejectedSemanticDuplicates: number;
 }
 
@@ -87,7 +88,19 @@ export function parseAndSelectResearchGoalCandidates(
       `${input.workflow.name} research goal recommendations must contain exactly ${input.candidateCount} candidates.`
     );
   }
-  const candidates = rawCandidates.map((value, index) => parseCandidate(value, index, input));
+  const candidates: ResearchGoalCandidate[] = [];
+  const invalidCandidateErrors: Error[] = [];
+  rawCandidates.forEach((value, index) => {
+    try {
+      candidates.push(parseCandidate(value, index, input));
+    } catch (error) {
+      invalidCandidateErrors.push(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+  if (candidates.length < input.suggestionCount) {
+    throw invalidCandidateErrors[0]
+      ?? new Error(`${input.workflow.name} research goal recommendations did not contain enough valid candidates.`);
+  }
   const scored = candidates.map((candidate, index) => ({
     candidate,
     index,
@@ -108,6 +121,7 @@ export function parseAndSelectResearchGoalCandidates(
     if (selected.length === input.suggestionCount) break;
   }
   if (selected.length !== input.suggestionCount) {
+    if (invalidCandidateErrors.length > 0) throw invalidCandidateErrors[0];
     throw new Error(
       `${input.workflow.name} research goal recommendations must be distinct; the host could not select ${input.suggestionCount} semantically distinct grounded candidates.`
     );
@@ -116,6 +130,7 @@ export function parseAndSelectResearchGoalCandidates(
     result: { phase: input.workflow.id, suggestions: selected.map((candidate) => candidate.goal) },
     candidates,
     selected,
+    rejectedInvalidCandidates: invalidCandidateErrors.length,
     rejectedSemanticDuplicates
   };
 }

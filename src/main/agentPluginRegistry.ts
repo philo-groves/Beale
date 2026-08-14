@@ -150,7 +150,7 @@ export class AgentPluginRegistry {
       mkdirSync(this.runtimePath, { recursive: true });
       writeFileSync(
         mcpConfigPath,
-        `${JSON.stringify({ mcpServers }, null, 2)}\n`,
+        `${JSON.stringify({ servers: mcpServers }, null, 2)}\n`,
         { encoding: 'utf8', mode: 0o600 }
       );
       args.push('--mcp-config', mcpConfigPath);

@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Agent Plugin MCP runtime overlays and the built-in Beale Introspection bridge now use Honeycrisp's `servers` configuration and newline-delimited JSON-RPC contracts, preventing new sessions from exiting or hanging before their first model turn.
+- New Research goal suggestions now discard invalid surplus model candidates instead of failing the entire grounded candidate pool, and retries include the bounded host-validation reason when too few valid candidates remain.
 - Restored native macOS copy and paste menu roles so Command-C and Command-V work in focused renderer content and editable fields.
 
 ### Added
