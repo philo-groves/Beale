@@ -10681,8 +10681,12 @@ button.research-goal-choice:focus-visible {
 }
 
 .breakout-room-heading {
+  width: 100%;
+  max-width: var(--trace-content-max-width);
+  min-width: 0;
   display: grid;
   gap: 7px;
+  margin-inline: auto;
 }
 
 .breakout-room-heading > div:first-child {

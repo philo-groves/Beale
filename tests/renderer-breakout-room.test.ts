@@ -1,4 +1,5 @@
 import { createElement } from 'react';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { BreakoutRoomMemberRecord, BreakoutRoomMessageRecord, RunDetail } from '@shared/types';
@@ -10,6 +11,15 @@ import {
 import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
 
 describe('breakout room view', () => {
+  it('aligns room header content to the commentary width', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const headingStyles = styles.match(/\.breakout-room-heading\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(headingStyles).toContain('width: 100%');
+    expect(headingStyles).toContain('max-width: var(--trace-content-max-width)');
+    expect(headingStyles).toContain('margin-inline: auto');
+  });
+
   it('shows the provider mark, formatted subagent name, and role in member pills', () => {
     const detail = {
       breakoutRooms: [{
