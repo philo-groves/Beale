@@ -21,6 +21,7 @@ import type {
   ResearchProviderModelCatalog,
   ResolvedResearchProfile,
   ResearchProviderStatus,
+  ScopeAssetInput,
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
   SessionTranscriptSearchResult,
@@ -275,6 +276,46 @@ export function App(): JSX.Element {
       }
     },
     [applySnapshot, loadSnapshot]
+  );
+
+  const changeWorkspaceResource = useCallback(async (
+    replacedAssetIds: string[],
+    asset: ScopeAssetInput | null
+  ): Promise<void> => {
+    const activeScope = snapshot?.activeScope;
+    if (!activeScope) throw new Error('The active workspace scope is unavailable.');
+    setBusy(true);
+    setError(null);
+    try {
+      const replacedAssetIdSet = new Set(replacedAssetIds);
+      const assets: ScopeAssetInput[] = activeScope.assets
+        .filter((existingAsset) => !replacedAssetIdSet.has(existingAsset.id))
+        .map((existingAsset) => ({
+          direction: existingAsset.direction,
+          kind: existingAsset.kind,
+          value: existingAsset.value,
+          sensitivity: existingAsset.sensitivity,
+          attributes: existingAsset.attributes
+        }));
+      applySnapshot(await window.beale.saveScope({
+        workspaceName: activeScope.workspaceName,
+        scopeOwner: activeScope.scopeOwner,
+        descriptionMarkdown: activeScope.descriptionMarkdown,
+        rulesMarkdown: activeScope.rulesMarkdown,
+        expiresAt: activeScope.expiresAt,
+        assets: asset ? [...assets, asset] : assets
+      }));
+    } catch (caught) {
+      setError(errorMessage(caught));
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }, [applySnapshot, snapshot?.activeScope]);
+
+  const addWorkspaceResource = useCallback(
+    (asset: ScopeAssetInput): Promise<void> => changeWorkspaceResource([], asset),
+    [changeWorkspaceResource]
   );
 
   const loadAgentPlugins = useCallback(async (): Promise<void> => {
@@ -1188,6 +1229,8 @@ export function App(): JSX.Element {
               onOpenTraceFilters={openTraceFilters}
               onRunWorkspaceDejunk={runWorkspaceDejunk}
               onRunMemoryDreaming={runMemoryDreaming}
+              onAddWorkspaceResource={addWorkspaceResource}
+              onChangeWorkspaceResource={changeWorkspaceResource}
               onOpenSession={openWorkspaceDashboardSession}
               onResearchDetailsOpenChange={(expanded) => setRightSidenavExpanded(researchDetailsAvailable && expanded)}
               onOpenHoneycrispRunbook={openHoneycrispRunbook}

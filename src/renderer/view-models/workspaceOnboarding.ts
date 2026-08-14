@@ -15,7 +15,6 @@ export interface WorkspaceOnboardingFormState {
   researchSubjectName: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
-  expiresAt: string;
   assets: ScopeAssetInput[];
   repositoryCandidates: OnboardingRepositoryCandidate[];
   repositoryCatalogLoading: boolean;
@@ -130,7 +129,6 @@ export function onboardingFormFromDefaults(defaults: WorkspaceOnboardingDefaults
     researchSubjectName: defaults.researchSubjectName ?? (defaults.scopeOwner || defaults.workspaceName),
     descriptionMarkdown: defaults.descriptionMarkdown,
     rulesMarkdown: defaults.rulesMarkdown,
-    expiresAt: defaults.expiresAt ? defaults.expiresAt.slice(0, 10) : '',
     assets: defaults.assets,
     repositoryCandidates: [],
     repositoryCatalogLoading: false,
@@ -147,7 +145,7 @@ export function onboardingInputFromForm(form: WorkspaceOnboardingFormState): Wor
     scopeOwner: form.researchSubjectName.trim() || form.workspaceName.trim(),
     descriptionMarkdown: form.descriptionMarkdown,
     rulesMarkdown: form.rulesMarkdown,
-    expiresAt: optionalDateOrNever(form.expiresAt),
+    expiresAt: null,
     assets: selectedOnboardingAssets(form)
   };
 }
@@ -262,7 +260,6 @@ export function onboardingFormFromHackerOneLookup(
     researchSubjectName: lookup.researchSubjectName ?? lookup.workspaceName,
     descriptionMarkdown: lookup.descriptionMarkdown,
     rulesMarkdown: lookup.rulesMarkdown,
-    expiresAt: lookup.expiresAt ? lookup.expiresAt.slice(0, 10) : '',
     assets: lookup.assets,
     repositoryCandidates: [],
     repositoryCatalogLoading: false,
@@ -301,7 +298,6 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
       researchSubjectName: 'Apple',
       descriptionMarkdown: APPLE_SCOPE_DESCRIPTION,
       rulesMarkdown: APPLE_SCOPE_AND_RULES,
-      expiresAt: '',
       assets: [],
       repositoryCandidates: [],
       repositoryCatalogLoading: true,
@@ -315,7 +311,6 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
     researchSubjectName: 'Microsoft',
     descriptionMarkdown: MSRC_SCOPE_DESCRIPTION,
     rulesMarkdown: MSRC_SCOPE_AND_RULES,
-    expiresAt: '',
     assets: [],
     repositoryCandidates: [],
     repositoryCatalogLoading: false,
@@ -382,9 +377,4 @@ function repositoryName(url: string): string {
 
 function stringAttribute(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
-}
-
-function optionalDateOrNever(value: string | null | undefined): string | null {
-  const trimmed = value?.trim() ?? '';
-  return trimmed.length > 0 ? trimmed : null;
 }

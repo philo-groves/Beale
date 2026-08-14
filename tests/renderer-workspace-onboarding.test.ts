@@ -19,14 +19,11 @@ describe('renderer workspace onboarding view model', () => {
     expect(form.templateKind).toBe('manual');
     expect(form.workspacePath).toBe('/bounty/example');
     expect(form.researchProfileId).toBe('security-research');
-    expect(form.expiresAt).toBe('2026-05-30');
+    expect(form).not.toHaveProperty('expiresAt');
   });
 
-  it('treats an empty authorization expiry as never when submitting', () => {
-    const input = onboardingInputFromForm({
-      ...onboardingFormFromDefaults(defaults()),
-      expiresAt: ''
-    });
+  it('leaves authorization expiry to workspace engineers', () => {
+    const input = onboardingInputFromForm(onboardingFormFromDefaults(defaults()));
 
     expect(input.expiresAt).toBeNull();
     expect(input.researchProfileId).toBe('security-research');
@@ -116,7 +113,7 @@ describe('renderer workspace onboarding view model', () => {
     expect(form.templateKind).toBe('hackerone');
     expect(form.workspacePath).toBe('/bounty/example');
     expect(form.workspaceName).toBe('Example Bounty');
-    expect(form.expiresAt).toBe('');
+    expect(form).not.toHaveProperty('expiresAt');
     expect(form.assets).toHaveLength(1);
     expect(form.assets[0]?.attributes).toMatchObject({ hackerOneHandle: 'example', hackerOneSourceUrl: 'https://hackerone.com/example' });
     expect(onboardingRepositories(form)).toMatchObject([{ url: 'https://github.com/example/project' }]);

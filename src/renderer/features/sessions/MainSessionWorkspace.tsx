@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, ProjectGraphSummary, ProjectSemanticSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
-import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
+import type { HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, ProjectGraphSummary, ProjectSemanticSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, ScopeAssetInput, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
+import { WorkspaceHousekeepingPanel, WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { BreakoutRoomView } from './BreakoutRoomView';
@@ -58,6 +58,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenTraceFilters,
   onRunWorkspaceDejunk = () => undefined,
   onRunMemoryDreaming,
+  onAddWorkspaceResource = async () => undefined,
+  onChangeWorkspaceResource = async () => undefined,
   onOpenSession = () => undefined,
   onResearchDetailsOpenChange,
   onOpenHoneycrispRunbook,
@@ -111,6 +113,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenTraceFilters: () => void;
   onRunWorkspaceDejunk?: () => void;
   onRunMemoryDreaming: () => void;
+  onAddWorkspaceResource?: (asset: ScopeAssetInput) => Promise<void>;
+  onChangeWorkspaceResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onOpenSession?: (runId: string) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
@@ -160,6 +164,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           runs={runs}
           onRunWorkspaceDejunk={onRunWorkspaceDejunk}
           onRunMemoryDreaming={onRunMemoryDreaming}
+          onAddResource={onAddWorkspaceResource}
+          onChangeResource={onChangeWorkspaceResource}
           onOpenSession={onOpenSession}
         />
       ) : selectedBreakoutRoomId ? (
@@ -220,41 +226,57 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         onKeyDown={researchDetailsOpen ? undefined : handleResizeKeyDown}
         onPointerDown={researchDetailsOpen ? undefined : beginResize}
       />
-      <ResearchSidePanel
-        chatView={chatView}
-        detail={detail}
-        events={allEvents}
-        memory={viewSpace === 'workspace' ? honeycrispMemory : detail?.honeycrispMemory ?? null}
-        researchProfile={researchProfile}
-        sessionHeatPreferences={sessionHeatPreferences}
-        providerModelCatalog={providerModelCatalog}
-        runId={researchSidePanelKey}
-        runStatus={detail?.run.status ?? null}
-        expanded={researchDetailsOpen}
-        selectedRunbook={selectedRunbook}
-        selectedRunbookDocument={selectedRunbookDocument}
-        selectedRunbookId={selectedRunbookId}
-        runbookLoading={runbookLoading}
-        runbookError={runbookError}
-        selectedReport={selectedReport}
-        selectedReportDocument={selectedReportDocument}
-        selectedReportId={selectedReportId}
-        reportLoading={reportLoading}
-        reportError={reportError}
-        selectedSubagentPath={selectedSubagentPath}
-        selectedTraceEventId={selectedTraceEventId}
-        searchHighlightQuery={searchHighlightQuery}
-        visibleTraceCategories={visibleTraceCategories}
-        onSelectSubagent={onSelectSubagent}
-        onOpenRunbook={onOpenHoneycrispRunbook}
-        onBackToRunbooks={onBackToRunbooks}
-        onOpenReport={onOpenHoneycrispReport}
-        onBackToReports={onBackToReports}
-        onBackToSubagents={onBackToSubagents}
-        onSelectTraceEvent={onSelectTraceEvent}
-        onExpandedChange={onResearchDetailsOpenChange}
-        viewSpace={viewSpace}
-      />
+      <div className={`research-side-column ${!selectedRunId && !researchDetailsOpen ? 'workspace-side-stack' : ''}`.trim()}>
+        <ResearchSidePanel
+          chatView={chatView}
+          detail={detail}
+          events={allEvents}
+          memory={viewSpace === 'workspace' ? honeycrispMemory : detail?.honeycrispMemory ?? null}
+          researchProfile={researchProfile}
+          sessionHeatPreferences={sessionHeatPreferences}
+          providerModelCatalog={providerModelCatalog}
+          runId={researchSidePanelKey}
+          runStatus={detail?.run.status ?? null}
+          expanded={researchDetailsOpen}
+          selectedRunbook={selectedRunbook}
+          selectedRunbookDocument={selectedRunbookDocument}
+          selectedRunbookId={selectedRunbookId}
+          runbookLoading={runbookLoading}
+          runbookError={runbookError}
+          selectedReport={selectedReport}
+          selectedReportDocument={selectedReportDocument}
+          selectedReportId={selectedReportId}
+          reportLoading={reportLoading}
+          reportError={reportError}
+          selectedSubagentPath={selectedSubagentPath}
+          selectedTraceEventId={selectedTraceEventId}
+          searchHighlightQuery={searchHighlightQuery}
+          visibleTraceCategories={visibleTraceCategories}
+          onSelectSubagent={onSelectSubagent}
+          onOpenRunbook={onOpenHoneycrispRunbook}
+          onBackToRunbooks={onBackToRunbooks}
+          onOpenReport={onOpenHoneycrispReport}
+          onBackToReports={onBackToReports}
+          onBackToSubagents={onBackToSubagents}
+          onSelectTraceEvent={onSelectTraceEvent}
+          onExpandedChange={onResearchDetailsOpenChange}
+          viewSpace={viewSpace}
+        />
+        {!selectedRunId && !researchDetailsOpen ? (
+          <WorkspaceHousekeepingPanel
+            busy={busy}
+            honeycrispMemory={honeycrispMemory}
+            memoryDreamingInProgress={memoryDreamingInProgress}
+            memoryDreamingProgress={memoryDreamingProgress}
+            researchProfile={researchProfile}
+            runs={runs}
+            workspaceDejunk={workspaceDejunk}
+            workspaceDejunkInProgress={workspaceDejunkInProgress}
+            onRunMemoryDreaming={onRunMemoryDreaming}
+            onRunWorkspaceDejunk={onRunWorkspaceDejunk}
+          />
+        ) : null}
+      </div>
     </div>
   );
 });

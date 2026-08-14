@@ -85,6 +85,7 @@ describe('renderer dialog surfaces', () => {
     expect(securityHtml).toContain('<select');
     expect(securityHtml).toContain('<option value="security-research" selected="">Cybersecurity</option>');
     expect(securityHtml).not.toContain('Authorization owner');
+    expect(securityHtml).not.toContain('Authorization expires');
     expect(securityHtml).not.toContain('Index Now');
     expect(securityHtml).not.toContain('Repository cloning');
     expect(securityHtml).not.toContain('Clone Later');

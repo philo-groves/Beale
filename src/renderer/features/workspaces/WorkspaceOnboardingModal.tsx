@@ -4,7 +4,6 @@ import { Loader2, Plus, Trash2 } from 'lucide-react';
 import type { WorkspaceOnboardingProgressUpdate } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { errorMessage } from '../../lib/errors';
-import { emptyDateClass } from '../../lib/formatting';
 import {
   addRepositoryToOnboardingForm,
   onboardingRepositories,
@@ -156,10 +155,6 @@ export function WorkspaceOnboardingModal({
           <label>
             Description
             <textarea rows={3} value={form.descriptionMarkdown} disabled={submitting} onChange={(event) => update('descriptionMarkdown', event.target.value)} />
-          </label>
-          <label>
-            Authorization expires (empty = never)
-            <input type="date" className={emptyDateClass(form.expiresAt)} value={form.expiresAt} disabled={submitting} onChange={(event) => update('expiresAt', event.target.value)} />
           </label>
           <label>
             Scope and Rules

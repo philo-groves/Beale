@@ -9,7 +9,10 @@ import {
   memoryDreamHeat,
   memoryDreamingProgressLabel,
   workspaceDejunkHeat,
+  workspaceResearchSurfaceKinds,
   workspaceResearchSurfaceItems,
+  WorkspaceHousekeepingPanel,
+  WorkspaceResourceDialog,
   WorkspaceUnderstandingView
 } from '../src/renderer/features/workspaces/WorkspaceUnderstandingView';
 import { buildWorkspaceTimeline } from '../src/renderer/view-models/workspaceTimeline';
@@ -18,7 +21,7 @@ import { testResearchProfile } from './researchProfileFixture';
 const NOW = Date.parse('2026-08-12T12:00:00.000Z');
 
 describe('workspace dashboard', () => {
-  it('caps only the timeline panel while the dreaming panel fills the remaining height', () => {
+  it('splits the dashboard and compact workspace sidenav into two vertical regions', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const dashboardStyles = styles.match(/\.workspace-dashboard\s*\{([^}]*)\}/)?.[1] ?? '';
     const sharedPanelStyles = styles.match(/\.workspace-dashboard-half\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -30,16 +33,18 @@ describe('workspace dashboard', () => {
     const timelineLegendButtonStyles = styles.match(/\.workspace-timeline-legend-button\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceAreaStyles = styles.match(/\.workspace-surface-area\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceListStyles = styles.match(/\.workspace-surface-list\s*\{([^}]*)\}/)?.[1] ?? '';
-    const sharedSectionHeaderStyles = styles.match(/\.workspace-surface-header,\s*\.workspace-housekeeping-header\s*\{([^}]*)\}/)?.[1] ?? '';
+    const surfaceItemStyles = styles.match(/\.workspace-surface-item\s*\{([^}]*)\}/)?.[1] ?? '';
+    const sideStackStyles = styles.match(/\.workspace-side-stack\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamAreaStyles = styles.match(/\.workspace-dream-area\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamContentStyles = styles.match(/\.workspace-dream-content\s*\{([^}]*)\}/)?.[1] ?? '';
     const housekeepingCardStyles = styles.match(/\.workspace-dejunk-card,\s*\.workspace-dream-card\s*\{([^}]*)\}/)?.[1] ?? '';
+    const housekeepingCountStyles = styles.match(/\.workspace-housekeeping-card-count\s*\{([^}]*)\}/)?.[1] ?? '';
     const mediumHeatCardStyles =
       styles.match(
         /\.app-shell\.session-heat-medium,\s*\.workspace-dream-card\[data-dream-heat="medium"\],\s*\.workspace-dejunk-card\[data-dejunk-heat="medium"\]\s*\{([^}]*)\}/
       )?.[1] ?? '';
 
-    expect(dashboardStyles).toContain('grid-template-rows: fit-content(50%) fit-content(33%) minmax(0, 1fr)');
+    expect(dashboardStyles).toContain('grid-template-rows: fit-content(50%) minmax(0, 1fr)');
     expect(sharedPanelStyles).toContain('min-height: 0');
     expect(sharedPanelStyles).not.toContain('height: 100%');
     expect(timelinePanelStyles).not.toContain('border-bottom');
@@ -52,16 +57,21 @@ describe('workspace dashboard', () => {
     expect(timelineRowsStyles).not.toContain('scrollbar-gutter');
     expect(timelineResultStyles).toContain('justify-items: end');
     expect(timelineLegendButtonStyles).toContain('top: -6px');
-    expect(surfaceAreaStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
+    expect(surfaceAreaStyles).toContain('grid-template-rows: 40px minmax(0, 1fr)');
     expect(surfaceListStyles).not.toContain('scrollbar-gutter');
+    expect(surfaceListStyles).toContain('gap: 10px');
+    expect(surfaceItemStyles).toContain('min-height: 86px');
     expect(styles).toMatch(/:where\([\s\S]*\.main-commentary-list,[\s\S]*\.workspace-surface-list,[\s\S]*\)\s*\{\s*scrollbar-color: transparent transparent;/u);
-    expect(sharedSectionHeaderStyles).toContain('border-bottom: 1px solid var(--panel-border)');
-    expect(dreamAreaStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
+    expect(styles).not.toContain('.workspace-housekeeping-header');
+    expect(sideStackStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
+    expect(dreamAreaStyles).toContain('grid-template-rows: minmax(0, 1fr)');
     expect(dreamAreaStyles).toContain('padding: 8px 18px 18px');
-    expect(dreamContentStyles).toContain('padding-top: 8px');
-    expect(dreamContentStyles).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(dreamContentStyles).toContain('padding-top: 0');
+    expect(dreamContentStyles).toContain('grid-template-columns: minmax(0, 1fr)');
+    expect(dreamContentStyles).toContain('grid-template-rows: repeat(2, minmax(0, 1fr))');
     expect(housekeepingCardStyles).toContain('width: 100%');
     expect(housekeepingCardStyles).toContain('height: 100%');
+    expect(housekeepingCardStyles).toContain('position: relative');
     expect(housekeepingCardStyles).toContain('border: 0');
     expect(housekeepingCardStyles).toContain('border-radius: 34px');
     expect(housekeepingCardStyles).toContain('corner-shape: squircle');
@@ -77,6 +87,9 @@ describe('workspace dashboard', () => {
     expect(housekeepingCardStyles).not.toContain('backdrop-filter');
     expect(housekeepingCardStyles).not.toContain('box-shadow');
     expect(housekeepingCardStyles).not.toContain('gradient');
+    expect(housekeepingCountStyles).toContain('position: absolute');
+    expect(housekeepingCountStyles).toContain('top: 12px');
+    expect(housekeepingCountStyles).toContain('right: 14px');
   });
 
   it('maps memories created since the latest dream to profile heat thresholds', () => {
@@ -103,7 +116,7 @@ describe('workspace dashboard', () => {
     expect(memoryCountSinceLastDream(memory)).toBe(2);
   });
 
-  it('places the two-part workspace dashboard beside the compact workspace research sidenav', () => {
+  it('places housekeeping below the compact workspace research summary', () => {
     const memory = memorySummary();
     const html = renderToStaticMarkup(createElement(MainSessionWorkspace, {
       detail: null,
@@ -145,19 +158,22 @@ describe('workspace dashboard', () => {
 
     expect(html).toContain('class="main-session-grid "');
     expect(html).toContain('class="workspace-dashboard"');
-    expect(html.match(/class="workspace-dashboard-half/g)).toHaveLength(3);
-    expect(html).toContain('>Surface</span>');
+    expect(html.match(/class="workspace-dashboard-half/g)).toHaveLength(2);
+    expect(html).not.toContain('>Surface</span>');
     expect(html).not.toContain('Research Surface');
     expect(html).not.toContain('Workspace inputs and coverage');
     expect(html).not.toContain('workspace-surface-card');
-    expect(html).toContain('aria-label="0 in scope, 0 researched"');
-    expect(html).toContain('>Housekeeping</span>');
-    expect(html).toContain('>0 new files</span>');
-    expect(html).toContain('>0 new memories</span>');
-    expect(html).toContain('>Dejunk</button>');
-    expect(html.indexOf('>Dejunk</button>')).toBeLessThan(html.indexOf('>Dream</button>'));
-    expect(html.indexOf('>0 new files</span>')).toBeLessThan(html.indexOf('>0 new memories</span>'));
-    expect(html).toContain('No workspace sources or references recorded.');
+    expect(html).toContain('class="research-side-column workspace-side-stack"');
+    expect(html).toContain('aria-label="Workspace resource types"');
+    expect(html).toContain('aria-label="Add resource type"');
+    expect(html).not.toContain('>Housekeeping</span>');
+    expect(html).toContain('>0 New Files</span>');
+    expect(html).toContain('>0 New Memories</span>');
+    expect(html).toContain('workspace-dejunk-card workspace-housekeeping-card');
+    expect(html).toContain('>Dejunk</span>');
+    expect(html.indexOf('>Dejunk</span>')).toBeLessThan(html.indexOf('>Dream</span>'));
+    expect(html.indexOf('>0 New Files</span>')).toBeLessThan(html.indexOf('>0 New Memories</span>'));
+    expect(html).toContain('No workspace resources recorded.');
     expect(html).not.toContain('Parser Workspace Activity');
     expect(html).toContain('aria-label="Parser Workspace — most recent 4 hours of session activity"');
     expect(html).toContain('<span>Activity</span>');
@@ -263,9 +279,6 @@ describe('workspace dashboard', () => {
     expect(html).toContain('Runbook update 2: Parser proof');
     expect(html).toContain('workspace-timeline-report-marker');
     expect(html).toContain('Report update 1: Parser result');
-    expect(html).toContain('data-dejunk-heat="medium"');
-    expect(html).toContain('>50 new files</span>');
-    expect(html).toContain('>Dream</button>');
   });
 
   it('shows workspace sources with session, memory, and recency coverage', () => {
@@ -311,9 +324,50 @@ describe('workspace dashboard', () => {
     expect(html).toContain('>parser</strong>');
     expect(html).toContain('class="workspace-surface-scroll"');
     expect(html).toContain('>Repository</span>');
+    expect(html).toContain('role="tab"');
+    expect(html).toContain('aria-label="Add repository"');
     expect(html).toContain('>1 session</span>');
     expect(html).toContain('>1 memory</span>');
     expect(html).toContain('>Last 2h ago</span>');
+    expect(html).toContain('title="Edit parser"');
+    expect(workspaceResearchSurfaceKinds(workspaceResearchSurfaceItems([{
+      id: 'asset_repo',
+      scopeVersionId: 'scope_surface',
+      direction: 'in_scope',
+      kind: 'repo',
+      value: 'https://github.com/example/parser.git',
+      sensitivity: 'public',
+      attributes: {},
+      createdAt: '2026-08-12T00:00:00.000Z'
+    }], [run], memory))).toEqual(['repo']);
+  });
+
+  it('prefills the resource dialog for editing and offers removal', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceResourceDialog, {
+      initialAsset: {
+        id: 'asset_repo',
+        scopeVersionId: 'scope_surface',
+        direction: 'out_of_scope',
+        kind: 'repo',
+        value: 'https://github.com/example/parser.git',
+        sensitivity: 'restricted',
+        attributes: { displayName: 'Parser' },
+        createdAt: '2026-08-12T00:00:00.000Z'
+      },
+      kind: 'repo',
+      onClose: () => undefined,
+      onRemove: async () => undefined,
+      onSubmit: async () => undefined
+    }));
+
+    expect(html).toContain('>Edit Repository</h2>');
+    expect(html).toContain('value="https://github.com/example/parser.git"');
+    expect(html).toContain('value="Parser"');
+    expect(html).toContain('<option value="out_of_scope" selected="">Out of scope</option>');
+    expect(html).toContain('<option value="restricted" selected="">Restricted</option>');
+    expect(html).toContain('workspace-resource-remove-button modal-footer-leading');
+    expect(html).toContain('>Remove</span>');
+    expect(html).toContain('>Save changes</button>');
   });
 
   it('labels materialized repository checkouts from repository metadata instead of the checkout folder', () => {
@@ -503,21 +557,19 @@ describe('workspace dashboard', () => {
 
   it('shows Dreaming progress and honors profiles with memory disabled', () => {
     const profile = testResearchProfile();
-    const inProgressHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+    const inProgressHtml = renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
       busy: true,
       memoryDreamingInProgress: true,
       honeycrispMemory: memorySummary(),
       researchProfile: profile,
-      workspaceName: 'Parser Workspace',
       runs: [],
-      nowMs: NOW,
       onRunMemoryDreaming: () => undefined
     }));
     expect(inProgressHtml).toContain('Preparing…');
-    expect(inProgressHtml).toContain('workspace-dream-button is-hidden');
+    expect(inProgressHtml).toContain('data-dream-phase="preparing"');
     expect(inProgressHtml).toContain('disabled=""');
 
-    const correctingHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+    const correctingHtml = renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
       busy: true,
       memoryDreamingInProgress: true,
       memoryDreamingProgress: {
@@ -530,15 +582,13 @@ describe('workspace dashboard', () => {
       },
       honeycrispMemory: memorySummary(),
       researchProfile: profile,
-      workspaceName: 'Parser Workspace',
       runs: [],
-      nowMs: NOW,
       onRunMemoryDreaming: () => undefined
     }));
     expect(correctingHtml).toContain('Refining the plan…');
     expect(correctingHtml).toContain('data-dream-phase="correcting"');
 
-    const disabledHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+    const disabledHtml = renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
       busy: false,
       memoryDreamingInProgress: false,
       honeycrispMemory: memorySummary(),
@@ -546,15 +596,13 @@ describe('workspace dashboard', () => {
         ...profile,
         capabilities: { ...profile.capabilities, memoryEnabled: false }
       },
-      workspaceName: 'Parser Workspace',
       runs: [],
-      nowMs: NOW,
       onRunMemoryDreaming: () => undefined
     }));
     expect(disabledHtml).toContain('disabled="" title="Memory Dreaming is disabled by the active research profile"');
   });
 
-  it('uses real Dreaming phase labels and borderless fading housekeeping controls', () => {
+  it('uses real Dreaming phase labels and borderless full-card housekeeping controls', () => {
     expect(memoryDreamingProgressLabel('gathering')).toBe('Gathering memories…');
     expect(memoryDreamingProgressLabel('compacting')).toBe('Compacting context…');
     expect(memoryDreamingProgressLabel('applying')).toBe('Applying changes…');
@@ -562,12 +610,11 @@ describe('workspace dashboard', () => {
     expect(memoryDreamingProgressLabel('failed')).toBe('Dream failed');
 
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
-    const buttonStyles = styles.match(/\.workspace-dejunk-button,\s*\.workspace-dream-button\s*\{([^}]*)\}/)?.[1] ?? '';
-    const hiddenButtonStyles = styles.match(/\.workspace-dream-button\.is-hidden\s*\{([^}]*)\}/)?.[1] ?? '';
+    const buttonStyles = styles.match(/\.workspace-dejunk-card,\s*\.workspace-dream-card\s*\{([^}]*)\}/)?.[1] ?? '';
     const stateStyles = styles.match(/\.workspace-dream-state\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(buttonStyles).toContain('border: 0');
-    expect(buttonStyles).toContain('opacity 180ms ease');
-    expect(hiddenButtonStyles).toContain('opacity: 0');
+    expect(buttonStyles).toContain('cursor: pointer');
+    expect(buttonStyles).not.toContain('background: #242424');
     expect(stateStyles).toContain('animation: workspace-dream-state-enter 240ms ease both');
     expect(styles).toContain('@keyframes workspace-dream-state-enter');
   });

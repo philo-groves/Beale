@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import { Binary, BookOpen, Folder, GitBranch, Globe2, Info, Layers3, MoonStar, Server, Sparkles } from 'lucide-react';
+import { Binary, BookOpen, Folder, GitBranch, Globe2, Info, Layers3, MoonStar, Plus, Server, Sparkles, Trash2 } from 'lucide-react';
 import type {
   HoneycrispMemorySummary,
   MemoryDreamingProgressPhase,
@@ -10,10 +10,12 @@ import type {
   ResearchProfile,
   RunRow,
   ScopeAsset,
+  ScopeAssetInput,
   ScopeAssetKind,
   WorkspaceDejunkSummary,
   WorkspaceScopeVersion
 } from '@shared/types';
+import { Modal } from '../../app/Modal';
 import { memoryTypeClassName, memoryTypeLabel } from '../research/MemoryTypeLabel';
 import {
   buildWorkspaceTimeline,
@@ -21,23 +23,19 @@ import {
 } from '../../view-models/workspaceTimeline';
 import type { WorkspaceTimelineResult } from '../../view-models/workspaceTimeline';
 import type { SessionHeat } from '../../view-models/sessionHeat';
+import { errorMessage } from '../../lib/errors';
 
 const TIMELINE_WINDOW_HOURS = 4;
 const TIMELINE_TICK_HOURS = [0, 1, 2, 3, 4] as const;
 
 export function WorkspaceUnderstandingView({
-  busy,
-  workspaceDejunk = null,
-  workspaceDejunkInProgress = false,
-  memoryDreamingInProgress,
-  memoryDreamingProgress = null,
   honeycrispMemory,
   activeScope = null,
   researchProfile = null,
   workspaceName,
   runs,
-  onRunWorkspaceDejunk = () => undefined,
-  onRunMemoryDreaming,
+  onAddResource = async () => undefined,
+  onChangeResource = async () => undefined,
   onOpenSession = () => undefined,
   nowMs
 }: {
@@ -55,6 +53,8 @@ export function WorkspaceUnderstandingView({
   runs: RunRow[];
   onRunWorkspaceDejunk?: () => void;
   onRunMemoryDreaming: () => void;
+  onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
+  onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onOpenSession?: (runId: string) => void;
   nowMs?: number;
 }): JSX.Element {
@@ -96,16 +96,6 @@ export function WorkspaceUnderstandingView({
   );
   const timelineRows = timeline.rows;
   const axisWindowDurationMs = timeline.windowDurationMs || TIMELINE_WINDOW_HOURS * 60 * 60 * 1_000;
-  const memoryEnabled = researchProfile?.capabilities.memoryEnabled !== false;
-  const dreamDisabled = busy || memoryDreamingInProgress || !memoryEnabled || honeycrispMemory?.dreaming.available === false;
-  const dreamProgressPhase = memoryDreamingProgress?.phase ?? (memoryDreamingInProgress ? 'preparing' : null);
-  const dreamProgressLabel = dreamProgressPhase ? memoryDreamingProgressLabel(dreamProgressPhase) : null;
-  const memoriesSinceDream = memoryCountSinceLastDream(honeycrispMemory);
-  const dreamHeat = memoryDreamHeat(memoriesSinceDream);
-  const newFileCount = workspaceDejunk?.newFileCount ?? 0;
-  const dejunkHeat = workspaceDejunkHeat(newFileCount);
-  const activeSession = runs.some(({ run }) => !['blocked', 'completed', 'failed', 'stopped'].includes(run.status));
-  const dejunkDisabled = busy || workspaceDejunkInProgress || activeSession || workspaceDejunk?.available === false;
   const timelineAriaLabel = `${workspaceName.trim() || 'Workspace'} — most recent 4 hours of session activity`;
 
   return (
@@ -220,69 +210,98 @@ export function WorkspaceUnderstandingView({
         honeycrispMemory={honeycrispMemory}
         nowMs={timelineNowMs}
         runs={runs}
+        onAddResource={onAddResource}
+        onChangeResource={onChangeResource}
       />
-
-      <section className="workspace-dashboard-half workspace-dream-area" aria-label="Workspace housekeeping">
-        <header className="workspace-housekeeping-header">
-          <span>Housekeeping</span>
-          <div className="workspace-housekeeping-summary">
-            <span>{workspaceDejunk?.newFileCountCapped ? `${newFileCount.toLocaleString()}+` : newFileCount.toLocaleString()} new {newFileCount === 1 ? 'file' : 'files'}</span>
-            <span>{memoriesSinceDream} new {memoriesSinceDream === 1 ? 'memory' : 'memories'}</span>
-          </div>
-        </header>
-        <div className="workspace-dream-content">
-          <article
-            className="workspace-dejunk-card"
-            data-dejunk-heat={dejunkHeat}
-            data-new-file-count={newFileCount}
-          >
-            <div className="workspace-housekeeping-control">
-              <button
-                type="button"
-                className="workspace-dejunk-button"
-                disabled={dejunkDisabled}
-                title={activeSession ? 'Dejunk is unavailable while a research session is active' : 'Organize loose research files and remove large reclaimable artifacts'}
-                onClick={onRunWorkspaceDejunk}
-              >
-                <Sparkles size={18} />
-                {workspaceDejunkInProgress ? 'Dejunking…' : 'Dejunk'}
-              </button>
-            </div>
-          </article>
-          <article
-            className="workspace-dream-card"
-            data-dream-heat={dreamHeat}
-            data-memory-count-since-dream={memoriesSinceDream}
-          >
-            <div className="workspace-housekeeping-control">
-              <button
-                type="button"
-                aria-hidden={dreamProgressLabel ? 'true' : undefined}
-                className={`workspace-dream-button ${dreamProgressLabel ? 'is-hidden' : ''}`.trim()}
-                disabled={dreamDisabled}
-                tabIndex={dreamProgressLabel ? -1 : undefined}
-                title={!memoryEnabled ? 'Memory Dreaming is disabled by the active research profile' : 'Dream across workspace memories'}
-                onClick={onRunMemoryDreaming}
-              >
-                <MoonStar size={18} />
-                Dream
-              </button>
-              {dreamProgressLabel ? (
-                <span
-                  aria-live="polite"
-                  className={`workspace-dream-state is-${dreamProgressPhase}`}
-                  data-dream-phase={dreamProgressPhase}
-                  key={dreamProgressPhase}
-                  role="status"
-                >
-                  {dreamProgressLabel}
-                </span>
-              ) : null}
-            </div>
-          </article>
-        </div>
-      </section>
     </main>
+  );
+}
+
+export function WorkspaceHousekeepingPanel({
+  busy,
+  workspaceDejunk = null,
+  workspaceDejunkInProgress = false,
+  memoryDreamingInProgress,
+  memoryDreamingProgress = null,
+  honeycrispMemory,
+  researchProfile = null,
+  runs,
+  onRunWorkspaceDejunk = () => undefined,
+  onRunMemoryDreaming
+}: {
+  busy: boolean;
+  workspaceDejunk?: WorkspaceDejunkSummary | null;
+  workspaceDejunkInProgress?: boolean;
+  memoryDreamingInProgress: boolean;
+  memoryDreamingProgress?: MemoryDreamingProgressUpdate | null;
+  honeycrispMemory: HoneycrispMemorySummary | null;
+  researchProfile?: ResearchProfile | null;
+  runs: RunRow[];
+  onRunWorkspaceDejunk?: () => void;
+  onRunMemoryDreaming: () => void;
+}): JSX.Element {
+  const memoryEnabled = researchProfile?.capabilities.memoryEnabled !== false;
+  const dreamDisabled = busy || memoryDreamingInProgress || !memoryEnabled || honeycrispMemory?.dreaming.available === false;
+  const dreamProgressPhase = memoryDreamingProgress?.phase ?? (memoryDreamingInProgress ? 'preparing' : null);
+  const dreamProgressLabel = dreamProgressPhase ? memoryDreamingProgressLabel(dreamProgressPhase) : null;
+  const memoriesSinceDream = memoryCountSinceLastDream(honeycrispMemory);
+  const dreamHeat = memoryDreamHeat(memoriesSinceDream);
+  const newFileCount = workspaceDejunk?.newFileCount ?? 0;
+  const dejunkHeat = workspaceDejunkHeat(newFileCount);
+  const activeSession = runs.some(({ run }) => !['blocked', 'completed', 'failed', 'stopped'].includes(run.status));
+  const dejunkDisabled = busy || workspaceDejunkInProgress || activeSession || workspaceDejunk?.available === false;
+
+  return (
+    <section className="workspace-side-housekeeping workspace-dream-area" aria-label="Workspace housekeeping">
+      <div className="workspace-dream-content">
+        <button
+          className="workspace-dejunk-card workspace-housekeeping-card"
+          data-dejunk-heat={dejunkHeat}
+          data-new-file-count={newFileCount}
+          disabled={dejunkDisabled}
+          onClick={onRunWorkspaceDejunk}
+          title={activeSession ? 'Dejunk is unavailable while a research session is active' : 'Organize loose research files and remove large reclaimable artifacts'}
+          type="button"
+        >
+          <span className="workspace-housekeeping-card-count">
+            {workspaceDejunk?.newFileCountCapped ? `${newFileCount.toLocaleString()}+` : newFileCount.toLocaleString()} New {newFileCount === 1 ? 'File' : 'Files'}
+          </span>
+          <span className="workspace-housekeeping-card-label">
+            <Sparkles aria-hidden="true" size={18} />
+            {workspaceDejunkInProgress ? 'Dejunking…' : 'Dejunk'}
+          </span>
+        </button>
+        <button
+          className="workspace-dream-card workspace-housekeeping-card"
+          data-dream-heat={dreamHeat}
+          data-memory-count-since-dream={memoriesSinceDream}
+          disabled={dreamDisabled}
+          onClick={onRunMemoryDreaming}
+          title={!memoryEnabled ? 'Memory Dreaming is disabled by the active research profile' : 'Dream across workspace memories'}
+          type="button"
+        >
+          <span className="workspace-housekeeping-card-count">
+            {memoriesSinceDream.toLocaleString()} New {memoriesSinceDream === 1 ? 'Memory' : 'Memories'}
+          </span>
+          {dreamProgressLabel ? (
+            <span
+              aria-live="polite"
+              className={`workspace-dream-state is-${dreamProgressPhase}`}
+              data-dream-phase={dreamProgressPhase}
+              key={dreamProgressPhase}
+              role="status"
+            >
+              {dreamProgressLabel}
+            </span>
+          ) : (
+            <span className="workspace-housekeeping-card-label">
+              <MoonStar aria-hidden="true" size={18} />
+              Dream
+            </span>
+          )}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -311,6 +330,7 @@ function WorkspaceTimelineLegend({ open }: { open: boolean }): JSX.Element {
 
 interface WorkspaceResearchSurfaceItem {
   asset: ScopeAsset;
+  assetIds: string[];
   label: string;
   sessionCount: number;
   memoryCount: number;
@@ -337,6 +357,7 @@ export function workspaceResearchSurfaceItems(
       .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
     return {
       asset,
+      assetIds: groupAssets.map((candidate) => candidate.id),
       label: workspaceAssetLabel(asset),
       sessionCount: assetRuns.length,
       memoryCount: memory?.nodes.filter((node) => node.assetIds.some((assetId) => assetIds.has(assetId))).length ?? 0,
@@ -363,20 +384,48 @@ function preferredWorkspaceSurfaceAsset(assets: ScopeAsset[]): ScopeAsset {
     ?? assets[0];
 }
 
+const WORKSPACE_ASSET_KINDS: ScopeAssetKind[] = [
+  'repo',
+  'documentation',
+  'binary',
+  'path',
+  'service',
+  'host',
+  'domain',
+  'ip_range',
+  'account',
+  'credential_ref',
+  'other'
+];
+
+export function workspaceResearchSurfaceKinds(items: readonly WorkspaceResearchSurfaceItem[]): ScopeAssetKind[] {
+  const representedKinds = new Set(items.map((item) => item.asset.kind));
+  return WORKSPACE_ASSET_KINDS.filter((kind) => representedKinds.has(kind));
+}
+
 function WorkspaceResearchSurface({
   activeScope,
   honeycrispMemory,
   nowMs,
-  runs
+  runs,
+  onAddResource,
+  onChangeResource
 }: {
   activeScope: WorkspaceScopeVersion | null;
   honeycrispMemory: HoneycrispMemorySummary | null;
   nowMs: number;
   runs: RunRow[];
+  onAddResource: (asset: ScopeAssetInput) => Promise<void>;
+  onChangeResource: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
 }): JSX.Element {
   const items = workspaceResearchSurfaceItems(activeScope?.assets ?? [], runs, honeycrispMemory);
-  const inScopeCount = items.filter((item) => item.asset.direction === 'in_scope').length;
-  const researchedCount = items.filter((item) => item.sessionCount > 0).length;
+  const representedKinds = workspaceResearchSurfaceKinds(items);
+  const [activeKind, setActiveKind] = useState<ScopeAssetKind | null>(() => representedKinds[0] ?? null);
+  const [dialogState, setDialogState] = useState<{ kind: ScopeAssetKind; item: WorkspaceResearchSurfaceItem | null } | null>(null);
+  const [kindPickerOpen, setKindPickerOpen] = useState(false);
+  const kindPickerRef = useRef<HTMLDivElement>(null);
+  const visibleItems = activeKind ? items.filter((item) => item.asset.kind === activeKind) : [];
+  const missingKinds = WORKSPACE_ASSET_KINDS.filter((kind) => !representedKinds.includes(kind));
   const surfaceScrollRef = useRef<HTMLDivElement>(null);
   const surfaceListRef = useRef<HTMLDivElement>(null);
   const updateScrollFades = useCallback((): void => {
@@ -396,22 +445,104 @@ function WorkspaceResearchSurface({
     const observer = new ResizeObserver(updateScrollFades);
     observer.observe(list);
     return () => observer.disconnect();
-  }, [items.length, updateScrollFades]);
+  }, [activeKind, visibleItems.length, updateScrollFades]);
+
+  useEffect(() => {
+    if (activeKind && representedKinds.includes(activeKind)) return;
+    setActiveKind(representedKinds[0] ?? null);
+  }, [activeKind, representedKinds]);
+
+  useEffect(() => {
+    if (!kindPickerOpen) return undefined;
+    const closeOnOutsidePointer = (event: PointerEvent): void => {
+      if (!kindPickerRef.current?.contains(event.target as Node)) setKindPickerOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setKindPickerOpen(false);
+    };
+    window.addEventListener('pointerdown', closeOnOutsidePointer);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('pointerdown', closeOnOutsidePointer);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [kindPickerOpen]);
+
+  const openResourceDialog = (kind: ScopeAssetKind, item: WorkspaceResearchSurfaceItem | null = null): void => {
+    setKindPickerOpen(false);
+    setDialogState({ kind, item });
+  };
 
   return (
     <section className="workspace-dashboard-half workspace-surface-area" aria-label="Research surface">
-      <header className="workspace-surface-header">
-        <span>Surface</span>
-        <div className="workspace-surface-summary" aria-label={`${inScopeCount} in scope, ${researchedCount} researched`}>
-          <span>{inScopeCount} in scope</span>
-          <span>{researchedCount} researched</span>
+      <div className="workspace-resource-tabs-bar">
+        <div className="research-side-view-tabs workspace-resource-tabs" role="tablist" aria-label="Workspace resource types">
+          {representedKinds.map((kind) => (
+            <div className={`research-side-view-tab workspace-resource-tab ${activeKind === kind ? 'active' : ''}`.trim()} key={kind}>
+              <button
+                aria-selected={activeKind === kind}
+                className="research-side-view-tab-activate"
+                onClick={() => setActiveKind(kind)}
+                role="tab"
+                type="button"
+              >
+                <WorkspaceAssetIcon kind={kind} />
+                <span>{workspaceAssetKindLabel(kind)}</span>
+              </button>
+              <button
+                aria-label={`Add ${workspaceAssetKindLabel(kind).toLowerCase()}`}
+                className="research-side-view-tab-close workspace-resource-tab-add"
+                onClick={() => openResourceDialog(kind)}
+                title={`Add ${workspaceAssetKindLabel(kind).toLowerCase()}`}
+                type="button"
+              >
+                <Plus aria-hidden="true" size={14} />
+              </button>
+            </div>
+          ))}
         </div>
-      </header>
-      {items.length > 0 ? (
+        <div className="research-side-view-picker workspace-resource-kind-picker" ref={kindPickerRef}>
+          <button
+            aria-expanded={kindPickerOpen}
+            aria-haspopup="menu"
+            aria-label="Add resource type"
+            className="research-side-view-picker-trigger"
+            disabled={missingKinds.length === 0}
+            onClick={() => setKindPickerOpen((open) => !open)}
+            title="Add resource type"
+            type="button"
+          >
+            <Plus aria-hidden="true" size={16} />
+          </button>
+          {kindPickerOpen ? (
+            <div className="research-side-view-picker-menu workspace-resource-kind-menu" role="menu">
+              {missingKinds.map((kind) => (
+                <button key={kind} onClick={() => openResourceDialog(kind)} role="menuitem" type="button">
+                  <WorkspaceAssetIcon kind={kind} />
+                  <span>{workspaceAssetKindLabel(kind)}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      {visibleItems.length > 0 ? (
         <div className="workspace-surface-scroll" ref={surfaceScrollRef}>
-          <div className="workspace-surface-list" onScroll={updateScrollFades} ref={surfaceListRef}>
-            {items.map((item) => (
-              <article className={`workspace-surface-item is-${item.asset.direction}`} key={item.asset.id}>
+          <div
+            aria-label={`${workspaceAssetKindLabel(activeKind as ScopeAssetKind)} resources`}
+            className="workspace-surface-list"
+            onScroll={updateScrollFades}
+            ref={surfaceListRef}
+            role="tabpanel"
+          >
+            {visibleItems.map((item) => (
+              <button
+                className={`workspace-surface-item is-${item.asset.direction}`}
+                key={item.asset.id}
+                onClick={() => openResourceDialog(item.asset.kind, item)}
+                title={`Edit ${item.label}`}
+                type="button"
+              >
                 <span className="workspace-surface-item-icon" aria-hidden="true">
                   <WorkspaceAssetIcon kind={item.asset.kind} />
                 </span>
@@ -428,15 +559,168 @@ function WorkspaceResearchSurface({
                     <span>{item.lastResearchedAt ? `Last ${formatSurfaceRecency(item.lastResearchedAt, nowMs)}` : 'Never researched'}</span>
                   </div>
                 </div>
-              </article>
+              </button>
             ))}
           </div>
         </div>
       ) : (
-        <div className="workspace-surface-empty">No workspace sources or references recorded.</div>
+        <div className="workspace-surface-empty">
+          {items.length > 0 ? 'No resources of this type recorded.' : 'No workspace resources recorded.'}
+        </div>
       )}
+      {dialogState ? (
+        <WorkspaceResourceDialog
+          initialAsset={dialogState.item?.asset ?? null}
+          kind={dialogState.kind}
+          onClose={() => setDialogState(null)}
+          onRemove={dialogState.item
+            ? () => onChangeResource(dialogState.item?.assetIds ?? [], null)
+            : undefined}
+          onSubmit={dialogState.item
+            ? (asset) => onChangeResource(dialogState.item?.assetIds ?? [], asset)
+            : onAddResource}
+        />
+      ) : null}
     </section>
   );
+}
+
+export function WorkspaceResourceDialog({
+  initialAsset,
+  kind,
+  onClose,
+  onRemove,
+  onSubmit
+}: {
+  initialAsset: ScopeAsset | null;
+  kind: ScopeAssetKind;
+  onClose: () => void;
+  onRemove?: () => Promise<void>;
+  onSubmit: (asset: ScopeAssetInput) => Promise<void>;
+}): JSX.Element {
+  const editing = initialAsset !== null;
+  const initialDisplayName = typeof initialAsset?.attributes?.displayName === 'string'
+    ? initialAsset.attributes.displayName
+    : '';
+  const [value, setValue] = useState(initialAsset?.value ?? '');
+  const [displayName, setDisplayName] = useState(initialDisplayName);
+  const [direction, setDirection] = useState<ScopeAssetInput['direction']>(initialAsset?.direction ?? 'in_scope');
+  const [sensitivity, setSensitivity] = useState(initialAsset?.sensitivity ?? 'internal');
+  const [pendingAction, setPendingAction] = useState<'save' | 'remove' | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const submit = async (): Promise<void> => {
+    const trimmedValue = value.trim();
+    if (!trimmedValue || pendingAction) return;
+    setPendingAction('save');
+    setSubmitError(null);
+    try {
+      const attributes: Record<string, unknown> = {
+        ...(initialAsset?.attributes ?? {}),
+        source: 'manual',
+      };
+      if (displayName.trim()) attributes.displayName = displayName.trim();
+      else delete attributes.displayName;
+      if (kind === 'repo') attributes.repositoryUrl = trimmedValue;
+      await onSubmit({ direction, kind, value: trimmedValue, sensitivity, attributes });
+      onClose();
+    } catch (caught) {
+      setSubmitError(errorMessage(caught));
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const remove = async (): Promise<void> => {
+    if (!onRemove || pendingAction) return;
+    setPendingAction('remove');
+    setSubmitError(null);
+    try {
+      await onRemove();
+      onClose();
+    } catch (caught) {
+      setSubmitError(errorMessage(caught));
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  return (
+    <Modal
+      className="start-run-dialog workspace-resource-dialog"
+      closeDisabled={pendingAction !== null}
+      footer={(
+        <>
+          {onRemove ? (
+            <button
+              className="workspace-resource-remove-button modal-footer-leading"
+              disabled={pendingAction !== null}
+              onClick={() => void remove()}
+              type="button"
+            >
+              <Trash2 aria-hidden="true" size={15} />
+              <span>{pendingAction === 'remove' ? 'Removing…' : 'Remove'}</span>
+            </button>
+          ) : null}
+          <button className="primary-button" disabled={pendingAction !== null || !value.trim()} onClick={() => void submit()} type="button">
+            {pendingAction === 'save' ? (editing ? 'Saving…' : 'Adding…') : (editing ? 'Save changes' : 'Add resource')}
+          </button>
+        </>
+      )}
+      onClose={onClose}
+      title={`${editing ? 'Edit' : 'Add'} ${workspaceAssetKindLabel(kind)}`}
+    >
+      <form className="modal-form workspace-resource-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <label>
+          Resource type
+          <input disabled readOnly value={workspaceAssetKindLabel(kind)} />
+        </label>
+        <label>
+          Reference
+          <input
+            autoFocus
+            onChange={(event) => setValue(event.target.value)}
+            placeholder={workspaceAssetPlaceholder(kind)}
+            required
+            value={value}
+          />
+        </label>
+        <label>
+          Display name
+          <input onChange={(event) => setDisplayName(event.target.value)} placeholder="Optional" value={displayName} />
+        </label>
+        <div className="workspace-resource-form-row">
+          <label>
+            Scope
+            <select onChange={(event) => setDirection(event.target.value as ScopeAssetInput['direction'])} value={direction}>
+              <option value="in_scope">In scope</option>
+              <option value="out_of_scope">Out of scope</option>
+            </select>
+          </label>
+          <label>
+            Sensitivity
+            <select onChange={(event) => setSensitivity(event.target.value)} value={sensitivity}>
+              <option value="public">Public</option>
+              <option value="internal">Internal</option>
+              <option value="restricted">Restricted</option>
+            </select>
+          </label>
+        </div>
+        {submitError ? <p className="form-error" role="alert">{submitError}</p> : null}
+      </form>
+    </Modal>
+  );
+}
+
+function workspaceAssetPlaceholder(kind: ScopeAssetKind): string {
+  if (kind === 'repo') return 'https://github.com/owner/repository';
+  if (kind === 'domain') return 'example.com';
+  if (kind === 'host') return 'research-host';
+  if (kind === 'ip_range') return '192.0.2.0/24';
+  if (kind === 'path') return 'C:\\path\\to\\resource';
+  if (kind === 'service') return 'https://service.example.com';
+  if (kind === 'documentation') return 'https://docs.example.com';
+  return `Enter ${workspaceAssetKindLabel(kind).toLowerCase()} reference`;
 }
 
 function WorkspaceAssetIcon({ kind }: { kind: ScopeAssetKind }): JSX.Element {
