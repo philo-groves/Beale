@@ -76,6 +76,7 @@ describe('architecture conformance', () => {
           'src/main/hostToolExecutor.ts',
           'src/main/sourceMaterializer.ts',
           'src/main/honeycrispRunEngine.ts',
+          'src/main/providerTextCompletion.ts',
           'src/main/researchProfileService.ts',
           'src/main/honeycrispMemorySummary.ts'
         ].includes(normalizePath(hit.path))

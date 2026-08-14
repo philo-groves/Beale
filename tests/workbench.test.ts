@@ -3542,7 +3542,43 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('requires OpenAI authentication before HackerOne lookup or import', async () => {
+  it('reviews HackerOne scope through the configured Lead provider', async () => {
+    const completionRequests: Array<{ provider: string; model: string; effort: string; prompt: string }> = [];
+    const service = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: tempWorkspace(),
+      hackerOneFetch: async () => hackerOneWorkspaceResponse(),
+      providerTextCompletion: async (request) => {
+        completionRequests.push(request);
+        return JSON.stringify({
+          workspaceName: 'GitHub',
+          scopeOwner: 'GitHub',
+          scopeMarkdown: '## Scope\n- In scope: github.com',
+          rulesMarkdown: '## Rules\nStay within the recorded HackerOne scope.'
+        });
+      }
+    });
+    service.setDefaultProviderId('xai');
+    service.setProviderModelDefaults('xai', {
+      largeModel: 'grok-4.6',
+      smallModel: 'grok-4.3',
+      reasoningEffort: 'high'
+    });
+
+    await expect(service.lookupHackerOneScope('github')).resolves.toMatchObject({
+      workspaceName: 'GitHub',
+      scopeOwner: 'GitHub'
+    });
+    expect(completionRequests).toHaveLength(1);
+    expect(completionRequests[0]).toMatchObject({
+      provider: 'xai',
+      model: 'grok-4.6',
+      effort: 'high'
+    });
+    expect(completionRequests[0]?.prompt).toContain('github.com');
+    service.close();
+  });
+
+  it('requires Lead-provider authentication before HackerOne lookup', async () => {
     delete process.env.BEALE_OPENAI_ACCESS_TOKEN;
     delete process.env.BEALE_OPENAI_AUTH_COMMAND;
     delete process.env.OPENAI_API_KEY;
@@ -3554,28 +3590,10 @@ describe('Beale workbench skeleton', () => {
         return new Response('{}', { status: 200 });
       }
     });
+    service.setDefaultProviderId('openai-codex');
 
     await expect(service.lookupHackerOneScope('github')).rejects.toThrow(/Authenticate with OpenAI first/);
     expect(requestedHackerOne).toBe(false);
-    expect(() =>
-      service.createScopedWorkspace({
-        workspacePath: tempWorkspace(),
-        workspaceName: 'GitHub',
-        scopeOwner: 'GitHub',
-        descriptionMarkdown: '',
-        rulesMarkdown: '',
-        expiresAt: null,
-        assets: [
-          {
-            direction: 'in_scope',
-            kind: 'domain',
-            value: 'github.com',
-            sensitivity: 'public',
-            attributes: { source: 'hackerone' }
-          }
-        ]
-      })
-    ).toThrow(/Authenticate with OpenAI first/);
 
     service.close();
   });
@@ -3712,6 +3730,55 @@ describe('Beale workbench skeleton', () => {
     expect(requests).toHaveLength(2);
     expect(requests[1]?.instructions).toContain('The previous Discovery response was rejected by the host validator');
     expect(requests[1]?.instructions).toContain('Return exactly 8 valid, grounded, materially distinct candidates');
+    service.close();
+  });
+
+  it('routes prompt generation and workspace suggestions through the assigned Lead provider', async () => {
+    const calls: Array<{ provider: string; model: string; effort: string; prompt: string }> = [];
+    const suggestions = validResearchGoalSuggestionGroups().discovery;
+    const service = new WorkspaceService(() => undefined, {
+      providerTextCompletion: async (request) => {
+        calls.push(request);
+        const payload = JSON.parse(request.prompt) as Record<string, unknown>;
+        if (payload.task === 'suggest_next_research_goals') {
+          const contract = payload.groundingContract as { requiredEligibleRefs?: unknown } | undefined;
+          const groundingRef = Array.isArray(contract?.requiredEligibleRefs)
+            ? contract.requiredEligibleRefs.find((value): value is string => typeof value === 'string') ?? 'workspace:scope'
+            : 'workspace:scope';
+          return JSON.stringify({
+            candidates: researchGoalCandidates(suggestions, Number(payload.candidateCount), groundingRef)
+          });
+        }
+        return JSON.stringify({
+          promptMarkdown: '# Grok-routed research prompt\nResearch the bounded workspace surface using the assigned xAI Lead model.'
+        });
+      }
+    });
+    service.createWorkspace(tempWorkspace());
+    service.setDefaultProviderId('xai');
+    service.setProviderModelDefaults('xai', {
+      largeModel: 'grok-4.6',
+      smallModel: 'grok-4.3',
+      reasoningEffort: 'high'
+    });
+
+    await expect(service.generateResearchPrompt({
+      provider: 'xai',
+      mode: 'dynamic',
+      attemptStrategy: 'iterative_research',
+      model: 'grok-4.6',
+      reasoningEffort: 'high',
+      sandboxProfile: 'host'
+    })).resolves.toEqual({
+      promptMarkdown: '# Grok-routed research prompt\nResearch the bounded workspace surface using the assigned xAI Lead model.'
+    });
+    await expect(service.generateResearchGoalSuggestions({ phase: 'discovery' }))
+      .resolves.toEqual({ phase: 'discovery', suggestions });
+
+    expect(calls.map(({ provider, model }) => ({ provider, model }))).toEqual([
+      { provider: 'xai', model: 'grok-4.6' },
+      { provider: 'xai', model: 'grok-4.3' }
+    ]);
     service.close();
   });
 
@@ -4949,6 +5016,7 @@ function fakeHoneycrispResearchProfileCaptureExpression(): string {
 function runInput(fixtureScenario: StartRunInput['fixtureScenario']): StartRunInput {
   return {
     runEngine: 'fixture',
+    provider: 'openai-codex',
     shellSafetyMode: 'auto_review',
     goalEnabled: false,
     goalObjective: null,

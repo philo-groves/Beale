@@ -26,11 +26,11 @@ import { OpenAiAuthService } from './openaiAuth';
 import { ResearchProviderAuthService } from './researchProviderAuth';
 import { ProviderCredentialStore } from './providerCredentialStore';
 import { HoneycrispRunEngine, invokeHoneycrispToolsConfig, invokeHoneycrispToolsList } from './honeycrispRunEngine';
+import { completeProviderText, type ProviderTextCompleter } from './providerTextCompletion';
 import { ResearchProfileService } from './researchProfileService';
 import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
 import {
   buildMemoryDreamingInstructions,
-  getMemoryDreamingModelJobDefaults,
   getMemoryDreamingTypeDescriptions,
   MemoryDreamingPlanError,
   type MemoryDreamingProfileInput,
@@ -57,11 +57,7 @@ import {
 } from './sourceMaterializer';
 import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
-import {
-  DEFAULT_RESEARCH_MODEL,
-  DEFAULT_RESEARCH_REASONING_EFFORT,
-  smallModelForProvider
-} from '../shared/modelDefaults';
+import { smallModelForProvider } from '../shared/modelDefaults';
 import {
   parseAndSelectResearchGoalCandidates,
   researchGoalCandidateCount,
@@ -349,7 +345,6 @@ function researchRecommendationContextInstructions(profile: ResearchProfile): st
     ...(isSecurityResearchProfile(profile) ? SECURITY_SOURCE_COVERAGE_RECOMMENDATION_INSTRUCTIONS : [])
   ];
 }
-const MEMORY_DREAMING_MODEL = 'gpt-5.6-sol';
 const MEMORY_DREAMING_REASONING_EFFORT = 'high';
 const MEMORY_DREAMING_PLAN_OUTPUT_MAX_CHARS = 128_000;
 const MEMORY_DREAMING_CORRECTION_ERROR_MAX_CHARS = 2_000;
@@ -458,6 +453,7 @@ export interface WorkspaceServiceOptions {
   researchSubjectResolver?: (workspacePath: string) => ResearchSubjectInput | null;
   providerCredentialStore?: ProviderCredentialStore;
   providerSubscriptionConfigured?: (providerId: ResearchModelProviderId) => boolean | Promise<boolean>;
+  providerTextCompletion?: ProviderTextCompleter;
 }
 
 interface WorkspaceRuntime {
@@ -793,21 +789,24 @@ export class WorkspaceService {
       throw new Error('Memory Dreaming is disabled by the active research profile.');
     }
     const profileInput: MemoryDreamingProfileInput = { profileSnapshot: researchProfile };
-    const profileRoute = resolveProfileOpenAiJobRoute(
-      getMemoryDreamingModelJobDefaults(profileInput) ?? undefined,
+    const profileRoute = await this.resolveAuxiliaryModelRoute(
+      researchProfile.profile,
       'memoryCuration',
-      MEMORY_DREAMING_MODEL,
-      MEMORY_DREAMING_REASONING_EFFORT
+      {
+        size: 'large',
+        fallbackEffort: MEMORY_DREAMING_REASONING_EFFORT
+      }
     );
     const failureContext = {
+      provider: profileRoute.provider,
       model: profileRoute.model,
       reasoningEffort: profileRoute.effort,
       inputNodeCount: 0,
       inputSessionCount: 0
     };
     try {
-      requireOpenAiAuthenticationForMemoryDreaming(this.openAiAuth);
-      const status = this.openAiAuth.getStatus();
+      if (profileRoute.provider === 'openai-codex') requireOpenAiAuthenticationForMemoryDreaming(this.openAiAuth);
+      const status = profileRoute.provider === 'openai-codex' ? this.openAiAuth.getStatus() : null;
       const memorySettings = this.getWorkspaceRegistry().getMemorySettings();
       const typeDescriptions = getMemoryDreamingTypeDescriptions(memorySettings.typeDescriptions, profileInput);
       const memorySummary = this.memorySummaryForRuntime(runtime);
@@ -825,17 +824,19 @@ export class WorkspaceService {
         correctionMessage: string | null = null
       ): Promise<string> => {
         for (let providerAttempt = 0; providerAttempt < 2; providerAttempt += 1) {
-          const adapter = new OpenAiResponsesAdapter(
-            this.openAiAuth,
-            this.options.openAiFetch ?? (fetch as FetchLike),
-            process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
-            null,
-            undefined,
-            (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
-          );
+          const adapter = profileRoute.provider === 'openai-codex'
+            ? new OpenAiResponsesAdapter(
+                this.openAiAuth,
+                this.options.openAiFetch ?? (fetch as FetchLike),
+                process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+                null,
+                undefined,
+                (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
+              )
+            : null;
           const input: ResponseInputMessage[] = [memoryDreamingInputMessage(originalInputText)];
           if (correctionMessage !== null) input.push(memoryDreamingInputMessage(correctionMessage));
-          const body = adapter.buildRequest({
+          const body = adapter?.buildRequest({
             model: profileRoute.model,
             instructions,
             input,
@@ -849,7 +850,16 @@ export class WorkspaceService {
             }
           });
           try {
-            return await collectMemoryDreamingText(adapter.streamResponse({ body }), status.source);
+            return adapter && body
+              ? await collectMemoryDreamingText(adapter.streamResponse({ body }), status!.source)
+              : await this.completeAuxiliaryText(
+                  runtime,
+                  profileRoute,
+                  instructions,
+                  [originalInputText, correctionMessage].filter(Boolean).join('\n\n'),
+                  undefined,
+                  32_768
+                );
           } catch (error) {
             if (isContextWindowError(error)) throw error;
             if (!isTransientModelError(error) || providerAttempt === 1) throw error;
@@ -945,7 +955,8 @@ export class WorkspaceService {
   }
 
   public async lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult> {
-    requireOpenAiAuthenticationForHackerOneImport(this.openAiAuth);
+    const leadProvider = await this.resolveConfiguredLeadProvider(this.getWorkspaceRegistry().getProviderSettings());
+    if (leadProvider === 'openai-codex') requireOpenAiAuthenticationForHackerOneImport(this.openAiAuth);
     const handle = normalizeHackerOneIdentifier(identifier);
     if (!handle) {
       throw new Error('HackerOne scope identifier is required.');
@@ -1011,9 +1022,6 @@ export class WorkspaceService {
 
   public createScopedWorkspace(input: WorkspaceOnboardingInput, onProgress: WorkspaceOnboardingProgressHandler | null = null): WorkspaceSnapshot {
     this.getWorkspaceRegistry();
-    if (hasHackerOneImportedAssets(input.assets)) {
-      requireOpenAiAuthenticationForHackerOneImport(this.openAiAuth);
-    }
     const workspacePath = resolve(input.workspacePath);
     const workspaceName = input.workspaceName.trim();
     if (!workspaceName) {
@@ -1331,6 +1339,68 @@ export class WorkspaceService {
     return this.researchProviderAuth.getModelCatalog();
   }
 
+  private async resolveAuxiliaryModelRoute(
+    profile: ResearchProfile,
+    jobName: 'promptGeneration' | 'goalSuggestions' | 'memoryCuration',
+    options: {
+      provider?: ResearchModelProviderId | null;
+      model?: string | null;
+      effort?: string | null;
+      size: 'large' | 'small';
+      fallbackEffort: ResearchModelEffortLevel;
+    }
+  ): Promise<ProfileModelRoute> {
+    const providerSettings = this.getWorkspaceRegistry().getProviderSettings();
+    const provider = options.provider ?? await this.resolveConfiguredLeadProvider(providerSettings);
+    const profileJob = applicableResearchProfileModelJob(profile.modelJobs[jobName], provider);
+    const defaults = providerSettings.modelDefaults[provider];
+    let model = options.model?.trim()
+      || profileJob?.model?.trim()
+      || (options.size === 'small' ? defaults?.smallModel?.trim() : defaults?.largeModel?.trim())
+      || (options.size === 'small' ? smallModelForProvider(provider) : null);
+    if (!model) {
+      if (provider === 'openai-codex') model = this.openAiAuth.getStatus().defaultModel;
+      else model = (await this.researchProviderAuth.getStatuses()).find((status) => status.id === provider)?.defaultModel ?? null;
+    }
+    if (!model) throw new Error(`Lead provider ${provider} does not have a configured ${options.size} model.`);
+    requireEnabledProviderModel(providerSettings, provider, model);
+    const effort = options.effort?.trim()
+      || profileJob?.effort?.trim()
+      || defaults?.reasoningEffort?.trim()
+      || options.fallbackEffort;
+    return validateProfileModelRoute({ provider, model, effort }, jobName);
+  }
+
+  private async resolveConfiguredLeadProvider(providerSettings: ProviderSettings): Promise<ResearchModelProviderId> {
+    if (providerSettings.defaultProviderId) return providerSettings.defaultProviderId;
+    if (this.openAiAuth.getStatus().configured) return 'openai-codex';
+    const configured = (await this.researchProviderAuth.getStatuses()).find((status) => status.configured);
+    if (configured) return configured.id;
+    throw new Error('No Lead provider is configured. Choose one in Provider settings before continuing.');
+  }
+
+  private completeAuxiliaryText(
+    runtime: WorkspaceRuntime,
+    route: ProfileModelRoute,
+    systemPrompt: string,
+    prompt: string,
+    signal?: AbortSignal,
+    maxTokens?: number
+  ): Promise<string> {
+    const providerSettings = this.getWorkspaceRegistry().getProviderSettings();
+    return (this.options.providerTextCompletion ?? completeProviderText)({
+      provider: route.provider,
+      model: route.model,
+      effort: route.effort,
+      systemPrompt,
+      prompt,
+      ...(maxTokens ? { maxTokens } : {}),
+      cwd: runtime.workspacePath,
+      ...(signal ? { signal } : {}),
+      preferredAuthenticationMethods: providerSettings.preferredAuthenticationMethods
+    });
+  }
+
   public async startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult> {
     const result = await this.researchProviderAuth.startOAuthLogin(providerId);
     const registry = this.getWorkspaceRegistry();
@@ -1378,19 +1448,20 @@ export class WorkspaceService {
         };
       }
     }
-    const status = this.openAiAuth.getStatus();
-    const openAiDefaults = this.getWorkspaceRegistry().getProviderSettings().modelDefaults['openai-codex'];
-    const defaultOpenAiModel = openAiDefaults?.smallModel
-      ?? smallModelForProvider('openai-codex')
-      ?? openAiDefaults?.largeModel
-      ?? status.defaultModel;
-    const route = resolveProfileOpenAiRoute(
+    const sourceProvider = sourceRun && isResearchModelProviderId(sourceRun.budget.modelProvider)
+      ? sourceRun.budget.modelProvider
+      : null;
+    const route = await this.resolveAuxiliaryModelRoute(
       profileSnapshot.profile,
       'goalSuggestions',
-      defaultOpenAiModel,
-      RESEARCH_GOAL_SUGGESTION_REASONING_EFFORT
+      {
+        provider: sourceProvider,
+        size: 'small',
+        fallbackEffort: RESEARCH_GOAL_SUGGESTION_REASONING_EFFORT
+      }
     );
-    requireOpenAiAuthenticationForResearchPrompt(this.openAiAuth);
+    const status = route.provider === 'openai-codex' ? this.openAiAuth.getStatus() : null;
+    if (route.provider === 'openai-codex') requireOpenAiAuthenticationForResearchPrompt(this.openAiAuth);
     const requestId = input.requestId?.trim() || null;
     const controller = new AbortController();
     if (requestId) {
@@ -1404,14 +1475,16 @@ export class WorkspaceService {
       contextRevision,
       sourceRunId
     );
-    const adapter = new OpenAiResponsesAdapter(
-      this.openAiAuth,
-      this.options.openAiFetch ?? (fetch as FetchLike),
-      process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
-      null,
-      undefined,
-      (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
-    );
+    const adapter = route.provider === 'openai-codex'
+      ? new OpenAiResponsesAdapter(
+          this.openAiAuth,
+          this.options.openAiFetch ?? (fetch as FetchLike),
+          process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+          null,
+          undefined,
+          (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
+        )
+      : null;
     const recommendationDetails = rankResearchRecommendationDetailsForWorkflow(
       prepared.details,
       workflow,
@@ -1449,6 +1522,7 @@ export class WorkspaceService {
     const promptCacheKey = researchGoalPromptCacheKey(db.getWorkspaceId(), scope.id, profileSnapshot.profileHash, contextRevision, workflow.id);
     this.recordProfilingMainTiming('goalSuggestions.input', 0, {
       phase,
+      provider: route.provider,
       model: route.model,
       effort: route.effort,
       bytes: Buffer.byteLength(payload, 'utf8'),
@@ -1472,7 +1546,7 @@ export class WorkspaceService {
               phaseInstructions,
               `The previous ${boundedProfileText(workflow.name, 160)} response was rejected by the host validator. Return exactly ${candidateCount} valid, grounded, materially distinct candidates and follow the workflow contract above.`
             ].join('\n');
-        const body = adapter.buildRequest({
+        const body = adapter?.buildRequest({
           model: route.model,
           instructions,
           input: [
@@ -1500,10 +1574,19 @@ export class WorkspaceService {
             beale_research_profile_hash: profileSnapshot.profileHash
           }
         });
-        const output = await collectResearchGoalSuggestionText(
-          adapter.streamResponse({ body, signal: controller.signal }),
-          status.source
-        );
+        const output = adapter && body
+          ? await collectResearchGoalSuggestionText(
+              adapter.streamResponse({ body, signal: controller.signal }),
+              status!.source
+            )
+          : await this.completeAuxiliaryText(
+              runtime,
+              route,
+              instructions,
+              payload,
+              controller.signal,
+              8_192
+            );
         this.recordProfilingMainTiming('goalSuggestions.output', 0, {
           phase,
           attempt: attempt + 1,
@@ -1577,16 +1660,19 @@ export class WorkspaceService {
     const workflow = resolveResearchPromptWorkflow(profileSnapshot.profile, input);
     const db = runtime.db;
     const scope = db.getActiveScope();
-    const status = this.openAiAuth.getStatus();
-    const defaultOpenAiModel = this.getWorkspaceRegistry().getProviderSettings().modelDefaults['openai-codex']?.largeModel
-      ?? status.defaultModel;
-    const route = resolveProfileOpenAiRoute(
+    const route = await this.resolveAuxiliaryModelRoute(
       profileSnapshot.profile,
       'promptGeneration',
-      defaultOpenAiModel,
-      RESEARCH_PROMPT_GENERATION_REASONING_EFFORT
+      {
+        provider: input?.provider ?? null,
+        model: input?.provider ? input.model : null,
+        effort: null,
+        size: 'large',
+        fallbackEffort: RESEARCH_PROMPT_GENERATION_REASONING_EFFORT
+      }
     );
-    requireOpenAiAuthenticationForResearchPrompt(this.openAiAuth);
+    const status = route.provider === 'openai-codex' ? this.openAiAuth.getStatus() : null;
+    if (route.provider === 'openai-codex') requireOpenAiAuthenticationForResearchPrompt(this.openAiAuth);
     const requestId = input?.requestId?.trim() || null;
     const controller = options.controller ?? new AbortController();
     if (requestId) {
@@ -1605,17 +1691,35 @@ export class WorkspaceService {
       scope,
       this.options.researchSubjectResolver?.(runtime.workspacePath) ?? runtime.db.getResearchSubject()
     );
-    const adapter = new OpenAiResponsesAdapter(
-      this.openAiAuth,
-      this.options.openAiFetch ?? (fetch as FetchLike),
-      process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+    const instructions = researchPromptRecommendationInstructions(profileSnapshot, workflow);
+    const prompt = JSON.stringify(
+      buildResearchPromptRecommendationInput(
+        scope,
+        details,
+        input,
+        sourceCoverage,
+        memory,
+        agentInstructions,
+        profileSnapshot,
+        workflow,
+        researchSubject
+      ),
       null,
-      undefined,
-      (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
+      2
     );
-    const body = adapter.buildRequest({
+    const adapter = route.provider === 'openai-codex'
+      ? new OpenAiResponsesAdapter(
+          this.openAiAuth,
+          this.options.openAiFetch ?? (fetch as FetchLike),
+          process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+          null,
+          undefined,
+          (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
+        )
+      : null;
+    const body = adapter?.buildRequest({
       model,
-      instructions: researchPromptRecommendationInstructions(profileSnapshot, workflow),
+      instructions,
       input: [
         {
           type: 'message',
@@ -1623,21 +1727,7 @@ export class WorkspaceService {
           content: [
             {
               type: 'input_text',
-              text: JSON.stringify(
-                buildResearchPromptRecommendationInput(
-                  scope,
-                  details,
-                  input,
-                  sourceCoverage,
-                  memory,
-                  agentInstructions,
-                  profileSnapshot,
-                  workflow,
-                  researchSubject
-                ),
-                null,
-                2
-              )
+              text: prompt
             }
           ]
         }
@@ -1655,7 +1745,14 @@ export class WorkspaceService {
       }
     });
     try {
-      const output = await collectResearchPromptText(adapter.streamResponse({ body, signal: controller.signal }), status.source, requestId, onUpdate);
+      const output = adapter && body
+        ? await collectResearchPromptText(
+            adapter.streamResponse({ body, signal: controller.signal }),
+            status!.source,
+            requestId,
+            onUpdate
+          )
+        : await this.completeAuxiliaryText(runtime, route, instructions, prompt, controller.signal, 16_384);
       const generated = parseResearchPromptRecommendation(output);
       if (input?.goalSentence?.trim() && !isMateriallyExpandedResearchPrompt(input.goalSentence, generated.promptMarkdown)) {
         throw new Error('Research prompt generation did not expand the selected goal into a full prompt.');
@@ -1678,19 +1775,36 @@ export class WorkspaceService {
   }
 
   private async reviewHackerOneScopeImport(facts: HackerOneScopeImportFacts): Promise<HackerOneScopeImportReview> {
-    const status = this.openAiAuth.getStatus();
-    const defaultOpenAiModel = this.getWorkspaceRegistry().getProviderSettings().modelDefaults['openai-codex']?.largeModel
-      ?? status.defaultModel;
-    const adapter = new OpenAiResponsesAdapter(
-      this.openAiAuth,
-      this.options.openAiFetch ?? (fetch as FetchLike),
-      process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
-      null,
-      undefined,
-      (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
-    );
-    const body = adapter.buildRequest({
-      model: defaultOpenAiModel,
+    const providerSettings = this.getWorkspaceRegistry().getProviderSettings();
+    const provider = await this.resolveConfiguredLeadProvider(providerSettings);
+    const defaults = providerSettings.modelDefaults[provider];
+    const model = defaults?.largeModel?.trim()
+      || (provider === 'openai-codex'
+        ? this.openAiAuth.getStatus().defaultModel
+        : (await this.researchProviderAuth.getStatuses()).find((status) => status.id === provider)?.defaultModel)
+      || null;
+    if (!model) throw new Error(`Lead provider ${provider} does not have a configured large model.`);
+    requireEnabledProviderModel(providerSettings, provider, model);
+    const route = validateProfileModelRoute({
+      provider,
+      model,
+      effort: defaults?.reasoningEffort ?? 'medium'
+    }, 'HackerOne import review');
+    const status = provider === 'openai-codex' ? this.openAiAuth.getStatus() : null;
+    if (provider === 'openai-codex') requireOpenAiAuthenticationForHackerOneImport(this.openAiAuth);
+    const adapter = provider === 'openai-codex'
+      ? new OpenAiResponsesAdapter(
+          this.openAiAuth,
+          this.options.openAiFetch ?? (fetch as FetchLike),
+          process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+          null,
+          undefined,
+          (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
+        )
+      : null;
+    const prompt = JSON.stringify(buildHackerOneModelInput(facts), null, 2);
+    const body = adapter?.buildRequest({
+      model: route.model,
       instructions: HACKERONE_IMPORT_REVIEW_INSTRUCTIONS,
       input: [
         {
@@ -1699,20 +1813,31 @@ export class WorkspaceService {
           content: [
             {
               type: 'input_text',
-              text: JSON.stringify(buildHackerOneModelInput(facts), null, 2)
+              text: prompt
             }
           ]
         }
       ],
       tools: [],
-      reasoning: { effort: 'medium' },
+      reasoning: { effort: route.effort },
       text: { verbosity: 'low' },
       metadata: {
         beale_task: 'hackerone_scope_import',
         beale_hackerone_handle: facts.handle
       }
     });
-    const output = await collectHackerOneModelReviewText(adapter.streamResponse({ body }), status.source);
+    const output = adapter && body
+      ? await collectHackerOneModelReviewText(adapter.streamResponse({ body }), status!.source)
+      : await (this.options.providerTextCompletion ?? completeProviderText)({
+          provider: route.provider,
+          model: route.model,
+          effort: route.effort,
+          systemPrompt: HACKERONE_IMPORT_REVIEW_INSTRUCTIONS,
+          prompt,
+          maxTokens: 16_384,
+          cwd: process.cwd(),
+          preferredAuthenticationMethods: providerSettings.preferredAuthenticationMethods
+        });
     const parsed = parseHackerOneImportReview(output);
     return {
       workspaceName: parsed.workspaceName || facts.name,
@@ -1734,7 +1859,7 @@ export class WorkspaceService {
     if (requestedShellSafetyMode !== undefined && !isShellSafetyMode(requestedShellSafetyMode)) {
       throw new Error(`Unsupported shell safety mode: ${String(requestedShellSafetyMode)}`);
     }
-    const normalizedInput: StartRunInput = {
+    let normalizedInput: StartRunInput = {
       ...input,
       shellSafetyMode: requestedShellSafetyMode ?? DEFAULT_SHELL_SAFETY_MODE,
       ...(input.collaboration ? { collaboration: normalizeResearchCollaboration(input.collaboration) } : {})
@@ -1743,9 +1868,27 @@ export class WorkspaceService {
     if (!runtime) throw new Error('No Beale workspace is open');
     const researchProfile = this.refreshResearchProfile(runtime);
     const providerSettings = this.getWorkspaceRegistry().getProviderSettings();
+    const requestedProvider = normalizedInput.provider?.trim() || null;
+    const explicitProvider = isResearchModelProviderId(requestedProvider) ? requestedProvider : null;
+    if (requestedProvider && !explicitProvider) {
+      throw new Error(`Unsupported Lead provider: ${requestedProvider}`);
+    }
+    const leadProvider = explicitProvider
+      ?? providerSettings.defaultProviderId
+      ?? (normalizedInput.runEngine === 'fixture' ? 'openai-codex' : null);
+    if (!leadProvider) {
+      throw new Error('No Lead provider is configured. Choose one in Provider settings before starting research.');
+    }
+    const leadDefaults = providerSettings.modelDefaults[leadProvider];
+    normalizedInput = {
+      ...normalizedInput,
+      provider: leadProvider,
+      ...(!explicitProvider && leadDefaults?.largeModel ? { model: leadDefaults.largeModel } : {}),
+      ...(!explicitProvider && leadDefaults?.reasoningEffort ? { reasoningEffort: leadDefaults.reasoningEffort } : {})
+    };
     requireEnabledProviderModel(
       providerSettings,
-      normalizedInput.provider ?? 'openai-codex',
+      leadProvider,
       normalizedInput.model
     );
     for (const collaborator of normalizedInput.collaboration?.providers.filter((provider) => provider.enabled) ?? []) {
@@ -2167,6 +2310,7 @@ export class WorkspaceService {
           ? run.budget.goalObjective
           : null;
         const forkInput: StartRunInput = {
+          provider: typeof run.budget.modelProvider === 'string' ? run.budget.modelProvider : undefined,
           shellSafetyMode: run.shellSafetyMode === 'danger' ? DEFAULT_SHELL_SAFETY_MODE : run.shellSafetyMode,
           goalEnabled: run.budget.goalEnabled === true,
           goalObjective: run.budget.goalEnabled === true
@@ -3787,10 +3931,6 @@ function requireOpenAiAuthenticationForMemoryDreaming(auth: OpenAiAuthService): 
   throw new Error('Authenticate with OpenAI first before running Memory Dreaming.');
 }
 
-function hasHackerOneImportedAssets(assets: ScopeAssetInput[] | undefined): boolean {
-  return (assets ?? []).some((asset) => asset.attributes?.source === 'hackerone');
-}
-
 function onboardingRepositoryIndexRequests(assets: ScopeAssetInput[]): string[] {
   const urls = new Set<string>();
   for (const asset of assets) {
@@ -4749,13 +4889,13 @@ function hostGoalSuggestionCount(profile: ResearchProfile, workflow: ResearchPro
   return count;
 }
 
-interface ProfileOpenAiRoute {
+interface ProfileModelRoute {
+  provider: ResearchModelProviderId;
   model: string;
   effort: ResearchModelEffortLevel;
 }
 
-const PROFILE_OPENAI_PROVIDERS = new Set(['openai', 'openai-codex']);
-const PROFILE_OPENAI_EFFORTS = new Set<ResearchModelEffortLevel>([
+const PROFILE_MODEL_EFFORTS = new Set<ResearchModelEffortLevel>([
   'off',
   'minimal',
   'low',
@@ -4765,36 +4905,35 @@ const PROFILE_OPENAI_EFFORTS = new Set<ResearchModelEffortLevel>([
   'max'
 ]);
 
-function resolveProfileOpenAiRoute(
-  profile: ResearchProfile,
-  jobName: 'promptGeneration' | 'goalSuggestions' | 'memoryCuration',
-  fallbackModel: string,
-  fallbackEffort: ResearchModelEffortLevel
-): ProfileOpenAiRoute {
-  return resolveProfileOpenAiJobRoute(profile.modelJobs[jobName], jobName, fallbackModel, fallbackEffort);
+function applicableResearchProfileModelJob(
+  job: ResearchProfileModelJob | undefined,
+  provider: ResearchModelProviderId
+): ResearchProfileModelJob | undefined {
+  if (!job?.provider) return job;
+  if (job.provider === provider) return job;
+  return provider === 'openai-codex' && job.provider === 'openai' ? job : undefined;
 }
 
-function resolveProfileOpenAiJobRoute(
-  job: ResearchProfileModelJob | undefined,
-  jobName: 'promptGeneration' | 'goalSuggestions' | 'memoryCuration',
-  fallbackModel: string,
-  fallbackEffort: ResearchModelEffortLevel
-): ProfileOpenAiRoute {
-  const provider = job?.provider?.trim();
-  if (provider && !PROFILE_OPENAI_PROVIDERS.has(provider)) {
-    throw new Error(
-      `Beale cannot service research profile model job ${jobName} with provider ${provider}; host auxiliary research jobs currently require OpenAI.`
-    );
+function validateProfileModelRoute(
+  route: { provider: string; model: string; effort: string },
+  jobName: string
+): ProfileModelRoute {
+  if (!isResearchModelProviderId(route.provider)) {
+    throw new Error(`Research profile model job ${jobName} has an unsupported provider ${route.provider}.`);
   }
-  const model = job?.model?.trim() || fallbackModel.trim();
+  const model = route.model.trim();
   if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/u.test(model)) {
-    throw new Error(`Research profile model job ${jobName} has an invalid OpenAI model id.`);
+    throw new Error(`Research profile model job ${jobName} has an invalid model id.`);
   }
-  const effort = job?.effort?.trim() || fallbackEffort;
-  if (!PROFILE_OPENAI_EFFORTS.has(effort as ResearchModelEffortLevel)) {
-    throw new Error(`Research profile model job ${jobName} has unsupported OpenAI reasoning effort ${effort}.`);
+  const effort = route.effort.trim();
+  if (!PROFILE_MODEL_EFFORTS.has(effort as ResearchModelEffortLevel)) {
+    throw new Error(`Research profile model job ${jobName} has unsupported reasoning effort ${effort}.`);
   }
-  return { model, effort: effort as ResearchModelEffortLevel };
+  return { provider: route.provider, model, effort: effort as ResearchModelEffortLevel };
+}
+
+function isResearchModelProviderId(value: unknown): value is ResearchModelProviderId {
+  return value === 'openai-codex' || value === 'anthropic' || value === 'xai';
 }
 
 function resolveRecommendationResearchSubject(

@@ -18,6 +18,39 @@ afterEach(() => {
 });
 
 describe('model-reasoned memory Dreaming', () => {
+  it('routes memory curation through the configured Lead provider', async () => {
+    const root = temporaryDirectory();
+    const calls: Array<{ provider: string; model: string; prompt: string }> = [];
+    const service = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: join(root, 'registry'),
+      honeycrispDatabasePath: join(root, 'memory.sqlite'),
+      honeycrispArtifactDirectory: join(root, 'artifacts'),
+      researchProfileResolver: () => resolvedTestResearchProfile(memoryDreamingResearchProfile()),
+      providerTextCompletion: async (request) => {
+        calls.push(request);
+        return JSON.stringify({ prune: [], merge: [], revise: [], reclassify: [] });
+      }
+    });
+
+    try {
+      initializeDreamingMemory(service, join(root, 'workspace'));
+      service.setDefaultProviderId('xai');
+      service.setProviderModelDefaults('xai', {
+        largeModel: 'grok-4.6',
+        smallModel: 'grok-4.3',
+        reasoningEffort: 'high'
+      });
+
+      await service.runMemoryDreaming();
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ provider: 'xai', model: 'grok-4.6' });
+      expect(calls[0]?.prompt).toContain('misclassified_invariant');
+    } finally {
+      service.close();
+    }
+  });
+
   it('reviews workspace memories with past session transcripts before applying a host-validated semantic plan', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'dreaming-test-token';
     const root = temporaryDirectory();

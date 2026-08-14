@@ -614,10 +614,34 @@ describe('research profile host integration', () => {
       ).at(-1);
       expect(xaiInvocation?.args).toContain('--xai-policy-risk-acknowledged');
 
+      service.setDefaultProviderId('xai');
+      service.setProviderModelDefaults('xai', {
+        largeModel: 'grok-4.6',
+        smallModel: 'grok-4.3',
+        reasoningEffort: 'high'
+      });
+      const leadStarted = service.startRun({
+        ...runInput('literature-synthesis'),
+        provider: undefined,
+        model: 'stale-client-model',
+        reasoningEffort: 'minimal'
+      });
+      const leadRunId = leadStarted.runs[0]?.run.id ?? '';
+      await waitForRun(service, leadRunId);
+      const leadInvocation = readInvocations(invocationLog).filter((candidate) =>
+        candidate.args[candidate.args.indexOf('--provider') + 1] === 'xai'
+      ).at(-1);
+      expect(leadInvocation?.args).toEqual(expect.arrayContaining([
+        '--provider', 'xai',
+        '--model', 'grok-4.6',
+        '--effort', 'high'
+      ]));
+      service.setDefaultProviderId(null);
+
       process.env.BEALE_OPENAI_ACCESS_TOKEN = 'profile-recommendation-test-token';
       currentProfile = resolvedTestResearchProfile(generalResearchProfile({ provider: 'anthropic' }, 2, '2.0.0'));
       await expect(service.generateResearchGoalSuggestions({ phase: 'literature-synthesis' }))
-        .rejects.toThrow(/currently require OpenAI/);
+        .resolves.toMatchObject({ phase: 'literature-synthesis' });
       currentProfile = resolvedTestResearchProfile(generalResearchProfile(undefined, 13, '3.0.0'));
       await expect(service.generateResearchGoalSuggestions({ phase: 'literature-synthesis' }))
         .rejects.toThrow(/host maximum of 12/);
@@ -905,6 +929,7 @@ function generalResearchProfile(
 function runInput(workflowId: string): StartRunInput {
   return {
     runEngine: 'honeycrisp',
+    provider: 'openai-codex',
     shellSafetyMode: 'auto_review',
     goalEnabled: false,
     goalObjective: null,

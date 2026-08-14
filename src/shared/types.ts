@@ -1227,6 +1227,7 @@ export interface ResearchPromptGenerationInput {
   draftPromptMarkdown?: string | null;
   mode: string;
   attemptStrategy: string;
+  provider?: ResearchModelProviderId;
   model: string;
   reasoningEffort: string;
   sandboxProfile: string;

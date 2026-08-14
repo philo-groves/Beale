@@ -31,6 +31,7 @@ import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { ModelSelectionPicker } from '../../app/ModelSelectionPicker';
 import { userFacingErrorMessage } from '../../lib/errors';
 import { researchModelNameLabel } from '../../lib/formatting';
+import { DEFAULT_RESEARCH_MODEL } from '../../../shared/modelDefaults';
 import { DEFAULT_SHELL_SAFETY_MODE, normalizeShellSafetyMode, SHELL_SAFETY_MODE_OPTIONS } from '../../../shared/shellSafety';
 import {
   clientRequestId,
@@ -147,7 +148,7 @@ export function StartRunForm({
   const [generateEnabled, setGenerateEnabled] = useState(true);
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
-  const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId>(defaultProviderId ?? 'openai-codex');
+  const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId | null>(defaultProviderId ?? null);
   const providerSelectionInitializedRef = useRef(false);
   const modelSelectionInitializedRef = useRef(false);
   const promptBoxRef = useRef<HTMLTextAreaElement | null>(null);
@@ -249,6 +250,7 @@ export function StartRunForm({
       draftPromptMarkdown: sourceStage === 'prompt' ? draft : null,
       mode: sessionInput.mode,
       attemptStrategy: sessionInput.attemptStrategy,
+      provider: selectedProviderId ?? undefined,
       model: sessionInput.model,
       reasoningEffort: sessionInput.reasoningEffort,
       sandboxProfile: sessionInput.sandboxProfile,
@@ -391,7 +393,8 @@ export function StartRunForm({
       const leadProviderId = leadProvider?.id ?? selectedProviderId;
       const leadModel = leadProvider?.models.find((model) => model.id === leadModelId);
       const leadEffort = effortLevelFromInput(current.reasoningEffort);
-      const leadReady = leadProvider?.configured === true
+      const leadReady = leadProviderId !== null
+        && leadProvider?.configured === true
         && providerPolicyRiskAcknowledgements[leadProviderId] === true
         && leadModel?.effortLevels.includes(leadEffort) === true;
       const candidateCollaboration = { ...currentCollaboration, providers };
@@ -452,8 +455,9 @@ export function StartRunForm({
         && provider.models.some((model) => model.id === preference.model && model.effortLevels.includes(preference.reasoningEffort))
         && (!requiresCyberPolicyAcknowledgement || providerPolicyRiskAcknowledgements?.[preference.provider] === true);
     }));
-  const canGenerate = hasPromptDraft && !generatingPrompt;
+  const canGenerate = hasPromptDraft && selectedProvider?.configured === true && !generatingPrompt;
   const canStart = hasPromptDraft
+    && selectedProvider?.configured === true
     && Boolean(selectedModel?.effortLevels.includes(selectedEffort))
     && collaborationReady;
 
@@ -736,7 +740,7 @@ export function StartRunForm({
                 <span className="research-model-team-label">Lead</span>
                 <ModelSelectionPicker
                   className="research-model-squircle research-lead-model-picker"
-                  providerValue={selectedProviderId}
+                  providerValue={selectedProviderId ?? ''}
                   modelValue={selectedModel?.id ?? ''}
                   effortValue={selectedEffort}
                   title="Lead provider, model, and effort"
@@ -749,7 +753,7 @@ export function StartRunForm({
                   }))}
                   modelOptions={(selectedProvider?.models ?? []).map((model) => ({
                     value: model.id,
-                    label: researchModelNameLabel(selectedProviderId, model.name)
+                    label: selectedProviderId ? researchModelNameLabel(selectedProviderId, model.name) : model.name
                   }))}
                   effortOptions={(selectedModel?.effortLevels ?? []).map((effort) => ({ value: effort, label: effortLabel(effort) }))}
                   onSelectProvider={(value) => selectProvider(value as ResearchModelProviderId)}
@@ -1003,12 +1007,10 @@ function collaboratorKey(providerId: ResearchModelProviderId, modelId: string): 
 export function selectNextAvailableCollaborator<T extends { provider: ResearchModelProviderId }>(
   available: readonly T[],
   enabled: readonly { provider: ResearchModelProviderId }[],
-  leadProviderId: ResearchModelProviderId
+  leadProviderId: ResearchModelProviderId | null
 ): T | null {
-  const representedProviders = new Set<ResearchModelProviderId>([
-    leadProviderId,
-    ...enabled.map((collaborator) => collaborator.provider)
-  ]);
+  const representedProviders = new Set<ResearchModelProviderId>(enabled.map((collaborator) => collaborator.provider));
+  if (leadProviderId) representedProviders.add(leadProviderId);
   return available.find((candidate) => !representedProviders.has(candidate.provider))
     ?? available.find((candidate) => candidate.provider !== leadProviderId)
     ?? available[0]
@@ -1030,7 +1032,7 @@ function providerDefaultModel(
 ): string | null {
   const configuredDefault = modelDefaults[providerId]?.largeModel;
   if (configuredDefault) return configuredDefault;
-  if (providerId === 'openai-codex') return openAiStatus?.defaultModel ?? defaultRunInput.model;
+  if (providerId === 'openai-codex') return openAiStatus?.defaultModel ?? DEFAULT_RESEARCH_MODEL;
   return statuses.find((provider) => provider.id === providerId)?.defaultModel ?? null;
 }
 

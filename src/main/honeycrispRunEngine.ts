@@ -2462,12 +2462,15 @@ function honeycrispRunArgs(
   if (configPath) {
     args.push('--config', configPath);
   }
-  const provider = process.env.BEALE_HONEYCRISP_PROVIDER?.trim() || input.provider?.trim();
-  if (provider) {
-    args.push('--provider', provider);
+  const provider = process.env.BEALE_HONEYCRISP_PROVIDER?.trim()
+    || input.provider?.trim()
+    || providerSettings?.defaultProviderId?.trim();
+  if (!provider) {
+    throw new Error('No Lead provider is configured. Choose one in Provider settings before starting research.');
   }
+  args.push('--provider', provider);
   if (collaborationConfigPath) args.push('--collaboration-config', collaborationConfigPath);
-  const effectiveProvider = provider || 'openai-codex';
+  const effectiveProvider = provider;
   if (providerSettings?.cyberPolicyRiskAcknowledgements?.['openai-codex'] === true) {
     args.push('--openai-trusted-access-cyber-risk-acknowledged');
   }

@@ -22,6 +22,7 @@
 
 ### Changed
 
+- Lead-provider routing now covers New Research prompt generation, workspace and session suggestions, Memory Dreaming, HackerOne scope review, and provider-omitted run starts instead of assuming OpenAI; Anthropic auxiliary work stays on Honeycrisp's official Claude Agent SDK and CLI boundary.
 - Research goal generation now defaults to OpenAI's configured small model at low effort, reuses a measured per-revision context, requests structured grounded candidate pools, and deterministically ranks them for workflow relevance, novelty, and semantic diversity. Cybersecurity Chaining requires an evidence-backed confirmed primitive, while Reporting requires a confirmed chain with impact, reachability, and proof evidence.
 - New Research now opens as a centered floating squircle dialog that layers its darker Suggestions surface beneath the right edge of its lighter prompt composer.
 - Collaboration now uses atomic rooms with simultaneous independent-memo release, targeted peer challenge and response rounds, and lead synthesis. Cybersecurity and Mathematics select separate workflow-specific role recipes from their active workspace profile, and only Cybersecurity requires provider policy acknowledgements for collaborator readiness.
@@ -78,6 +79,7 @@
 
 ### Fixed
 
+- Session forks now preserve the original run's provider route so later continuations cannot lose their assigned Lead provider.
 - xAI runs that prefer Subscription no longer fall through to an ambient API key when the OAuth credential is unavailable; API-key billing is exposed only after a recognized subscription usage-limit fallback.
 - Active-session detail polling now uses a trigger-maintained per-run revision introduced by workbench migration 21 instead of rescanning complete trace and transcript content.
 - Cross-workspace transcript search now queries each profile database once and applies the requested result limit globally while preserving complete workspace and match totals.

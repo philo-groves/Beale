@@ -16,9 +16,9 @@ describe('renderer run settings view model', () => {
     expect(defaultRunInput.runEngine).toBe('honeycrisp');
     expect(defaultRunInput.goalEnabled).toBe(true);
     expect(defaultRunInput.goalObjective).toBeNull();
-    expect(defaultRunInput.provider).toBe('openai-codex');
+    expect(defaultRunInput.provider).toBeUndefined();
     expect(defaultRunInput.shellSafetyMode).toBe('auto_review');
-    expect(defaultRunInput.model).toBe('gpt-5.6-sol');
+    expect(defaultRunInput.model).toBe('');
     expect(defaultRunInput.reasoningEffort).toBe('high');
   });
 
