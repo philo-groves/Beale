@@ -1185,13 +1185,15 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .sidebar-new-research {
-  width: auto;
+  width: calc(100% + 8px);
   min-width: 0;
   justify-content: flex-start;
   border-color: transparent;
+  border-radius: 8px;
   background: var(--accent);
   color: #050505;
-  padding: 0 9px;
+  margin-inline: -4px;
+  padding: 6px 4px;
 }
 
 .sidebar-new-research:hover:not(:disabled) {
@@ -1216,7 +1218,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   justify-content: flex-start;
   border-color: transparent;
   border-radius: 8px;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.045);
   color: #c8c8c8;
   margin-inline: -4px;
   padding: 6px 4px;

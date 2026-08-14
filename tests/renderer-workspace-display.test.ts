@@ -81,6 +81,11 @@ describe('renderer workspace display view models', () => {
     }));
 
     expect(html).toContain('<div class="workspace-list-title">Workspaces</div>');
+    expect(html).toContain('class="lucide lucide-square-pen"');
+    expect(html).not.toContain('class="lucide lucide-play"');
+    expect(html).toContain('title="Find a Session"');
+    expect(html).toContain('<span>Find a Session</span>');
+    expect(html).not.toContain('<span>Search</span>');
     expect(html).not.toContain('Research Workspaces');
   });
 

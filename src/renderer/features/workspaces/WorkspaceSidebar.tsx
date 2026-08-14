@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { ChevronDown, ChevronRight, Folder, FolderPlus, MoreVertical, Play, RefreshCw, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderPlus, MoreVertical, RefreshCw, Search, SquarePen } from 'lucide-react';
 import type { BreakoutRoomStatus, BreakoutRoomSummary, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForWorkspace, shortRelativeAge } from '../../view-models/workspaceDisplay';
@@ -67,13 +67,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   return (
     <aside className="sidebar" aria-hidden={collapsed} inert={collapsed}>
       <button type="button" className="sidebar-new-research" title={`Start ${newResearchLabel.toLocaleLowerCase()}`} disabled={busy || !snapshot} onClick={onStartNewResearch}>
-        <Play size={15} />
+        <SquarePen size={15} />
         <span>{newResearchLabel}</span>
       </button>
       <div className="sidebar-quick-actions">
-        <button type="button" className="sidebar-utility-button" title="Search" onClick={onSearch}>
+        <button type="button" className="sidebar-utility-button" title="Find a Session" onClick={onSearch}>
           <Search size={15} />
-          <span>Search</span>
+          <span>Find a Session</span>
         </button>
       </div>
       <div className="sidebar-section workspace-list">
