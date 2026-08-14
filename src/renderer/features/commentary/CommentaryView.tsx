@@ -366,19 +366,23 @@ export const CommentaryView = memo(function CommentaryView({
             ))}
             {!showBackToMain ? (
               <RunWorkDisclosure detail={detail}>
-                {topSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
-                {renderedMessages.map((message, index) => (
-                  <CommentaryMessageRow
-                    key={message.id}
-                    message={message}
-                    autoExpandToolKey={shouldAutoExpandToolMessage(activityMessages, normalizedWindowStart + index)
-                      ? `${message.id}:${message.toolCalls?.length ?? 0}`
-                      : null}
-                    searchHighlightQuery={searchHighlightQuery}
-                    selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
-                  />
-                ))}
-                {bottomSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
+                {() => (
+                  <>
+                    {topSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
+                    {renderedMessages.map((message, index) => (
+                      <CommentaryMessageRow
+                        key={message.id}
+                        message={message}
+                        autoExpandToolKey={shouldAutoExpandToolMessage(activityMessages, normalizedWindowStart + index)
+                          ? `${message.id}:${message.toolCalls?.length ?? 0}`
+                          : null}
+                        searchHighlightQuery={searchHighlightQuery}
+                        selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+                      />
+                    ))}
+                    {bottomSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
+                  </>
+                )}
               </RunWorkDisclosure>
             ) : (
               <>
@@ -460,7 +464,7 @@ export function commentaryMessageSections(
   };
 }
 
-function RunWorkDisclosure({ detail, children }: { detail: RunDetail; children: ReactNode }): JSX.Element {
+function RunWorkDisclosure({ detail, children }: { detail: RunDetail; children: ReactNode | (() => ReactNode) }): JSX.Element {
   const working = isRunWorkingStatus(detail.run.status);
   const [expanded, setExpanded] = useState(() => working);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -497,7 +501,7 @@ function RunWorkDisclosure({ detail, children }: { detail: RunDetail; children: 
           <span className="run-work-label">{label}</span>
         )}
       </div>
-      {expanded ? <div className="run-work-history">{children}</div> : null}
+      {expanded ? <div className="run-work-history">{typeof children === 'function' ? children() : children}</div> : null}
     </section>
   );
 }

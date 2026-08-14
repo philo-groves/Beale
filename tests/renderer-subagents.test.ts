@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceEventRecord } from '@shared/types';
 import { providerIconKind } from '../src/renderer/app/ProviderIcon';
-import { activeSubagentCount, filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
+import { activeSubagentCount, filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentOverviewForEvents, subagentOverviewFromSummaries, subagentOverviewStatusCountSummary, subagentStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
 
 describe('subagent trace view models', () => {
   it('maps supported provider and model identifiers to provider marks', () => {
@@ -409,6 +409,49 @@ describe('subagent trace view models', () => {
     const subagents = subagentSummaries(events, 'completed');
     expect(subagents[0]?.status).toBe('interrupted');
     expect(activeSubagentCount(subagents)).toBe(0);
+  });
+
+  it('computes a lightweight subagent overview without full message previews', () => {
+    const events = [
+      traceEvent({
+        id: 'running',
+        sequence: 1,
+        payload: {
+          type: 'subagent.activity',
+          action: 'spawned',
+          agentPath: '/root/running_worker',
+          status: 'running',
+          message: 'This expensive preview is not needed for counts.'
+        }
+      }),
+      traceEvent({
+        id: 'completed',
+        sequence: 2,
+        payload: {
+          type: 'subagent.activity',
+          action: 'completed',
+          agentPath: '/root/completed_worker',
+          status: 'completed',
+          message: 'Done.'
+        }
+      }),
+      traceEvent({
+        id: 'errored',
+        sequence: 3,
+        payload: {
+          type: 'subagent.activity',
+          action: 'errored',
+          agentPath: '/root/errored_worker',
+          status: 'errored',
+          message: 'Provider failed.'
+        }
+      })
+    ];
+
+    const fullOverview = subagentOverviewFromSummaries(subagentSummaries(events, 'active', 'commentary'));
+    const lightweightOverview = subagentOverviewForEvents(events, 'active');
+    expect(lightweightOverview).toEqual(fullOverview);
+    expect(subagentOverviewStatusCountSummary(lightweightOverview)).toBe('1 Active, 2 Completed');
   });
 
   it('interrupts unresolved agents when workspace recovery paused their parent session', () => {

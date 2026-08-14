@@ -23,7 +23,7 @@ import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogStatusSections, memoryCatalogUpdateKey, memoryTypeSummaryPresentation, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
 import type { MemoryStatusGroup, SessionMemoryTypeSummary } from '../../view-models/memoryCatalog';
-import { filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
+import { filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentOverviewForEvents, subagentOverviewFromSummaries, subagentOverviewStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
 import type { SubagentSummary } from '../../view-models/subagents';
 import { runbookCatalogGroups, runbookDescriptionText } from '../../view-models/runbooks';
 import { reportCatalogGroups } from '../../view-models/reports';
@@ -40,6 +40,8 @@ import { RunbookView } from './RunbookView';
 import { ReportView } from './ReportView';
 import { renderInlineCodeText } from '../traces/traceMarkup';
 import { TraceView } from '../traces/TraceView';
+
+const EMPTY_SUBAGENT_OVERVIEW = { count: 0, activeCount: 0, completedCount: 0 };
 
 export type MemoryLevelFilter = 'session' | 'workspace' | 'subject';
 export const DEFAULT_MEMORY_LEVEL_FILTER: MemoryLevelFilter = 'session';
@@ -368,10 +370,21 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => workspaceReports.reduce((count, report) => count + report.revision, 0),
     [workspaceReports]
   );
-  const subagents = useMemo(() => subagentSummaries(events, runStatus, chatView), [chatView, events, runStatus]);
+  const needsFullSubagents = subagentsAvailable && (detailsOpen || selectedSubagentPath !== null);
+  const subagents = useMemo(
+    () => needsFullSubagents ? subagentSummaries(events, runStatus, chatView) : [],
+    [chatView, events, needsFullSubagents, runStatus]
+  );
+  const subagentOverview = useMemo(
+    () => {
+      if (!subagentsAvailable) return EMPTY_SUBAGENT_OVERVIEW;
+      return needsFullSubagents ? subagentOverviewFromSummaries(subagents) : subagentOverviewForEvents(events, runStatus);
+    },
+    [events, needsFullSubagents, runStatus, subagents, subagentsAvailable]
+  );
   const filteredSubagents = useMemo(
-    () => filterSubagentSummaries(subagents, subagentQuery),
-    [subagentQuery, subagents]
+    () => needsFullSubagents ? filterSubagentSummaries(subagents, subagentQuery) : [],
+    [needsFullSubagents, subagentQuery, subagents]
   );
   const groupedSubagents = useMemo(() => subagentCatalogGroups(filteredSubagents), [filteredSubagents]);
   const visibleSelectedSubagentPath = subagentsAvailable ? selectedSubagentPath : null;
@@ -397,7 +410,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => traceEventsForSubagent(events, visibleSelectedSubagentPath),
     [events, visibleSelectedSubagentPath]
   );
-  const subagentStatusCounts = useMemo(() => subagentStatusCountSummary(subagents), [subagents]);
+  const subagentStatusCounts = useMemo(() => subagentOverviewStatusCountSummary(subagentOverview), [subagentOverview]);
   const nodeTypes = useMemo(() => orderedCatalogMemoryTypes(nodes, memoryTypes), [memoryTypes, nodes]);
   const filteredNodes = useMemo(
     () => filterMemoryCatalogNodes(nodes, { query, scope, sessionId: runId, workspaceId, subjectId, type }),
@@ -588,7 +601,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             {featureAvailability.collaboration ? (
               <button type="button" className="session-summary-item" onClick={() => openDetails('subagents')}>
                 <Bot size={15} aria-hidden="true" />
-                <span>{subagents.length} Subagents</span>
+                <span>{subagentOverview.count} Subagents</span>
                 {subagentStatusCounts ? <span className="session-summary-meta">{subagentStatusCounts}</span> : null}
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>

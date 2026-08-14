@@ -869,9 +869,12 @@ export function App(): JSX.Element {
     () => traceEventsForSubagent(activeTraceEvents, null),
     [activeTraceEvents]
   );
+  const needsSubagentSummaries = Boolean(selectedSubagentPath || (rightSidenavExpanded && activeRunDetail !== null));
   const activeSubagents = useMemo(
-    () => subagentSummaries(activeTraceEvents, activeRunDetail?.run.status, chatView),
-    [activeRunDetail?.run.status, activeTraceEvents, chatView]
+    () => needsSubagentSummaries
+      ? subagentSummaries(activeTraceEvents, activeRunDetail?.run.status, chatView)
+      : [],
+    [activeRunDetail?.run.status, activeTraceEvents, chatView, needsSubagentSummaries]
   );
   useEffect(() => {
     if (!selectedSubagentPath || activeSubagents.some((agent) => agent.path === selectedSubagentPath)) return;

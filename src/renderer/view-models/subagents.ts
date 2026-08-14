@@ -19,9 +19,21 @@ export interface SubagentSummary {
   lastActiveAt: string;
 }
 
+export interface SubagentOverview {
+  count: number;
+  activeCount: number;
+  completedCount: number;
+}
+
 interface SubagentAccumulator extends SubagentSummary {
   attemptId: string | null;
   spawnedAt: string | null;
+  lastSequence: number;
+}
+
+interface SubagentOverviewAccumulator {
+  status: SubagentStatus;
+  attemptId: string | null;
   lastSequence: number;
 }
 
@@ -49,11 +61,13 @@ export function subagentCatalogGroups(subagents: readonly SubagentSummary[]): {
 }
 
 export function subagentStatusCountSummary(subagents: readonly SubagentSummary[]): string {
-  const activeCount = activeSubagentCount(subagents);
-  const completedCount = subagents.filter((subagent) => !ACTIVE_SUBAGENT_STATUSES.has(subagent.status)).length;
+  return subagentOverviewStatusCountSummary(subagentOverviewFromSummaries(subagents));
+}
+
+export function subagentOverviewStatusCountSummary(overview: SubagentOverview): string {
   return [
-    activeCount > 0 ? `${activeCount} Active` : null,
-    completedCount > 0 ? `${completedCount} Completed` : null
+    overview.activeCount > 0 ? `${overview.activeCount} Active` : null,
+    overview.completedCount > 0 ? `${overview.completedCount} Completed` : null
   ].filter((label): label is string => label !== null).join(', ');
 }
 
@@ -162,6 +176,65 @@ export function subagentSummaries(
     const timeDifference = timestampOrder(left.createdAt, right.createdAt);
     return timeDifference || left.path.localeCompare(right.path);
   });
+}
+
+export function subagentOverviewFromSummaries(subagents: readonly SubagentSummary[]): SubagentOverview {
+  const activeCount = activeSubagentCount(subagents);
+  return {
+    count: subagents.length,
+    activeCount,
+    completedCount: subagents.length - activeCount
+  };
+}
+
+export function subagentOverviewForEvents(
+  events: readonly TraceEventRecord[],
+  runStatus?: RunStatus | null
+): SubagentOverview {
+  const summaries = new Map<string, SubagentOverviewAccumulator>();
+  const currentAttemptId = latestRootAttemptId(events);
+  const recoveryInterruptionSequence = latestRecoveryInterruptionSequence(events);
+
+  for (const event of events) {
+    const path = traceAgentPath(event);
+    if (!path || path === '/root') continue;
+    const eventType = subagentPayloadValue(event, 'type');
+    const action = subagentPayloadValue(event, 'action');
+    const lifecycleEvent = eventType === 'subagent.activity';
+    const current = summaries.get(path) ?? {
+      status: 'running' as const,
+      attemptId: event.attemptId,
+      lastSequence: event.sequence
+    };
+    summaries.set(path, {
+      status: lifecycleEvent
+        ? subagentLifecycleStatus(subagentPayloadValue(event, 'status'), action) ?? current.status
+        : current.status,
+      attemptId: event.attemptId ?? current.attemptId,
+      lastSequence: Math.max(current.lastSequence, event.sequence)
+    });
+  }
+
+  let activeCount = 0;
+  let completedCount = 0;
+  for (const summary of summaries.values()) {
+    const status = reconciledSubagentStatus(
+      summary.status,
+      summary.attemptId,
+      currentAttemptId,
+      runStatus,
+      summary.lastSequence,
+      recoveryInterruptionSequence
+    );
+    if (ACTIVE_SUBAGENT_STATUSES.has(status)) activeCount += 1;
+    else completedCount += 1;
+  }
+
+  return {
+    count: activeCount + completedCount,
+    activeCount,
+    completedCount
+  };
 }
 
 export function traceEventsForSubagent<TEvent extends TraceEventRecord>(events: TEvent[], path: string | null): TEvent[] {
