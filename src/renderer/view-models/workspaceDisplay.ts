@@ -14,17 +14,6 @@ export function workspaceExists(registry: WorkspaceRegistryState | null, registr
   return Boolean(workspaceById(registry, registryWorkspaceId));
 }
 
-export function sessionHistoryForWorkspaceId(
-  registry: WorkspaceRegistryState | null,
-  registryWorkspaceId: string | null
-): { workspace: WorkspaceRegistryEntry | null; sessions: ResearchSessionSummary[] } {
-  const workspace = workspaceById(registry, registryWorkspaceId);
-  return {
-    workspace,
-    sessions: workspace && registry ? researchSessionsForWorkspace(registry, workspace) : []
-  };
-}
-
 export function promptSessionTitle(session: ResearchSessionSummary): string {
   return displaySessionTitle(session.title, session.promptMarkdown);
 }

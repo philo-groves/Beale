@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -8,7 +9,6 @@ import {
   workspaceExists,
   promptSessionTitle,
   researchSessionsForWorkspace,
-  sessionHistoryForWorkspaceId,
   shortRelativeAge
 } from '../src/renderer/view-models/workspaceDisplay';
 import { testResearchProfile } from './researchProfileFixture';
@@ -16,6 +16,31 @@ import { testResearchProfile } from './researchProfileFixture';
 describe('renderer workspace display view models', () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('uses the session-list expansion text palette for every breakout-room state', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const roomStyles = styles.match(/\.workspace-breakout-room-item\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const sessionToggleStyles = styles.match(/\.session-memory-type-toggle\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const sessionToggleHoverStyles = styles.match(/\.session-memory-type-toggle:hover:not\(:disabled\),\s*\.session-memory-type-toggle:focus-visible\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+    expect(roomStyles).toContain('--breakout-room-title-color: var(--muted);');
+    expect(roomStyles).toContain('--breakout-room-title-emphasis-color: var(--muted-strong);');
+    expect(sessionToggleStyles).toContain('color: var(--muted);');
+    expect(sessionToggleHoverStyles).toContain('color: var(--muted-strong);');
+    expect(styles).not.toMatch(/\.workspace-breakout-room-item\[data-room-status="active"\][^{]*\{/u);
+  });
+
+  it('uses the summary sidenav transition for session-list overflow', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const overflowStyles = styles.match(/\.workspace-session-overflow\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const expandedStyles = styles.match(/\.workspace-session-overflow\.expanded\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const innerStyles = styles.match(/\.workspace-session-overflow-inner\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+    expect(overflowStyles).toContain('grid-template-rows: 0fr');
+    expect(overflowStyles).toContain('transition: grid-template-rows 180ms ease');
+    expect(expandedStyles).toContain('grid-template-rows: 1fr');
+    expect(innerStyles).toContain('overflow: hidden');
   });
 
   it('keeps sessions with their fixed workspace registry id', () => {
@@ -35,11 +60,6 @@ describe('renderer workspace display view models', () => {
     expect(workspaceById(registry, first.id)).toBe(first);
     expect(workspaceExists(registry, second.id)).toBe(true);
     expect(workspaceExists(registry, 'missing')).toBe(false);
-    expect(sessionHistoryForWorkspaceId(registry, first.id)).toMatchObject({
-      workspace: first,
-      sessions: [firstSession]
-    });
-    expect(sessionHistoryForWorkspaceId(registry, 'missing')).toEqual({ workspace: null, sessions: [] });
   });
 
   it('formats session titles and compact relative ages for sidebar rows', () => {
@@ -75,7 +95,6 @@ describe('renderer workspace display view models', () => {
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
       onSetOpenWorkspaceMenuId: () => undefined,
-      onShowMoreSessions: () => undefined,
       onSearch: () => undefined,
       onStartNewResearch: () => undefined
     }));
@@ -126,7 +145,6 @@ describe('renderer workspace display view models', () => {
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
       onSetOpenWorkspaceMenuId: () => undefined,
-      onShowMoreSessions: () => undefined,
       onSearch: () => undefined,
       onStartNewResearch: () => undefined
     }));
@@ -179,13 +197,14 @@ describe('renderer workspace display view models', () => {
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
       onSetOpenWorkspaceMenuId: () => undefined,
-      onShowMoreSessions: () => undefined,
       onSearch: () => undefined,
       onStartNewResearch: () => undefined
     }));
 
     expect(html).toMatch(/class="workspace-item-row active\b/u);
-    expect(html).toContain('>More Sessions...</button>');
+    expect(html).toContain('class="workspace-session-overflow" aria-hidden="true" inert=""');
+    expect(html).toContain('class="session-memory-type-toggle" aria-expanded="false">Show 1 more</button>');
+    expect(html).not.toContain('More Sessions...');
     expect(html).not.toContain('More Snapchat Sessions');
     expect(html).not.toContain('More Research Sessions');
   });
@@ -237,7 +256,6 @@ describe('renderer workspace display view models', () => {
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
       onSetOpenWorkspaceMenuId: () => undefined,
-      onShowMoreSessions: () => undefined,
       onSearch: () => undefined,
       onStartNewResearch: () => undefined
     }));
@@ -277,7 +295,6 @@ describe('renderer workspace display view models', () => {
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
       onSetOpenWorkspaceMenuId: () => undefined,
-      onShowMoreSessions: () => undefined,
       onSearch: () => undefined,
       onStartNewResearch: () => undefined
     }));
@@ -321,7 +338,6 @@ describe('renderer workspace display view models', () => {
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
       onSetOpenWorkspaceMenuId: () => undefined,
-      onShowMoreSessions: () => undefined,
       onSearch: () => undefined,
       onStartNewResearch: () => undefined
     }));

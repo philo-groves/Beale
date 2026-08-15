@@ -8,7 +8,6 @@ export const INSET_SCROLLBAR_SELECTOR = [
   '.main-commentary-list',
   '.research-goal-choice-list',
   '.modal-body',
-  '.session-history-list',
   '.trace-inspector-payload pre',
   '.center-column',
   '.tracker-panel',

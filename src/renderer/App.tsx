@@ -152,10 +152,7 @@ export function App(): JSX.Element {
     openRegisteredWorkspaceMenuId,
     setOpenWorkspaceMenuId,
     workspaceInfo,
-    setWorkspaceInfo,
-    setSessionHistoryWorkspaceId,
-    sessionHistoryWorkspace,
-    sessionHistorySessions
+    setWorkspaceInfo
   } = useWorkspaceOverlayState(workspaceRegistry);
   const {
     profilingState,
@@ -1145,7 +1142,6 @@ export function App(): JSX.Element {
           onRemoveWorkspace={removeRegisteredWorkspace}
           onResizePointerDown={beginSidebarResize}
           onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
-          onShowMoreSessions={setSessionHistoryWorkspaceId}
           onOpenAutomations={openAutomations}
           onOpenPlugins={openPlugins}
           onSearch={openSearch}
@@ -1289,8 +1285,6 @@ export function App(): JSX.Element {
         searchOpen={searchOpen}
         selectedRunId={selectedRunId}
         selectedTraceEvent={selectedTraceEvent}
-        sessionHistoryWorkspace={sessionHistoryWorkspace}
-        sessionHistorySessions={sessionHistorySessions}
         snapshot={snapshot}
         traceDetailOpen={traceDetailOpen}
         traceFilterOpen={traceFilterOpen}
@@ -1310,14 +1304,9 @@ export function App(): JSX.Element {
         onCloseWorkspaceInfo={() => setWorkspaceInfo(null)}
         onCloseSessionSummary={() => setSessionSummaryDetail(null)}
         onCloseSearch={() => setSearchOpen(false)}
-        onCloseSessionHistory={() => setSessionHistoryWorkspaceId(null)}
         onCloseTraceDetail={closeTraceDetail}
         onCloseTraceFilters={() => setTraceFilterOpen(false)}
         onLookupHackerOne={lookupHackerOneScope}
-        onOpenSessionHistorySession={(workspace, session) => {
-          openResearchSession(workspace, session);
-          setSessionHistoryWorkspaceId(null);
-        }}
         onWorkspaceTemplate={applyOnboardingTemplate}
         onFlushProfilingReport={flushProfilingReport}
         onLoadResearchGoalSuggestions={researchGoalSuggestionState.load}

@@ -15,14 +15,13 @@ import type {
   ProfilingState,
   WorkspaceOnboardingProgressUpdate,
   WorkspaceRegistryEntry,
-  ResearchSessionSummary,
   RunDetail,
   SessionTranscriptSearchResult,
   WorkspaceSnapshot
 } from '@shared/types';
 import type { TraceCategoryId } from '../traceClassification';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
-import { WorkspaceInformationModal, WorkspaceSessionHistorySheet } from '../features/workspaces/WorkspaceModals';
+import { WorkspaceInformationModal } from '../features/workspaces/WorkspaceModals';
 import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
 import { SessionSummaryModal } from '../features/sessions/SessionSummaryModal';
 import { TranscriptSearchSheet } from '../features/search/TranscriptSearchSheet';
@@ -69,8 +68,6 @@ export function AppModals({
   searchOpen,
   selectedRunId,
   selectedTraceEvent,
-  sessionHistoryWorkspace,
-  sessionHistorySessions,
   snapshot,
   traceDetailOpen,
   traceFilterOpen,
@@ -87,11 +84,9 @@ export function AppModals({
   onCloseWorkspaceInfo,
   onCloseSessionSummary,
   onCloseSearch,
-  onCloseSessionHistory,
   onCloseTraceDetail,
   onCloseTraceFilters,
   onLookupHackerOne,
-  onOpenSessionHistorySession,
   onWorkspaceTemplate,
   onFlushProfilingReport,
   onLoadResearchGoalSuggestions,
@@ -140,8 +135,6 @@ export function AppModals({
   searchOpen: boolean;
   selectedRunId: string | null;
   selectedTraceEvent: TraceDisplayEvent | null;
-  sessionHistoryWorkspace: WorkspaceRegistryEntry | null;
-  sessionHistorySessions: ResearchSessionSummary[];
   snapshot: WorkspaceSnapshot | null;
   traceDetailOpen: boolean;
   traceFilterOpen: boolean;
@@ -158,11 +151,9 @@ export function AppModals({
   onCloseWorkspaceInfo: () => void;
   onCloseSessionSummary: () => void;
   onCloseSearch: () => void;
-  onCloseSessionHistory: () => void;
   onCloseTraceDetail: () => void;
   onCloseTraceFilters: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
-  onOpenSessionHistorySession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
   onWorkspaceTemplate: (templateKind: WorkspaceTemplateKind) => void;
   onFlushProfilingReport: () => void;
   onLoadResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
@@ -279,15 +270,6 @@ export function AppModals({
         />
       ) : null}
       {workspaceInfo ? <WorkspaceInformationModal workspace={workspaceInfo} onClose={onCloseWorkspaceInfo} /> : null}
-      {sessionHistoryWorkspace ? (
-        <WorkspaceSessionHistorySheet
-          workspace={sessionHistoryWorkspace}
-          sessions={sessionHistorySessions}
-          selectedRunId={selectedRunId}
-          onClose={onCloseSessionHistory}
-          onOpenSession={(session) => onOpenSessionHistorySession(sessionHistoryWorkspace, session)}
-        />
-      ) : null}
     </>
   );
 }

@@ -1,7 +1,6 @@
 import type { JSX } from 'react';
-import type { WorkspaceRegistryEntry, ResearchSessionSummary } from '@shared/types';
-import { BottomSheet, Modal } from '../../app/Modal';
-import { promptSessionTitle, shortRelativeAge } from '../../view-models/workspaceDisplay';
+import type { WorkspaceRegistryEntry } from '@shared/types';
+import { BottomSheet } from '../../app/Modal';
 
 export function WorkspaceInformationModal({ workspace, onClose }: { workspace: WorkspaceRegistryEntry; onClose: () => void }): JSX.Element {
   return (
@@ -37,43 +36,5 @@ export function WorkspaceInformationModal({ workspace, onClose }: { workspace: W
         </div>
       </div>
     </BottomSheet>
-  );
-}
-
-export function WorkspaceSessionHistorySheet({
-  workspace,
-  sessions,
-  selectedRunId,
-  onClose,
-  onOpenSession
-}: {
-  workspace: WorkspaceRegistryEntry;
-  sessions: ResearchSessionSummary[];
-  selectedRunId: string | null;
-  onClose: () => void;
-  onOpenSession: (session: ResearchSessionSummary) => void;
-}): JSX.Element {
-  return (
-    <Modal title={`${workspace.workspaceName} Sessions`} className="start-run-dialog transcript-search-dialog" wide onClose={onClose}>
-      <div className="session-history-list">
-        {sessions.length > 0 ? (
-          sessions.map((session) => (
-            <button
-              type="button"
-              className={`session-history-item ${selectedRunId === session.runId ? 'active' : ''}`}
-              key={session.id}
-              onClick={() => onOpenSession(session)}
-            >
-              <span className="session-history-title">{promptSessionTitle(session)}</span>
-              <span className="session-history-meta">
-                {session.status} · Updated {shortRelativeAge(session.updatedAt)}
-              </span>
-            </button>
-          ))
-        ) : (
-          <span className="session-history-empty">No Session Yet...</span>
-        )}
-      </div>
-    </Modal>
   );
 }

@@ -1,22 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { WorkspaceRegistryEntry, WorkspaceRegistryState } from '@shared/types';
-import {
-  workspaceExists,
-  sessionHistoryForWorkspaceId
-} from '../view-models/workspaceDisplay';
+import { workspaceExists } from '../view-models/workspaceDisplay';
 
 export function useWorkspaceOverlayState(workspaceRegistry: WorkspaceRegistryState | null): {
   openRegisteredWorkspaceMenuId: string | null;
   setOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
   workspaceInfo: WorkspaceRegistryEntry | null;
   setWorkspaceInfo: (workspace: WorkspaceRegistryEntry | null | ((current: WorkspaceRegistryEntry | null) => WorkspaceRegistryEntry | null)) => void;
-  sessionHistoryWorkspaceId: string | null;
-  setSessionHistoryWorkspaceId: (registryWorkspaceId: string | null) => void;
-  sessionHistoryWorkspace: WorkspaceRegistryEntry | null;
-  sessionHistorySessions: ReturnType<typeof sessionHistoryForWorkspaceId>['sessions'];
 } {
   const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceRegistryEntry | null>(null);
-  const [sessionHistoryWorkspaceId, setSessionHistoryWorkspaceId] = useState<string | null>(null);
   const [openRegisteredWorkspaceMenuId, setOpenWorkspaceMenuId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,24 +41,12 @@ export function useWorkspaceOverlayState(workspaceRegistry: WorkspaceRegistrySta
     if (workspaceInfo && !workspaceExists(workspaceRegistry, workspaceInfo.id)) {
       setWorkspaceInfo(null);
     }
-    if (sessionHistoryWorkspaceId && !workspaceExists(workspaceRegistry, sessionHistoryWorkspaceId)) {
-      setSessionHistoryWorkspaceId(null);
-    }
-  }, [openRegisteredWorkspaceMenuId, workspaceInfo, workspaceRegistry, sessionHistoryWorkspaceId]);
-
-  const { workspace: sessionHistoryWorkspace, sessions: sessionHistorySessions } = useMemo(
-    () => sessionHistoryForWorkspaceId(workspaceRegistry, sessionHistoryWorkspaceId),
-    [workspaceRegistry, sessionHistoryWorkspaceId]
-  );
+  }, [openRegisteredWorkspaceMenuId, workspaceInfo, workspaceRegistry]);
 
   return {
     openRegisteredWorkspaceMenuId,
     setOpenWorkspaceMenuId,
     workspaceInfo,
-    setWorkspaceInfo,
-    sessionHistoryWorkspaceId,
-    setSessionHistoryWorkspaceId,
-    sessionHistoryWorkspace,
-    sessionHistorySessions
+    setWorkspaceInfo
   };
 }

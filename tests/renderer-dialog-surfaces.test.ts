@@ -2,14 +2,13 @@ import { createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { HoneycrispMemoryNodeSummary, ResearchGoalSuggestionsByPhase, ResearchSessionSummary, RunDetail, WorkspaceRegistryEntry, WorkspaceSnapshot } from '@shared/types';
+import type { HoneycrispMemoryNodeSummary, ResearchGoalSuggestionsByPhase, RunDetail, WorkspaceSnapshot } from '@shared/types';
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePanel';
 import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
 import { SessionSummaryModal } from '../src/renderer/features/sessions/SessionSummaryModal';
 import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
 import { SessionNextSteps, SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
-import { WorkspaceSessionHistorySheet } from '../src/renderer/features/workspaces/WorkspaceModals';
 import { WorkspaceOnboardingModal } from '../src/renderer/features/workspaces/WorkspaceOnboardingModal';
 import { INSET_SCROLLBAR_SELECTOR } from '../src/renderer/hooks/useInsetScrollbarActivation';
 import { onboardingFormFromDefaults } from '../src/renderer/view-models/workspaceOnboarding';
@@ -421,66 +420,17 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('Provide an authorized credential reference.');
   });
 
-  it('uses New Research-style dialogs for session history and transcript search', () => {
-    const workspace: WorkspaceRegistryEntry = {
-      id: 'registry_workspace',
-      workspacePath: '/tmp/workspace',
-      workspaceId: 'workspace_one',
-      workspaceName: 'Parser Research',
-      scopeOwner: 'Example Org',
-      researchProfileId: 'security-research',
-      descriptionMarkdown: '',
-      rulesMarkdown: '',
-      expiresAt: null,
-      createdAt: '2026-07-28T00:00:00.000Z',
-      updatedAt: '2026-07-28T00:00:00.000Z',
-      lastOpenedAt: '2026-07-28T00:00:00.000Z',
-      runCount: 1,
-      lastRunAt: '2026-07-28T00:00:00.000Z'
-    };
-    const session: ResearchSessionSummary = {
-      id: 'session_one',
-      registryWorkspaceId: workspace.id,
-      workspacePath: workspace.workspacePath,
-      workspaceId: workspace.workspaceId,
-      runId: 'run_one',
-      title: 'Review parser bounds',
-      status: 'completed',
-      runEngine: 'honeycrisp',
-      mode: 'dynamic',
-      promptMarkdown: 'Review parser bounds.',
-      summary: 'Review complete.',
-      finalDisposition: null,
-      model: 'gpt-5.6',
-      reasoningEffort: 'medium',
-      sandboxProfile: 'host',
-      createdAt: '2026-07-28T00:00:00.000Z',
-      startedAt: '2026-07-28T00:00:00.000Z',
-      endedAt: '2026-07-28T00:05:00.000Z',
-      updatedAt: '2026-07-28T00:05:00.000Z'
-    };
-    const historyHtml = renderToStaticMarkup(
-      createElement(WorkspaceSessionHistorySheet, {
-        workspace,
-        sessions: [session],
-        selectedRunId: session.runId,
-        onClose: () => undefined,
-        onOpenSession: () => undefined
-      })
-    );
+  it('uses the New Research-style dialog for transcript search', () => {
     const searchHtml = renderToStaticMarkup(
       createElement(TranscriptSearchSheet, {
-        activeWorkspaceName: workspace.workspaceName,
+        activeWorkspaceName: 'Parser Research',
         workspaceOpen: true,
-        selectedRunId: session.runId,
+        selectedRunId: 'run_one',
         onClose: () => undefined,
         onOpenResult: () => undefined
       })
     );
 
-    expect(historyHtml).toContain('start-run-dialog transcript-search-dialog');
-    expect(historyHtml).toContain('Review parser bounds');
-    expect(historyHtml).not.toContain('modal-footer');
     expect(searchHtml).toContain('start-run-dialog transcript-search-dialog');
     expect(searchHtml).toContain('Search session transcripts...');
     expect(searchHtml).not.toContain('modal-footer');

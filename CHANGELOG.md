@@ -37,6 +37,7 @@
 
 ### Changed
 
+- Sidebar breakout-room labels now use the same muted text palette as the session-list expansion control regardless of room status.
 - New Research now starts user-written objectives directly by default. Optional Add Context generation produces a 100-250 word cyber objective brief capped at 4,000 characters, uses only a bounded set of relevant assets, memories, prior outcomes, and source coverage, and leaves authorization, profile, AGENTS.md, tools, and full memory context to Honeycrisp's runtime injection.
 - Shell execution now supports complete platform shell commands, executable paths, and host HOME-family environment variables through Honeycrisp while retaining the selected Manual Approval, Auto-Review, or Danger Mode authorization flow.
 - Main headers now separate workspace, session, and active breakout-room names with vertical dividers, and breakout-room views no longer render a duplicate room header.
@@ -44,7 +45,7 @@
 - Breakout-room names now display with each word capitalized in the sidebar and main header.
 - Outbound agent-to-agent messages now render as right-aligned white bubbles in Commentary and breakout-room transcripts, while breakout-room incoming messages and outcomes use left-aligned dark bubbles with in-bubble provider, agent, display-model, type, and timestamp headers.
 - Session transcript search now opens as a centered Find a Session dialog matching the New Research modal shape and surface color instead of a bottom sheet.
-- More Sessions now reuses the same centered session-finder dialog styling instead of the bottom-sheet presentation.
+- Sidebar session lists now expand and collapse in place through animated Show N more and Show less actions matching summary-sidenav memory types.
 - Beale now permits bundled and host-approved research profiles to use Honeycrisp repository search and file reads by default; repository search may target any readable host directory, including repositories outside the workspace, while configured repositories remain context hints.
 - Removed borders from the Dream and Dejunk housekeeping buttons.
 - Breakout-room messages now use provider-attributed rows at the standard Commentary width, with Working/Worked-style divider headers, clickable subagent names that open detailed Commentary, message-kind labels, and 400px fade-truncated bodies that can be expanded instead of colored side rails.
@@ -239,7 +240,7 @@
 - Memory Save trace rows now show the memory type and status above a Markdown-formatted summary.
 - Memory Link trace rows now show their source, relationship, and target IDs with the recorded note beneath them.
 - Subagent catalog rows now mirror Memory row styling with status-colored names, neutral inline status labels, two-line descriptions, and shared timestamp/scrollbar behavior; rows sort by Honeycrisp spawn time and follow new agents.
-- More Sessions, memory record details, and transcript Search now open in the shared sliding bottom-sheet surface; memory catalog rows remain compact instead of expanding inline.
+- Memory record details now open in the shared sliding bottom-sheet surface; memory catalog rows remain compact instead of expanding inline.
 - Beale traces now persist Honeycrisp research output as `research_event` and present it under a Research filter; generated files and exports use the separate Artifacts filter.
 - Deterministic fixture scenarios now describe exercised behavior (`multi_branch_trace`, `source_review`, `crash_artifact`, `scope_block`, and `verifier_pass`) instead of encoding hypothesis/finding lifecycle outcomes.
 - The default attempt strategy is now `iterative_research`, and disclosure exports use `artifact_bundle` terminology.
