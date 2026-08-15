@@ -31,11 +31,20 @@ import type {
 import { getHostEnvironment, WorkspaceService, type WorkspaceChange } from './workspaceService';
 import { nativeMacApplicationMenuTemplate } from './nativeApplicationMenu';
 import { ProviderCredentialStore } from './providerCredentialStore';
+import { restoreAndFocusWindow } from './windowLifecycle';
 
+const APP_NAME = 'Beale';
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
 const smokeTestMode = process.argv.includes('--smoke-test');
 const NATIVE_WINDOW_SHAPE_RADIUS_PX = 8;
+
+// Keep the established storage location stable while correcting the displayed app identity.
+app.setPath('userData', join(app.getPath('appData'), 'beale'));
+app.setName(APP_NAME);
+process.title = APP_NAME;
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 function createWindow(): void {
   const isMac = process.platform === 'darwin';
@@ -45,13 +54,13 @@ function createWindow(): void {
   if (appIcon && isMac && app.dock) {
     app.dock.setIcon(appIcon);
   }
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 1440,
     height: 940,
     minWidth: 1120,
     minHeight: 760,
     show: !needsNativeWindowShape,
-    title: 'Beale',
+    title: APP_NAME,
     backgroundColor: '#00000000',
     autoHideMenuBar: true,
     transparent: true,
@@ -73,19 +82,36 @@ function createWindow(): void {
       sandbox: false
     }
   });
-  mainWindow.setBackgroundColor('#00000000');
-  mainWindow.setMenuBarVisibility(false);
-  registerRoundedWindowShape(mainWindow, needsNativeWindowShape);
-  registerRoundedWindowStartupShow(mainWindow, needsNativeWindowShape);
-  registerWindowChromeStateEvents(mainWindow);
-  registerRendererDevToolsControls(mainWindow);
+  mainWindow = window;
+  window.on('closed', () => {
+    if (mainWindow === window) mainWindow = null;
+  });
+  window.setBackgroundColor('#00000000');
+  window.setMenuBarVisibility(false);
+  registerRoundedWindowShape(window, needsNativeWindowShape);
+  registerRoundedWindowStartupShow(window, needsNativeWindowShape);
+  registerWindowChromeStateEvents(window);
+  registerRendererDevToolsControls(window);
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+    window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+    window.loadFile(join(__dirname, '../renderer/index.html'));
   }
   installApplicationMenu();
+}
+
+function reopenMainWindow(): void {
+  const existingWindow = mainWindow && !mainWindow.isDestroyed()
+    ? mainWindow
+    : BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) ?? null;
+  if (restoreAndFocusWindow(existingWindow)) {
+    mainWindow = existingWindow;
+    return;
+  }
+  if (app.isReady()) {
+    createWindow();
+  }
 }
 
 function installApplicationMenu(): void {
@@ -618,38 +644,40 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getWindowChromeState, (event) => windowChromeState(windowForEvent(event)));
 }
 
-app.whenReady().then(() => {
-  const providerCredentialStore = new ProviderCredentialStore(
-    join(app.getPath('userData'), 'provider-credentials.json'),
-    {
-      available: () => safeStorage.isEncryptionAvailable(),
-      encrypt: (value) => safeStorage.encryptString(value),
-      decrypt: (value) => safeStorage.decryptString(value)
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', reopenMainWindow);
+
+  app.whenReady().then(() => {
+    const providerCredentialStore = new ProviderCredentialStore(
+      join(app.getPath('userData'), 'provider-credentials.json'),
+      {
+        available: () => safeStorage.isEncryptionAvailable(),
+        encrypt: (value) => safeStorage.encryptString(value),
+        decrypt: (value) => safeStorage.decryptString(value)
+      }
+    );
+    workspaceService = new WorkspaceService(broadcastSnapshot, { providerCredentialStore });
+    registerIpc();
+    createWindow();
+    setImmediate(() => {
+      workspaceService.openLastWorkspaceIfAvailable();
+    });
+    if (smokeTestMode) {
+      setTimeout(() => app.quit(), 1500);
     }
-  );
-  workspaceService = new WorkspaceService(broadcastSnapshot, { providerCredentialStore });
-  registerIpc();
-  createWindow();
-  setImmediate(() => {
-    workspaceService.openLastWorkspaceIfAvailable();
-  });
-  if (smokeTestMode) {
-    setTimeout(() => app.quit(), 1500);
-  }
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+    app.on('activate', reopenMainWindow);
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
     }
   });
-});
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-app.on('before-quit', () => {
-  workspaceService?.dispose();
-});
+  app.on('before-quit', () => {
+    workspaceService?.dispose();
+  });
+}

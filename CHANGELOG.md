@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Beale now allows only one desktop app instance; repeated launches restore and focus the existing window, while runtime and package identity consistently use the Beale name.
 - Restart recovery now marks interrupted subagents and collaboration members as interrupted even when stale same-attempt events arrive late, and interrupted sessions receive an error final message reading `Unexpected error`.
 - Active-session rounded-square pulses now remain visible across dashboard and session views whenever the workspace has queued or active research, with their original contrast restored through the transparent window sidebar.
 - Dejunk no longer misclassifies paused research sessions as active; only queued or actively running sessions block workspace housekeeping.
