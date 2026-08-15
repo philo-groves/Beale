@@ -1,14 +1,27 @@
 import type { RunDetail, RunStatus } from '@shared/types';
 
 const MAX_SUGGESTION_WORDS = 14;
+const MAX_RESEARCH_FOCUS_WORDS = 10;
+const GENERIC_SUGGESTION_WORDS = new Set((
+  'a an analyze analyzing and assess assessing blocker by completed context continue current deeper determine determining '
+  + 'ended evidence examine examining explore exploring failed failure findings focus from high-impact highest highest-impact '
+  + 'identify identifying impact important in inspect inspecting into investigate investigating investigation issue latest '
+  + 'lead more most new next objective of on paused prior problem remaining research resolve result results review reviewing '
+  + 'safely session state status stopped strongest task test testing the then to unresolved untitled use using validate validating '
+  + 'verify verifying with work'
+).split(/\s+/u));
 
 export type SteeringInputTabAction = 'accept_suggestion' | 'show_suggestion' | 'none';
 
 export function steeringInputSuggestion(detail: RunDetail | null): string | null {
   if (!detail) return null;
   const suggestedPrompt = finalPromptSuggestion(detail);
-  if (suggestedPrompt) return shortSteeringSuggestion(suggestedPrompt);
-  return fallbackSteeringSuggestion(detail.run.status);
+  const shortSuggestedPrompt = suggestedPrompt ? shortSteeringSuggestion(suggestedPrompt) : null;
+  if (shortSuggestedPrompt && !isVagueSteeringSuggestion(shortSuggestedPrompt)) return shortSuggestedPrompt;
+
+  const researchFocus = contextualResearchFocus(detail);
+  if (researchFocus) return `Continue investigating ${researchFocus}.`;
+  return shortSuggestedPrompt ?? fallbackSteeringSuggestion(detail.run.status);
 }
 
 export function steeringSuggestionAutoVisible(status: RunStatus | null): boolean {
@@ -52,16 +65,78 @@ function finalPromptSuggestion(detail: RunDetail): string | null {
 function promptSuggestionFromMetadata(metadata: Record<string, unknown>): string | null {
   const suggestions = metadata.nextPromptSuggestions;
   if (!Array.isArray(suggestions)) return null;
+  let fallback: string | null = null;
   for (const suggestion of suggestions) {
-    if (typeof suggestion === 'string' && suggestion.trim()) return suggestion;
-    if (!suggestion || typeof suggestion !== 'object' || Array.isArray(suggestion)) continue;
-    const record = suggestion as Record<string, unknown>;
-    const prompt = typeof record.promptMarkdown === 'string' ? record.promptMarkdown.trim() : '';
-    const title = typeof record.title === 'string' ? record.title.trim() : '';
-    if (prompt) return prompt;
-    if (title) return title;
+    let candidates: string[] = [];
+    if (typeof suggestion === 'string') {
+      candidates = [suggestion];
+    } else if (suggestion && typeof suggestion === 'object' && !Array.isArray(suggestion)) {
+      const record = suggestion as Record<string, unknown>;
+      candidates = [
+        typeof record.promptMarkdown === 'string' ? record.promptMarkdown : '',
+        typeof record.title === 'string' ? record.title : ''
+      ];
+    }
+    const normalizedCandidates = candidates
+      .map((candidate) => shortSteeringSuggestion(candidate))
+      .filter((candidate): candidate is string => Boolean(candidate));
+    const specific = normalizedCandidates.find((candidate) => !isVagueSteeringSuggestion(candidate));
+    if (specific) return specific;
+    fallback ??= normalizedCandidates[0] ?? null;
+  }
+  return fallback;
+}
+
+function contextualResearchFocus(detail: RunDetail): string | null {
+  const latestUserInstruction = [...(detail.transcriptMessages ?? [])]
+    .reverse()
+    .find((message) => message.role === 'user')
+    ?.contentMarkdown;
+  const ended = detail.run.status === 'blocked'
+    || detail.run.status === 'completed'
+    || detail.run.status === 'failed'
+    || detail.run.status === 'stopped';
+  const candidates = ended
+    ? [
+        detail.run.finalDisposition?.summary,
+        detail.run.summary,
+        latestUserInstruction,
+        detail.run.title,
+        detail.run.promptMarkdown,
+        detail.run.targetPath
+      ]
+    : [latestUserInstruction, detail.run.title, detail.run.promptMarkdown, detail.run.targetPath];
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const focus = compactResearchFocus(candidate);
+    if (focus && !isVagueSteeringSuggestion(focus)) return focus;
   }
   return null;
+}
+
+function compactResearchFocus(value: string): string | null {
+  const normalized = firstSentence(normalizeSuggestionText(value))
+    .replace(/^(?:objective|goal|task)\s*:?\s*/iu, '')
+    .replace(
+      /^(?:(?:the\s+)?(?:research|investigation|analysis|session)|i|we)?\s*(?:confirmed|found|identified|showed|established|concluded)\s+(?:that\s+)?/iu,
+      ''
+    )
+    .replace(
+      /^(?:please\s+)?(?:continue(?:\s+(?:to|with))?|focus(?:\s+next)?(?:\s+on)?|investigat(?:e|ing)|analyz(?:e|ing)|assess(?:ing)?|determin(?:e|ing)|verif(?:y|ying)|validat(?:e|ing)|explor(?:e|ing)|research(?:ing)?|inspect(?:ing)?|review(?:ing)?|test(?:ing)?|find(?:ing)?|identif(?:y|ying)|examin(?:e|ing))\s+/iu,
+      ''
+    )
+    .replace(/[.!?]+$/u, '')
+    .trim();
+  if (!normalized) return null;
+  const words = normalized.split(/\s+/u).filter(Boolean);
+  return words.slice(0, MAX_RESEARCH_FOCUS_WORDS).join(' ').replace(/[,:;.-]+$/u, '') || null;
+}
+
+function isVagueSteeringSuggestion(value: string): boolean {
+  const words = normalizeSuggestionText(value)
+    .toLowerCase()
+    .match(/[\p{L}\p{N}_-]+/gu) ?? [];
+  return !words.some((word) => !GENERIC_SUGGESTION_WORDS.has(word));
 }
 
 function fallbackSteeringSuggestion(status: RunStatus): string {

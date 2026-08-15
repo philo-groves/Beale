@@ -11,6 +11,7 @@ import {
 } from '../src/renderer/features/traces/TraceView';
 import {
   shortSteeringSuggestion,
+  steeringInputSuggestion,
   steeringInputTabAction
 } from '../src/renderer/view-models/steeringSuggestions';
 
@@ -113,6 +114,66 @@ describe('renderer trace composer', () => {
     expect(shortSteeringSuggestion(
       'Continue by validating the parser crash with saved artifacts and then compare adjacent bounds checks carefully.'
     )?.split(/\s+/u)).toHaveLength(14);
+  });
+
+  it('grounds a generic model suggestion in the latest user steering context', () => {
+    const detail = composerDetail('active', {
+      run: {
+        ...composerDetail('active').run,
+        title: 'OAuth callback validation',
+        promptMarkdown: 'Review OAuth callback validation.'
+      },
+      transcriptMessages: [{
+        id: 'steering_message',
+        runId: 'run_composer',
+        attemptId: 'attempt_one',
+        traceEventId: 'trace_steering',
+        role: 'user',
+        phase: 'commentary',
+        contentMarkdown: 'Investigate malformed state parameters bypassing OAuth callback validation.',
+        source: 'user',
+        metadata: {
+          nextPromptSuggestions: [{
+            title: 'Continue research',
+            promptMarkdown: 'Continue from the latest findings.'
+          }]
+        },
+        createdAt: '2026-08-15T10:00:00.000Z'
+      }]
+    });
+
+    expect(steeringInputSuggestion(detail)).toBe(
+      'Continue investigating malformed state parameters bypassing OAuth callback validation.'
+    );
+  });
+
+  it('uses the session title when no model or steering suggestion is available', () => {
+    const detail = composerDetail('paused', {
+      run: {
+        ...composerDetail('paused').run,
+        title: 'Parser bounds-check bypass',
+        promptMarkdown: 'Investigate the parser.'
+      }
+    });
+
+    expect(steeringInputSuggestion(detail)).toBe(
+      'Continue investigating Parser bounds-check bypass.'
+    );
+  });
+
+  it('uses the completed session summary before its original objective', () => {
+    const detail = composerDetail('completed', {
+      run: {
+        ...composerDetail('completed').run,
+        title: 'Parser review',
+        promptMarkdown: 'Review the request parser for memory-safety issues.',
+        summary: 'The investigation confirmed that crafted length fields bypass the parser signed bounds check.'
+      }
+    });
+
+    expect(steeringInputSuggestion(detail)).toBe(
+      'Continue investigating crafted length fields bypass the parser signed bounds check.'
+    );
   });
 
   it('combines model and effort into one model settings picker', () => {
