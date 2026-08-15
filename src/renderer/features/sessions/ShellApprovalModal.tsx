@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import type { JSX } from 'react';
 import type { ApprovalRecord, PolicyReviewDecision, RunDetail } from '@shared/types';
 import { Modal } from '../../app/Modal';
@@ -6,6 +7,51 @@ export function pendingShellApproval(detail: RunDetail | null): ApprovalRecord |
   return detail?.policyEvents.find(
     (approval) => approval.requestKind === 'shell_command' && approval.decision === 'pending' && approval.decidedAt === null
   ) ?? null;
+}
+
+export function isAutoReviewOverrideApproval(approval: ApprovalRecord | null): boolean {
+  return approval?.requestedAction.approvalKind === 'auto_review_override';
+}
+
+export function ShellApprovalQuestion({
+  approval,
+  busy,
+  onDecision
+}: {
+  approval: ApprovalRecord;
+  busy: boolean;
+  onDecision: (decision: PolicyReviewDecision) => void;
+}): JSX.Element {
+  const footerRef = useRef<HTMLElement | null>(null);
+  const reviewReason = typeof approval.requestedAction.reviewReason === 'string'
+    && approval.requestedAction.reviewReason.trim()
+    ? approval.requestedAction.reviewReason.trim()
+    : 'Auto-Review did not approve this command.';
+
+  useLayoutEffect(() => {
+    const traceView = footerRef.current?.parentElement;
+    if (!traceView) return undefined;
+    traceView.style.removeProperty('--trace-footer-height');
+    traceView.style.setProperty('--trace-footer-content-height', 'var(--trace-footer-min-height)');
+    return () => {
+      traceView.style.removeProperty('--trace-footer-content-height');
+    };
+  }, [approval.id]);
+
+  return (
+    <footer ref={footerRef} className="main-trace-footer shell-approval-question" aria-label="Approve shell command once">
+      <div className="shell-approval-question-surface">
+        <div className="shell-approval-question-content">
+          <strong>Approve this command once?</strong>
+          <span>{reviewReason}</span>
+        </div>
+        <div className="shell-approval-question-actions">
+          <button type="button" disabled={busy} onClick={() => onDecision('denied')}>Keep Blocked</button>
+          <button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('approved')}>Approve Once</button>
+        </div>
+      </div>
+    </footer>
+  );
 }
 
 export function ShellApprovalModal({

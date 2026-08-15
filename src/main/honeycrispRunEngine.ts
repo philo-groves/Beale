@@ -1383,13 +1383,16 @@ export class HoneycrispRunEngine {
       return;
     }
     const runTitle = (this.db.getRun(context.run.id)?.title ?? context.run.title).slice(0, 240);
+    const autoReviewOverride = requestedAction.approvalKind === 'auto_review_override';
     const approval = this.db.createApproval({
       runId: context.run.id,
       attemptId: context.attempt.id,
       requestKind: 'shell_command',
       requestedAction: { approvalRequestId, runTitle, ...requestedAction },
       decision: 'pending',
-      reason: 'Waiting for manual researcher approval before shell execution.',
+      reason: autoReviewOverride
+        ? 'Waiting for the researcher to approve this Auto-Review denial once.'
+        : 'Waiting for manual researcher approval before shell execution.',
       pending: true
     });
     active.shellApprovalRecords.set(approvalRequestId, approval.id);
@@ -1398,7 +1401,9 @@ export class HoneycrispRunEngine {
       attemptId: context.attempt.id,
       type: 'approval_event',
       source: 'policy',
-      summary: 'Shell command is waiting for manual approval.',
+      summary: autoReviewOverride
+        ? 'Auto-Review denial is waiting for a one-command researcher decision.'
+        : 'Shell command is waiting for manual approval.',
       payload: {
         approvalId: approval.id,
         approvalRequestId,
@@ -3199,10 +3204,12 @@ function shellAuthorizationAuditPayload(payload: Record<string, unknown>): Recor
   const reviewer = recordValue(payload.reviewer);
   const rawArgs = Array.isArray(command.args) ? command.args : [];
   const audit = {
+    approvalKind: boundedAuditString(payload.approvalKind, 64),
     mode: boundedAuditString(payload.mode, 64),
     actionId: boundedAuditString(payload.actionId, 256),
     agentId: boundedAuditString(payload.agentId, 256),
     agentPath: boundedAuditString(payload.agentPath, 1_024),
+    reviewReason: boundedAuditString(payload.reviewReason, 1_000),
     command: {
       commandHash: boundedAuditString(command.commandHash, 128),
       utility: boundedAuditString(command.utility, 2_048),

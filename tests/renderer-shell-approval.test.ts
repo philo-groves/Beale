@@ -2,7 +2,11 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { ApprovalRecord } from '@shared/types';
-import { ShellApprovalModal } from '../src/renderer/features/sessions/ShellApprovalModal';
+import {
+  isAutoReviewOverrideApproval,
+  ShellApprovalModal,
+  ShellApprovalQuestion
+} from '../src/renderer/features/sessions/ShellApprovalModal';
 
 describe('renderer shell approval modal', () => {
   it('shows the bounded command audit and researcher choices', () => {
@@ -24,10 +28,39 @@ describe('renderer shell approval modal', () => {
 
     expect(html.match(/disabled=""/g)).toHaveLength(3);
   });
+
+  it('renders an Auto-Review override as an inline Approve Once question', () => {
+    const approval = approvalRecord({
+      approvalKind: 'auto_review_override',
+      mode: 'auto_review',
+      reviewReason: 'The temporary target executable needs researcher confirmation.'
+    });
+    const html = renderToStaticMarkup(createElement(ShellApprovalQuestion, {
+      approval,
+      busy: false,
+      onDecision: () => undefined
+    }));
+
+    expect(isAutoReviewOverrideApproval(approval)).toBe(true);
+    expect(html).toContain('aria-label="Approve shell command once"');
+    expect(html).toContain('Approve this command once?');
+    expect(html).toContain('The temporary target executable needs researcher confirmation.');
+    expect(html).toContain('>Keep Blocked</button>');
+    expect(html).toContain('class="primary-button">Approve Once</button>');
+    expect(html).not.toContain('class="modal-overlay"');
+  });
 });
 
 function renderApproval(busy: boolean): string {
-  const approval: ApprovalRecord = {
+  return renderToStaticMarkup(createElement(ShellApprovalModal, {
+    approval: approvalRecord(),
+    busy,
+    onDecision: () => undefined
+  }));
+}
+
+function approvalRecord(requestedActionPatch: Record<string, unknown> = {}): ApprovalRecord {
+  return {
     id: 'approval_fixture',
     runId: 'run_fixture',
     attemptId: 'attempt_fixture',
@@ -45,7 +78,8 @@ function renderApproval(busy: boolean): string {
         stdinPresent: true,
         stdinBytes: 7,
         stdinHash: 'sha256:fixture'
-      }
+      },
+      ...requestedActionPatch
     },
     decision: 'pending',
     reason: 'Waiting for manual researcher approval before shell execution.',
@@ -53,9 +87,4 @@ function renderApproval(busy: boolean): string {
     createdAt: '2026-08-02T00:00:00.000Z',
     decidedAt: null
   };
-  return renderToStaticMarkup(createElement(ShellApprovalModal, {
-    approval,
-    busy,
-    onDecision: () => undefined
-  }));
 }

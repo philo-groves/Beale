@@ -38,7 +38,7 @@ describe('renderer background pulses', () => {
     expect(appBackgroundPulsesStyles).toContain('pointer-events: none');
     expect(appBackgroundPulseStyles).toContain('animation-play-state: paused');
     expect(appBackgroundPulseStyles).not.toContain('display: none');
-    expect(sidebarStyles).toContain('background: var(--session-heat-window-surface)');
+    expect(sidebarStyles).toContain('background: transparent');
     expect(highHeatStyles).toContain(
       '--session-heat-edge: color-mix(in srgb, var(--session-heat-high-color) 54%, var(--panel-border))'
     );

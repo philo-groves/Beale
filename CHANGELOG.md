@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Active-session rounded-square pulses are visible through the window sidebar again instead of being covered by its opaque background.
 - Dejunk no longer misclassifies paused research sessions as active; only queued or actively running sessions block workspace housekeeping.
 - Agent Plugin MCP runtime overlays and the built-in Beale Introspection bridge now use Honeycrisp's `servers` configuration and newline-delimited JSON-RPC contracts, preventing new sessions from exiting or hanging before their first model turn.
 - New Research goal suggestions now discard invalid surplus model candidates instead of failing the entire grounded candidate pool, and retries include the bounded host-validation reason when too few valid candidates remain.
@@ -11,6 +12,7 @@
 
 ### Added
 
+- Auto-Review denials now offer an inline Approve Once question in the affected session composer, backed by Honeycrisp's correlated per-command human decision flow.
 - Added the Longshot suggestion workflow for Cybersecurity and Mathematics profiles, targeting evidence-gated reportable high or critical bugs in cyber and concrete paths toward major mathematical breakthroughs.
 - Added a repeat schedule picker to New Research with a default No Repeat state and persisted repeat metadata on started runs.
 - Added minute and hour interval options to repeat schedules.

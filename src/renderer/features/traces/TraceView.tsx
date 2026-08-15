@@ -2,6 +2,8 @@ import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo
 import type { JSX, ReactNode } from 'react';
 import { ArrowLeft, ArrowRight, LoaderCircle, SlidersHorizontal, Square } from 'lucide-react';
 import type {
+  ApprovalRecord,
+  PolicyReviewDecision,
   ResearchModelEffortLevel,
   ResearchModelProviderId,
   ResearchModelSelection,
@@ -31,6 +33,7 @@ import {
   type TraceDisplayEvent
 } from '../../view-models/traceDisplay';
 import { TraceTurnGroup } from './TraceTurnGroup';
+import { ShellApprovalQuestion } from '../sessions/ShellApprovalModal';
 
 interface TraceScrollAnchor {
   eventId: string;
@@ -64,6 +67,8 @@ export const TraceView = memo(function TraceView({
   showBackButton = showBackToMain,
   selectedTraceEventId,
   searchHighlightQuery,
+  shellApproval = null,
+  shellApprovalBusy = false,
   postSessionContent,
   traceFilterCount,
   totalTraceFilterCount,
@@ -71,6 +76,7 @@ export const TraceView = memo(function TraceView({
   onBackToMain,
   onOpenTraceFilters,
   onSelectTraceEvent,
+  onShellApprovalDecision = () => undefined,
   onSessionAction,
   onSteerInstruction
 }: {
@@ -84,6 +90,8 @@ export const TraceView = memo(function TraceView({
   showBackButton?: boolean;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
+  shellApproval?: ApprovalRecord | null;
+  shellApprovalBusy?: boolean;
   postSessionContent?: ReactNode;
   traceFilterCount: number;
   totalTraceFilterCount: number;
@@ -91,6 +99,7 @@ export const TraceView = memo(function TraceView({
   onBackToMain: () => void;
   onOpenTraceFilters: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+  onShellApprovalDecision?: (decision: PolicyReviewDecision) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
@@ -524,9 +533,12 @@ export const TraceView = memo(function TraceView({
           detail={detail}
           providerModelCatalog={providerModelCatalog}
           runId={detail?.run.id ?? null}
+          shellApproval={shellApproval}
+          shellApprovalBusy={shellApprovalBusy}
           traceFilterCount={traceFilterCount}
           totalTraceFilterCount={totalTraceFilterCount}
           onOpenTraceFilters={onOpenTraceFilters}
+          onShellApprovalDecision={onShellApprovalDecision}
           onSessionAction={onSessionAction}
           onSteerInstruction={onSteerInstruction}
         />
@@ -549,10 +561,13 @@ export const MainSteerArea = memo(function MainSteerArea({
   detail,
   providerModelCatalog,
   busy,
+  shellApproval = null,
+  shellApprovalBusy = false,
   traceFilterCount,
   totalTraceFilterCount,
   showTraceFilters = true,
   onOpenTraceFilters,
+  onShellApprovalDecision = () => undefined,
   onSessionAction,
   onSteerInstruction
 }: {
@@ -560,10 +575,13 @@ export const MainSteerArea = memo(function MainSteerArea({
   detail: RunDetail | null;
   providerModelCatalog: ResearchProviderModelCatalog[];
   busy: boolean;
+  shellApproval?: ApprovalRecord | null;
+  shellApprovalBusy?: boolean;
   traceFilterCount: number;
   totalTraceFilterCount: number;
   showTraceFilters?: boolean;
   onOpenTraceFilters: () => void;
+  onShellApprovalDecision?: (decision: PolicyReviewDecision) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element {
@@ -643,7 +661,7 @@ export const MainSteerArea = memo(function MainSteerArea({
     traceView?.style.setProperty('--trace-footer-content-height', `${nextFooterHeight}px`);
   }, []);
 
-  useLayoutEffect(() => resizeTextarea(), [instruction, resizeTextarea, status]);
+  useLayoutEffect(() => resizeTextarea(), [instruction, resizeTextarea, shellApproval, status]);
 
   useEffect(() => {
     window.addEventListener('resize', resizeTextarea);
@@ -675,6 +693,16 @@ export const MainSteerArea = memo(function MainSteerArea({
   const sessionActive = status === 'active';
   const defaultPlaceholder = sessionActive ? 'Steer the research' : 'Your move';
   const placeholder = suggestionShowing && steeringSuggestion ? steeringSuggestion : defaultPlaceholder;
+
+  if (shellApproval) {
+    return (
+      <ShellApprovalQuestion
+        approval={shellApproval}
+        busy={shellApprovalBusy}
+        onDecision={onShellApprovalDecision}
+      />
+    );
+  }
 
   return (
     <footer className="main-trace-footer" ref={footerRef} aria-label="Steer research session">

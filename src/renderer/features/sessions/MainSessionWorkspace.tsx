@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, ProjectGraphSummary, ProjectSemanticSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, ScopeAssetInput, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
+import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ProjectGraphSummary, ProjectSemanticSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, ScopeAssetInput, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceHousekeepingPanel, WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
@@ -47,6 +47,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   selectedSubagentPath,
   selectedTraceEventId,
   searchHighlightQuery,
+  shellApproval = null,
+  shellApprovalBusy = false,
   visibleTraceCategories,
   busy,
   workspaceDejunk = null,
@@ -70,6 +72,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSelectTraceEvent,
   onSelectSubagent,
   onSelectNextStep,
+  onShellApprovalDecision = () => undefined,
   onSessionAction,
   onSteerInstruction
 }: {
@@ -102,6 +105,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   selectedSubagentPath: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
+  shellApproval?: ApprovalRecord | null;
+  shellApprovalBusy?: boolean;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
   workspaceDejunk?: WorkspaceDejunkSummary | null;
@@ -125,6 +130,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
   onSelectNextStep: (goal: ResearchGoalSeed) => void;
+  onShellApprovalDecision?: (decision: PolicyReviewDecision) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
@@ -186,8 +192,11 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           showBackToMain={false}
           selectedTraceEventId={selectedTraceEventId}
           searchHighlightQuery={searchHighlightQuery}
+          shellApproval={shellApproval}
+          shellApprovalBusy={shellApprovalBusy}
           postSessionContent={postSessionContent}
           onBackToMain={() => undefined}
+          onShellApprovalDecision={onShellApprovalDecision}
           onSessionAction={onSessionAction}
           onSteerInstruction={onSteerInstruction}
         />
@@ -202,6 +211,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           showBackToMain={false}
           selectedTraceEventId={selectedTraceEventId}
           searchHighlightQuery={searchHighlightQuery}
+          shellApproval={shellApproval}
+          shellApprovalBusy={shellApprovalBusy}
           postSessionContent={postSessionContent}
           traceFilterCount={traceFilterCount}
           totalTraceFilterCount={totalTraceFilterCount}
@@ -209,6 +220,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onOpenTraceFilters={onOpenTraceFilters}
           onBackToMain={() => undefined}
           onSelectTraceEvent={onSelectTraceEvent}
+          onShellApprovalDecision={onShellApprovalDecision}
           onSessionAction={onSessionAction}
           onSteerInstruction={onSteerInstruction}
         />

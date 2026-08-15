@@ -36,7 +36,7 @@ import { NotificationStack, type WorkspaceAlert } from './features/notifications
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import type { ResearchGoalSeed } from './features/sessions/SessionNextSteps';
-import { pendingShellApproval, ShellApprovalModal } from './features/sessions/ShellApprovalModal';
+import { isAutoReviewOverrideApproval, pendingShellApproval, ShellApprovalModal } from './features/sessions/ShellApprovalModal';
 import { subagentSummaries, traceEventsForSubagent } from './view-models/subagents';
 import { SettingsSidebar, SettingsView, settingsSectionLabel, type SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
@@ -823,12 +823,18 @@ export function App(): JSX.Element {
       ? hasResearchProfileDetailFeatures(activeResearchProfile)
       : activeResearchFeatures.memory || activeResearchFeatures.runbooks || activeResearchFeatures.reports);
 
-  const activeShellApproval = useMemo(() => {
+  const selectedShellApproval = useMemo(() => {
     if (!snapshot) return pendingShellApproval(activeRunDetail);
-    return snapshot.pendingShellApprovals.find((approval) => approval.runId === selectedRunId)
-      ?? snapshot.pendingShellApprovals[0]
-      ?? null;
+    return snapshot.pendingShellApprovals.find((approval) => approval.runId === selectedRunId) ?? null;
   }, [activeRunDetail?.policyEvents, selectedRunId, snapshot?.pendingShellApprovals]);
+  const autoReviewOverrideApproval = isAutoReviewOverrideApproval(selectedShellApproval)
+    ? selectedShellApproval
+    : null;
+  const activeManualShellApproval = useMemo(() => {
+    if (selectedShellApproval && !isAutoReviewOverrideApproval(selectedShellApproval)) return selectedShellApproval;
+    return snapshot?.pendingShellApprovals.find((approval) => !isAutoReviewOverrideApproval(approval)) ?? null;
+  }, [selectedShellApproval, snapshot?.pendingShellApprovals]);
+  const activeShellApproval = autoReviewOverrideApproval ?? activeManualShellApproval;
   useEffect(() => {
     if (shellApprovalDecisionRef.current === activeShellApproval?.id) return;
     shellApprovalDecisionRef.current = null;
@@ -1214,6 +1220,8 @@ export function App(): JSX.Element {
               selectedSubagentPath={selectedSubagentPath}
               selectedTraceEventId={selectedTraceEventId}
               searchHighlightQuery={traceSearchHighlightQuery}
+              shellApproval={autoReviewOverrideApproval}
+              shellApprovalBusy={Boolean(autoReviewOverrideApproval && (busy || shellApprovalDecisionInFlight === autoReviewOverrideApproval.id))}
               visibleTraceCategories={visibleTraceCategories}
               busy={busy}
               workspaceDejunk={selectedRunId ? null : snapshot?.workspace.dejunk ?? null}
@@ -1237,6 +1245,9 @@ export function App(): JSX.Element {
               onSelectTraceEvent={selectTraceEvent}
               onSelectSubagent={selectSubagent}
               onSelectNextStep={startNewResearchFromSuggestion}
+              onShellApprovalDecision={(decision) => {
+                if (autoReviewOverrideApproval) handleShellApprovalDecision(autoReviewOverrideApproval, decision);
+              }}
               onSessionAction={handleSessionAction}
               onSteerInstruction={handleSteerInstruction}
             />
@@ -1329,11 +1340,11 @@ export function App(): JSX.Element {
         onRemoveAgentPlugin={removeAgentPlugin}
         runAction={runAction}
       />
-      {activeShellApproval ? (
+      {activeManualShellApproval ? (
         <ShellApprovalModal
-          approval={activeShellApproval}
-          busy={busy || shellApprovalDecisionInFlight === activeShellApproval.id}
-          onDecision={(decision) => handleShellApprovalDecision(activeShellApproval, decision)}
+          approval={activeManualShellApproval}
+          busy={busy || shellApprovalDecisionInFlight === activeManualShellApproval.id}
+          onDecision={(decision) => handleShellApprovalDecision(activeManualShellApproval, decision)}
         />
       ) : null}
     </div>

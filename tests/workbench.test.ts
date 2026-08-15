@@ -1733,7 +1733,7 @@ describe('Beale workbench skeleton', () => {
         "const emitResearch = (event) => console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: new Date().toISOString(), payload: { event } }));",
         "const command = { commandHash: 'sha256:fixture', utility: 'rm', args: ['-r', '/tmp/beale-safe-fixture'], cwd: '/tmp', timeoutMs: 1000, stdinPresent: false, stdinBytes: 0 };",
         "emitResearch({ id: 'shell_tool_request_fixture', sequence: 1, kind: 'tool.requested', timestamp: new Date().toISOString(), summary: 'Requested shell.run.', payload: { toolName: 'shell.run', normalizedInputs: { utility: 'bash', args: ['--password', 'split-shell-secret'], cwd: '/tmp', timeoutMs: 1000, stdin: 'raw-shell-stdin-secret' } } });",
-        "setTimeout(() => emit({ type: 'shell_authorization_requested', approvalRequestId: 'shell_request_fixture', mode: 'manual_approval', actionId: 'action_fixture', agentId: 'root', agentPath: '/root', command, rawStdin: 'must-not-be-persisted' }), 40);",
+        "setTimeout(() => emit({ type: 'shell_authorization_requested', approvalRequestId: 'shell_request_fixture', approvalKind: 'manual', mode: 'manual_approval', actionId: 'action_fixture', agentId: 'root', agentPath: '/root', command, rawStdin: 'must-not-be-persisted' }), 40);",
         "process.stdin.setEncoding('utf8');",
         "let buffer = '';",
         "process.stdin.on('data', (chunk) => {",
@@ -1791,6 +1791,7 @@ describe('Beale workbench skeleton', () => {
           approvalRequestId: 'shell_request_fixture',
           workspaceName: 'Untitled Workspace',
           workspacePath: workspace,
+          approvalKind: 'manual',
           mode: 'manual_approval',
           command: {
             utility: 'rm',
@@ -1871,6 +1872,107 @@ describe('Beale workbench skeleton', () => {
       ).toMatchObject({ accepted: true, matchedPendingControl: true, controlRequestId: controls[0]?.requestId });
       expect(detail.traceEvents.filter((event) => event.summary === 'Shell command approved by the researcher.')).toHaveLength(1);
       expect(detail.traceEvents.some((event) => event.summary === 'Shell command denied by the researcher.')).toBe(false);
+    } finally {
+      service.close();
+    }
+  });
+
+  it('projects an Auto-Review denial into a correlated one-command researcher override', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-auto-review-override-honeycrisp.mjs');
+    const controlLogPath = join(workspace, 'auto-review-override-controls.jsonl');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const [controlLogPath, ...args] = process.argv.slice(2);',
+        "if (args[args.indexOf('--shell-safety-mode') + 1] !== 'auto_review') throw new Error('missing auto-review shell safety mode');",
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "mkdirSync(dirname(capturePath), { recursive: true });",
+        "const emit = (payload) => console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: new Date().toISOString(), payload }));",
+        "const command = { commandHash: 'sha256:auto-review-fixture', utility: '/tmp/proof', args: ['--target', 'fixture'], cwd: '/tmp', timeoutMs: 1000, stdinPresent: false, stdinBytes: 0 };",
+        "const reviewer = { provider: 'openai-codex', model: 'gpt-5.6-luna', reasoningEffort: 'medium' };",
+        "setTimeout(() => emit({ type: 'shell_authorization_requested', approvalRequestId: 'shell_auto_review_fixture', approvalKind: 'auto_review_override', mode: 'auto_review', actionId: 'action_auto_review_fixture', agentId: 'root', agentPath: '/root', command, reviewer, reviewReason: 'Temporary proof execution needs researcher confirmation.' }), 40);",
+        "process.stdin.setEncoding('utf8');",
+        "let buffer = '';",
+        "process.stdin.on('data', (chunk) => {",
+        '  buffer += chunk;',
+        "  let newlineIndex = buffer.indexOf('\\n');",
+        '  while (newlineIndex !== -1) {',
+        "    const line = buffer.slice(0, newlineIndex).replace(/\\r$/, '');",
+        '    buffer = buffer.slice(newlineIndex + 1);',
+        '    const message = JSON.parse(line);',
+        "    appendFileSync(controlLogPath, JSON.stringify(message) + '\\n');",
+        "    if (message.type === 'resolve_shell_approval') {",
+        "      emit({ eventType: 'control.received', type: message.type, accepted: true, requestId: message.requestId });",
+        "      emit({ type: 'shell_authorization_resolved', approvalRequestId: message.approvalRequestId, decision: message.decision, source: 'human', reason: 'The researcher approved this command once after Auto-Review denied it.', mode: 'auto_review', actionId: 'action_auto_review_fixture', agentId: 'root', agentPath: '/root', command, reviewer });",
+        '      const now = new Date().toISOString();',
+        `      writeFileSync(capturePath, JSON.stringify({ schemaVersion: 5, capturedAt: now, request: { prompt: 'Auto-Review override fixture' }, researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()}, agent: { id: 'agent_auto_review_override', status: 'complete', executorName: 'auto-review-override-fixture', startedAt: now, completedAt: now, outputText: 'Override decision received.' }, eventTimeline: [] }) + '\\n');`,
+        '      setTimeout(() => process.exit(0), 30);',
+        '    }',
+        "    newlineIndex = buffer.indexOf('\\n');",
+        '  }',
+        '});',
+        'process.stdin.resume();'
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, controlLogPath]);
+
+    const service = new WorkspaceService();
+    try {
+      service.createWorkspace(workspace);
+      const started = service.startRun({
+        ...runInput('multi_branch_trace'),
+        runEngine: 'honeycrisp',
+        shellSafetyMode: 'auto_review',
+        provider: 'openai-codex',
+        promptMarkdown: '# Auto-Review override fixture'
+      });
+      const runId = started.runs[0]?.run.id ?? '';
+
+      await waitForCondition(() => service.getSnapshot()?.pendingShellApprovals.length === 1, 5000);
+      const pendingApproval = service.getSnapshot()?.pendingShellApprovals[0];
+      expect(pendingApproval).toMatchObject({
+        runId,
+        requestKind: 'shell_command',
+        decision: 'pending',
+        reason: 'Waiting for the researcher to approve this Auto-Review denial once.',
+        requestedAction: {
+          approvalRequestId: 'shell_auto_review_fixture',
+          approvalKind: 'auto_review_override',
+          mode: 'auto_review',
+          reviewReason: 'Temporary proof execution needs researcher confirmation.',
+          reviewer: { provider: 'openai-codex', model: 'gpt-5.6-luna', reasoningEffort: 'medium' }
+        }
+      });
+      expect(service.getRunDetail(runId).traceEvents).toContainEqual(expect.objectContaining({
+        summary: 'Auto-Review denial is waiting for a one-command researcher decision.'
+      }));
+
+      service.steerRun({
+        type: 'review_shell_command',
+        workspacePath: workspace,
+        runId,
+        approvalId: pendingApproval?.id ?? '',
+        decision: 'approved'
+      });
+      await waitForCondition(() => service.getRunDetail(runId).run.status === 'completed', 5000);
+
+      const control = JSON.parse(readFileSync(controlLogPath, 'utf8').trim()) as Record<string, unknown>;
+      expect(control).toMatchObject({
+        type: 'resolve_shell_approval',
+        approvalRequestId: 'shell_auto_review_fixture',
+        decision: 'approved'
+      });
+      expect(service.getRunDetail(runId).policyEvents).toContainEqual(expect.objectContaining({
+        id: pendingApproval?.id,
+        decision: 'approved',
+        reason: 'The researcher approved this command once after Auto-Review denied it.'
+      }));
     } finally {
       service.close();
     }

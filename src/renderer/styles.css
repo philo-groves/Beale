@@ -1010,7 +1010,7 @@ button.app-header-session-title:hover:not(:disabled) {
   grid-row: 2;
   min-width: 0;
   min-height: 0;
-  background: var(--session-heat-window-surface);
+  background: transparent;
   color: var(--text);
   padding: 0 12px 52px;
   display: flex;
@@ -6015,6 +6015,82 @@ button.session-summary-item:hover:not(:disabled),
   border-color: transparent;
   outline: none;
   box-shadow: none;
+}
+
+.shell-approval-question-surface {
+  width: 100%;
+  max-width: var(--trace-content-max-width);
+  min-width: 0;
+  min-height: var(--trace-footer-min-height);
+  justify-self: center;
+  display: grid;
+  grid-template-rows: minmax(var(--trace-footer-input-min-height), auto) var(--trace-footer-actions-height);
+  overflow: hidden;
+  border-radius: var(--trace-footer-radius);
+  background: var(--panel-raised);
+}
+
+.shell-approval-question-content {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 8px 12px 6px;
+}
+
+.shell-approval-question-content strong {
+  color: var(--text);
+  font-size: var(--steer-input-font-size);
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.shell-approval-question-content span {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--steer-control-font-size);
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.shell-approval-question-actions {
+  min-width: 0;
+  display: flex;
+  align-items: start;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 2px 8px 4px;
+}
+
+.shell-approval-question-actions button {
+  min-height: 29px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 0 10px;
+  color: var(--muted-strong);
+}
+
+.shell-approval-question-actions button:hover:not(:disabled) {
+  background: #242424;
+  color: var(--text);
+}
+
+.shell-approval-question-actions .primary-button {
+  background: #ffffff;
+  color: #111111;
+}
+
+.shell-approval-question-actions .primary-button:hover:not(:disabled) {
+  background: #f1f1f1;
+  color: #111111;
+}
+
+.shell-approval-question-actions button:disabled {
+  opacity: 0.5;
 }
 
 .main-steer-send {

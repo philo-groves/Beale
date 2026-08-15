@@ -2,6 +2,8 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { JSX, ReactNode } from 'react';
 import { ArrowLeft, BookOpen, Bot, Brain, ChevronRight, CircleAlert, Database, FileText, Terminal, Wrench } from 'lucide-react';
 import type {
+  ApprovalRecord,
+  PolicyReviewDecision,
   ResearchModelSelection,
   ResearchProviderModelCatalog,
   RunDetail,
@@ -44,8 +46,11 @@ export const CommentaryView = memo(function CommentaryView({
   scrollScopeKey = selectedRunId,
   selectedTraceEventId,
   searchHighlightQuery,
+  shellApproval = null,
+  shellApprovalBusy = false,
   postSessionContent,
   onBackToMain,
+  onShellApprovalDecision = () => undefined,
   onSessionAction,
   onSteerInstruction
 }: {
@@ -59,8 +64,11 @@ export const CommentaryView = memo(function CommentaryView({
   scrollScopeKey?: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
+  shellApproval?: ApprovalRecord | null;
+  shellApprovalBusy?: boolean;
   postSessionContent?: ReactNode;
   onBackToMain: () => void;
+  onShellApprovalDecision?: (decision: PolicyReviewDecision) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
@@ -417,10 +425,13 @@ export const CommentaryView = memo(function CommentaryView({
           detail={detail}
           providerModelCatalog={providerModelCatalog}
           runId={detail?.run.id ?? null}
+          shellApproval={shellApproval}
+          shellApprovalBusy={shellApprovalBusy}
           showTraceFilters={false}
           traceFilterCount={0}
           totalTraceFilterCount={0}
           onOpenTraceFilters={() => undefined}
+          onShellApprovalDecision={onShellApprovalDecision}
           onSessionAction={onSessionAction}
           onSteerInstruction={onSteerInstruction}
         />

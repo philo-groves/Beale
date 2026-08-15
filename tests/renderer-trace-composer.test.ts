@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { ResearchProviderModelCatalog, RunDetail, RunStatus } from '@shared/types';
+import type { ApprovalRecord, ResearchProviderModelCatalog, RunDetail, RunStatus } from '@shared/types';
 import {
   MainSteerArea,
   SHELL_SAFETY_MODE_OPTIONS,
@@ -146,6 +146,35 @@ describe('renderer trace composer', () => {
     ]);
   });
 
+  it('replaces the steering composer with an inline Auto-Review override question', () => {
+    const html = renderToStaticMarkup(createElement(TraceView, {
+      busy: false,
+      detail: composerDetail('active'),
+      events: [],
+      providerModelCatalog: providerModelCatalog(),
+      selectedRunId: 'run_composer',
+      traceScopeKey: 'main',
+      showBackToMain: false,
+      selectedTraceEventId: null,
+      searchHighlightQuery: '',
+      shellApproval: autoReviewOverrideApproval(),
+      traceFilterCount: 0,
+      totalTraceFilterCount: 0,
+      visibleTraceCategories: [],
+      onBackToMain: () => undefined,
+      onOpenTraceFilters: () => undefined,
+      onSelectTraceEvent: () => undefined,
+      onShellApprovalDecision: () => undefined,
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+
+    expect(html).toContain('aria-label="Approve shell command once"');
+    expect(html).toContain('>Approve Once</button>');
+    expect(html).not.toContain('aria-label="Steer research session"');
+    expect(html).not.toContain('aria-label="Stop session"');
+  });
+
   it('keeps trace filters out of the Commentary composer', () => {
     const html = renderToStaticMarkup(createElement(MainSteerArea, {
       busy: false,
@@ -202,6 +231,25 @@ function composerDetail(status: RunStatus, detailPatch: Partial<RunDetail> = {})
     transcriptMessages: [],
     ...detailPatch
   } as unknown as RunDetail;
+}
+
+function autoReviewOverrideApproval(): ApprovalRecord {
+  return {
+    id: 'approval_auto_review_override',
+    runId: 'run_composer',
+    attemptId: 'attempt_one',
+    requestKind: 'shell_command',
+    requestedAction: {
+      approvalKind: 'auto_review_override',
+      mode: 'auto_review',
+      reviewReason: 'The proof command needs researcher confirmation.'
+    },
+    decision: 'pending',
+    reason: 'Waiting for the researcher to approve this Auto-Review denial once.',
+    scopeAmendmentId: null,
+    createdAt: '2026-08-15T00:00:00.000Z',
+    decidedAt: null
+  };
 }
 
 function providerModelCatalog(): ResearchProviderModelCatalog[] {
