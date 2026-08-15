@@ -165,6 +165,27 @@ describe('Beale workbench skeleton', () => {
     migratedDatabase.close();
   });
 
+  it('allows Dejunk when prior research sessions are paused', () => {
+    const workspace = tempWorkspace();
+    const service = new WorkspaceService();
+    service.createWorkspace(workspace);
+    const snapshot = startRunForTest(service, runInput('source_review'));
+    const runId = snapshot.runs[0].run.id;
+    service.close();
+
+    const database = new DatabaseSync(globalDatabasePath());
+    database.prepare("UPDATE runs SET status = 'paused', ended_at = NULL WHERE id = ?").run(runId);
+    database.close();
+
+    const reopened = new WorkspaceService();
+    reopened.openWorkspace(workspace);
+    const dejunked = reopened.runWorkspaceDejunk();
+
+    expect(dejunked.runs.find(({ run }) => run.id === runId)?.run.status).toBe('paused');
+    expect(dejunked.workspace.dejunk.lastRun).toEqual(expect.objectContaining({ status: 'completed' }));
+    reopened.close();
+  });
+
   it('migrates legacy completed runs whose latest Honeycrisp capture reported an agent error', () => {
     const workspace = tempWorkspace();
     const service = new WorkspaceService();

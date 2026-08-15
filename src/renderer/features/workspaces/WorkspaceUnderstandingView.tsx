@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
 import { Binary, BookOpen, Folder, GitBranch, Globe2, Info, Layers3, MoonStar, Plus, Server, Sparkles, Trash2 } from 'lucide-react';
+import { isLiveResearchRunStatus } from '../../../shared/types';
 import type {
   HoneycrispMemorySummary,
   MemoryDreamingProgressPhase,
@@ -248,7 +249,7 @@ export function WorkspaceHousekeepingPanel({
   const dreamHeat = memoryDreamHeat(memoriesSinceDream);
   const newFileCount = workspaceDejunk?.newFileCount ?? 0;
   const dejunkHeat = workspaceDejunkHeat(newFileCount);
-  const activeSession = runs.some(({ run }) => !['blocked', 'completed', 'failed', 'stopped'].includes(run.status));
+  const activeSession = runs.some(({ run }) => isLiveResearchRunStatus(run.status));
   const dejunkDisabled = busy || workspaceDejunkInProgress || activeSession || workspaceDejunk?.available === false;
 
   return (

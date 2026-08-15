@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Dejunk no longer misclassifies paused research sessions as active; only queued or actively running sessions block workspace housekeeping.
 - Agent Plugin MCP runtime overlays and the built-in Beale Introspection bridge now use Honeycrisp's `servers` configuration and newline-delimited JSON-RPC contracts, preventing new sessions from exiting or hanging before their first model turn.
 - New Research goal suggestions now discard invalid surplus model candidates instead of failing the entire grounded candidate pool, and retries include the bounded host-validation reason when too few valid candidates remain.
 - Restored native macOS copy and paste menu roles so Command-C and Command-V work in focused renderer content and editable fields.
@@ -37,6 +38,7 @@
 
 ### Changed
 
+- Dejunk now structurally recognizes large Xcode `DerivedData` variants, renamed DerivedData roots, and Xcode build/cache layouts at lower high-confidence thresholds while preserving source lookalikes and Git repositories.
 - Sidebar breakout-room labels now use the same muted text palette as the session-list expansion control regardless of room status.
 - New Research now starts user-written objectives directly by default. Optional Add Context generation produces a 100-250 word cyber objective brief capped at 4,000 characters, uses only a bounded set of relevant assets, memories, prior outcomes, and source coverage, and leaves authorization, profile, AGENTS.md, tools, and full memory context to Honeycrisp's runtime injection.
 - Shell execution now supports complete platform shell commands, executable paths, and host HOME-family environment variables through Honeycrisp while retaining the selected Manual Approval, Auto-Review, or Danger Mode authorization flow.

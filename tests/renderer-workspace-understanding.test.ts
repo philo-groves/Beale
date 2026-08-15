@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { isLiveResearchRunStatus } from '../src/shared/types';
 import type { HoneycrispMemorySummary, RunRow, ScopeAsset, SessionRunActivity } from '../src/shared/types';
 import { MainSessionWorkspace } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import {
@@ -617,6 +618,35 @@ describe('workspace dashboard', () => {
     expect(buttonStyles).not.toContain('background: #242424');
     expect(stateStyles).toContain('animation: workspace-dream-state-enter 240ms ease both');
     expect(styles).toContain('@keyframes workspace-dream-state-enter');
+  });
+
+  it('allows Dejunk for paused sessions while blocking queued or active work', () => {
+    expect(isLiveResearchRunStatus('paused')).toBe(false);
+    expect(isLiveResearchRunStatus('queued')).toBe(true);
+    expect(isLiveResearchRunStatus('active')).toBe(true);
+
+    const renderHousekeeping = (status: RunRow['run']['status']): string => renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
+      busy: false,
+      workspaceDejunk: {
+        available: true,
+        newFileCount: 1,
+        newFileCountCapped: false,
+        baselineAt: '2026-08-12T08:00:00.000Z',
+        lastRun: null
+      },
+      memoryDreamingInProgress: false,
+      honeycrispMemory: memorySummary(),
+      researchProfile: testResearchProfile(),
+      runs: [runRow(`run_${status}`, [], { status })],
+      onRunMemoryDreaming: () => undefined
+    }));
+    const pausedButton = renderHousekeeping('paused').match(/<button class="workspace-dejunk-card[^>]*>/u)?.[0] ?? '';
+    const queuedButton = renderHousekeeping('queued').match(/<button class="workspace-dejunk-card[^>]*>/u)?.[0] ?? '';
+
+    expect(pausedButton).not.toContain('disabled=""');
+    expect(pausedButton).toContain('title="Organize loose research files and remove large reclaimable artifacts"');
+    expect(queuedButton).toContain('disabled=""');
+    expect(queuedButton).toContain('title="Dejunk is unavailable while a research session is active"');
   });
 });
 

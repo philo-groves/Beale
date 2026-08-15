@@ -71,6 +71,7 @@ import { isResearchProfileId, RESEARCH_PROFILE_IDS } from '../shared/researchPro
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { DEFAULT_SHELL_SAFETY_MODE } from '../shared/shellSafety';
 import { isProviderModelEnabled } from '../shared/optionalProviderModels';
+import { isLiveResearchRunStatus } from '../shared/types';
 import type {
   ApprovalRecord,
   AttemptRecord,
@@ -1006,7 +1007,7 @@ export class WorkspaceService {
   public runWorkspaceDejunk(): WorkspaceSnapshot {
     const runtime = this.getForegroundRuntime();
     if (!runtime) throw new Error('No Beale workspace is open');
-    if (runtime.db.listRunRows().some(({ run }) => !isEndedResearchRunStatus(run.status))) {
+    if (runtime.db.listRunRows().some(({ run }) => isLiveResearchRunStatus(run.status))) {
       throw new Error('Dejunk is unavailable while a research session is active.');
     }
     runWorkspaceDejunkMaintenance(runtime.workspacePath);
@@ -3263,7 +3264,7 @@ export class WorkspaceService {
   }
 
   private hasActiveRuntimeWork(runtime: WorkspaceRuntime): boolean {
-    return runtime.db.listRunRows().some((row) => row.run.status === 'queued' || row.run.status === 'active');
+    return runtime.db.listRunRows().some((row) => isLiveResearchRunStatus(row.run.status));
   }
 
   private pruneBackgroundRuntimeCache(): void {

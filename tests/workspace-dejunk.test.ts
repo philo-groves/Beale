@@ -7,7 +7,7 @@ import {
   writeFileSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   getWorkspaceDejunkSummary,
@@ -105,6 +105,44 @@ describe('workspace Dejunk', () => {
     expect(existsSync(extractedIpsw)).toBe(true);
     expect(summary.lastRun).toEqual(expect.objectContaining({ movedFileCount: 0, deletedPathCount: 0 }));
   });
+
+  it('removes large Xcode build data using names and structural markers without deleting lookalikes or repositories', () => {
+    const workspace = temporaryWorkspace();
+    writeDejunkBaseline(workspace, '2026-08-12T10:00:00.000Z');
+
+    const derivedDataVariant = join(workspace, 'artifacts', 'probe', 'DerivedData-PreviewReceiver');
+    writeSparseFile(join(derivedDataVariant, 'Build', 'Products', 'probe.app'), 64 * 1024 * 1024 + 1);
+
+    const renamedDerivedData = join(workspace, 'research', 'probe', 'device-build-v3');
+    mkdirSync(join(renamedDerivedData, 'Index.noindex'), { recursive: true });
+    mkdirSync(join(renamedDerivedData, 'Logs'), { recursive: true });
+    writeSparseFile(join(renamedDerivedData, 'ModuleCache.noindex', 'UIKit.pcm'), 64 * 1024 * 1024 + 1);
+
+    const sourceLookalike = join(workspace, 'artifacts', 'device-build-source');
+    writeSparseFile(join(sourceLookalike, 'fixtures', 'capture.bin'), 64 * 1024 * 1024 + 1);
+
+    const smallDerivedData = join(workspace, 'artifacts', 'small-probe', 'DerivedData');
+    writeSparseFile(join(smallDerivedData, 'Build', 'Products', 'small.app'), 1024);
+
+    const partialDerivedData = join(workspace, 'artifacts', 'partial-probe', 'DerivedData');
+    writeSparseFile(join(partialDerivedData, 'ModuleCache.noindex', 'Foundation.pcm'), 32 * 1024 * 1024 + 1);
+
+    const protectedRepository = join(workspace, 'research', 'target-source');
+    mkdirSync(join(protectedRepository, '.git'), { recursive: true });
+    writeSparseFile(join(protectedRepository, 'DerivedData', 'Build', 'Products', 'tracked.bin'), 64 * 1024 * 1024 + 1);
+
+    const summary = runWorkspaceDejunk(workspace);
+
+    expect(existsSync(derivedDataVariant)).toBe(false);
+    expect(existsSync(renamedDerivedData)).toBe(false);
+    expect(existsSync(sourceLookalike)).toBe(true);
+    expect(existsSync(smallDerivedData)).toBe(true);
+    expect(existsSync(partialDerivedData)).toBe(true);
+    expect(existsSync(join(partialDerivedData, 'ModuleCache.noindex'))).toBe(false);
+    expect(existsSync(join(protectedRepository, 'DerivedData'))).toBe(true);
+    expect(summary.lastRun).toEqual(expect.objectContaining({ deletedPathCount: 3 }));
+    expect(summary.lastRun?.reclaimedBytes ?? 0).toBeGreaterThan(160 * 1024 * 1024);
+  });
 });
 
 function temporaryWorkspace(): string {
@@ -120,4 +158,10 @@ function writeDejunkBaseline(workspace: string, baselineAt: string): void {
     baselineAt,
     lastRun: null
   }));
+}
+
+function writeSparseFile(path: string, size: number): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, '');
+  truncateSync(path, size);
 }

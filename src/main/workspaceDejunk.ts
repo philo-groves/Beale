@@ -15,6 +15,8 @@ const STATE_VERSION = 1;
 const NEW_FILE_COUNT_LIMIT = 1_000;
 const SUMMARY_CACHE_MS = 15_000;
 const LARGE_RECLAIMABLE_BYTES = 256 * 1024 * 1024;
+const LARGE_XCODE_BUILD_DATA_BYTES = 64 * 1024 * 1024;
+const LARGE_XCODE_CACHE_BYTES = 32 * 1024 * 1024;
 const LARGE_IPSW_EXTRACTION_BYTES = 128 * 1024 * 1024;
 const STANDARD_RESEARCH_DIRECTORY = 'research';
 const PROTECTED_TOP_LEVEL_NAMES = new Set([
@@ -40,11 +42,22 @@ const RECLAIMABLE_DIRECTORY_NAMES = new Set([
   '.gradle',
   '.pytest_cache',
   'build',
-  'deriveddata',
   'dist',
   'node_modules',
   'out',
   'target'
+]);
+const XCODE_DERIVED_DATA_MARKERS = new Set([
+  'build',
+  'index.noindex',
+  'logs',
+  'modulecache.noindex',
+  'sdkstatcaches.noindex'
+]);
+const XCODE_CACHE_DIRECTORY_NAMES = new Set([
+  'index.noindex',
+  'modulecache.noindex',
+  'sdkstatcaches.noindex'
 ]);
 const RESEARCH_DIRECTORY_ALIASES: Record<string, ResearchDirectory> = {
   analysis: 'notes',
@@ -344,7 +357,11 @@ function deleteLargeReclaimableTrees(workspacePath: string): { pathCount: number
       if (reclaimableThreshold !== null) {
         if (containsGitMetadata(path)) continue;
         const size = directorySize(path);
-        if (size >= reclaimableThreshold) candidates.push({ path, size });
+        if (size >= reclaimableThreshold) {
+          candidates.push({ path, size });
+          continue;
+        }
+        visit(path);
         continue;
       }
       visit(path);
@@ -362,12 +379,32 @@ function deleteLargeReclaimableTrees(workspacePath: string): { pathCount: number
 
 function reclaimableDirectoryThreshold(path: string): number | null {
   const lowerName = basename(path).toLowerCase();
+  if (/^deriveddata(?:$|[-_.])/u.test(lowerName) || resemblesXcodeDerivedData(path)) {
+    return LARGE_XCODE_BUILD_DATA_BYTES;
+  }
+  if (XCODE_CACHE_DIRECTORY_NAMES.has(lowerName)) return LARGE_XCODE_CACHE_BYTES;
+  if (isXcodeBuildDirectory(path, lowerName)) return LARGE_XCODE_BUILD_DATA_BYTES;
   if (RECLAIMABLE_DIRECTORY_NAMES.has(lowerName)) return LARGE_RECLAIMABLE_BYTES;
   const normalized = path.replace(/\\/gu, '/').toLowerCase();
   const namedIpswExtraction = normalized.includes('ipsw') && /(extract|unpack|payload|firmware|mount)/u.test(normalized);
   const hasIpswMarkers = existsSync(join(path, 'BuildManifest.plist'))
     && (existsSync(join(path, 'Payload')) || existsSync(join(path, 'Firmware')));
   return namedIpswExtraction || hasIpswMarkers ? LARGE_IPSW_EXTRACTION_BYTES : null;
+}
+
+function resemblesXcodeDerivedData(path: string): boolean {
+  let markerCount = 0;
+  for (const entry of readdirSync(path, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (XCODE_DERIVED_DATA_MARKERS.has(entry.name.toLowerCase())) markerCount += 1;
+    if (markerCount >= 3) return true;
+  }
+  return false;
+}
+
+function isXcodeBuildDirectory(path: string, lowerName: string): boolean {
+  if (lowerName !== 'build') return false;
+  return existsSync(join(path, 'Intermediates.noindex')) || existsSync(join(path, 'Products'));
 }
 
 function directorySize(root: string): number {

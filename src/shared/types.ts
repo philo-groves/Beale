@@ -26,6 +26,10 @@ export type RunStatus =
   | 'failed'
   | 'stopped';
 
+export function isLiveResearchRunStatus(status: RunStatus): boolean {
+  return status === 'queued' || status === 'active';
+}
+
 export type RunTerminationCause = 'safeguard' | 'workspace_recovery';
 
 export type AttemptStatus = 'queued' | 'active' | 'paused' | 'blocked' | 'completed' | 'failed' | 'stopped';
