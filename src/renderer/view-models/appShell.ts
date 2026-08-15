@@ -1,3 +1,4 @@
+import { isLiveResearchRunStatus } from '../../shared/types';
 import type {
   HostEnvironment,
   RunDetail,
@@ -15,6 +16,10 @@ export function selectedRunStatus(snapshot: WorkspaceSnapshot | null, selectedRu
 export function activeRunDetailForSelection(runDetail: RunDetail | null, selectedRunId: string | null): RunDetail | null {
   if (!runDetail || runDetail.run.id !== selectedRunId) return null;
   return runDetail;
+}
+
+export function workspaceHasLiveResearchRun(snapshot: WorkspaceSnapshot | null): boolean {
+  return snapshot?.runs.some(({ run }) => isLiveResearchRunStatus(run.status)) ?? false;
 }
 
 export function appShellClassName(input: {

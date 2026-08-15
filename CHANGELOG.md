@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Active-session rounded-square pulses are visible through the window sidebar again instead of being covered by its opaque background.
+- Active-session rounded-square pulses now remain visible across dashboard and session views whenever the workspace has queued or active research, with their original contrast restored through the transparent window sidebar.
 - Dejunk no longer misclassifies paused research sessions as active; only queued or actively running sessions block workspace housekeeping.
 - Agent Plugin MCP runtime overlays and the built-in Beale Introspection bridge now use Honeycrisp's `servers` configuration and newline-delimited JSON-RPC contracts, preventing new sessions from exiting or hanging before their first model turn.
 - New Research goal suggestions now discard invalid surplus model candidates instead of failing the entire grounded candidate pool, and retries include the bounded host-validation reason when too few valid candidates remain.

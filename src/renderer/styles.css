@@ -431,9 +431,12 @@ code {
   left: var(--pulse-x);
   width: var(--pulse-size);
   height: var(--pulse-size);
-  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 28%, transparent);
   border-radius: var(--pulse-radius, 9px);
-  background: color-mix(in srgb, var(--text) 5%, transparent);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  box-shadow:
+    0 0 18px color-mix(in srgb, var(--text) 8%, transparent),
+    inset 0 0 18px color-mix(in srgb, var(--text) 4%, transparent);
   opacity: 0;
   transform: translate3d(-50%, -50%, 0) scale(0.18);
   animation: app-background-pulse 12s linear infinite both;

@@ -4,6 +4,7 @@ import {
   activeRunDetailForSelection,
   appShellClassName,
   selectedRunStatus,
+  workspaceHasLiveResearchRun,
   windowControlPlatformForState
 } from '../src/renderer/view-models/appShell';
 
@@ -39,6 +40,14 @@ describe('renderer app shell view model', () => {
         sidebarCollapsed: false
       })
     ).toBe('app-shell session-heat-none platform-darwin window-edge-flush window-full-screen');
+  });
+
+  it('keeps the window pulse active whenever the workspace has queued or active research', () => {
+    expect(workspaceHasLiveResearchRun(workspaceSnapshot('run_active', 'active'))).toBe(true);
+    expect(workspaceHasLiveResearchRun(workspaceSnapshot('run_queued', 'queued'))).toBe(true);
+    expect(workspaceHasLiveResearchRun(workspaceSnapshot('run_paused', 'paused'))).toBe(false);
+    expect(workspaceHasLiveResearchRun(workspaceSnapshot('run_completed', 'completed'))).toBe(false);
+    expect(workspaceHasLiveResearchRun(null)).toBe(false);
   });
 
   it('resolves window control platform fallbacks', () => {

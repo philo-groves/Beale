@@ -59,6 +59,7 @@ import {
   activeRunDetailForSelection,
   appShellClassName,
   selectedRunStatus,
+  workspaceHasLiveResearchRun,
   windowControlPlatformForState
 } from './view-models/appShell';
 import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
@@ -999,7 +1000,7 @@ export function App(): JSX.Element {
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const shellClassName = `${appShellClassName({
     sessionHeat,
-    sessionActive: activeRunDetail?.run.status === 'active',
+    sessionActive: workspaceHasLiveResearchRun(snapshot),
     platform: windowControlPlatform,
     windowChromeState,
     sidebarCollapsed

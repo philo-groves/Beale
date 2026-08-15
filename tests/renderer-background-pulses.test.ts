@@ -37,6 +37,8 @@ describe('renderer background pulses', () => {
     expect(appBackgroundPulsesStyles).toContain('visibility: hidden');
     expect(appBackgroundPulsesStyles).toContain('pointer-events: none');
     expect(appBackgroundPulseStyles).toContain('animation-play-state: paused');
+    expect(appBackgroundPulseStyles).toContain('var(--text) 28%');
+    expect(appBackgroundPulseStyles).toContain('box-shadow:');
     expect(appBackgroundPulseStyles).not.toContain('display: none');
     expect(sidebarStyles).toContain('background: transparent');
     expect(highHeatStyles).toContain(
