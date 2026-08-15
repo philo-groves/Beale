@@ -4795,7 +4795,50 @@ describe('Beale workbench skeleton', () => {
     const snapshot = service.startRun(runInput('source_review'), 'scheduled');
     const runId = snapshot.runs[0].run.id;
     const workspacePath = snapshot.workspace.workspacePath;
+    const attemptId = service.getRunDetail(runId).attempts[0].id;
     service.close();
+
+    const interruptedDatabase = new WorkspaceDatabase(globalDatabasePath(), join(workspacePath, '.beale', 'artifacts'), {
+      workspacePath
+    });
+    interruptedDatabase.initialize();
+    interruptedDatabase.appendTraceEvent({
+      runId,
+      attemptId,
+      type: 'model_message',
+      source: 'system',
+      summary: 'Honeycrisp subagent /root/recovery_worker started.',
+      payload: {
+        type: 'subagent.activity',
+        action: 'spawned',
+        agentPath: '/root/recovery_worker',
+        status: 'running'
+      },
+      modelVisible: false
+    });
+    interruptedDatabase.upsertBreakoutRoom({
+      id: 'room_recovery_fixture',
+      runId,
+      attemptId,
+      name: 'recovery_fixture',
+      title: 'Recovery fixture'
+    });
+    for (const suffix of ['one', 'two']) {
+      interruptedDatabase.upsertBreakoutRoomMember({
+        id: `member_recovery_${suffix}`,
+        roomId: 'room_recovery_fixture',
+        runId,
+        attemptId,
+        agentId: `agent_recovery_${suffix}`,
+        agentPath: `/root/recovery_${suffix}`,
+        provider: 'openai-codex',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+        role: 'researcher',
+        status: 'active'
+      });
+    }
+    interruptedDatabase.close();
 
     const reopened = new WorkspaceService();
     const recovered = reopened.openWorkspace(workspacePath);
@@ -4809,6 +4852,25 @@ describe('Beale workbench skeleton', () => {
       summary: 'Workspace recovery paused interrupted run after app restart.',
       payload: expect.objectContaining({ interruptedByRecovery: true })
     }));
+    expect(detail.transcriptMessages).toContainEqual(expect.objectContaining({
+      attemptId,
+      role: 'assistant',
+      phase: 'final_answer',
+      source: 'honeycrisp',
+      contentMarkdown: 'Unexpected error',
+      metadata: expect.objectContaining({
+        finalResultKind: 'error',
+        agentStatus: 'interrupted',
+        interruptedByRecovery: true
+      })
+    }));
+    expect(detail.breakoutRoomMembers).toEqual([
+      expect.objectContaining({ id: 'member_recovery_one', status: 'interrupted' }),
+      expect.objectContaining({ id: 'member_recovery_two', status: 'interrupted' })
+    ]);
+    expect(detail.breakoutRooms).toEqual([
+      expect.objectContaining({ id: 'room_recovery_fixture', status: 'interrupted' })
+    ]);
     reopened.close();
   });
 

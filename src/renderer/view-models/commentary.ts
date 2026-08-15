@@ -78,6 +78,7 @@ export function commentaryMessagesForSession(
   }
   messages = coalesceConsecutiveProgressMessages(messages);
   messages = coalesceConsecutiveToolMessages(messages);
+  messages = appendRecoveryErrorFallback(messages, detail, projectedEvents);
 
   if (!includeInitialPrompt || !detail.run.promptMarkdown.trim() || hasRecordedInitialPrompt(events)) {
     return messages;
@@ -90,6 +91,31 @@ export function commentaryMessagesForSession(
     contentMarkdown: detail.run.promptMarkdown.trim(),
     createdAt: detail.run.createdAt
   }, ...messages];
+}
+
+function appendRecoveryErrorFallback(
+  messages: readonly CommentaryMessage[],
+  detail: RunDetail,
+  events: readonly TraceDisplayEvent[]
+): CommentaryMessage[] {
+  if (detail.run.status !== 'paused') return [...messages];
+  if (messages.some((message) => message.kind === 'final_answer' || (message.kind === 'error' && !message.id.startsWith('error:')))) {
+    return [...messages];
+  }
+  const latestAttemptId = detail.attempts.at(-1)?.id ?? null;
+  const recoveryEvent = [...events].reverse().find((event) => {
+    const recovery = event.payload.interruptedByRecovery === true ||
+      event.summary === 'Workspace recovery paused interrupted run after app restart.';
+    return recovery && (!latestAttemptId || !event.attemptId || event.attemptId === latestAttemptId);
+  });
+  if (!recoveryEvent) return [...messages];
+  return [...messages, {
+    id: `recovery-error:${recoveryEvent.id}`,
+    traceEventId: recoveryEvent.id,
+    kind: 'error',
+    contentMarkdown: HONEYCRISP_UNEXPECTED_ERROR_TEXT,
+    createdAt: recoveryEvent.createdAt
+  }];
 }
 
 function reasoningTraceLinesForEvent(event: TraceDisplayEvent, fallback: string): string[] {

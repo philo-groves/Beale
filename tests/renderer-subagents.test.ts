@@ -475,6 +475,18 @@ describe('subagent trace view models', () => {
         type: 'vm_event',
         summary: 'Workspace recovery paused interrupted run after app restart.',
         payload: {}
+      }),
+      traceEvent({
+        id: 'late-event',
+        attemptId: 'attempt_interrupted',
+        sequence: 3,
+        payload: {
+          type: 'subagent.activity',
+          action: 'message',
+          agentPath: '/root/worker',
+          status: 'running',
+          message: 'Late output from the interrupted process.'
+        }
       })
     ];
 

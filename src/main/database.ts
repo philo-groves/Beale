@@ -3862,9 +3862,12 @@ export class WorkspaceDatabase {
           .run('paused', 'Paused by workspace recovery after previous interruption.', text(row, 'id'));
       }
       for (const row of interruptedAttemptRows) {
+        const runId = text(row, 'run_id');
+        const attemptId = text(row, 'id');
         this.db
           .prepare('UPDATE attempts SET status = ?, short_state = ? WHERE id = ?')
-          .run('paused', 'Paused by workspace recovery after previous interruption.', text(row, 'id'));
+          .run('paused', 'Paused by workspace recovery after previous interruption.', attemptId);
+        this.interruptActiveBreakoutRooms(runId, attemptId, recoveredAt);
       }
       for (const row of interruptedModelRows) {
         const metadata = {
@@ -3919,9 +3922,10 @@ export class WorkspaceDatabase {
       for (const row of interruptedRunRows) {
         const runId = text(row, 'id');
         const attempt = interruptedAttemptRows.find((attemptRow) => text(attemptRow, 'run_id') === runId);
+        const attemptId = attempt ? text(attempt, 'id') : null;
         this.appendTraceEvent({
           runId,
-          attemptId: attempt ? text(attempt, 'id') : null,
+          attemptId,
           type: 'vm_event',
           source: 'system',
           summary: 'Workspace recovery paused interrupted run after app restart.',
@@ -3935,6 +3939,55 @@ export class WorkspaceDatabase {
           vmContextId: attempt ? nullableText(attempt, 'vm_context_id') : null,
           modelVisible: false
         });
+        const existingRecoveryError = rowOrUndefined(
+          this.db.prepare(
+            `SELECT id FROM transcript_messages
+             WHERE run_id = ?
+               AND ((? IS NULL AND attempt_id IS NULL) OR attempt_id = ?)
+               AND role = 'assistant'
+               AND json_valid(metadata_json)
+               AND json_extract(metadata_json, '$.finalResultKind') = 'error'
+               AND json_extract(metadata_json, '$.interruptedByRecovery') = 1
+             LIMIT 1`
+          ).get(runId, attemptId, attemptId)
+        );
+        if (!existingRecoveryError) {
+          const errorTrace = this.appendTraceEvent({
+            runId,
+            attemptId,
+            type: 'model_message',
+            source: 'system',
+            summary: 'Workspace recovery recorded an unexpected session error.',
+            payload: {
+              outputText: 'Unexpected error',
+              finalResultKind: 'error',
+              agentStatus: 'interrupted',
+              agentPath: '/root',
+              interruptedByRecovery: true,
+              recoveredAt,
+              reason
+            },
+            vmContextId: attempt ? nullableText(attempt, 'vm_context_id') : null,
+            modelVisible: false
+          });
+          this.createTranscriptMessage({
+            runId,
+            attemptId,
+            traceEventId: errorTrace.id,
+            role: 'assistant',
+            phase: 'final_answer',
+            contentMarkdown: 'Unexpected error',
+            source: 'honeycrisp',
+            metadata: {
+              finalResultKind: 'error',
+              agentStatus: 'interrupted',
+              agentPath: '/root',
+              interruptedByRecovery: true,
+              recoveredAt,
+              reason
+            }
+          });
+        }
       }
       this.setMetaValue('last_recovery_json', JSON.stringify(report), recoveredAt);
     });
@@ -4630,8 +4683,7 @@ export class WorkspaceDatabase {
     return message;
   }
 
-  public interruptActiveBreakoutRooms(runId: string, attemptId?: string | null): void {
-    const endedAt = nowIso();
+  public interruptActiveBreakoutRooms(runId: string, attemptId?: string | null, endedAt = nowIso()): void {
     const attemptClause = attemptId ? ' AND attempt_id = ?' : '';
     const params = attemptId ? [endedAt, runId, attemptId] : [endedAt, runId];
     const roomIds = rows(this.db.prepare(

@@ -37,6 +37,11 @@ interface SubagentOverviewAccumulator {
   lastSequence: number;
 }
 
+interface RecoveryInterruption {
+  attemptId: string | null;
+  sequence: number;
+}
+
 const ACTIVE_SUBAGENT_STATUSES = new Set(['pending', 'running']);
 const SUBAGENT_STATUSES = new Set<SubagentStatus>(['pending', 'running', 'completed', 'interrupted', 'errored']);
 
@@ -112,7 +117,7 @@ export function subagentSummaries(
 ): SubagentSummary[] {
   const summaries = new Map<string, SubagentAccumulator>();
   const currentAttemptId = latestRootAttemptId(events);
-  const recoveryInterruptionSequence = latestRecoveryInterruptionSequence(events);
+  const recoveryInterruption = latestRecoveryInterruption(events);
   const nativeCommentaryKeys = chatView === 'commentary' ? nativeCommentaryCorrelationKeys(events) : new Set<string>();
 
   for (const event of events) {
@@ -169,7 +174,7 @@ export function subagentSummaries(
       currentAttemptId,
       runStatus,
       lastSequence,
-      recoveryInterruptionSequence
+      recoveryInterruption
     ),
     createdAt: spawnedAt ?? summary.createdAt
   })).sort((left, right) => {
@@ -193,7 +198,7 @@ export function subagentOverviewForEvents(
 ): SubagentOverview {
   const summaries = new Map<string, SubagentOverviewAccumulator>();
   const currentAttemptId = latestRootAttemptId(events);
-  const recoveryInterruptionSequence = latestRecoveryInterruptionSequence(events);
+  const recoveryInterruption = latestRecoveryInterruption(events);
 
   for (const event of events) {
     const path = traceAgentPath(event);
@@ -224,7 +229,7 @@ export function subagentOverviewForEvents(
       currentAttemptId,
       runStatus,
       summary.lastSequence,
-      recoveryInterruptionSequence
+      recoveryInterruption
     );
     if (ACTIVE_SUBAGENT_STATUSES.has(status)) activeCount += 1;
     else completedCount += 1;
@@ -360,30 +365,35 @@ function reconciledSubagentStatus(
   currentAttemptId: string | null,
   runStatus: RunStatus | null | undefined,
   lastSequence: number,
-  recoveryInterruptionSequence: number | null
+  recoveryInterruption: RecoveryInterruption | null
 ): SubagentStatus {
   if (!ACTIVE_SUBAGENT_STATUSES.has(status)) return status;
   if (attemptId && currentAttemptId && attemptId !== currentAttemptId) return 'interrupted';
   if (runStatus && !['queued', 'active', 'paused'].includes(runStatus)) return 'interrupted';
   if (
     runStatus === 'paused' &&
-    recoveryInterruptionSequence !== null &&
-    lastSequence < recoveryInterruptionSequence
+    recoveryInterruption !== null &&
+    (
+      (recoveryInterruption.attemptId !== null && attemptId === recoveryInterruption.attemptId) ||
+      (recoveryInterruption.attemptId === null && lastSequence < recoveryInterruption.sequence)
+    )
   ) {
     return 'interrupted';
   }
   return status;
 }
 
-function latestRecoveryInterruptionSequence(events: readonly TraceEventRecord[]): number | null {
-  let sequence: number | null = null;
+function latestRecoveryInterruption(events: readonly TraceEventRecord[]): RecoveryInterruption | null {
+  let recovery: RecoveryInterruption | null = null;
   for (const event of events) {
     const recoveryInterruption = event.payload.interruptedByRecovery === true ||
       event.summary === 'Workspace recovery paused interrupted run after app restart.';
     if (!recoveryInterruption) continue;
-    sequence = sequence === null ? event.sequence : Math.max(sequence, event.sequence);
+    if (!recovery || event.sequence > recovery.sequence) {
+      recovery = { attemptId: event.attemptId, sequence: event.sequence };
+    }
   }
-  return sequence;
+  return recovery;
 }
 
 function latestRootAttemptId(events: readonly TraceEventRecord[]): string | null {

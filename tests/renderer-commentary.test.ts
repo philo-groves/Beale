@@ -345,6 +345,32 @@ describe('renderer commentary projection', () => {
     ]);
   });
 
+  it('adds an unexpected-error final message for legacy interrupted restart recovery', () => {
+    const detail = runDetail('Inspect the parser.');
+    detail.run.status = 'paused';
+    detail.attempts = [{ id: 'attempt_one' }] as RunDetail['attempts'];
+    const messages = commentaryMessagesForSession(detail, [
+      displayEvent('commentary', {
+        agentPath: '/root',
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp_commentary',
+        messagePhase: 'commentary',
+        text: 'I am inspecting the parser.'
+      }),
+      displayEvent('recovery', { interruptedByRecovery: true }, {
+        sequence: 2,
+        source: 'system',
+        type: 'vm_event',
+        summary: 'Workspace recovery paused interrupted run after app restart.'
+      })
+    ], { includeInitialPrompt: false });
+
+    expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
+      ['commentary', 'I am inspecting the parser.'],
+      ['error', 'Unexpected error']
+    ]);
+  });
+
   it('preserves legacy wrapped Honeycrisp error details when present', () => {
     const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
       displayEvent('legacy-wrapped-error', {

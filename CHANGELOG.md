@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Restart recovery now marks interrupted subagents and collaboration members as interrupted even when stale same-attempt events arrive late, and interrupted sessions receive an error final message reading `Unexpected error`.
 - Active-session rounded-square pulses now remain visible across dashboard and session views whenever the workspace has queued or active research, with their original contrast restored through the transparent window sidebar.
 - Dejunk no longer misclassifies paused research sessions as active; only queued or actively running sessions block workspace housekeeping.
 - Agent Plugin MCP runtime overlays and the built-in Beale Introspection bridge now use Honeycrisp's `servers` configuration and newline-delimited JSON-RPC contracts, preventing new sessions from exiting or hanging before their first model turn.
