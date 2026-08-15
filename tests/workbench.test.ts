@@ -53,6 +53,7 @@ afterEach(() => {
   delete process.env.BEALE_HONEYCRISP_RUNTIME_ARGS_JSON;
   delete process.env.BEALE_HONEYCRISP_TOOL_MAX_BYTES;
   delete process.env.BEALE_HONEYCRISP_CONTROL_ACK_TIMEOUT_MS;
+  delete process.env.BEALE_HONEYCRISP_TRANSPORT;
   delete process.env.HONEYCRISP_CODEX_AUTH_FILE;
   delete process.env.BEALE_WORKSPACE_REGISTRY_DIR;
   delete process.env.BEALE_TOOLING_ARGS_PATH;
@@ -1655,6 +1656,7 @@ describe('Beale workbench skeleton', () => {
     chmodSync(fakeHoneycrisp, 0o700);
     process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
     process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, controlLogPath, heartbeatPath]);
+    process.env.BEALE_HONEYCRISP_TRANSPORT = 'legacy';
 
     const service = new WorkspaceService();
     try {
@@ -1766,6 +1768,7 @@ describe('Beale workbench skeleton', () => {
     chmodSync(fakeHoneycrisp, 0o700);
     process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
     process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, controlLogPath]);
+    process.env.BEALE_HONEYCRISP_TRANSPORT = 'legacy';
 
     const service = new WorkspaceService();
     try {
@@ -1921,6 +1924,7 @@ describe('Beale workbench skeleton', () => {
     chmodSync(fakeHoneycrisp, 0o700);
     process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
     process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, controlLogPath]);
+    process.env.BEALE_HONEYCRISP_TRANSPORT = 'legacy';
 
     const service = new WorkspaceService();
     try {
@@ -2207,6 +2211,7 @@ describe('Beale workbench skeleton', () => {
     chmodSync(fakeHoneycrisp, 0o700);
     process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
     process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, controlLogPath]);
+    process.env.BEALE_HONEYCRISP_TRANSPORT = 'legacy';
 
     const service = new WorkspaceService();
     try {

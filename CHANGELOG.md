@@ -43,6 +43,7 @@
 
 ### Changed
 
+- Replaced Beale's primary Honeycrisp live event and control transport with Honeycrisp's versioned authenticated loopback WebSocket protocol; local compatibility tests can explicitly select the temporary legacy stdio transport.
 - Dejunk now structurally recognizes large Xcode `DerivedData` variants, renamed DerivedData roots, and Xcode build/cache layouts at lower high-confidence thresholds while preserving source lookalikes and Git repositories.
 - Sidebar breakout-room labels now use the same muted text palette as the session-list expansion control regardless of room status.
 - New Research now starts user-written objectives directly by default. Optional Add Context generation produces a 100-250 word cyber objective brief capped at 4,000 characters, uses only a bounded set of relevant assets, memories, prior outcomes, and source coverage, and leaves authorization, profile, AGENTS.md, tools, and full memory context to Honeycrisp's runtime injection.

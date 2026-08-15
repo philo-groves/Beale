@@ -42,6 +42,11 @@ import { resolveGoalObjective } from '../shared/goalObjective';
 import { decodeResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
 import { redactCommandArgumentsForModel, redactForModelText, redactJsonForModel } from './redaction';
 import type { AgentPluginHoneycrispRuntime } from './agentPluginRegistry';
+import {
+  HoneycrispWebSocketClient,
+  HONEYCRISP_TRANSPORT_PREFIX,
+  parseHoneycrispTransportBootstrap
+} from './honeycrispWebSocketClient';
 
 export interface HoneycrispRunHandle {
   context: CreatedRunContext;
@@ -115,6 +120,9 @@ interface ActiveHoneycrispRun {
   }>;
   resolvedShellApprovalRequestIds: Set<string>;
   automaticWebSocketRetryCount: number;
+  transportToken: string;
+  transportMode: 'pending' | 'websocket' | 'legacy';
+  webSocketClient: HoneycrispWebSocketClient | null;
 }
 
 interface PendingHoneycrispControl {
@@ -126,6 +134,8 @@ interface PendingHoneycrispControl {
   shellSafetyMode?: ShellSafetyMode;
   approvalRequestId?: string;
   shellApprovalDecision?: 'approved' | 'denied';
+  wireMessage: Record<string, unknown> & { requestId: string };
+  dispatched: boolean;
   timeout: NodeJS.Timeout | null;
   timedOut: boolean;
 }
@@ -546,6 +556,7 @@ export class HoneycrispRunEngine {
     }
     const providerSettings = this.getProviderSettings?.();
     const agentPluginRuntime = this.getAgentPluginHoneycrispRuntime?.();
+    const legacyTransport = process.env.BEALE_HONEYCRISP_TRANSPORT?.trim() === 'legacy';
     const args = [
       ...(invocation.usesNodeRuntime ? [HONEYCRISP_MAX_OLD_SPACE_ARG] : []),
       ...invocation.prefixArgs,
@@ -570,9 +581,11 @@ export class HoneycrispRunEngine {
         researchProfile ? undefined : this.getMemoryTypeDescriptions?.(),
         providerSettings,
         collaborationConfigPath ?? undefined,
-        agentPluginRuntime?.args
+        agentPluginRuntime?.args,
+        !legacyTransport
       )
     ];
+    const transportToken = `${randomUUID()}${randomUUID()}`;
     this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
@@ -612,12 +625,14 @@ export class HoneycrispRunEngine {
       vmContextId: context.vmContext.id
     });
 
+    const childEnvironment = honeycrispProcessEnvironment({
+      databasePath: this.db.getDatabasePath(),
+      artifactDirectoryPath: join(dirname(this.db.getDatabasePath()), 'artifacts')
+    }, providerSettings?.preferredAuthenticationMethods);
+    if (!legacyTransport) childEnvironment.HONEYCRISP_TRANSPORT_TOKEN = transportToken;
     const child = spawn(invocation.command, args, {
       cwd: invocation.cwd,
-      env: honeycrispProcessEnvironment({
-        databasePath: this.db.getDatabasePath(),
-        artifactDirectoryPath: join(dirname(this.db.getDatabasePath()), 'artifacts')
-      }, providerSettings?.preferredAuthenticationMethods),
+      env: childEnvironment,
       detached: process.platform !== 'win32',
       windowsHide: true
     });
@@ -638,7 +653,10 @@ export class HoneycrispRunEngine {
       shellApprovalRecords: new Map(),
       shellApprovalDecisionsInFlight: new Map(),
       resolvedShellApprovalRequestIds: new Set(),
-      automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0
+      automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0,
+      transportToken,
+      transportMode: legacyTransport ? 'legacy' : 'pending',
+      webSocketClient: null
     };
     this.activeRuns.set(context.run.id, active);
     this.armTimeLimit(active, input.budget.maxMinutes);
@@ -650,6 +668,9 @@ export class HoneycrispRunEngine {
 
     const completion = new Promise<void>((resolveCompletion) => {
       child.once('error', (error) => {
+        const webSocketClient = active.webSocketClient;
+        active.webSocketClient = null;
+        webSocketClient?.close();
         this.clearTimeLimit(active);
         this.clearForceStopTimer(active);
         if (!this.disposed) {
@@ -663,6 +684,9 @@ export class HoneycrispRunEngine {
         this.clearForceStopTimer(active);
         stdout.flush();
         stderr.flush();
+        const webSocketClient = active.webSocketClient;
+        active.webSocketClient = null;
+        webSocketClient?.close();
         this.activeRuns.delete(context.run.id);
         if (!this.disposed) {
           this.finalizePendingControls(active, 'process_closed');
@@ -697,7 +721,7 @@ export class HoneycrispRunEngine {
     active.stopped = true;
     active.stopReason = reason;
     this.clearTimeLimit(active);
-    if (active.paused && process.platform !== 'win32') {
+    if (active.paused && active.transportMode === 'legacy' && process.platform !== 'win32') {
       signalHoneycrispProcess(active.child, 'SIGCONT');
     }
     try {
@@ -758,7 +782,9 @@ export class HoneycrispRunEngine {
       throw new Error('Wait for the pending shell safety control before pausing the Honeycrisp process.');
     }
     this.sendControl(active, { schemaVersion: 1, type: 'pause' });
-    if (process.platform !== 'win32' && !signalHoneycrispProcess(active.child, 'SIGSTOP')) {
+    if (active.transportMode === 'legacy'
+      && process.platform !== 'win32'
+      && !signalHoneycrispProcess(active.child, 'SIGSTOP')) {
       throw new Error(`Unable to pause Honeycrisp process for run ${runId}.`);
     }
     active.paused = true;
@@ -769,7 +795,9 @@ export class HoneycrispRunEngine {
     const active = this.activeRuns.get(runId);
     if (!active) return false;
     if (!active.paused) return true;
-    if (process.platform !== 'win32' && !signalHoneycrispProcess(active.child, 'SIGCONT')) {
+    if (active.transportMode === 'legacy'
+      && process.platform !== 'win32'
+      && !signalHoneycrispProcess(active.child, 'SIGCONT')) {
       throw new Error(`Unable to resume Honeycrisp process for run ${runId}.`);
     }
     active.paused = false;
@@ -841,7 +869,7 @@ export class HoneycrispRunEngine {
     for (const active of this.activeRuns.values()) {
       this.clearTimeLimit(active);
       this.clearForceStopTimer(active);
-      if (active.paused && process.platform !== 'win32') {
+      if (active.paused && active.transportMode === 'legacy' && process.platform !== 'win32') {
         signalHoneycrispProcess(active.child, 'SIGCONT');
       }
       try {
@@ -850,6 +878,9 @@ export class HoneycrispRunEngine {
         // The process tree is terminated below even when its control stream has closed.
       }
       this.finalizePendingControls(active, 'engine_disposed');
+      const webSocketClient = active.webSocketClient;
+      active.webSocketClient = null;
+      webSocketClient?.close();
       signalHoneycrispProcess(active.child, 'SIGTERM');
     }
     this.activeRuns.clear();
@@ -859,10 +890,8 @@ export class HoneycrispRunEngine {
     active: ActiveHoneycrispRun,
     message: Record<string, unknown> & { type: PendingHoneycrispControl['type'] }
   ): HoneycrispControlDispatch {
-    if (active.child.stdin.destroyed || active.child.stdin.writableEnded) {
-      throw new Error(`Honeycrisp control stream is unavailable for run ${active.context.run.id}.`);
-    }
     const requestId = `control_${randomUUID()}`;
+    const wireMessage = { ...message, requestId };
     const pending: PendingHoneycrispControl = {
       requestId,
       type: message.type,
@@ -872,21 +901,63 @@ export class HoneycrispRunEngine {
       ...(isShellSafetyMode(message.shellSafetyMode) ? { shellSafetyMode: message.shellSafetyMode } : {}),
       ...(typeof message.approvalRequestId === 'string' ? { approvalRequestId: message.approvalRequestId } : {}),
       ...(isShellApprovalDecision(message.decision) ? { shellApprovalDecision: message.decision } : {}),
+      wireMessage,
+      dispatched: false,
       timeout: null,
       timedOut: false
     };
     active.pendingControls.set(requestId, pending);
-    if (message.type === 'steer' || isSafetyControlType(message.type)) {
-      pending.timeout = setTimeout(() => this.handleControlAckTimeout(active, requestId), controlAckTimeoutMs());
-      pending.timeout.unref();
-    }
     try {
-      active.child.stdin.write(`${JSON.stringify({ ...message, requestId })}\n`, 'utf8');
+      this.dispatchPendingControl(active, pending);
     } catch (error) {
       this.removePendingControl(active, pending);
       throw error;
     }
     return { requestId, deliveryStatus: 'pending' };
+  }
+
+  private dispatchPendingControl(active: ActiveHoneycrispRun, pending: PendingHoneycrispControl): void {
+    if (pending.dispatched || active.transportMode === 'pending') return;
+    if (active.transportMode === 'websocket') {
+      if (!active.webSocketClient) {
+        throw new Error(`Honeycrisp WebSocket transport is unavailable for run ${active.context.run.id}.`);
+      }
+      active.webSocketClient.sendControl(pending.wireMessage);
+    } else {
+      if (active.child.stdin.destroyed || active.child.stdin.writableEnded) {
+        throw new Error(`Honeycrisp legacy control stream is unavailable for run ${active.context.run.id}.`);
+      }
+      active.child.stdin.write(`${JSON.stringify(pending.wireMessage)}\n`, 'utf8');
+    }
+    pending.dispatched = true;
+    if (pending.type === 'steer' || isSafetyControlType(pending.type)) {
+      pending.timeout = setTimeout(
+        () => this.handleControlAckTimeout(active, pending.requestId),
+        controlAckTimeoutMs()
+      );
+      pending.timeout.unref();
+    }
+  }
+
+  private flushPendingControls(active: ActiveHoneycrispRun): void {
+    for (const pending of active.pendingControls.values()) {
+      try {
+        this.dispatchPendingControl(active, pending);
+      } catch (error) {
+        this.removePendingControl(active, pending);
+        this.db.appendTraceEvent({
+          runId: active.context.run.id,
+          attemptId: active.context.attempt.id,
+          type: 'vm_event',
+          source: 'executor',
+          summary: 'Honeycrisp control delivery failed.',
+          payload: { requestId: pending.requestId, type: pending.type, error: errorMessage(error) },
+          vmContextId: active.context.vmContext.id,
+          modelVisible: false
+        });
+      }
+    }
+    this.onChange();
   }
 
   private recordControlAcknowledgement(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
@@ -1164,12 +1235,89 @@ export class HoneycrispRunEngine {
     }
   }
 
+  private connectWebSocketTransport(
+    active: ActiveHoneycrispRun,
+    bootstrap: NonNullable<ReturnType<typeof parseHoneycrispTransportBootstrap>>
+  ): void {
+    if (active.transportMode !== 'pending' || active.webSocketClient) return;
+    const client = new HoneycrispWebSocketClient({
+      bootstrap,
+      token: active.transportToken,
+      clientVersion: '0.1.0',
+      onEvent: (rawEvent) => {
+        if (this.activeRuns.get(active.context.run.id) !== active) return;
+        const event = decodeHoneycrispLiveEvent(rawEvent);
+        if (event) this.recordLiveEvent(active.context, event);
+      },
+      onError: (error) => {
+        if (this.activeRuns.get(active.context.run.id) !== active) return;
+        this.db.appendTraceEvent({
+          runId: active.context.run.id,
+          attemptId: active.context.attempt.id,
+          type: 'vm_event',
+          source: 'executor',
+          summary: 'Honeycrisp WebSocket transport error.',
+          payload: { error: error.message },
+          vmContextId: active.context.vmContext.id,
+          modelVisible: false
+        });
+        this.onChange();
+      },
+      onClose: (code, reason) => {
+        if (this.activeRuns.get(active.context.run.id) !== active || active.webSocketClient !== client) return;
+        active.webSocketClient = null;
+        this.db.appendTraceEvent({
+          runId: active.context.run.id,
+          attemptId: active.context.attempt.id,
+          type: 'vm_event',
+          source: 'executor',
+          summary: 'Honeycrisp WebSocket transport closed.',
+          payload: { code, reason: reason.slice(0, 256) },
+          vmContextId: active.context.vmContext.id,
+          modelVisible: false
+        });
+        this.onChange();
+      }
+    });
+    active.webSocketClient = client;
+    void client.connect().then(() => {
+      if (this.activeRuns.get(active.context.run.id) !== active || active.webSocketClient !== client) {
+        client.close();
+        return;
+      }
+      active.transportMode = 'websocket';
+      this.db.appendTraceEvent({
+        runId: active.context.run.id,
+        attemptId: active.context.attempt.id,
+        type: 'vm_event',
+        source: 'executor',
+        summary: 'Honeycrisp WebSocket transport established.',
+        payload: { protocolVersion: bootstrap.protocolVersion, transport: bootstrap.transport },
+        vmContextId: active.context.vmContext.id,
+        modelVisible: false
+      });
+      this.flushPendingControls(active);
+    }).catch(() => {
+      // The client error callback records the failure; Honeycrisp also exits if no client completes the handshake.
+    });
+  }
+
   private recordProcessLine(context: CreatedRunContext, stream: 'stdout' | 'stderr', line: string): void {
     if (this.disposed) return;
     const text = line.trim();
     if (!text) return;
+    const active = this.activeRuns.get(context.run.id);
+    if (stream === 'stdout' && text.startsWith(HONEYCRISP_TRANSPORT_PREFIX)) {
+      const bootstrap = parseHoneycrispTransportBootstrap(text, context.run.id);
+      if (active && bootstrap) this.connectWebSocketTransport(active, bootstrap);
+      if (bootstrap) return;
+    }
     const liveEvent = stream === 'stdout' ? parseHoneycrispLiveEvent(text) : null;
     if (liveEvent) {
+      if (active?.transportMode === 'pending') {
+        active.transportMode = 'legacy';
+        this.flushPendingControls(active);
+      }
       this.recordLiveEvent(context, liveEvent);
       return;
     }
@@ -2324,16 +2472,20 @@ function parseHoneycrispLiveEvent(line: string): HoneycrispLiveEvent | null {
   if (!line.startsWith(HONEYCRISP_EVENT_PREFIX)) return null;
   try {
     const parsed = JSON.parse(line.slice(HONEYCRISP_EVENT_PREFIX.length)) as unknown;
-    if (!isRecord(parsed)) return null;
-    return {
-      schemaVersion: typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : undefined,
-      kind: typeof parsed.kind === 'string' ? parsed.kind : undefined,
-      timestamp: typeof parsed.timestamp === 'string' ? parsed.timestamp : undefined,
-      payload: isRecord(parsed.payload) ? parsed.payload : undefined
-    };
+    return decodeHoneycrispLiveEvent(parsed);
   } catch {
     return null;
   }
+}
+
+function decodeHoneycrispLiveEvent(value: unknown): HoneycrispLiveEvent | null {
+  if (!isRecord(value)) return null;
+  return {
+    schemaVersion: typeof value.schemaVersion === 'number' ? value.schemaVersion : undefined,
+    kind: typeof value.kind === 'string' ? value.kind : undefined,
+    timestamp: typeof value.timestamp === 'string' ? value.timestamp : undefined,
+    payload: isRecord(value.payload) ? value.payload : undefined
+  };
 }
 
 function honeycrispCaptureEventFromLiveEvent(event: HoneycrispLiveEvent): HoneycrispCaptureEvent | null {
@@ -2454,7 +2606,8 @@ function honeycrispRunArgs(
   memoryTypeDescriptions?: MemoryTypeDescriptions,
   providerSettings?: ProviderSettings,
   collaborationConfigPath?: string,
-  agentPluginRuntimeArgs: readonly string[] = []
+  agentPluginRuntimeArgs: readonly string[] = [],
+  webSocketTransport = true
 ): string[] {
   const args = [
     '--workspace-root',
@@ -2465,6 +2618,7 @@ function honeycrispRunArgs(
     workspaceContextPath,
     '--executor',
     'agent',
+    ...(webSocketTransport ? ['--websocket-transport'] : []),
     '--event-stream',
     '--control-stream',
     '--session-id',
