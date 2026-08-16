@@ -1639,11 +1639,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   margin-top: 4px;
 }
 
-.workspace-startup-spinner {
-  color: var(--muted-strong);
-  animation: workspace-startup-spin 900ms linear infinite;
-}
-
 .workspace-list-loading {
   min-height: 30px;
   display: flex;
@@ -12126,8 +12121,7 @@ button.research-goal-choice:focus-visible {
   .provider-health-indicator.state-authenticating,
   .provider-settings-loading-indicator,
   .plugin-manager-spinner,
-  .workspace-list-loading svg,
-  .workspace-startup-spinner {
+  .workspace-list-loading svg {
     animation: none;
   }
 

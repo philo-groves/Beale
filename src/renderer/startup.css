@@ -77,20 +77,3 @@ body,
   font-size: 14px;
   font-weight: 600;
 }
-
-.initial-app-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid #333;
-  border-top-color: #999;
-  border-radius: 50%;
-  animation: initial-app-spin 900ms linear infinite;
-}
-
-@keyframes initial-app-spin {
-  to { transform: rotate(360deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .initial-app-spinner { animation: none; }
-}

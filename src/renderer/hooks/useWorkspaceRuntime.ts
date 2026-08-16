@@ -14,7 +14,7 @@ import {
   snapshotMetricDetail
 } from '../view-models/runDetailUpdates';
 
-export type WorkspaceStartupPhase = 'shell' | 'registry' | 'workspace' | 'ready';
+export type WorkspaceStartupPhase = 'shell' | 'registry' | 'ready';
 
 export function useWorkspaceRuntime(onError: (message: string) => void): {
   snapshot: WorkspaceSnapshot | null;
@@ -130,14 +130,6 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
             workspaceRegistryMetricDetail(registry)
           );
           setWorkspaceRegistry(registry);
-          setStartupPhase('workspace');
-          await nextRendererFrame();
-          if (cancelled) return;
-          const restored = await devInstrumentation.timeAsync(
-            'ipc.restoreLastWorkspace.initial',
-            () => window.beale.restoreLastWorkspace()
-          );
-          if (!cancelled) applySnapshot(restored);
         } catch (caught) {
           if (!cancelled) onError(errorMessage(caught));
         } finally {
@@ -175,10 +167,6 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
     loadSnapshot,
     loadWorkspaceRegistry
   };
-}
-
-function nextRendererFrame(): Promise<void> {
-  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
 }
 
 function workspaceRegistryMetricDetail(registry: WorkspaceRegistryState | null): Record<string, number> {

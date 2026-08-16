@@ -17,44 +17,40 @@ describe('renderer startup', () => {
     expect(source).toContain("import './startup.css';");
     expect(source).not.toContain("import './styles.css';");
     expect(html).toContain('No Workspace Selected');
-    expect(html).toContain('Starting Beale');
+    expect(html).toContain('Choose a known workspace');
+    expect(html).toContain('aria-busy="false"');
+    expect(html).not.toContain('Starting Beale');
+    expect(html).not.toContain('role="status"');
   });
 
-  it('shows progress while registry and workspace restoration are pending', () => {
-    const registryHtml = renderToStaticMarkup(createElement(WorkspaceStartupView, {
-      phase: 'registry',
-      onAddWorkspace: () => undefined
-    }));
-    const workspaceHtml = renderToStaticMarkup(createElement(WorkspaceStartupView, {
-      phase: 'workspace',
-      onAddWorkspace: () => undefined
-    }));
-    const readyHtml = renderToStaticMarkup(createElement(WorkspaceStartupView, {
-      phase: 'ready',
+  it('shows the ready no-workspace view without startup loading copy', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceStartupView, {
       onAddWorkspace: () => undefined
     }));
 
-    expect(registryHtml).toContain('Loading workspaces');
-    expect(registryHtml).toContain('aria-busy="true"');
-    expect(workspaceHtml).toContain('Opening your last workspace');
-    expect(readyHtml).toContain('Add Workspace');
-    expect(readyHtml).toContain('aria-busy="false"');
+    expect(html).toContain('No Workspace Selected');
+    expect(html).toContain('Choose a known workspace');
+    expect(html).toContain('Add Workspace');
+    expect(html).toContain('aria-busy="false"');
+    expect(html).not.toContain('Loading workspaces');
+    expect(html).not.toContain('Opening your last workspace');
+    expect(html).not.toContain('role="status"');
   });
 
-  it('waits for a renderer frame and registry state before restoring a workspace', () => {
+  it('loads registry state without restoring or snapshot-loading a workspace', () => {
     const runtime = readFileSync(
       new URL('../src/renderer/hooks/useWorkspaceRuntime.ts', import.meta.url),
       'utf8'
     );
     const main = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8');
     const registryLoad = runtime.indexOf('ipc.getWorkspaceRegistry.initial');
-    const restore = runtime.indexOf('ipc.restoreLastWorkspace.initial');
 
     expect(runtime).toContain("useState<WorkspaceStartupPhase>('shell')");
     expect(runtime).toContain('const startupFrame = window.requestAnimationFrame');
-    expect(runtime).toContain('await nextRendererFrame();');
     expect(registryLoad).toBeGreaterThan(0);
-    expect(restore).toBeGreaterThan(registryLoad);
+    expect(runtime).not.toContain("'workspace'");
+    expect(runtime).not.toContain('nextRendererFrame');
+    expect(runtime).not.toContain('restoreLastWorkspace');
     expect(runtime).not.toContain('ipc.getSnapshot.initial');
     expect(runtime).not.toContain('.getOpenAiStatus()');
     expect(main).toContain('IPC_CHANNELS.restoreLastWorkspace');

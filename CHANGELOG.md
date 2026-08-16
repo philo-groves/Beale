@@ -61,7 +61,8 @@
 
 ### Changed
 
-- Startup now paints a lightweight no-workspace renderer before requesting the full workbench bundle, then loads the workspace registry and restores the last workspace in separate visible phases; credential, provider, profiling, and icon work is deferred off the first-window path.
+- App startup now leaves every workspace closed and presents the neutral No Workspace Selected view without loading copy; reopening a known workspace requires an explicit user action.
+- Startup now paints a lightweight no-workspace renderer before requesting the full workbench bundle, then loads the workspace registry without blocking the central workspace view; credential, provider, profiling, and icon work is deferred off the first-window path.
 - Consolidated Beale's Honeycrisp CLI and WebSocket wire DTOs in one adapter module, added CLI request correlation checks, and aligned WebSocket validation and errors with Honeycrisp's shared protocol-v1 contract.
 - Moved auxiliary model-job routing and provider completion semantics, provider defaults, Agent Plugin registry/runtime assembly, source discovery and repository materialization, and Dejunk maintenance behind Honeycrisp protocol v1. Beale now retains only typed adapters, host credential injection, client-specific built-ins, and UI gating.
 - Moved memory summaries, Dreaming prompt preparation and reversible persistence, runbook/report reads, and artifact resolution behind Honeycrisp protocol v1. Beale now adapts those operations for its UI and provider stream without directly reading or writing Honeycrisp knowledge tables, and optional run-process wrappers no longer intercept canonical protocol calls.

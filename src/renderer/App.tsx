@@ -1254,7 +1254,7 @@ export function App(): JSX.Element {
               }}
               onSessionAction={handleSessionAction}
               onSteerInstruction={handleSteerInstruction}
-            /> : <WorkspaceStartupView phase={startupPhase} onAddWorkspace={addWorkspace} />}
+            /> : <WorkspaceStartupView onAddWorkspace={addWorkspace} />}
           </div>
         )}
       </main>
