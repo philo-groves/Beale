@@ -26,6 +26,7 @@ import type {
 } from '@shared/types';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import type { FloatingTextPickerOption } from '../../app/FloatingTextPicker';
+import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { researchModelNameLabel, stateClass } from '../../lib/formatting';
 import {
   filterEnabledProviderModelCatalogs,
@@ -74,21 +75,27 @@ export function SettingsSidebar({
       </button>
       <div className="sidebar-section settings-sidebar-section">
         <div className="workspace-list-title">Settings</div>
-        <nav className="settings-sections" aria-label="Settings sections">
-          {SETTINGS_SECTIONS.map((item) => (
-            <div className={`workspace-item-row no-menu ${activeSection === item ? 'active' : ''}`.trim()} key={item}>
-              <button
-                type="button"
-                className={`workspace-item ${activeSection === item ? 'active' : ''}`.trim()}
-                aria-current={activeSection === item ? 'page' : undefined}
-                onClick={() => onChangeSection(item)}
-              >
-                <Settings size={15} aria-hidden="true" />
-                <span>{settingsSectionLabel(item)}</span>
-              </button>
-            </div>
-          ))}
-        </nav>
+        <MainSideScrollRegion
+          className="sidebar-list-scroll-region"
+          listClassName="sidebar-list-scroll"
+          updateKey={activeSection}
+        >
+          <nav className="settings-sections sidebar-list-scroll-content" aria-label="Settings sections">
+            {SETTINGS_SECTIONS.map((item) => (
+              <div className={`workspace-item-row no-menu ${activeSection === item ? 'active' : ''}`.trim()} key={item}>
+                <button
+                  type="button"
+                  className={`workspace-item ${activeSection === item ? 'active' : ''}`.trim()}
+                  aria-current={activeSection === item ? 'page' : undefined}
+                  onClick={() => onChangeSection(item)}
+                >
+                  <Settings size={15} aria-hidden="true" />
+                  <span>{settingsSectionLabel(item)}</span>
+                </button>
+              </div>
+            ))}
+          </nav>
+        </MainSideScrollRegion>
       </div>
       {error ? <div className="error-box">{error}</div> : null}
       <div className="sidebar-resize-handle" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={onResizePointerDown} />

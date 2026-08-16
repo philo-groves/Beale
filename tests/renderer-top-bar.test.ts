@@ -103,9 +103,12 @@ describe('renderer top bar', () => {
 
   it('labels the lower-left settings action as Agent Settings', () => {
     const html = renderToStaticMarkup(createElement(StatusBar, { onOpenSettings: () => undefined }));
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const settingsButtonStyles = styles.match(/\.status-settings-button\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(html).toContain('aria-label="Agent Settings"');
     expect(html).toContain('<span>Agent Settings</span>');
+    expect(settingsButtonStyles).toContain('width: calc(100% + 8px)');
   });
 });
 

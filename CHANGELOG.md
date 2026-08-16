@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Left sidebar scrolling is now confined to the workspace or settings item list, which fills the available height above Agent Settings, keeps list and footer controls aligned, anchors the complete scroll track inside the sidebar immediately before the main content area, and uses Commentary's activity-aware inset scrollbar and conditional alpha fades that reveal the actual live session heat background.
 - Startup now reconciles cached active sidebar sessions through Honeycrisp without opening a workspace, app shutdown records live work as interrupted instead of failed with `Request was aborted`, inactive-session continuations complete their WebSocket handshake before Beale materializes or broadcasts the resumed snapshot, and active continuations no longer replay a prior attempt's terminal response on every detail update.
 - macOS source launches now brand the project-local Electron bundle as Beale before startup and embed the Beale icon at the bundle boundary, preventing the stock Electron name and icon from appearing in the Dock during launch and shutdown.
 - Shell approval decisions now append distinct Honeycrisp session events instead of colliding with the original pending record; legacy pending approvals are reconciled from their recorded resolution trace so completed Approve Once actions release the widget and steering composer.

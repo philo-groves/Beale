@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, WorkspaceSnapshot } from '@shared/types';
 import { WorkspaceSidebar } from '../src/renderer/features/workspaces/WorkspaceSidebar';
+import { INSET_SCROLLBAR_SELECTOR } from '../src/renderer/hooks/useInsetScrollbarActivation';
 import {
   workspaceById,
   workspaceExists,
@@ -99,12 +100,43 @@ describe('renderer workspace display view models', () => {
     }));
 
     expect(html).toContain('<div class="workspace-list-title">Workspaces</div>');
+    expect(html).toContain('<div class="main-side-scroll sidebar-list-scroll-region">');
+    expect(html).toContain('<div class="sidebar-list-scroll workspace-list-items">');
+    expect(html).toContain('<div class="sidebar-list-scroll-content">');
     expect(html).toContain('class="lucide lucide-square-pen"');
     expect(html).not.toContain('class="lucide lucide-play"');
     expect(html).toContain('title="Find a Session"');
     expect(html).toContain('<span>Find a Session</span>');
     expect(html).not.toContain('<span>Search</span>');
     expect(html).not.toContain('Research Workspaces');
+  });
+
+  it('limits sidebar scrolling to the workspace items viewport', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const sidebarStyles = styles.match(/\.sidebar\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const workspaceListStyles = styles.match(/\.workspace-list,\s*\.settings-sidebar-section\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const listScrollRegionStyles = styles.match(/\.main-side-scroll\.sidebar-list-scroll-region\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const listScrollStyles = styles.match(/\.sidebar-list-scroll\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+    expect(sidebarStyles).toContain('overflow: hidden');
+    expect(workspaceListStyles).toContain('flex: 1 1 auto');
+    expect(workspaceListStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
+    expect(listScrollRegionStyles).toContain('width: calc(100% + 16px)');
+    expect(listScrollRegionStyles).toContain('margin-inline: -4px -12px');
+    expect(styles.indexOf('.main-side-scroll.sidebar-list-scroll-region')).toBeLessThan(styles.indexOf('.main-side-scroll {'));
+    expect(listScrollStyles).toContain('width: 100%');
+    expect(listScrollStyles).toContain('height: 100%');
+    expect(listScrollStyles).toContain('overflow-y: scroll');
+    expect(listScrollStyles).toContain('overscroll-behavior: contain');
+    expect(styles).toMatch(/\.sidebar-list-scroll-content\s*\{[^}]*width: 100%/u);
+    expect(styles).toMatch(/\.sidebar-list-scroll-region::before,\s*\.sidebar-list-scroll-region::after\s*\{[^}]*display: none/u);
+    expect(styles).toMatch(/\.sidebar-list-scroll-region\.has-top-fade \.sidebar-list-scroll\s*\{[^}]*mask-image: linear-gradient/u);
+    expect(styles).toMatch(/\.sidebar-list-scroll-region\.has-bottom-fade \.sidebar-list-scroll\s*\{[^}]*mask-image: linear-gradient/u);
+    expect(styles).toMatch(/\.sidebar-list-scroll-region\.has-top-fade\.has-bottom-fade \.sidebar-list-scroll\s*\{[^}]*mask-image: linear-gradient/u);
+    expect(styles).not.toMatch(/\.sidebar-list-scroll-region::(?:before|after)\s*\{[^}]*background:/u);
+    expect(styles).toMatch(/\.sidebar-list-scroll \.workspace-item-row,\s*\.sidebar-list-scroll \.workspace-session-item\s*\{[^}]*width: 100%;[^}]*margin-inline: 0;/u);
+    expect(INSET_SCROLLBAR_SELECTOR).toContain('.sidebar-list-scroll');
+    expect(INSET_SCROLLBAR_SELECTOR).not.toContain('.sidebar,');
   });
 
   it('shows registry loading state instead of an empty workspace list during startup', () => {

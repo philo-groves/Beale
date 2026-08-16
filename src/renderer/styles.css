@@ -92,7 +92,7 @@ body.is-resizing-research-side {
 }
 
 :where(
-  .sidebar,
+  .sidebar-list-scroll,
   .main-trace-list,
   .main-commentary-list,
   .workspace-surface-list,
@@ -114,7 +114,7 @@ body.is-resizing-research-side {
 }
 
 :where(
-  .sidebar,
+  .sidebar-list-scroll,
   .main-trace-list,
   .main-commentary-list,
   .workspace-surface-list,
@@ -136,7 +136,7 @@ body.is-resizing-research-side {
 }
 
 :where(
-  .sidebar,
+  .sidebar-list-scroll,
   .main-trace-list,
   .main-commentary-list,
   .workspace-surface-list,
@@ -157,7 +157,7 @@ body.is-resizing-research-side {
 }
 
 :where(
-  .sidebar,
+  .sidebar-list-scroll,
   .main-trace-list,
   .main-commentary-list,
   .workspace-surface-list,
@@ -181,7 +181,7 @@ body.is-resizing-research-side {
 }
 
 :where(
-  .sidebar,
+  .sidebar-list-scroll,
   .main-trace-list,
   .main-commentary-list,
   .workspace-surface-list,
@@ -202,7 +202,7 @@ body.is-resizing-research-side {
 }
 
 :where(
-  .sidebar,
+  .sidebar-list-scroll,
   .main-trace-list,
   .main-commentary-list,
   .workspace-surface-list,
@@ -221,7 +221,7 @@ body.is-resizing-research-side {
 }
 
 :where(
-  .sidebar,
+  .sidebar-list-scroll,
   .main-trace-list,
   .main-commentary-list,
   .workspace-surface-list,
@@ -1019,8 +1019,7 @@ button.app-header-session-title:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   transition:
     opacity 140ms ease,
     padding 180ms ease,
@@ -1075,6 +1074,71 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 8px;
   min-width: 0;
   padding-top: 0;
+}
+
+.workspace-list,
+.settings-sidebar-section {
+  flex: 1 1 auto;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.main-side-scroll.sidebar-list-scroll-region {
+  width: calc(100% + 16px);
+  min-width: 0;
+  min-height: 0;
+  margin-inline: -4px -12px;
+}
+
+.sidebar-list-scroll-region::before,
+.sidebar-list-scroll-region::after {
+  display: none;
+}
+
+.sidebar-list-scroll {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+}
+
+.sidebar-list-scroll-region.has-top-fade .sidebar-list-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 30px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 30px, #000 100%);
+}
+
+.sidebar-list-scroll-region.has-bottom-fade .sidebar-list-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 30px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 30px), transparent 100%);
+}
+
+.sidebar-list-scroll-region.has-top-fade.has-bottom-fade .sidebar-list-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
+}
+
+.sidebar-list-scroll .workspace-item-row,
+.sidebar-list-scroll .workspace-session-item {
+  width: 100%;
+  margin-inline: 0;
+}
+
+.sidebar-list-scroll-content {
+  width: 100%;
+  min-width: 0;
+}
+
+.workspace-list-items {
+  display: block;
+}
+
+.workspace-list-items > .sidebar-list-scroll-content {
+  display: grid;
+  align-content: start;
+  gap: 8px;
 }
 
 .workspace-meta {
@@ -9572,7 +9636,6 @@ button.research-goal-choice:focus-visible {
   display: grid;
   align-content: start;
   gap: 0;
-  padding: 0;
 }
 
 .settings-view {
@@ -12167,7 +12230,7 @@ button.research-goal-choice:focus-visible {
 }
 
 .status-settings-button {
-  width: 100%;
+  width: calc(100% + 8px);
 }
 
 .notification-stack {

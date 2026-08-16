@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 export const INSET_SCROLLBAR_ACTIVE_MS = 900;
 
 export const INSET_SCROLLBAR_SELECTOR = [
-  '.sidebar',
+  '.sidebar-list-scroll',
   '.main-trace-list',
   '.main-commentary-list',
   '.research-goal-choice-list',
