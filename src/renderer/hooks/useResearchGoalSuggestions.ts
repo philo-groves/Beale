@@ -49,7 +49,11 @@ export function useResearchGoalSuggestions(
     [snapshot?.researchProfile?.profileHash]
   );
   const activeRequestsRef = useRef(new Map<ResearchGoalPhase, ActiveSuggestionRequest>());
-  const loadSuggestionsRef = useRef<(phase: ResearchGoalPhase, force?: boolean) => void>(() => undefined);
+  const loadSuggestionsRef = useRef<(
+    phase: ResearchGoalPhase,
+    force?: boolean,
+    topUpTo?: number
+  ) => void>(() => undefined);
   const [requestStates, setRequestStates] = useState<ResearchGoalSuggestionStateByPhase<SuggestionRequestState>>(
     {}
   );
@@ -67,7 +71,11 @@ export function useResearchGoalSuggestions(
     void window.beale.cancelResearchPromptGeneration(request.requestId).catch(() => undefined);
   }, [cache]);
 
-  const loadSuggestions = useCallback((phase: ResearchGoalPhase, force = false): void => {
+  const loadSuggestions = useCallback((
+    phase: ResearchGoalPhase,
+    force = false,
+    topUpTo?: number
+  ): void => {
     const key = phaseCacheKey(suggestionContextKey, phase);
     if (!key) {
       const activeRequest = activeRequestsRef.current.get(phase);
@@ -104,7 +112,7 @@ export function useResearchGoalSuggestions(
           requestId: request.requestId,
           refresh: force
         }),
-        { force }
+        { force, topUpTo }
       )
       .then((result) => {
         if (activeRequestsRef.current.get(phase)?.token !== request.token) return;
@@ -152,6 +160,8 @@ export function useResearchGoalSuggestions(
     const remaining = cache.consume(key, suggestion);
     setRequestStates((current) => ({ ...current }));
     if (!snapshot) return;
+    const suggestionTarget = snapshot.researchProfile.profile.workflows
+      .find((workflow) => workflow.id === phase)?.goalSuggestionCount ?? 0;
     const selection = window.beale.selectResearchGoalSuggestion({
       workspaceId: snapshot.workspace.workspaceId,
       scopeId: snapshot.activeScope.id,
@@ -159,9 +169,9 @@ export function useResearchGoalSuggestions(
       phase,
       suggestion
     });
-    if (remaining === 0) {
+    if (remaining !== null && suggestionTarget > 0 && remaining < suggestionTarget) {
       void selection
-        .then(() => loadSuggestionsRef.current(phase, true))
+        .then(() => loadSuggestionsRef.current(phase, true, suggestionTarget))
         .catch(() => undefined);
       return;
     }

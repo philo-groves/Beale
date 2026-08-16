@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- New Research goal suggestions now regenerate after any selection that leaves a workflow below its configured count, retaining unused choices and buffering fresh replacements so the list returns to four without repeating consumed suggestions.
 - Workspace dashboards no longer expand inactive Honeycrisp session histories to assemble approval and notification UI; session summaries are reused and canonical approval/notification reads are limited to active host processes.
 - Initial workspace snapshots no longer block Electron's main thread on Honeycrisp memory-summary setup; Dream housekeeping now loads after the workspace is painted and reports an explicit loading state.
 - Workspace and session navigation no longer initializes macOS Keychain access for provider API-key storage; Beale now touches Safe Storage only when managed credentials are actually needed and removes empty credential files.

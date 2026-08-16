@@ -168,6 +168,37 @@ describe('renderer research goal suggestion cache', () => {
       result: { ...repeated, suggestions: repeated.suggestions.slice(1) }
     });
   });
+
+  it('tops a partially consumed list back up while retaining unused and overflow suggestions', async () => {
+    const cache = new ResearchGoalSuggestionCache();
+    const key = requiredKey(snapshot('workspace_one', 'scope_one'));
+    const original = suggestions('original');
+    const replacements = suggestions('replacement');
+    await cache.load(key, async () => original);
+
+    expect(cache.consume(key, original.suggestions[0]!)).toBe(3);
+    await cache.load(key, async () => replacements, { force: true, topUpTo: 4 });
+    expect(cache.read(key)).toEqual({
+      status: 'ready',
+      result: {
+        ...replacements,
+        suggestions: [...original.suggestions.slice(1), replacements.suggestions[0]!]
+      }
+    });
+
+    expect(cache.consume(key, original.suggestions[1]!)).toBe(4);
+    expect(cache.read(key)).toEqual({
+      status: 'ready',
+      result: {
+        ...replacements,
+        suggestions: [
+          ...original.suggestions.slice(2),
+          replacements.suggestions[0]!,
+          replacements.suggestions[1]!
+        ]
+      }
+    });
+  });
 });
 
 function snapshot(workspaceId: string, scopeId: string): WorkspaceSnapshot {

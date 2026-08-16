@@ -16,12 +16,16 @@ interface ReadyEntry {
   status: 'ready';
   promise: Promise<GeneratedResearchGoalSuggestions>;
   result: GeneratedResearchGoalSuggestions;
+  overflow: string[];
+  suggestionLimit: number | null;
 }
 
 interface RefreshingEntry {
   status: 'refreshing';
   promise: Promise<GeneratedResearchGoalSuggestions>;
   result: GeneratedResearchGoalSuggestions;
+  overflow: string[];
+  suggestionLimit: number | null;
 }
 
 type CacheEntry = PendingEntry | ReadyEntry | RefreshingEntry;
@@ -87,7 +91,7 @@ export class ResearchGoalSuggestionCache {
   public load(
     key: string,
     loader: ResearchGoalSuggestionLoader,
-    options: { force?: boolean } = {}
+    options: { force?: boolean; topUpTo?: number } = {}
   ): Promise<GeneratedResearchGoalSuggestions> {
     const existing = this.entries.get(key);
     if (!options.force && existing) return existing.promise;
@@ -100,27 +104,52 @@ export class ResearchGoalSuggestionCache {
     }
 
     const previousReady = existing?.status === 'ready' || existing?.status === 'refreshing'
-      ? existing.result
+      ? existing
       : null;
     const pending: PendingEntry | RefreshingEntry = {
       ...(previousReady
-        ? { status: 'refreshing' as const, result: previousReady }
+        ? {
+            status: 'refreshing' as const,
+            result: previousReady.result,
+            overflow: previousReady.overflow,
+            suggestionLimit: previousReady.suggestionLimit
+          }
         : { status: 'loading' as const }),
       promise: Promise.resolve(loaded).then(
         (result) => {
           const visibleResult = this.visibleResult(key, result);
+          const topUpTo = normalizedSuggestionLimit(options.topUpTo);
+          const pooledSuggestions = topUpTo && previousReady
+            ? uniqueSuggestions([
+                ...this.visibleSuggestions(key, previousReady.result.suggestions),
+                ...this.visibleSuggestions(key, previousReady.overflow),
+                ...visibleResult.suggestions
+              ])
+            : visibleResult.suggestions;
+          const resolvedResult = topUpTo
+            ? { ...visibleResult, suggestions: pooledSuggestions.slice(0, topUpTo) }
+            : visibleResult;
+          const overflow = topUpTo ? pooledSuggestions.slice(topUpTo) : [];
           if (this.entries.get(key) === pending) {
-            this.entries.set(key, { status: 'ready', promise: pending.promise, result: visibleResult });
+            this.entries.set(key, {
+              status: 'ready',
+              promise: pending.promise,
+              result: resolvedResult,
+              overflow,
+              suggestionLimit: topUpTo
+            });
           }
-          return visibleResult;
+          return resolvedResult;
         },
         (error: unknown) => {
           if (this.entries.get(key) === pending) {
             if (previousReady) {
               this.entries.set(key, {
                 status: 'ready',
-                promise: Promise.resolve(previousReady),
-                result: previousReady
+                promise: Promise.resolve(previousReady.result),
+                result: previousReady.result,
+                overflow: previousReady.overflow,
+                suggestionLimit: previousReady.suggestionLimit
               });
             }
             else this.entries.delete(key);
@@ -145,8 +174,16 @@ export class ResearchGoalSuggestionCache {
     this.hiddenSuggestions.set(key, hidden);
     const entry = this.entries.get(key);
     if (!entry || entry.status === 'loading') return null;
-    const result = this.visibleResult(key, entry.result);
+    const visibleResult = this.visibleResult(key, entry.result);
+    const pooledSuggestions = uniqueSuggestions([
+      ...visibleResult.suggestions,
+      ...this.visibleSuggestions(key, entry.overflow)
+    ]);
+    const result = entry.suggestionLimit
+      ? { ...visibleResult, suggestions: pooledSuggestions.slice(0, entry.suggestionLimit) }
+      : visibleResult;
     entry.result = result;
+    entry.overflow = entry.suggestionLimit ? pooledSuggestions.slice(entry.suggestionLimit) : [];
     if (entry.status === 'ready') entry.promise = Promise.resolve(result);
     return result.suggestions.length;
   }
@@ -157,11 +194,29 @@ export class ResearchGoalSuggestionCache {
   }
 
   private visibleResult(key: string, result: GeneratedResearchGoalSuggestions): GeneratedResearchGoalSuggestions {
-    const hidden = this.hiddenSuggestions.get(key);
-    if (!hidden?.size) return result;
-    const suggestions = result.suggestions.filter((suggestion) => !hidden.has(suggestionIdentity(suggestion)));
+    const suggestions = this.visibleSuggestions(key, result.suggestions);
     return suggestions.length === result.suggestions.length ? result : { ...result, suggestions };
   }
+
+  private visibleSuggestions(key: string, suggestions: readonly string[]): string[] {
+    const hidden = this.hiddenSuggestions.get(key);
+    if (!hidden?.size) return [...suggestions];
+    return suggestions.filter((suggestion) => !hidden.has(suggestionIdentity(suggestion)));
+  }
+}
+
+function normalizedSuggestionLimit(value: number | undefined): number | null {
+  return Number.isSafeInteger(value) && value !== undefined && value > 0 ? value : null;
+}
+
+function uniqueSuggestions(suggestions: readonly string[]): string[] {
+  const identities = new Set<string>();
+  return suggestions.filter((suggestion) => {
+    const identity = suggestionIdentity(suggestion);
+    if (!identity || identities.has(identity)) return false;
+    identities.add(identity);
+    return true;
+  });
 }
 
 function suggestionIdentity(value: string): string {
