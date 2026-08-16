@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- New sessions now complete the Honeycrisp WebSocket handshake before Beale performs synchronous registry and snapshot reads, preventing busy workspaces from starving the 15-second host startup window; nonzero host exits retain their actionable stderr diagnostic.
+- Collapsed Commentary tool-call rows now show the actual one-line `shell.run` command with width-based ellipsis instead of the generic `Shell Run` label.
 - Shell approval surfaces now appear only for actively running sessions; terminal-session suggestions generate automatically only when the currently viewed session ends, while revisits show an explicit empty state and user-triggered Refresh action.
 - Selected New Research suggestions now disappear immediately, remain removed from Honeycrisp's durable cache, and inform subsequent generation through workspace-scoped selection history and semantic duplicate filtering.
 - Beale introspection no longer exposes workspace creation, accepts only registered workspace selectors, or changes the foreground workspace while viewing and editing resources; expired HTTP tool requests are canceled before dispatch.

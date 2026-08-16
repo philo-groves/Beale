@@ -116,7 +116,7 @@ function toolLabelInputKeys(toolName: string): readonly string[] {
     case 'runbook.create': return ['title', 'status'];
     case 'runbook.append': return ['id', 'status', 'expectedRevision'];
     case 'file.read': return ['path'];
-    case 'shell.run': return ['utility', 'args'];
+    case 'shell.run': return ['command', 'utility', 'args'];
     case 'list_agents': return ['path_prefix'];
     case 'wait_agent': return ['timeout_ms'];
     default: return [];
@@ -144,7 +144,7 @@ function boundedRecordValues(record: Record<string, unknown>, keys: readonly str
 }
 
 function boundedScaffoldValue(value: unknown): unknown {
-  if (typeof value === 'string') return value.slice(0, 256);
+  if (typeof value === 'string') return value.length > 256 ? `${value.slice(0, 255)}…` : value;
   if (typeof value === 'number' || typeof value === 'boolean') return value;
   if (Array.isArray(value)) {
     return value.slice(0, 16).flatMap((candidate) => {

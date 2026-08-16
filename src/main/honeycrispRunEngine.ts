@@ -50,6 +50,7 @@ export type { HoneycrispInvocation } from './honeycrispInvocation';
 export interface HoneycrispRunHandle {
   context: CreatedRunContext;
   completion: Promise<void>;
+  transportReady: Promise<boolean>;
 }
 
 interface HoneycrispWorkspaceContextFile {
@@ -114,6 +115,9 @@ interface ActiveHoneycrispRun {
   transportToken: string;
   transportMode: 'pending' | 'websocket';
   webSocketClient: HoneycrispWebSocketClient | null;
+  transportReadySettled: boolean;
+  resolveTransportReady: (connected: boolean) => void;
+  lastProcessDiagnostic: string | null;
 }
 
 interface PendingHoneycrispControl {
@@ -603,6 +607,10 @@ export class HoneycrispRunEngine {
       windowsHide: true
     });
     child.stdin.on('error', () => undefined);
+    let resolveTransportReady!: (connected: boolean) => void;
+    const transportReady = new Promise<boolean>((resolveReady) => {
+      resolveTransportReady = resolveReady;
+    });
     const active: ActiveHoneycrispRun = {
       child,
       context,
@@ -622,7 +630,10 @@ export class HoneycrispRunEngine {
       automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0,
       transportToken,
       transportMode: 'pending',
-      webSocketClient: null
+      webSocketClient: null,
+      transportReadySettled: false,
+      resolveTransportReady,
+      lastProcessDiagnostic: null
     };
     this.activeRuns.set(context.run.id, active);
     this.armTimeLimit(active, input.budget.maxMinutes);
@@ -634,6 +645,7 @@ export class HoneycrispRunEngine {
 
     const completion = new Promise<void>((resolveCompletion) => {
       child.once('error', (error) => {
+        this.settleTransportReadiness(active, false);
         const webSocketClient = active.webSocketClient;
         active.webSocketClient = null;
         webSocketClient?.close();
@@ -650,6 +662,7 @@ export class HoneycrispRunEngine {
         this.clearForceStopTimer(active);
         stdout.flush();
         stderr.flush();
+        this.settleTransportReadiness(active, false);
         const webSocketClient = active.webSocketClient;
         active.webSocketClient = null;
         webSocketClient?.close();
@@ -669,7 +682,7 @@ export class HoneycrispRunEngine {
     });
     this.completions.set(context.run.id, completion);
     this.onChange();
-    return { context, completion };
+    return { context, completion, transportReady };
   }
 
   public stop(runId: string): void {
@@ -1189,6 +1202,7 @@ export class HoneycrispRunEngine {
       },
       onError: (error) => {
         if (this.activeRuns.get(active.context.run.id) !== active) return;
+        this.settleTransportReadiness(active, false);
         this.db.appendTraceEvent({
           runId: active.context.run.id,
           attemptId: active.context.attempt.id,
@@ -1202,6 +1216,7 @@ export class HoneycrispRunEngine {
       },
       onClose: (code, reason) => {
         if (this.activeRuns.get(active.context.run.id) !== active || active.webSocketClient !== client) return;
+        this.settleTransportReadiness(active, false);
         active.webSocketClient = null;
         this.db.appendTraceEvent({
           runId: active.context.run.id,
@@ -1222,6 +1237,7 @@ export class HoneycrispRunEngine {
         return;
       }
       active.transportMode = 'websocket';
+      this.settleTransportReadiness(active, true);
       this.db.appendTraceEvent({
         runId: active.context.run.id,
         attemptId: active.context.attempt.id,
@@ -1237,11 +1253,22 @@ export class HoneycrispRunEngine {
     });
   }
 
+  private settleTransportReadiness(active: ActiveHoneycrispRun, connected: boolean): void {
+    if (active.transportReadySettled) return;
+    active.transportReadySettled = true;
+    active.resolveTransportReady(connected);
+  }
+
   private recordProcessLine(context: CreatedRunContext, stream: 'stdout' | 'stderr', line: string): void {
     if (this.disposed) return;
     const text = line.trim();
     if (!text) return;
     const active = this.activeRuns.get(context.run.id);
+    if (stream === 'stderr' && active) {
+      if (/^honeycrisp:/i.test(text) || (!active.lastProcessDiagnostic && /\berror:/i.test(text))) {
+        active.lastProcessDiagnostic = truncateSummary(text);
+      }
+    }
     if (stream === 'stdout' && text.startsWith(HONEYCRISP_TRANSPORT_PREFIX)) {
       const bootstrap = parseHoneycrispTransportBootstrap(text, context.run.id);
       if (active && bootstrap) this.connectWebSocketTransport(active, bootstrap);
@@ -1986,7 +2013,13 @@ export class HoneycrispRunEngine {
     signal: NodeJS.Signals | null,
     active: ActiveHoneycrispRun
   ): void {
-    const processPayload = { code, signal, capturePath, stopReason: active.stopReason };
+    const processPayload = {
+      code,
+      signal,
+      capturePath,
+      stopReason: active.stopReason,
+      diagnostic: active.lastProcessDiagnostic
+    };
     if (active.stopped) {
       const timeLimitReached = active.stopReason === 'time_limit';
       const safetyControlFailed = active.stopReason === 'safety_control';
@@ -2011,7 +2044,10 @@ export class HoneycrispRunEngine {
     }
 
     if (code !== 0) {
-      this.failRun(context, 'Honeycrisp host process exited with an error.', processPayload);
+      const summary = active.lastProcessDiagnostic
+        ? `Honeycrisp host process exited with an error: ${active.lastProcessDiagnostic}`
+        : 'Honeycrisp host process exited with an error.';
+      this.failRun(context, summary, processPayload);
       return;
     }
 

@@ -186,12 +186,14 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
   }
   if (toolName === 'file.read') return honeycrispToolEventKind(event) === 'tool.requested' ? stringRecordValue(inputs, 'path') ?? '' : '';
   if (toolName === 'shell.run') {
+    const command = stringRecordValue(inputs, 'command');
+    if (command) return oneLineShellCommand(command);
     const utility = stringRecordValue(inputs, 'utility');
     if (!utility) return '';
     const args = tracePayloadArray(inputs, 'args')?.filter((value): value is string => typeof value === 'string') ?? [];
     const sshCommand = sshRemoteCommand(utility, args);
-    if (sshCommand !== null) return sshCommand;
-    return [utility, ...args.map(shellArgumentPreview)].join(' ');
+    if (sshCommand !== null) return oneLineShellCommand(sshCommand);
+    return oneLineShellCommand([utility, ...args.map(shellArgumentPreview)].join(' '));
   }
   if (toolName === 'spawn_agent') {
     const result = tracePayloadRecord(payload, 'result');
@@ -411,6 +413,10 @@ function executableName(command: string): string {
 
 function shellArgumentPreview(value: string): string {
   return /\s/u.test(value) ? JSON.stringify(value) : value;
+}
+
+function oneLineShellCommand(value: string): string {
+  return value.replace(/\s+/gu, ' ').trim();
 }
 
 export function isEmptyHoneycrispMemorySearchObservation(event: TraceEventRecord): boolean {

@@ -950,6 +950,50 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('establishes the Honeycrisp WebSocket transport before broadcasting the start snapshot', async () => {
+    const workspace = tempWorkspace();
+    let runStarting = false;
+    let broadcastBeforeHandshake = false;
+    let transportConnected = false;
+    const service = new WorkspaceService(() => {
+      if (runStarting && !transportConnected) broadcastBeforeHandshake = true;
+    });
+    try {
+      service.createWorkspace(workspace);
+      const runtime = (service as unknown as {
+        getForegroundRuntime(): { honeycrispEngine: { startRun: () => unknown } } | null;
+      }).getForegroundRuntime();
+      if (!runtime) throw new Error('Expected an open workspace runtime.');
+      let resolveTransportReady!: (connected: boolean) => void;
+      const transportReady = new Promise<boolean>((resolve) => {
+        resolveTransportReady = resolve;
+      });
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      runtime.honeycrispEngine.startRun = () => {
+        markStarted();
+        return { context: null, completion: Promise.resolve(), transportReady };
+      };
+
+      runStarting = true;
+      const pendingSnapshot = service.startRunWithSourcePreparation({
+        ...runInput('multi_branch_trace'),
+        runEngine: 'honeycrisp',
+        promptMarkdown: 'Verify the WebSocket startup ordering.'
+      });
+      await started;
+      expect(broadcastBeforeHandshake).toBe(false);
+      transportConnected = true;
+      resolveTransportReady(true);
+      await pendingSnapshot;
+      expect(broadcastBeforeHandshake).toBe(false);
+    } finally {
+      service.close();
+    }
+  });
+
   it('automatically resumes a Honeycrisp session after a terminal WebSocket error', async () => {
     const workspace = tempWorkspace();
     const fakeHoneycrisp = join(workspace, 'fake-honeycrisp-websocket-recovery.mjs');

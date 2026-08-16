@@ -28,6 +28,7 @@ import {
   HoneycrispRunEngine,
   invokeHoneycrispToolsConfig,
   invokeHoneycrispToolsList,
+  type HoneycrispRunHandle,
   type HoneycrispRunEngineChange
 } from './honeycrispRunEngine';
 import {
@@ -2334,6 +2335,12 @@ export class WorkspaceService {
   }
 
   public startRun(input: StartRunInput, _mode: 'scheduled' | 'complete' = 'scheduled'): WorkspaceSnapshot {
+    this.beginRun(input);
+    this.emitChangeNow();
+    return this.requireSnapshot();
+  }
+
+  private beginRun(input: StartRunInput): HoneycrispRunHandle {
     const requestedShellSafetyMode = (input as { shellSafetyMode?: unknown }).shellSafetyMode;
     if (requestedShellSafetyMode !== undefined && !isShellSafetyMode(requestedShellSafetyMode)) {
       throw new Error(`Unsupported shell safety mode: ${String(requestedShellSafetyMode)}`);
@@ -2384,16 +2391,17 @@ export class WorkspaceService {
     if (normalizedInput.runEngine !== 'honeycrisp') {
       throw new Error(`Unsupported research run engine: ${String(normalizedInput.runEngine)}`);
     }
-    this.requireHoneycrispEngine().startRun(normalizedInput, researchProfile);
-    this.emitChangeNow();
-    return this.requireSnapshot();
+    return this.requireHoneycrispEngine().startRun(normalizedInput, researchProfile);
   }
 
   public async startRunWithSourcePreparation(input: StartRunInput): Promise<WorkspaceSnapshot> {
     if (input.runEngine === 'honeycrisp') {
       await this.materializeRunPromptRepositories(input);
     }
-    return this.startRun(input);
+    const handle = this.beginRun(input);
+    await handle.transportReady;
+    this.emitChangeNow();
+    return this.requireSnapshot();
   }
 
   private async materializeRunPromptRepositories(input: StartRunInput): Promise<void> {

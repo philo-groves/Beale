@@ -171,6 +171,17 @@ describe('renderer commentary projection', () => {
     expect(commentaryToolValueText(null)).toBe('null');
   });
 
+  it('shows the actual one-line shell command before its details are expanded', () => {
+    const messages = commentaryMessagesForSession(runDetail('Run the checks.'), [
+      toolEvent('shell-command-request', 'tool.requested', 'shell.run', 'shell-command', {
+        command: 'npm test\n  -- --runInBand'
+      })
+    ]);
+
+    expect(messages.find((message) => message.toolName === 'shell.run')?.toolCalls?.[0]?.label)
+      .toBe('npm test -- --runInBand');
+  });
+
   it('auto-expands a tool summary only while it is the latest chat item', () => {
     const trailingToolMessages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
       toolEvent('read-request', 'tool.requested', 'file.read', 'read', { path: 'src/parser.ts' })

@@ -123,16 +123,32 @@ describe('run detail commentary projection', () => {
       metadata: { responseId: 'response_one' }
     });
   });
+
+  it('retains a bounded shell command for its pre-expansion label', () => {
+    const command = `printf 'visible command' ${'x'.repeat(600)}`;
+    const projected = projectCommentaryTraceEvent(toolEvent('shell', 'tool.requested', {
+      toolActionId: 'shell_action',
+      toolName: 'shell.run',
+      normalizedInputs: { command, secret: 'not rendered' }
+    }));
+
+    expect(projected.payload.payload).toEqual({
+      toolActionId: 'shell_action',
+      toolName: 'shell.run',
+      normalizedInputs: { command: `${command.slice(0, 255)}…` }
+    });
+  });
 });
 
 function toolEvent(id: string, kind: 'tool.requested' | 'tool.observed', payload: Record<string, unknown>): TraceEventRecord {
+  const toolName = typeof payload.toolName === 'string' ? payload.toolName : 'file.read';
   return traceEvent(id, {
     source: 'executor',
     type: 'research_event',
-    summary: `Honeycrisp ${kind}: file.read.`,
+    summary: `Honeycrisp ${kind}: ${toolName}.`,
     payload: {
       honeycrispKind: kind,
-      toolName: 'file.read',
+      toolName,
       agentPath: '/root',
       honeycrispSessionEventId: id,
       payload

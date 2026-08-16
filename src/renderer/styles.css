@@ -3894,13 +3894,17 @@ button.session-summary-item:hover:not(:disabled),
 .main-commentary-tool-call-summary {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
   gap: 4px;
   border-radius: 5px;
   padding: 4px 0;
 }
 
 .main-commentary-tool-call-summary code {
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   border: 0;
   border-radius: 0;
