@@ -67,7 +67,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - Workspace-local Cybersecurity and Mathematics research profiles with profile-specific sessions, memory, workflows, prompts, collaboration recipes, and catalogs
 - Durable research-subject identity that is independent of the recorded authorization owner
 - Atomic multi-provider collaboration rooms with independent evidence memos, targeted peer challenges, structured responses, and lead-owned synthesis
-- Workspace housekeeping with separate Dejunk and Dream maintenance: Dejunk organizes recognizable loose research material under `research/` and reclaims large rebuildable or extracted resources outside protected Beale metadata and detected repositories
+- Honeycrisp-owned workspace housekeeping with separate Dejunk and Dream maintenance: Dejunk organizes recognizable loose research material under `research/` and reclaims large rebuildable or extracted resources outside protected Beale metadata and detected repositories
 - Same-session provider failure recovery with capped retry backoff and transcript-aware safety-guardrail steering
 - Trace UI with model, tool, system, user-steering, memory-producing, and compaction events
 - Session transcripts persisted separately from trace metadata
@@ -84,7 +84,7 @@ Beale uses Honeycrisp's user-global `~/.honeycrisp/memory.sqlite` database. Oper
 
 For active runs, Honeycrisp hosts a versioned WebSocket session endpoint bound to loopback. Beale authenticates with a per-process bearer token kept in the child environment, then exchanges client-neutral session event and control envelopes. Honeycrisp owns this protocol; Beale only adapts it into desktop state. `BEALE_HONEYCRISP_TRANSPORT=legacy` temporarily restores the older stdio streams for local compatibility testing.
 
-Honeycrisp protocol v1 is the client boundary for feature migrations. Beale validates versioned CLI success/error envelopes through one host adapter, while the WebSocket session protocol shares the same version. Session creation, attempts, live events, capture import, lifecycle state, list/detail queries, and transcript search select one persistence owner for the lifetime of a session: current Honeycrisp clients use Honeycrisp's revisioned session aggregate, while explicitly legacy clients use the old Beale backend without write-through or dual writes. Memory summaries, Dreaming prompt preparation and reversible state changes, runbook/report reads, and safe artifact resolution are also Honeycrisp protocol operations. Beale renders those results and supplies provider/UI integration without opening or querying Honeycrisp knowledge tables. The architecture ratchet now leaves only the broader legacy workbench database as recorded migration debt.
+Honeycrisp protocol v1 is the client boundary for feature migrations. Beale validates versioned CLI success/error envelopes through one host adapter, while the WebSocket session protocol shares the same version. Session persistence and queries, knowledge and artifact operations, auxiliary model jobs and provider semantics, Agent Plugins, source materialization, and Dejunk maintenance are Honeycrisp-owned operations. Beale renders results, supplies host credentials and its built-in introspection endpoint, and enforces UI/host authorization without duplicating harness implementations or dual-writing state. The architecture ratchet now leaves only the broader legacy workbench database as recorded migration debt.
 
 Beale is pre-alpha and uses append-only component-scoped migrations.
 

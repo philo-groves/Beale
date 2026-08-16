@@ -9,7 +9,8 @@ import { WorkspaceDatabase } from '../src/main/database';
 import { honeycrispProcessEnvironment } from '../src/main/honeycrispRunEngine';
 import { ProviderCredentialStore } from '../src/main/providerCredentialStore';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
-import { DEFAULT_RESEARCH_MODEL, smallModelForProvider } from '../src/shared/modelDefaults';
+import { DEFAULT_RESEARCH_MODEL } from '../src/shared/modelDefaults';
+import { getHoneycrispProviderSemantics } from '../src/main/honeycrispCliClient';
 import { resolvedTestResearchProfile, testResearchProfile, testResearchProfileCatalogEnvelope } from './researchProfileFixture';
 
 const createdDirs: string[] = [];
@@ -42,6 +43,8 @@ afterEach(() => {
   delete process.env.BEALE_HONEYCRISP_NODE_COMMAND;
   delete process.env.BEALE_HONEYCRISP_PNPM_COMMAND;
   delete process.env.BEALE_HONEYCRISP_PROVIDER;
+  delete process.env.BEALE_HONEYCRISP_PROTOCOL_ROOT;
+  delete process.env.BEALE_HONEYCRISP_PROTOCOL_NODE_COMMAND;
   delete process.env.BEALE_HONEYCRISP_PROFILE_COMMAND;
   delete process.env.BEALE_HONEYCRISP_PROFILE_ARGS_JSON;
   delete process.env.BEALE_HONEYCRISP_PROFILE_CWD;
@@ -1116,8 +1119,8 @@ describe('Beale workbench skeleton', () => {
         "if (!args.includes('--event-stream')) throw new Error('missing --event-stream');",
         "if (args[args.indexOf('--executor') + 1] !== 'agent') throw new Error('missing agent executor');",
         "if (args[args.indexOf('--provider') + 1] !== 'xai') throw new Error('missing xAI provider');",
-        "if (args[args.indexOf('--title-model') + 1] !== 'grok-4') throw new Error('missing configured xAI title model');",
-        "if (args[args.indexOf('--title-effort') + 1] !== 'medium') throw new Error('missing title effort');",
+        "if (args[args.indexOf('--title-model-default') + 1] !== 'grok-4') throw new Error('missing configured xAI title model default');",
+        "if (args[args.indexOf('--title-effort-default') + 1] !== 'medium') throw new Error('missing title effort default');",
         "if (args[args.indexOf('--shell-safety-mode') + 1] !== 'auto_review') throw new Error('missing default shell safety mode');",
         "const shellReviewModels = JSON.parse(args[args.indexOf('--shell-review-models') + 1]);",
         "if (shellReviewModels['openai-codex'] !== 'gpt-5.6-luna' || shellReviewModels.anthropic !== 'claude-haiku-4-5' || shellReviewModels.xai !== 'grok-4') throw new Error('missing configured provider small-model map');",
@@ -2094,7 +2097,7 @@ describe('Beale workbench skeleton', () => {
         '  setTimeout(() => {',
         '    writeCapture();',
         "    writeFileSync(firstExitedPath, 'exited');",
-        '  }, 250);',
+        '  }, 1000);',
         '} else {',
         '  writeCapture();',
         '}'
@@ -2359,7 +2362,7 @@ describe('Beale workbench skeleton', () => {
         "const resumeFallbackPromptPath = args.includes('--resume-fallback-prompt-file') ? args[args.indexOf('--resume-fallback-prompt-file') + 1] : null;",
         "const resumeFallbackPrompt = resumeFallbackPromptPath ? readFileSync(resumeFallbackPromptPath, 'utf8') : (args.includes('--resume-fallback-prompt') ? args[args.indexOf('--resume-fallback-prompt') + 1] : null);",
         "const goalObjective = args.includes('--goal-objective') ? args[args.indexOf('--goal-objective') + 1] : null;",
-        "const titleModel = args.includes('--title-model') ? args[args.indexOf('--title-model') + 1] : null;",
+        "const titleModel = args.includes('--title-model') ? args[args.indexOf('--title-model') + 1] : (args.includes('--title-model-default') ? args[args.indexOf('--title-model-default') + 1] : null);",
         "const priorCount = existsSync(invocationLogPath) ? readFileSync(invocationLogPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
         'const turn = priorCount + 1;',
         "mkdirSync(dirname(capturePath), { recursive: true });",
@@ -2535,6 +2538,8 @@ describe('Beale workbench skeleton', () => {
     );
     process.env.BEALE_HONEYCRISP_ROOT = honeycrispRoot;
     process.env.BEALE_HONEYCRISP_NODE_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_PROTOCOL_ROOT = join(process.cwd(), '..', 'honeycrisp');
+    process.env.BEALE_HONEYCRISP_PROTOCOL_NODE_COMMAND = process.execPath;
 
     const service = new WorkspaceService();
     const nestedSourceRoot = join(workspace, 'sources', 'zsh');
@@ -3894,7 +3899,7 @@ describe('Beale workbench skeleton', () => {
     for (const request of modelRequests) {
       const requestPayload = modelRequestPayload(request);
       const phase = requestPayload.researchPhase as ResearchGoalPhase;
-      expect(request.model).toBe(smallModelForProvider('openai-codex'));
+      expect(request.model).toBe(getHoneycrispProviderSemantics().defaultSmallModels['openai-codex']);
       expect(request.tools).toEqual([]);
       expect(request.reasoning).toEqual({ effort: 'low' });
       expect(request.text).toMatchObject({

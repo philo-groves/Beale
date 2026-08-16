@@ -3,8 +3,7 @@ import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
-  DEFAULT_RESEARCH_REASONING_EFFORT,
-  smallModelForProvider
+  DEFAULT_RESEARCH_REASONING_EFFORT
 } from '../../../shared/modelDefaults';
 import { ArrowLeft, KeyRound, Plus, RefreshCw, Settings, X } from 'lucide-react';
 import type {
@@ -906,7 +905,7 @@ export function resolvedProviderModelDefaults(
     ?? models.find((model) => model.id === configuredLargeModel)?.id
     ?? models[0]!.id;
   const smallModel = models.find((model) => model.id === stored?.smallModel)?.id
-    ?? models.find((model) => model.id === smallModelForProvider(providerId))?.id
+    ?? models.find((model) => model.id === catalog?.defaultSmallModel)?.id
     ?? models[0]!.id;
   const largeModelEntry = models.find((model) => model.id === largeModel)!;
   const desiredEffort = stored?.reasoningEffort ?? normalizeReasoningEffort(configuredReasoningEffort) ?? DEFAULT_RESEARCH_REASONING_EFFORT;

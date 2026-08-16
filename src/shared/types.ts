@@ -1171,6 +1171,7 @@ export interface ResearchProviderModel {
 export interface ResearchProviderModelCatalog {
   providerId: ResearchModelProviderId;
   providerName: string;
+  defaultSmallModel?: string;
   models: ResearchProviderModel[];
 }
 

@@ -32,16 +32,19 @@ import { ResearchProfileService } from './researchProfileService';
 import {
   applyHoneycrispMemoryDreaming,
   getHoneycrispMemorySummary,
+  getHoneycrispProviderSemantics,
   getHoneycrispReportDocument,
   getHoneycrispRunbookDocument,
   parseHoneycrispMemoryDreamingPlan,
   prepareHoneycrispMemoryDreaming,
   recordHoneycrispMemoryDreamingFailure,
   resolveHoneycrispArtifact,
+  resolveHoneycrispAuxiliaryModelRoute,
   resolveHoneycrispStoragePaths,
   restoreHoneycrispMemoryDreamingChange,
   type MemoryDreamingProfileInput,
-  type MemoryDreamingPlan
+  type MemoryDreamingPlan,
+  type HoneycrispAuxiliaryModelRoute
 } from './honeycrispCliClient';
 import { WorkspaceRegistry } from './workspaceRegistry';
 import { AgentPluginRegistry } from './agentPluginRegistry';
@@ -60,7 +63,6 @@ import {
 } from './sourceMaterializer';
 import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
-import { smallModelForProvider } from '../shared/modelDefaults';
 import {
   parseAndSelectResearchGoalCandidates,
   researchGoalCandidateCount,
@@ -149,7 +151,6 @@ import type {
   ProjectSemanticSummary,
   ResearchProfile,
   ResearchProfileId,
-  ResearchProfileModelJob,
   ResearchProfileSnapshot,
   ResearchProfileWorkflow,
   ResearchSubjectInput,
@@ -177,6 +178,7 @@ const DEFAULT_VM_PREFERENCE: VmPreference = {
   updatedAt: null
 };
 const MAX_CACHED_BACKGROUND_RUNTIMES = 4;
+type ProfileModelRoute = HoneycrispAuxiliaryModelRoute;
 type DisclosureExportKind = 'artifact_bundle' | 'research_bundle' | 'redacted_trace' | 'report_draft';
 type ResearchPromptGenerationUpdateHandler = (update: ResearchPromptGenerationUpdate) => void;
 type WorkspaceOnboardingProgressHandler = (update: WorkspaceOnboardingProgressUpdate) => void;
@@ -1617,8 +1619,12 @@ export class WorkspaceService {
     return this.researchProviderAuth.getStatuses();
   }
 
-  public getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]> {
-    return this.researchProviderAuth.getModelCatalog();
+  public async getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]> {
+    const semantics = getHoneycrispProviderSemantics();
+    return (await this.researchProviderAuth.getModelCatalog()).map((catalog) => ({
+      ...catalog,
+      defaultSmallModel: semantics.defaultSmallModels[catalog.providerId]
+    }));
   }
 
   public async listGitHubOrganizationRepositories(organization: string): Promise<GitHubRepositorySummary[]> {
@@ -1682,23 +1688,25 @@ export class WorkspaceService {
   ): Promise<ProfileModelRoute> {
     const providerSettings = this.getWorkspaceRegistry().getProviderSettings();
     const provider = options.provider ?? await this.resolveConfiguredLeadProvider(providerSettings);
-    const profileJob = applicableResearchProfileModelJob(profile.modelJobs[jobName], provider);
     const defaults = providerSettings.modelDefaults[provider];
-    let model = options.model?.trim()
-      || profileJob?.model?.trim()
-      || (options.size === 'small' ? defaults?.smallModel?.trim() : defaults?.largeModel?.trim())
-      || (options.size === 'small' ? smallModelForProvider(provider) : null);
-    if (!model) {
-      if (provider === 'openai-codex') model = this.openAiAuth.getStatus().defaultModel;
-      else model = (await this.researchProviderAuth.getStatuses()).find((status) => status.id === provider)?.defaultModel ?? null;
-    }
-    if (!model) throw new Error(`Lead provider ${provider} does not have a configured ${options.size} model.`);
-    requireEnabledProviderModel(providerSettings, provider, model);
-    const effort = options.effort?.trim()
-      || profileJob?.effort?.trim()
-      || defaults?.reasoningEffort?.trim()
-      || options.fallbackEffort;
-    return validateProfileModelRoute({ provider, model, effort }, jobName);
+    const providerFallback = options.size === 'small'
+      ? getHoneycrispProviderSemantics().defaultSmallModels[provider]
+      : provider === 'openai-codex'
+        ? this.openAiAuth.getStatus().defaultModel
+        : (await this.researchProviderAuth.getStatuses()).find((status) => status.id === provider)?.defaultModel ?? null;
+    const route = resolveHoneycrispAuxiliaryModelRoute({
+      jobName,
+      job: profile.modelJobs[jobName] ?? null,
+      provider,
+      requestedModel: options.model ?? null,
+      requestedEffort: options.effort ?? null,
+      configuredModel: options.size === 'small' ? defaults?.smallModel ?? null : defaults?.largeModel ?? null,
+      configuredEffort: defaults?.reasoningEffort ?? null,
+      fallbackModel: providerFallback,
+      fallbackEffort: options.fallbackEffort
+    });
+    requireEnabledProviderModel(providerSettings, provider, route.model);
+    return route;
   }
 
   private async resolveConfiguredLeadProvider(providerSettings: ProviderSettings): Promise<ResearchModelProviderId> {
@@ -2135,11 +2143,14 @@ export class WorkspaceService {
       || null;
     if (!model) throw new Error(`Lead provider ${provider} does not have a configured large model.`);
     requireEnabledProviderModel(providerSettings, provider, model);
-    const route = validateProfileModelRoute({
+    const route = resolveHoneycrispAuxiliaryModelRoute({
+      jobName: 'promptGeneration',
+      job: null,
       provider,
-      model,
-      effort: defaults?.reasoningEffort ?? 'medium'
-    }, 'HackerOne import review');
+      requestedModel: model,
+      configuredEffort: defaults?.reasoningEffort ?? null,
+      fallbackEffort: 'medium'
+    });
     const status = provider === 'openai-codex' ? this.openAiAuth.getStatus() : null;
     if (provider === 'openai-codex') requireOpenAiAuthenticationForHackerOneImport(this.openAiAuth);
     const adapter = provider === 'openai-codex'
@@ -5289,49 +5300,6 @@ function hostGoalSuggestionCount(profile: ResearchProfile, workflow: ResearchPro
     );
   }
   return count;
-}
-
-interface ProfileModelRoute {
-  provider: ResearchModelProviderId;
-  model: string;
-  effort: ResearchModelEffortLevel;
-}
-
-const PROFILE_MODEL_EFFORTS = new Set<ResearchModelEffortLevel>([
-  'off',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max'
-]);
-
-function applicableResearchProfileModelJob(
-  job: ResearchProfileModelJob | undefined,
-  provider: ResearchModelProviderId
-): ResearchProfileModelJob | undefined {
-  if (!job?.provider) return job;
-  if (job.provider === provider) return job;
-  return provider === 'openai-codex' && job.provider === 'openai' ? job : undefined;
-}
-
-function validateProfileModelRoute(
-  route: { provider: string; model: string; effort: string },
-  jobName: string
-): ProfileModelRoute {
-  if (!isResearchModelProviderId(route.provider)) {
-    throw new Error(`Research profile model job ${jobName} has an unsupported provider ${route.provider}.`);
-  }
-  const model = route.model.trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/u.test(model)) {
-    throw new Error(`Research profile model job ${jobName} has an invalid model id.`);
-  }
-  const effort = route.effort.trim();
-  if (!PROFILE_MODEL_EFFORTS.has(effort as ResearchModelEffortLevel)) {
-    throw new Error(`Research profile model job ${jobName} has unsupported reasoning effort ${effort}.`);
-  }
-  return { provider: route.provider, model, effort: effort as ResearchModelEffortLevel };
 }
 
 function isResearchModelProviderId(value: unknown): value is ResearchModelProviderId {

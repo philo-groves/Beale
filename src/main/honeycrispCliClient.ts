@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -10,7 +10,9 @@ import type {
   HoneycrispReportDocument,
   HoneycrispRunbookDocument,
   MemoryDreamingRunSummary,
-  ResearchProfileSnapshot
+  ResearchProfileSnapshot,
+  AgentPluginRegistryState,
+  WorkspaceDejunkSummary
 } from '@shared/types';
 import type { ResolvedResearchProfile } from '../shared/researchProfile';
 
@@ -154,6 +156,59 @@ export interface HoneycrispResolvedArtifact {
   contentHash: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface HoneycrispAuxiliaryModelRoute {
+  provider: 'openai-codex' | 'anthropic' | 'xai' | 'zai';
+  model: string;
+  effort: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+}
+
+export interface HoneycrispProviderSemantics {
+  providers: Array<'openai-codex' | 'anthropic' | 'xai' | 'zai'>;
+  aliases: Record<string, 'openai-codex' | 'anthropic' | 'xai' | 'zai'>;
+  defaultSmallModels: Record<'openai-codex' | 'anthropic' | 'xai' | 'zai', string>;
+  auxiliaryEfforts: Array<'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'>;
+  sessionTitleEffort: 'medium';
+  shellReviewEffort: 'medium';
+}
+
+let providerSemanticsCache: HoneycrispProviderSemantics | null = null;
+
+export interface HoneycrispSourceRepositoryCandidate {
+  url: string;
+  label: string;
+  sourceAssetId: string;
+  sourceAssetKind: string;
+  sensitivity: string;
+}
+
+export interface HoneycrispMaterializedSourceRepository {
+  repositoryUrl: string;
+  localPath: string;
+  cloned: boolean;
+  ref: string | null;
+  head: string | null;
+  headRefName: string | null;
+  headDescribe: string | null;
+  requestedRefHead: string | null;
+  requestedRefMatchesHead: boolean | null;
+}
+
+export interface HoneycrispAgentPluginRuntime {
+  runtimeDirectory: string;
+  skillDirs: string[];
+  selectedSkillIds: string[];
+  mcpConfigPath: string | null;
+  allowedMcpServers: string[];
+  args: string[];
+  warnings: string[];
+}
+
+export interface HoneycrispBuiltinPlugin {
+  id: string;
+  path: string;
+  installedAt: string;
 }
 
 export interface HoneycrispProtocolDescriptor {
@@ -418,6 +473,105 @@ export function resolveHoneycrispArtifact(
   ).result;
 }
 
+export function resolveHoneycrispAuxiliaryModelRoute(input: Record<string, unknown>): HoneycrispAuxiliaryModelRoute {
+  return invokeWithJsonInput<HoneycrispAuxiliaryModelRoute>(
+    'model_job.resolve',
+    ['harness', 'model-job-resolve'],
+    input,
+    null
+  ).result;
+}
+
+export function getHoneycrispProviderSemantics(): HoneycrispProviderSemantics {
+  providerSemanticsCache ??= invokeWithJsonInput<HoneycrispProviderSemantics>(
+    'provider.describe',
+    ['harness', 'provider-describe'],
+    {},
+    null
+  ).result;
+  return providerSemanticsCache;
+}
+
+export function inspectHoneycrispSources(input: Record<string, unknown>): {
+  urls?: string[];
+  normalizedUrl?: string | null;
+  candidates?: HoneycrispSourceRepositoryCandidate[];
+  selection?: { candidate: HoneycrispSourceRepositoryCandidate | null; candidates: HoneycrispSourceRepositoryCandidate[]; reason: 'matched' | 'ambiguous' | 'not_found' };
+} {
+  return invokeWithJsonInput<{
+    urls?: string[];
+    normalizedUrl?: string | null;
+    candidates?: HoneycrispSourceRepositoryCandidate[];
+    selection?: { candidate: HoneycrispSourceRepositoryCandidate | null; candidates: HoneycrispSourceRepositoryCandidate[]; reason: 'matched' | 'ambiguous' | 'not_found' };
+  }>('source.inspect', ['harness', 'source-inspect'], input, null).result;
+}
+
+export async function materializeHoneycrispSource(
+  candidate: HoneycrispSourceRepositoryCandidate,
+  ref: string,
+  repositoryStoreDirectory: string | undefined,
+  signal?: AbortSignal
+): Promise<HoneycrispMaterializedSourceRepository> {
+  return (await invokeWithJsonInputAsync<HoneycrispMaterializedSourceRepository>(
+    'source.materialize',
+    ['harness', 'source-materialize'],
+    { candidate, ref, ...(repositoryStoreDirectory ? { repositoryStoreDirectory } : {}) },
+    null,
+    signal
+  )).result;
+}
+
+export function materializeHoneycrispSourceSync(
+  candidate: HoneycrispSourceRepositoryCandidate,
+  ref: string,
+  repositoryStoreDirectory?: string
+): HoneycrispMaterializedSourceRepository {
+  return invokeWithJsonInput<HoneycrispMaterializedSourceRepository>(
+    'source.materialize',
+    ['harness', 'source-materialize'],
+    { candidate, ref, ...(repositoryStoreDirectory ? { repositoryStoreDirectory } : {}) },
+    null
+  ).result;
+}
+
+export function listHoneycrispPlugins(input: Record<string, unknown>): AgentPluginRegistryState {
+  return invokeWithJsonInput<AgentPluginRegistryState>('plugin.list', ['harness', 'plugin-list'], input, null).result;
+}
+
+export function addHoneycrispPluginFromFilesystem(input: Record<string, unknown>): AgentPluginRegistryState {
+  return invokeWithJsonInput<AgentPluginRegistryState>('plugin.add_filesystem', ['harness', 'plugin-add-filesystem'], input, null).result;
+}
+
+export async function addHoneycrispPluginFromRepository(input: Record<string, unknown>): Promise<AgentPluginRegistryState> {
+  return (await invokeWithJsonInputAsync<AgentPluginRegistryState>(
+    'plugin.add_repository', ['harness', 'plugin-add-repository'], input, null
+  )).result;
+}
+
+export function setHoneycrispPluginEnabled(input: Record<string, unknown>): AgentPluginRegistryState {
+  return invokeWithJsonInput<AgentPluginRegistryState>('plugin.set_enabled', ['harness', 'plugin-set-enabled'], input, null).result;
+}
+
+export function removeHoneycrispPlugin(input: Record<string, unknown>): AgentPluginRegistryState {
+  return invokeWithJsonInput<AgentPluginRegistryState>('plugin.remove', ['harness', 'plugin-remove'], input, null).result;
+}
+
+export function getHoneycrispPluginRuntime(input: Record<string, unknown>): HoneycrispAgentPluginRuntime {
+  return invokeWithJsonInput<HoneycrispAgentPluginRuntime>('plugin.runtime', ['harness', 'plugin-runtime'], input, null).result;
+}
+
+export function getHoneycrispMaintenanceSummary(workspacePath: string): WorkspaceDejunkSummary {
+  return invokeWithJsonInput<WorkspaceDejunkSummary>(
+    'maintenance.summary', ['harness', 'maintenance-summary'], { workspacePath }, null
+  ).result;
+}
+
+export function runHoneycrispMaintenance(workspacePath: string): WorkspaceDejunkSummary {
+  return invokeWithJsonInput<WorkspaceDejunkSummary>(
+    'maintenance.run', ['harness', 'maintenance-run'], { workspacePath }, null
+  ).result;
+}
+
 export function invokeHoneycrispCliProtocol<T>(
   operation: string,
   args: readonly string[],
@@ -435,7 +589,7 @@ export function invokeHoneycrispCliProtocol<T>(
   try {
     envelope = decodeHoneycrispProtocolEnvelope<T>(String(result.stdout ?? '').trim());
   } catch (error) {
-    const detail = String(result.stderr || result.stdout || 'Honeycrisp returned no protocol envelope.').trim();
+    const detail = safeProtocolDetail(result.stderr || result.stdout || 'Honeycrisp returned no protocol envelope.');
     throw new Error(`Honeycrisp ${operation} protocol failure: ${detail}`, { cause: error });
   }
   if (envelope.operation !== operation) {
@@ -484,18 +638,104 @@ function invokeWithJsonInput<T>(
   operation: string,
   args: readonly string[],
   input: unknown,
-  storage: HoneycrispSessionStorage
+  storage: HoneycrispSessionStorage | null
 ): HoneycrispProtocolSuccess<T> {
   const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-protocol-'));
   const inputPath = join(directory, 'input.json');
   try {
     writeFileSync(inputPath, `${JSON.stringify(input)}\n`, { encoding: 'utf8', mode: 0o600 });
     return invokeHoneycrispCliProtocol<T>(operation, [...args, '--input', inputPath, '--json'], {
-      env: storageEnvironment(storage)
+      ...(storage ? { env: storageEnvironment(storage) } : {})
     });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+async function invokeWithJsonInputAsync<T>(
+  operation: string,
+  args: readonly string[],
+  input: unknown,
+  storage: HoneycrispSessionStorage | null,
+  signal?: AbortSignal
+): Promise<HoneycrispProtocolSuccess<T>> {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-protocol-'));
+  const inputPath = join(directory, 'input.json');
+  try {
+    writeFileSync(inputPath, `${JSON.stringify(input)}\n`, { encoding: 'utf8', mode: 0o600 });
+    return await invokeHoneycrispCliProtocolAsync<T>(operation, [...args, '--input', inputPath, '--json'], {
+      ...(storage ? { env: storageEnvironment(storage) } : {}),
+      ...(signal ? { signal } : {})
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+export function invokeHoneycrispCliProtocolAsync<T>(
+  operation: string,
+  args: readonly string[],
+  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; signal?: AbortSignal; stdin?: string } = {}
+): Promise<HoneycrispProtocolSuccess<T>> {
+  const invocation = resolveHoneycrispProtocolInvocation();
+  const child = spawn(invocation.command, [...invocation.prefixArgs, ...args], {
+    cwd: invocation.cwd,
+    env: { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1', ...options.env },
+    windowsHide: true
+  });
+  child.stdin.on('error', () => undefined);
+  child.stdin.end(options.stdin ?? '');
+  return new Promise((resolvePromise, reject) => {
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const append = (current: string, chunk: Buffer): string => (current + chunk.toString('utf8')).slice(-2_000_000);
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', abort);
+      callback();
+    };
+    const abort = (): void => {
+      child.kill('SIGTERM');
+      finish(() => reject(new Error(`Honeycrisp ${operation} was canceled.`)));
+    };
+    const timeout = setTimeout(() => {
+      child.kill('SIGTERM');
+      finish(() => reject(new Error(`Honeycrisp ${operation} timed out.`)));
+    }, options.timeoutMs ?? 5 * 60_000);
+    timeout.unref();
+    if (options.signal?.aborted) {
+      abort();
+      return;
+    }
+    options.signal?.addEventListener('abort', abort, { once: true });
+    child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
+    child.once('error', (error) => finish(() => reject(error)));
+    child.once('close', (code) => finish(() => {
+      try {
+        const envelope = decodeHoneycrispProtocolEnvelope<T>(stdout.trim());
+        if (envelope.operation !== operation) throw new Error(`Honeycrisp protocol operation mismatch: expected ${operation}, received ${envelope.operation}.`);
+        if (!envelope.ok) throw new Error(`Honeycrisp ${operation} failed (${envelope.error.code}): ${envelope.error.message}`);
+        if (code !== 0) throw new Error(`Honeycrisp ${operation} returned success with exit status ${String(code)}.`);
+        resolvePromise(envelope);
+      } catch (error) {
+        const detail = safeProtocolDetail(stderr || stdout || `Honeycrisp ${operation} returned no envelope.`);
+        reject(error instanceof Error ? new Error(`${error.message}${detail ? ` ${detail}` : ''}`, { cause: error }) : new Error(detail));
+      }
+    }));
+  });
+}
+
+function safeProtocolDetail(value: unknown): string {
+  return String(value ?? '')
+    .replace(/\u001b\[[0-9;]*m/gu, '')
+    .replace(/(?:sk|xai)-[A-Za-z0-9_-]+/gu, '...redacted')
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/giu, 'Bearer ...redacted')
+    .trim()
+    .slice(-2_000);
 }
 
 function storageEnvironment(storage: HoneycrispSessionStorage): NodeJS.ProcessEnv {

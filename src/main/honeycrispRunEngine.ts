@@ -32,12 +32,7 @@ import type {
 import { normalizeResearchCollaboration } from '../shared/collaboration';
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { generateSessionTitle, SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
-import {
-  SESSION_TITLE_REASONING_EFFORT,
-  SHELL_SAFETY_REVIEW_REASONING_EFFORT,
-  SMALL_MODEL_BY_PROVIDER,
-  sessionTitleModelForProvider
-} from '../shared/modelDefaults';
+import { getHoneycrispProviderSemantics } from './honeycrispCliClient';
 import { resolveGoalObjective } from '../shared/goalObjective';
 import { decodeResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
 import { redactCommandArgumentsForModel, redactForModelText, redactJsonForModel } from './redaction';
@@ -2675,18 +2670,12 @@ function honeycrispRunArgs(
     args.push('--zai-policy-risk-acknowledged');
   }
   const providerModelDefaults = providerSettings?.modelDefaults[effectiveProvider as keyof ProviderSettings['modelDefaults']];
-  const profileTitleJob = applicableResearchProfileModelJob(
-    researchProfile?.modelJobs.sessionTitle,
-    effectiveProvider
-  );
+  const providerSemantics = getHoneycrispProviderSemantics();
   if (generateTitle) {
-    const titleModel = profileTitleJob?.model
-      ? null
-      : providerModelDefaults?.smallModel ?? sessionTitleModelForProvider(effectiveProvider);
-    if (titleModel) args.push('--title-model', titleModel);
-    if (!profileTitleJob?.effort && (titleModel || profileTitleJob?.model)) {
-      args.push('--title-effort', SESSION_TITLE_REASONING_EFFORT);
-    }
+    const titleModelDefault = providerModelDefaults?.smallModel
+      ?? providerSemantics.defaultSmallModels[effectiveProvider as keyof typeof providerSemantics.defaultSmallModels];
+    if (titleModelDefault) args.push('--title-model-default', titleModelDefault);
+    args.push('--title-effort-default', providerSemantics.sessionTitleEffort);
   }
   if (input.model.trim()) {
     args.push('--model', input.model.trim());
@@ -2703,24 +2692,17 @@ function honeycrispRunArgs(
   // Keep Beale-owned safety mode and reviewer routing after extension arguments.
   // A workspace profile cannot choose the model that authorizes host shell execution.
   args.push('--shell-safety-mode', input.shellSafetyMode);
-  const shellReviewModels: Record<string, string> = { ...SMALL_MODEL_BY_PROVIDER };
+  const shellReviewModels: Record<string, string> = { ...providerSemantics.defaultSmallModels };
   for (const [providerId, defaults] of Object.entries(providerSettings?.modelDefaults ?? {})) {
     if (defaults?.smallModel) shellReviewModels[providerId] = defaults.smallModel;
   }
   args.push('--shell-review-models', JSON.stringify(shellReviewModels));
-  args.push('--shell-review-effort', SHELL_SAFETY_REVIEW_REASONING_EFFORT);
+  args.push('--shell-review-effort', providerSemantics.shellReviewEffort);
   if (!researchProfile && memoryTypeDescriptions) {
     args.push('--memory-type-descriptions', JSON.stringify(memoryTypeDescriptions));
   }
   args.push('--tool-max-bytes', String(toolMaxBytes()));
   return args;
-}
-
-function applicableResearchProfileModelJob(
-  job: ResearchProfile['modelJobs']['sessionTitle'] | undefined,
-  provider: string
-): ResearchProfile['modelJobs']['sessionTitle'] | undefined {
-  return job && (!job.provider || job.provider === provider) ? job : undefined;
 }
 
 function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunInput {

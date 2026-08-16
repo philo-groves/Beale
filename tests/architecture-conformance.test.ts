@@ -74,11 +74,9 @@ describe('architecture conformance', () => {
           'src/main/openaiAuth.ts',
           'src/main/researchProviderAuth.ts',
           'src/main/hostToolExecutor.ts',
-          'src/main/sourceMaterializer.ts',
           'src/main/honeycrispRunEngine.ts',
           'src/main/honeycrispCliClient.ts',
           'src/main/honeycrispInvocation.ts',
-          'src/main/providerTextCompletion.ts',
           'src/main/researchProfileService.ts',
           'src/main/honeycrispMemorySummary.ts'
         ].includes(normalizePath(hit.path))
@@ -130,6 +128,27 @@ describe('architecture conformance', () => {
     expect(files).not.toContain('src/main/memoryDreaming.ts');
     expect(files).not.toContain('src/main/honeycrispRunbook.ts');
     expect(files).not.toContain('src/main/honeycrispReport.ts');
+  });
+
+  it('keeps migrated harness features behind Honeycrisp protocol adapters', () => {
+    const adapters = [
+      'src/main/agentPluginRegistry.ts',
+      'src/main/providerTextCompletion.ts',
+      'src/main/sourceMaterializer.ts',
+      'src/main/workspaceDejunk.ts'
+    ];
+    const forbidden = [
+      /node:child_process/,
+      /\bgit\s+clone\b/,
+      /AGENT_PLUGIN_SCHEMA|mcp\.schema\.json/,
+      /deleteLargeReclaimableTrees|organizeLooseResearch/,
+      /completeAuxiliaryText/
+    ];
+    expect(findPatternHits(adapters, forbidden)).toEqual([]);
+    for (const path of adapters) {
+      expect(readFileSync(join(ROOT, path), 'utf8')).toMatch(/honeycrispCliClient/);
+    }
+    expect(readFileSync(join(ROOT, 'src/shared/modelDefaults.ts'), 'utf8')).not.toMatch(/SMALL_MODEL_BY_PROVIDER|smallModelForProvider/);
   });
 
   it('keeps removed Beale agent runtime layers out of the main source tree', () => {

@@ -1,27 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import {
-  SHELL_SAFETY_REVIEW_REASONING_EFFORT,
-  SESSION_TITLE_REASONING_EFFORT,
-  smallModelForProvider,
-  sessionTitleModelForProvider
-} from '../src/shared/modelDefaults';
+import { getHoneycrispProviderSemantics } from '../src/main/honeycrispCliClient';
 
 describe('research session title models', () => {
   it('uses the designated small model for each supported provider', () => {
-    expect(sessionTitleModelForProvider('openai-codex')).toBe('gpt-5.6-luna');
-    expect(sessionTitleModelForProvider('anthropic')).toBe('claude-haiku-4-5');
-    expect(sessionTitleModelForProvider('xai')).toBe('grok-4.3');
-    expect(sessionTitleModelForProvider('zai')).toBe('glm-5-turbo');
-    expect(smallModelForProvider('openai-codex')).toBe('gpt-5.6-luna');
-    expect(smallModelForProvider('anthropic')).toBe('claude-haiku-4-5');
-    expect(smallModelForProvider('xai')).toBe('grok-4.3');
-    expect(smallModelForProvider('zai')).toBe('glm-5-turbo');
-    expect(SESSION_TITLE_REASONING_EFFORT).toBe('medium');
-    expect(SHELL_SAFETY_REVIEW_REASONING_EFFORT).toBe('medium');
+    const semantics = getHoneycrispProviderSemantics();
+    expect(semantics.defaultSmallModels).toEqual({
+      'openai-codex': 'gpt-5.6-luna',
+      anthropic: 'claude-haiku-4-5',
+      xai: 'grok-4.3',
+      zai: 'glm-5-turbo'
+    });
+    expect(semantics.sessionTitleEffort).toBe('medium');
+    expect(semantics.shellReviewEffort).toBe('medium');
   });
 
   it('does not invent a title model for unknown providers', () => {
-    expect(sessionTitleModelForProvider('other')).toBeNull();
-    expect(smallModelForProvider('other')).toBeNull();
+    expect(getHoneycrispProviderSemantics().defaultSmallModels).not.toHaveProperty('other');
   });
 });

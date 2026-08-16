@@ -703,6 +703,7 @@ function modelCatalogs(): ResearchProviderModelCatalog[] {
     {
       providerId: 'openai-codex',
       providerName: 'OpenAI (Codex)',
+      defaultSmallModel: 'gpt-5.6-luna',
       models: [
         model('gpt-5.6-sol', 'GPT-5.6 Sol'),
         model('gpt-5.6-luna', 'GPT-5.6 Luna'),
@@ -712,6 +713,7 @@ function modelCatalogs(): ResearchProviderModelCatalog[] {
     {
       providerId: 'anthropic',
       providerName: 'Anthropic (Claude)',
+      defaultSmallModel: 'claude-haiku-4-5',
       models: [
         model('claude-sonnet-4-6', 'Claude Sonnet 4.6'),
         model('claude-haiku-4-5', 'Claude Haiku 4.5'),
@@ -719,7 +721,7 @@ function modelCatalogs(): ResearchProviderModelCatalog[] {
         model('claude-mythos-5', 'Claude Mythos 5')
       ]
     },
-    { providerId: 'xai', providerName: 'xAI (Grok/X)', models: [model('grok-4', 'Grok 4'), model('grok-4.3', 'Grok 4.3')] }
+    { providerId: 'xai', providerName: 'xAI (Grok/X)', defaultSmallModel: 'grok-4.3', models: [model('grok-4', 'Grok 4'), model('grok-4.3', 'Grok 4.3')] }
   ];
 }
 
