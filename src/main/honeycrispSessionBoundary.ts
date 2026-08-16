@@ -148,6 +148,7 @@ export function createHoneycrispSessionBoundary(
   };
   const workspaceId = database.getWorkspaceId();
   const sessionSummaries = listHoneycrispSessionSummaries(workspaceId, storage);
+  let prefetchedSessionSummaries: HoneycrispSessionSummary[] | null = sessionSummaries;
   const ownedRunIds = new Set(sessionSummaries.map((session) => session.id));
   const nextTraceSequence = new Map(sessionSummaries.map((session) => [session.id, session.revision]));
   const traceWrites = new HoneycrispTraceWriteQueue(storage);
@@ -230,6 +231,7 @@ export function createHoneycrispSessionBoundary(
         createdAt
       }, storage);
       ownedRunIds.add(runId);
+      prefetchedSessionSummaries = null;
       nextTraceSequence.set(runId, 1);
       return { run, attempt };
     }) as WorkspaceDatabase['createRun'],
@@ -289,7 +291,8 @@ export function createHoneycrispSessionBoundary(
 
     listRunRows: (() => {
       if (ownedRunIds.size === 0) return database.listRunRows();
-      const sessions = listHoneycrispSessionSummaries(workspaceId, storage);
+      const sessions = prefetchedSessionSummaries ?? listHoneycrispSessionSummaries(workspaceId, storage);
+      prefetchedSessionSummaries = null;
       for (const session of sessions) ownedRunIds.add(session.id);
       const honeycrispRows: RunRow[] = sessions.map((session) => {
         const recovery = sessionRecovery(session);
@@ -668,6 +671,33 @@ export function createHoneycrispSessionBoundary(
 
 export function isHoneycrispSessionBoundary(database: WorkspaceDatabase): boolean {
   return BOUNDARIES.has(database);
+}
+
+export function listHoneycrispPendingApprovalsForRuns(
+  database: WorkspaceDatabase,
+  runIds: readonly string[]
+): ApprovalRecord[] {
+  const context = BOUNDARY_CONTEXTS.get(database);
+  if (!context) return database.listPendingShellApprovals();
+  const canonical = runIds
+    .filter((runId) => context.ownedRunIds.has(runId))
+    .flatMap((runId) => sessionDetail(getHoneycrispSession(runId, context.storage), context.database).policyEvents)
+    .filter((approval) => approval.requestKind === 'shell_command' && approval.decision === 'pending');
+  return [...canonical, ...context.database.listPendingShellApprovals()];
+}
+
+export function listHoneycrispNotificationsForRuns(
+  database: WorkspaceDatabase,
+  runIds: readonly string[],
+  status: Parameters<WorkspaceDatabase['listNotifications']>[0] = 'unread'
+): NotificationRecord[] {
+  const context = BOUNDARY_CONTEXTS.get(database);
+  if (!context) return database.listNotifications(status);
+  const canonical = runIds
+    .filter((runId) => context.ownedRunIds.has(runId))
+    .flatMap((runId) => sessionNotifications(getHoneycrispSession(runId, context.storage)))
+    .filter((notification) => notification.status === status);
+  return [...canonical, ...context.database.listNotifications(status)];
 }
 
 export function markHoneycrispSessionInterrupted(

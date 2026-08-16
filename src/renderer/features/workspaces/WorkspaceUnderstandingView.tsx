@@ -238,7 +238,8 @@ export function WorkspaceHousekeepingPanel({
   onRunMemoryDreaming: () => void;
 }): JSX.Element {
   const memoryEnabled = researchProfile?.capabilities.memoryEnabled !== false;
-  const dreamDisabled = busy || memoryDreamingInProgress || !memoryEnabled || honeycrispMemory?.dreaming.available === false;
+  const memoryLoading = honeycrispMemory?.loading === true;
+  const dreamDisabled = busy || memoryDreamingInProgress || memoryLoading || !memoryEnabled || honeycrispMemory?.dreaming.available === false;
   const dreamProgressPhase = memoryDreamingProgress?.phase ?? (memoryDreamingInProgress ? 'preparing' : null);
   const dreamProgressLabel = dreamProgressPhase ? memoryDreamingProgressLabel(dreamProgressPhase) : null;
   const memoriesSinceDream = memoryCountSinceLastDream(honeycrispMemory);
@@ -281,7 +282,9 @@ export function WorkspaceHousekeepingPanel({
           type="button"
         >
           <span className="workspace-housekeeping-card-count">
-            {memoriesSinceDream.toLocaleString()} New {memoriesSinceDream === 1 ? 'Memory' : 'Memories'}
+            {memoryLoading
+              ? 'Loading workspace memory…'
+              : <>{memoriesSinceDream.toLocaleString()} New {memoriesSinceDream === 1 ? 'Memory' : 'Memories'}</>}
           </span>
           {dreamProgressLabel ? (
             <span
@@ -296,7 +299,7 @@ export function WorkspaceHousekeepingPanel({
           ) : (
             <span className="workspace-housekeeping-card-label">
               <MoonStar aria-hidden="true" size={18} />
-              Dream
+              {memoryLoading ? 'Loading…' : 'Dream'}
             </span>
           )}
         </button>

@@ -699,6 +699,10 @@ export class HoneycrispRunEngine {
     return this.activeRuns.size > 0;
   }
 
+  public activeRunIds(): string[] {
+    return [...this.activeRuns.keys()];
+  }
+
   private stopActiveRun(active: ActiveHoneycrispRun, reason: 'user' | 'time_limit' | 'safety_control'): void {
     if (active.stopped) return;
     active.stopped = true;

@@ -590,6 +590,8 @@ export interface MemoryDreamingSummary {
 }
 
 export interface HoneycrispMemorySummary {
+  /** True while the dashboard loads the Honeycrisp memory summary off the workspace-open path. */
+  loading?: boolean;
   status: HoneycrispMemoryStatus;
   source: HoneycrispMemorySource;
   contextWorkspaceId: string;

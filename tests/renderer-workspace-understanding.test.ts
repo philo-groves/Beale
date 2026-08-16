@@ -643,6 +643,23 @@ describe('workspace dashboard', () => {
     expect(styles).toContain('@keyframes workspace-dream-state-enter');
   });
 
+  it('shows a disabled loading state while the workspace memory summary initializes', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
+      busy: false,
+      workspaceDejunk: null,
+      memoryDreamingInProgress: false,
+      honeycrispMemory: { ...memorySummary(), loading: true },
+      researchProfile: testResearchProfile(),
+      runs: [],
+      onRunMemoryDreaming: () => undefined
+    }));
+    const dreamButton = html.match(/<button class="workspace-dream-card[^>]*>[\s\S]*?<\/button>/u)?.[0] ?? '';
+
+    expect(dreamButton).toContain('disabled=""');
+    expect(dreamButton).toContain('Loading workspace memory…');
+    expect(dreamButton).toContain('Loading…');
+  });
+
   it('allows Dejunk for paused sessions while blocking queued or active work', () => {
     expect(isLiveResearchRunStatus('paused')).toBe(false);
     expect(isLiveResearchRunStatus('queued')).toBe(true);

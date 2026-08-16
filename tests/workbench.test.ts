@@ -206,6 +206,7 @@ describe('Beale workbench skeleton', () => {
     const opened = service.createWorkspace(workspace);
     expect(opened.version).toBeTruthy();
     expect(opened.workspace.dejunk).toMatchObject({ loading: true, available: false });
+    expect(opened.honeycrispMemory).toMatchObject({ loading: true, status: 'missing' });
     expect(service.getSnapshot()).toBe(opened);
 
     service.getWorkspaceRegistryState();

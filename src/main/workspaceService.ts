@@ -36,6 +36,8 @@ import {
   getHoneycrispRunDetailForClient,
   getHoneycrispRunDetailUpdateForClient,
   getHoneycrispRunDetailVersionForClient,
+  listHoneycrispNotificationsForRuns,
+  listHoneycrispPendingApprovalsForRuns,
   usesHoneycrispSessionOwnership
 } from './honeycrispSessionBoundary';
 import { completeProviderText, type ProviderTextCompleter } from './providerTextCompletion';
@@ -110,6 +112,7 @@ import type {
   MemoryDreamingProgressUpdate,
   MemorySettings,
   MemoryTypeDescriptions,
+  NotificationRecord,
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
   HoneycrispToolingConfigSummary,
@@ -609,6 +612,8 @@ export class WorkspaceService {
     fingerprint: string;
     promise: Promise<HoneycrispMemorySummary>;
   }>();
+  private readonly workspaceMemorySummaryLoads = new Map<string, WorkspaceDatabase>();
+  private readonly workspaceMemorySummaryErrors = new Map<string, string>();
   private readonly snapshotCache = new Map<string, { fingerprint: string; snapshot: WorkspaceSnapshot }>();
   private snapshotVersion = 0;
   private readonly workspaceDejunkSummaries = new Map<string, WorkspaceDejunkSummary>();
@@ -1450,6 +1455,9 @@ export class WorkspaceService {
     });
     db.setResearchSubject({ name: researchSubjectName });
     void onProgress;
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) throw new Error('Scoped workspace runtime was not created.');
+    this.memorySummaryForRuntime(runtime);
     this.syncWorkspaceRegistry();
     this.emitChange();
     return this.requireSnapshot();
@@ -3267,6 +3275,8 @@ export class WorkspaceService {
     this.researchGoalSuggestionContexts.clear();
     this.runDetailEventCache.clear();
     this.snapshotCache.clear();
+    this.workspaceMemorySummaryLoads.clear();
+    this.workspaceMemorySummaryErrors.clear();
     this.workspaceDejunkSummaries.clear();
     const foreground = this.detachForegroundRuntime();
     if (foreground) {
@@ -3311,6 +3321,7 @@ export class WorkspaceService {
     if (foreground?.workspacePath === workspacePath) {
       this.refreshResearchProfile(foreground);
       this.getWorkspaceRegistry();
+      this.scheduleWorkspaceMemorySummaryLoad(foreground);
       this.syncWorkspaceRegistry();
       if (emitChange) this.emitChange({ preserveSnapshotCache: true });
       return this.requireSnapshot();
@@ -3323,6 +3334,7 @@ export class WorkspaceService {
       this.backgroundRuntimes.delete(workspacePath);
       this.setForegroundRuntime(background);
       this.getWorkspaceRegistry();
+      this.scheduleWorkspaceMemorySummaryLoad(background);
       this.syncWorkspaceRegistry();
       if (emitChange) this.emitChange({ preserveSnapshotCache: true });
       return this.requireSnapshot();
@@ -3331,6 +3343,7 @@ export class WorkspaceService {
     const runtime = this.createRuntime(workspacePath, bealeDir, artifactRoot, requestedProfileId);
     this.setForegroundRuntime(runtime);
     this.getWorkspaceRegistry();
+    this.scheduleWorkspaceMemorySummaryLoad(runtime);
     this.syncWorkspaceRegistry();
     if (emitChange) this.emitChange({ preserveSnapshotCache: true });
     return this.requireSnapshot();
@@ -3340,6 +3353,45 @@ export class WorkspaceService {
     if (this.providerCredentials.initialize()) {
       this.openAiAuth.clearCachedCredential();
     }
+  }
+
+  private scheduleWorkspaceMemorySummaryLoad(runtime: WorkspaceRuntime): void {
+    const workspacePath = runtime.workspacePath;
+    if (this.workspaceMemorySummaryLoads.get(workspacePath) === runtime.db) return;
+    this.workspaceMemorySummaryLoads.set(workspacePath, runtime.db);
+    this.workspaceMemorySummaryErrors.delete(workspacePath);
+    const timer = setTimeout(() => {
+      if (this.workspaceMemorySummaryLoads.get(workspacePath) !== runtime.db) return;
+      if (this.disposedRuntimeDatabases.has(runtime.db)) {
+        if (this.workspaceMemorySummaryLoads.get(workspacePath) === runtime.db) {
+          this.workspaceMemorySummaryLoads.delete(workspacePath);
+        }
+        return;
+      }
+      void this.memorySummaryForRuntimeAsync(runtime)
+        .then(() => {
+          if (this.disposedRuntimeDatabases.has(runtime.db)) return;
+          this.workspaceMemorySummaryErrors.delete(workspacePath);
+          this.snapshotCache.delete(workspacePath);
+          if (this.workspacePath === workspacePath) {
+            this.emitRuntimeChange(workspacePath, { forceSnapshot: true });
+          }
+        })
+        .catch((error: unknown) => {
+          if (this.disposedRuntimeDatabases.has(runtime.db)) return;
+          this.workspaceMemorySummaryErrors.set(workspacePath, errorMessage(error));
+          this.snapshotCache.delete(workspacePath);
+          if (this.workspacePath === workspacePath) {
+            this.emitRuntimeChange(workspacePath, { forceSnapshot: true });
+          }
+        })
+        .finally(() => {
+          if (this.workspaceMemorySummaryLoads.get(workspacePath) === runtime.db) {
+            this.workspaceMemorySummaryLoads.delete(workspacePath);
+          }
+        });
+    }, 0);
+    timer.unref?.();
   }
 
   private createRuntime(workspacePath: string, bealeDir: string, artifactRoot: string, requestedProfileId?: ResearchProfileId): WorkspaceRuntime {
@@ -3635,7 +3687,12 @@ export class WorkspaceService {
       activeScope,
       researchSubject: this.profileMainTiming('snapshot.researchSubject', detail, () => runtime.db.getResearchSubject()),
       researchProfile: runtime.researchProfile,
-      honeycrispMemory: this.profileMainTiming('snapshot.honeycrispMemory', detail, () => this.memorySummaryForRuntime(runtime, activeScope)),
+      honeycrispMemory: this.profileMainTiming('snapshot.honeycrispMemory', detail, () =>
+        this.cachedMemorySummaryForRuntime(runtime)
+          ?? (this.workspaceMemorySummaryLoads.has(runtime.workspacePath)
+            || this.workspaceMemorySummaryErrors.has(runtime.workspacePath)
+            ? this.loadingMemorySummaryForRuntime(runtime)
+            : this.memorySummaryForRuntime(runtime, activeScope))),
       recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),
       policyReview: this.profileMainTiming('snapshot.policyReview', detail, () => buildPolicyReview(activeScope)),
       runs: this.profileMainTiming('snapshot.runs', detail, () => runtime.db.listRunRows()),
@@ -3644,7 +3701,7 @@ export class WorkspaceService {
         detail,
         () => this.pendingShellApprovalsForSnapshot(runtime)
       ),
-      notifications: this.profileMainTiming('snapshot.notifications', detail, () => runtime.db.listNotifications())
+      notifications: this.profileMainTiming('snapshot.notifications', detail, () => this.notificationsForRuntime(runtime))
     };
     this.snapshotCache.set(runtime.workspacePath, { fingerprint, snapshot });
     return snapshot;
@@ -3662,8 +3719,7 @@ export class WorkspaceService {
 
   private pendingShellApprovalsForRuntime(runtime: WorkspaceRuntime): ApprovalRecord[] {
     const workspaceName = runtime.db.getActiveScope().workspaceName;
-    return runtime.db.listPendingShellApprovals()
-      .filter((approval) => runtime.honeycrispEngine.hasRun(approval.runId))
+    return listHoneycrispPendingApprovalsForRuns(runtime.db, runtime.honeycrispEngine.activeRunIds())
       .map((approval) => ({
         ...approval,
         requestedAction: {
@@ -3672,6 +3728,12 @@ export class WorkspaceService {
           workspacePath: runtime.workspacePath
         }
       }));
+  }
+
+  private notificationsForRuntime(runtime: WorkspaceRuntime): NotificationRecord[] {
+    return listHoneycrispNotificationsForRuns(runtime.db, runtime.honeycrispEngine.activeRunIds())
+      .filter((notification) => notification.status === 'unread')
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
   private getWorkspaceSummary(runtime = this.getForegroundRuntime()): WorkspaceSummary {
@@ -3702,6 +3764,10 @@ export class WorkspaceService {
     sessionId?: string,
     researchProfile: ResearchProfileSnapshot | null = runtime.researchProfile
   ): HoneycrispMemorySummary {
+    if (this.workspaceMemorySummaryLoads.get(runtime.workspacePath) === runtime.db) {
+      this.workspaceMemorySummaryLoads.delete(runtime.workspacePath);
+    }
+    this.workspaceMemorySummaryErrors.delete(runtime.workspacePath);
     const storage = this.honeycrispStorage(runtime);
     const cacheKey = [
       storage.databasePath,
@@ -3723,6 +3789,65 @@ export class WorkspaceService {
     if (this.honeycrispMemorySummaryCache.size >= 64) this.honeycrispMemorySummaryCache.clear();
     this.honeycrispMemorySummaryCache.set(cacheKey, { fingerprint: honeycrispStorageFingerprint(storage), summary });
     return summary;
+  }
+
+  private cachedMemorySummaryForRuntime(
+    runtime: WorkspaceRuntime,
+    sessionId?: string,
+    researchProfile: ResearchProfileSnapshot | null = runtime.researchProfile
+  ): HoneycrispMemorySummary | null {
+    const storage = this.honeycrispStorage(runtime);
+    const cacheKey = [
+      storage.databasePath,
+      storage.artifactDirectoryPath,
+      runtime.db.getWorkspaceId(),
+      runtime.db.getResearchSubject().id,
+      sessionId ?? '',
+      researchProfile?.profileHash ?? ''
+    ].join('\0');
+    const cached = this.honeycrispMemorySummaryCache.get(cacheKey);
+    return cached?.fingerprint === honeycrispStorageFingerprint(storage) ? cached.summary : null;
+  }
+
+  private loadingMemorySummaryForRuntime(runtime: WorkspaceRuntime): HoneycrispMemorySummary {
+    const storage = this.honeycrispStorage(runtime);
+    const error = this.workspaceMemorySummaryErrors.get(runtime.workspacePath) ?? null;
+    return {
+      loading: error === null,
+      status: error ? 'error' : 'missing',
+      source: error ? 'honeycrisp_sqlite' : 'none',
+      contextWorkspaceId: runtime.db.getWorkspaceId(),
+      contextSubjectId: runtime.db.getResearchSubject().id,
+      activeCatalogHash: runtime.researchProfile.profileHash,
+      databasePath: storage.databasePath,
+      storageRoot: dirname(storage.databasePath),
+      artifactDirectoryPath: storage.artifactDirectoryPath,
+      databaseSizeBytes: 0,
+      nodeCount: 0,
+      edgeCount: 0,
+      evidenceRefCount: 0,
+      storageArtifactCount: 0,
+      runbookCount: 0,
+      reportCount: 0,
+      latestNodeUpdatedAt: null,
+      nodeTypeCounts: {},
+      nodeStatusCounts: {},
+      nodeProvenanceCounts: {},
+      nodes: [],
+      edges: [],
+      runbooks: [],
+      reports: [],
+      dreaming: {
+        available: false,
+        scope: 'workspace',
+        hiddenNodeCount: 0,
+        restorableChangeCount: 0,
+        lastRun: null,
+        changes: []
+      },
+      directories: [],
+      lastError: error
+    };
   }
 
   private async memorySummaryForRuntimeAsync(

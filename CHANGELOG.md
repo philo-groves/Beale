@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Workspace dashboards no longer expand inactive Honeycrisp session histories to assemble approval and notification UI; session summaries are reused and canonical approval/notification reads are limited to active host processes.
+- Initial workspace snapshots no longer block Electron's main thread on Honeycrisp memory-summary setup; Dream housekeeping now loads after the workspace is painted and reports an explicit loading state.
 - Workspace and session navigation no longer initializes macOS Keychain access for provider API-key storage; Beale now touches Safe Storage only when managed credentials are actually needed and removes empty credential files.
 
 - Workspace dashboards now reuse versioned snapshots across open and registry-sync paths, avoid the redundant registered-workspace follow-up broadcast, ignore duplicate renderer deliveries, apply new dashboard state as an interruptible transition, defer the filesystem-backed Dejunk scan until after first paint with a loading state, and index timeline/resource relations instead of repeatedly rescanning the full workspace dataset.
