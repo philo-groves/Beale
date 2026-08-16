@@ -159,7 +159,10 @@ export function createHoneycrispSessionBoundary(
   };
   const appendRecordEvent = (runId: string, kind: string, record: Record<string, unknown>): void => {
     appendHoneycrispSessionEvent(runId, {
-      id: typeof record.id === 'string' ? record.id : createId('event'),
+      // The session log is append-only and deduplicates by event ID. Record IDs
+      // identify the entity being revised, so reusing them here would discard
+      // every update after the entity's creation.
+      id: createId('event'),
       kind,
       timestamp: typeof record.createdAt === 'string' ? record.createdAt : new Date().toISOString(),
       summary: typeof record.summary === 'string' ? record.summary : kind,
@@ -903,7 +906,7 @@ function sessionDetail(
     verifierRuns: [],
     modelSessions,
     contextCompactions: [],
-    policyEvents: latestRecords(events.flatMap((event) => event.kind === 'beale.approval' ? recordArrayValue<ApprovalRecord>(event.payload) : [])),
+    policyEvents: reconciledApprovalRecords(events, traceEvents),
     exports: []
   };
 }
@@ -994,6 +997,33 @@ function latestRecords<T extends { id: string }>(records: readonly T[]): T[] {
   const latest = new Map<string, T>();
   for (const record of records) latest.set(record.id, record);
   return [...latest.values()];
+}
+
+function reconciledApprovalRecords(
+  events: readonly HoneycrispSessionEvent[],
+  traceEvents: readonly TraceEventRecord[]
+): ApprovalRecord[] {
+  const approvals = latestRecords(events.flatMap((event) =>
+    event.kind === 'beale.approval' ? recordArrayValue<ApprovalRecord>(event.payload) : []
+  ));
+  const resolutions = new Map<string, { decision: 'approved' | 'denied'; reason: string; decidedAt: string }>();
+  for (const trace of traceEvents) {
+    if (trace.type !== 'approval_event') continue;
+    const approvalRequestId = stringValue(trace.payload.approvalRequestId);
+    const decision = stringValue(trace.payload.decision);
+    if (!approvalRequestId || (decision !== 'approved' && decision !== 'denied')) continue;
+    resolutions.set(approvalRequestId, {
+      decision,
+      reason: stringValue(trace.payload.reason) ?? trace.summary,
+      decidedAt: trace.createdAt
+    });
+  }
+  return approvals.map((approval) => {
+    if (approval.decision !== 'pending' || approval.decidedAt !== null) return approval;
+    const approvalRequestId = stringValue(approval.requestedAction.approvalRequestId);
+    const resolution = approvalRequestId ? resolutions.get(approvalRequestId) : undefined;
+    return resolution ? { ...approval, ...resolution } : approval;
+  });
 }
 
 function sessionNotifications(session: HoneycrispSessionRecord): NotificationRecord[] {

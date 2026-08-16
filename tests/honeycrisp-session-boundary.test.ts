@@ -116,6 +116,102 @@ describe('Honeycrisp session persistence boundary', () => {
     }
   }, 15_000);
 
+  it('persists approval revisions as distinct events and reconciles legacy pending records from resolution traces', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-approval-boundary-'));
+    createdDirectories.push(directory);
+    const databasePath = join(directory, 'memory.sqlite');
+    const artifactRoot = join(directory, '.beale', 'artifacts');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    configureRealHoneycrisp();
+
+    const rawDatabase = new WorkspaceDatabase(databasePath, artifactRoot, {
+      workspacePath: directory,
+      workspaceId: 'workspace_approval_boundary'
+    });
+    rawDatabase.initialize();
+    const database = createHoneycrispSessionBoundary(rawDatabase);
+    const context = database.createRun({
+      scopeVersionId: database.getActiveScope().id,
+      title: 'Canonical approval session',
+      promptMarkdown: 'Exercise approval persistence.',
+      shellSafetyMode: 'auto_review',
+      mode: 'open_discovery',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      attemptStrategy: 'iterative_research',
+      sandboxProfile: 'host',
+      budget: { runEngine: 'honeycrisp' }
+    });
+
+    try {
+      const revised = database.createApproval({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        requestKind: 'shell_command',
+        requestedAction: { approvalRequestId: 'shell_revision', approvalKind: 'auto_review_override' },
+        decision: 'denied',
+        reason: 'Waiting for the researcher.',
+        pending: true
+      });
+      database.updateApprovalDecision(revised.id, context.run.id, 'approved', 'Approved once.');
+
+      const reconciled = database.createApproval({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        requestKind: 'shell_command',
+        requestedAction: { approvalRequestId: 'shell_reconciled', approvalKind: 'auto_review_override' },
+        decision: 'denied',
+        reason: 'Waiting for the researcher.',
+        pending: true
+      });
+      database.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'approval_event',
+        source: 'policy',
+        summary: 'Shell command approved by the researcher.',
+        payload: {
+          approvalRequestId: 'shell_reconciled',
+          decision: 'approved',
+          reason: 'The researcher approved this command once.'
+        },
+        approvalId: reconciled.id,
+        modelVisible: false
+      });
+      await flushHoneycrispSessionWrites(database, context.run.id);
+
+      expect(database.getRunDetail(context.run.id).policyEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: revised.id, decision: 'approved', reason: 'Approved once.' }),
+        expect.objectContaining({
+          id: reconciled.id,
+          decision: 'approved',
+          reason: 'The researcher approved this command once.',
+          decidedAt: expect.any(String)
+        })
+      ]));
+      expect(database.listPendingShellApprovals()).toEqual([]);
+
+      const inspection = new DatabaseSync(databasePath, { readOnly: true });
+      try {
+        const row = inspection.prepare('SELECT document_json FROM honeycrisp_sessions WHERE id = ?').get(context.run.id) as {
+          document_json: string;
+        };
+        const stored = JSON.parse(row.document_json) as {
+          events: Array<{ id: string; kind: string; payload?: { record?: { id?: string } } }>;
+        };
+        const revisions = stored.events.filter((event) =>
+          event.kind === 'beale.approval' && event.payload?.record?.id === revised.id
+        );
+        expect(revisions).toHaveLength(2);
+        expect(new Set(revisions.map((event) => event.id)).size).toBe(2);
+      } finally {
+        inspection.close();
+      }
+    } finally {
+      database.close();
+    }
+  }, 15_000);
+
   it('runs the Honeycrisp host adapter against the canonical store without creating a Beale run row', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-canonical-run-'));
     const registry = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-canonical-registry-'));
