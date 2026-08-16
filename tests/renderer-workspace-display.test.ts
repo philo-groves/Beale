@@ -107,6 +107,32 @@ describe('renderer workspace display view models', () => {
     expect(html).not.toContain('Research Workspaces');
   });
 
+  it('shows registry loading state instead of an empty workspace list during startup', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
+      busy: false,
+      collapsed: false,
+      error: null,
+      openRegisteredWorkspaceMenuId: null,
+      workspaceRegistry: null,
+      workspaceRegistryLoading: true,
+      selectedRunId: null,
+      snapshot: null,
+      onAddWorkspace: () => undefined,
+      onOpenWorkspace: () => undefined,
+      onOpenWorkspaceInfo: () => undefined,
+      onOpenResearchSession: () => undefined,
+      onRemoveWorkspace: () => undefined,
+      onResizePointerDown: () => undefined,
+      onSetOpenWorkspaceMenuId: () => undefined,
+      onSearch: () => undefined,
+      onStartNewResearch: () => undefined
+    }));
+
+    expect(html).toContain('Loading workspaces');
+    expect(html).toContain('lucide-loader-circle');
+    expect(html).not.toContain('No Workspaces Yet');
+  });
+
   it('renders selected-session breakout rooms from live detail before the workspace snapshot refreshes', () => {
     const profile = testResearchProfile();
     const registeredWorkspace = workspace('workspace_test', '/workspace/test');

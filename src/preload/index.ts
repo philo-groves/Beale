@@ -165,6 +165,9 @@ const api: BealeApi = {
   createWorkspace(path: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, path);
   },
+  restoreLastWorkspace(): Promise<WorkspaceSnapshot | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.restoreLastWorkspace);
+  },
   getSnapshot() {
     return ipcRenderer.invoke(IPC_CHANNELS.getSnapshot);
   },

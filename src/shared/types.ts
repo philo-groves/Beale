@@ -1612,6 +1612,7 @@ export interface BealeApi {
   removeRegisteredWorkspace(registryWorkspaceId: string): Promise<WorkspaceSnapshot | null>;
   openWorkspace(path: string): Promise<WorkspaceSnapshot>;
   createWorkspace(path: string): Promise<WorkspaceSnapshot>;
+  restoreLastWorkspace(): Promise<WorkspaceSnapshot | null>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
   getHostEnvironment(): Promise<HostEnvironment>;
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;

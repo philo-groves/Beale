@@ -1605,6 +1605,63 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   z-index: 1;
 }
 
+.workspace-startup-view {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.workspace-startup-content {
+  max-width: 420px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px;
+  text-align: center;
+}
+
+.workspace-startup-content strong {
+  color: var(--text);
+  font-size: 1.08rem;
+  font-weight: 600;
+}
+
+.workspace-startup-content button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+}
+
+.workspace-startup-spinner {
+  color: var(--muted-strong);
+  animation: workspace-startup-spin 900ms linear infinite;
+}
+
+.workspace-list-loading {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.workspace-list-loading svg {
+  animation: workspace-startup-spin 900ms linear infinite;
+}
+
+@keyframes workspace-startup-spin {
+  to { transform: rotate(360deg); }
+}
+
 .main-session-grid {
   width: 100%;
   height: 100%;
@@ -12062,7 +12119,9 @@ button.research-goal-choice:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .provider-health-indicator.state-authenticating,
   .provider-settings-loading-indicator,
-  .plugin-manager-spinner {
+  .plugin-manager-spinner,
+  .workspace-list-loading svg,
+  .workspace-startup-spinner {
     animation: none;
   }
 

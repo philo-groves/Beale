@@ -21,21 +21,28 @@ export interface CredentialEncryption {
   decrypt(value: Buffer): string;
 }
 
+export interface ProviderCredentialStoreOptions {
+  deferLoad?: boolean;
+}
+
 export class ProviderCredentialStore {
   private readonly managedApiKeys = new Map<ResearchModelProviderId, string>();
   private readonly initialEnvironment = new Map<ResearchModelProviderId, string | undefined>();
+  private loaded = false;
 
   public constructor(
     private readonly path: string | null = null,
-    private readonly encryption: CredentialEncryption | null = null
+    private readonly encryption: CredentialEncryption | null = null,
+    options: ProviderCredentialStoreOptions = {}
   ) {
     for (const providerId of providerIds()) {
       this.initialEnvironment.set(providerId, process.env[environmentVariable(providerId)]);
     }
-    this.load();
+    if (!options.deferLoad) this.ensureLoaded();
   }
 
   public setApiKey(providerId: ResearchModelProviderId, apiKey: string): void {
+    this.ensureLoaded();
     requireProviderId(providerId);
     const normalized = apiKey.trim();
     if (!normalized) throw new Error('API key is required.');
@@ -56,12 +63,18 @@ export class ProviderCredentialStore {
     }
   }
 
+  public initialize(): void {
+    this.ensureLoaded();
+  }
+
   public isApiKeyConfigured(providerId: ResearchModelProviderId): boolean {
+    this.ensureLoaded();
     requireProviderId(providerId);
     return Boolean(process.env[environmentVariable(providerId)]?.trim());
   }
 
   public removeApiKey(providerId: ResearchModelProviderId): void {
+    this.ensureLoaded();
     requireProviderId(providerId);
     const managed = this.managedApiKeys.get(providerId);
     if (!managed) {
@@ -105,6 +118,12 @@ export class ProviderCredentialStore {
     } catch {
       // A missing, unreadable, or undecryptable credential file is treated as empty.
     }
+  }
+
+  private ensureLoaded(): void {
+    if (this.loaded) return;
+    this.loaded = true;
+    this.load();
   }
 
   private persist(): void {

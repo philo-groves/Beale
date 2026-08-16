@@ -51,6 +51,32 @@ describe('provider credential store', () => {
     expect(process.env.ZAI_API_KEY).toBeUndefined();
   });
 
+  it('can defer encrypted credential I/O until provider state is needed', () => {
+    delete process.env.XAI_API_KEY;
+    const directory = mkdtempSync(join(tmpdir(), 'beale-provider-credentials-'));
+    directories.push(directory);
+    const path = join(directory, 'credentials.json');
+    let decryptions = 0;
+    const encryption = {
+      available: () => true,
+      encrypt: (value: string) => Buffer.from(value, 'utf8'),
+      decrypt: (value: Buffer) => {
+        decryptions += 1;
+        return value.toString('utf8');
+      }
+    };
+    new ProviderCredentialStore(path, encryption).setApiKey('xai', 'deferred-key');
+    delete process.env.XAI_API_KEY;
+
+    const store = new ProviderCredentialStore(path, encryption, { deferLoad: true });
+    expect(decryptions).toBe(0);
+    expect(process.env.XAI_API_KEY).toBeUndefined();
+
+    expect(store.isApiKeyConfigured('xai')).toBe(true);
+    expect(decryptions).toBe(1);
+    expect(process.env.XAI_API_KEY).toBe('deferred-key');
+  });
+
   it('removes only Beale-managed keys and preserves host-environment ownership', () => {
     delete process.env.OPENAI_API_KEY;
     const store = new ProviderCredentialStore();

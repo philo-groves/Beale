@@ -622,6 +622,8 @@ export class WorkspaceService {
   }
 
   public openLastWorkspaceIfAvailable(): WorkspaceSnapshot | null {
+    const current = this.getSnapshot();
+    if (current) return current;
     const workspace = this.getWorkspaceRegistry().getLastKnownWorkspace();
     if (!workspace || !isExistingWorkspace(workspace.workspacePath)) {
       return null;
@@ -1663,6 +1665,7 @@ export class WorkspaceService {
   }
 
   public getOpenAiStatus(): OpenAiAccountStatus {
+    this.providerCredentials.initialize();
     return this.openAiAuth.getStatus();
   }
 
@@ -3104,6 +3107,7 @@ export class WorkspaceService {
   }
 
   private open(path: string, create: boolean, emitChange = true, requestedProfileId?: ResearchProfileId): WorkspaceSnapshot {
+    this.providerCredentials.initialize();
     const workspacePath = resolve(path);
     if (create) {
       mkdirSync(workspacePath, { recursive: true });

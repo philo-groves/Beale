@@ -5,7 +5,7 @@ import { errorMessage } from '../lib/errors';
 
 export function useProfilingRuntime(
   onError: (message: string) => void,
-  { observeReports = false }: { observeReports?: boolean } = {}
+  { active = true, observeReports = false }: { active?: boolean; observeReports?: boolean } = {}
 ): {
   profilingState: ProfilingState | null;
   lastProfilingReport: ProfilingReport | null;
@@ -30,8 +30,9 @@ export function useProfilingRuntime(
   }, [onError]);
 
   useEffect(() => {
+    if (!active) return;
     void refreshProfilingState();
-  }, [refreshProfilingState]);
+  }, [active, refreshProfilingState]);
 
   const recordReport = useCallback(
     (report: ProfilingReport): void => {

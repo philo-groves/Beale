@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { CalendarClock, ChevronDown, ChevronRight, Folder, FolderPlus, MoreVertical, Plug, RefreshCw, Search, SquarePen } from 'lucide-react';
+import { CalendarClock, ChevronDown, ChevronRight, Folder, FolderPlus, LoaderCircle, MoreVertical, Plug, RefreshCw, Search, SquarePen } from 'lucide-react';
 import type { BreakoutRoomStatus, BreakoutRoomSummary, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { displayBreakoutRoomTitle } from '../../view-models/appHeader';
@@ -15,6 +15,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   error,
   openRegisteredWorkspaceMenuId,
   workspaceRegistry,
+  workspaceRegistryLoading = false,
   selectedRunId,
   selectedBreakoutRoomId = null,
   selectedRunBreakoutRooms,
@@ -38,6 +39,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   error: string | null;
   openRegisteredWorkspaceMenuId: string | null;
   workspaceRegistry: WorkspaceRegistryState | null;
+  workspaceRegistryLoading?: boolean;
   selectedRunId: string | null;
   selectedBreakoutRoomId?: string | null;
   selectedRunBreakoutRooms?: readonly SidebarBreakoutRoom[];
@@ -91,10 +93,19 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       <div className="sidebar-section workspace-list">
         <div className="section-row">
           <div className="workspace-list-title">Workspaces</div>
-          <button type="button" title={`Add ${workspaceNoun.toLocaleLowerCase()}`} disabled={busy} onClick={onAddWorkspace}>
+          <button type="button" title={`Add ${workspaceNoun.toLocaleLowerCase()}`} disabled={busy || workspaceRegistryLoading} onClick={onAddWorkspace}>
             <FolderPlus size={15} />
           </button>
         </div>
+        {workspaceRegistryLoading ? (
+          <div className="workspace-list-loading" role="status">
+            <LoaderCircle aria-hidden="true" size={13} />
+            <span>Loading workspaces…</span>
+          </div>
+        ) : null}
+        {!workspaceRegistryLoading && workspaces.length === 0 ? (
+          <span className="workspace-session-empty">No Workspaces Yet...</span>
+        ) : null}
         {workspaces.map((workspace) => {
           const workspaceLoaded = snapshot?.workspace.workspacePath === workspace.workspacePath;
           const dashboardActive = workspaceLoaded && selectedRunId === null;

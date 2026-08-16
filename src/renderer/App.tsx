@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
+import 'katex/dist/katex.min.css';
+import './styles.css';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
   ApprovalRecord,
@@ -34,6 +36,7 @@ import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
+import { WorkspaceStartupView } from './features/workspaces/WorkspaceStartupView';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import type { ResearchGoalSeed } from './features/sessions/SessionNextSteps';
 import { isAutoReviewOverrideApproval, pendingShellApproval, ShellApprovalModal } from './features/sessions/ShellApprovalModal';
@@ -82,6 +85,7 @@ export function App(): JSX.Element {
     hostEnvironment,
     windowChromeState,
     openAiStatus,
+    startupPhase,
     selectedRunId,
     setWorkspaceRegistry,
     setOpenAiStatus,
@@ -159,7 +163,10 @@ export function App(): JSX.Element {
     profilingState,
     lastProfilingReport,
     flushProfilingReport
-  } = useProfilingRuntime(handleError, { observeReports: profilingOpen || settingsOpen });
+  } = useProfilingRuntime(handleError, {
+    active: startupPhase === 'ready' || profilingOpen || settingsOpen,
+    observeReports: profilingOpen || settingsOpen
+  });
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
   const selectedRunRefreshKey = useMemo(() => {
     const selected = snapshot?.runs.find((row) => row.run.id === selectedRunId)?.run;
@@ -232,11 +239,12 @@ export function App(): JSX.Element {
   }, [researchViewContextKey]);
 
   useEffect(() => {
+    if (!newResearchOpen && !(settingsOpen && settingsSection === 'providers')) return;
     window.beale
       .getProviderSettings()
       .then(setProviderSettings)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
-  }, [handleError]);
+  }, [handleError, newResearchOpen, settingsOpen, settingsSection]);
 
   useEffect(() => {
     if (!settingsOpen || settingsSection !== 'profile') return;
@@ -533,7 +541,8 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (!newResearchOpen && !(settingsOpen && settingsSection === 'providers')) return;
     void loadResearchProviderStatuses();
-  }, [loadResearchProviderStatuses, newResearchOpen, settingsOpen, settingsSection]);
+    void loadOpenAiProviderStatus();
+  }, [loadOpenAiProviderStatus, loadResearchProviderStatuses, newResearchOpen, settingsOpen, settingsSection]);
 
   useEffect(() => {
     if (!newResearchOpen && !selectedRunId && !(settingsOpen && settingsSection === 'providers')) return;
@@ -1117,6 +1126,7 @@ export function App(): JSX.Element {
           error={error}
           openRegisteredWorkspaceMenuId={openRegisteredWorkspaceMenuId}
           workspaceRegistry={workspaceRegistry}
+          workspaceRegistryLoading={startupPhase === 'shell' || startupPhase === 'registry'}
           selectedRunId={selectedRunId}
           selectedBreakoutRoomId={selectedBreakoutRoomId}
           selectedRunBreakoutRooms={activeRunDetail?.breakoutRooms}
@@ -1182,7 +1192,7 @@ export function App(): JSX.Element {
           />
         ) : (
           <div className="workspace-page">
-            <MainSessionWorkspace
+            {snapshot ? <MainSessionWorkspace
               chatView={chatView}
               detail={activeRunDetail}
               events={mainSessionTraceEvents}
@@ -1240,7 +1250,7 @@ export function App(): JSX.Element {
               }}
               onSessionAction={handleSessionAction}
               onSteerInstruction={handleSteerInstruction}
-            />
+            /> : <WorkspaceStartupView phase={startupPhase} onAddWorkspace={addWorkspace} />}
           </div>
         )}
       </main>

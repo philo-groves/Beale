@@ -52,10 +52,6 @@ function createWindow(): void {
   const isMac = process.platform === 'darwin';
   const needsNativeWindowShape = process.platform === 'linux';
   const supportsNativeRoundedCorners = process.platform === 'darwin' || process.platform === 'win32';
-  const appIcon = createAppIcon();
-  if (appIcon && isMac && app.dock) {
-    app.dock.setIcon(appIcon);
-  }
   const window = new BrowserWindow({
     width: 1440,
     height: 940,
@@ -68,7 +64,6 @@ function createWindow(): void {
     transparent: true,
     hasShadow: isMac,
     roundedCorners: supportsNativeRoundedCorners,
-    ...(appIcon ? { icon: appIcon } : {}),
     ...(isMac
       ? {
           titleBarStyle: 'hiddenInset' as const,
@@ -100,6 +95,9 @@ function createWindow(): void {
   } else {
     window.loadFile(join(__dirname, '../renderer/index.html'));
   }
+  window.webContents.once('did-finish-load', () => {
+    setImmediate(() => applyAppIcon(window));
+  });
   installApplicationMenu();
 }
 
@@ -179,6 +177,14 @@ function createAppIcon(): Electron.NativeImage | null {
     height: cropSize
   });
   return cropped.resize({ width: 256, height: 256, quality: 'best' });
+}
+
+function applyAppIcon(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  const appIcon = createAppIcon();
+  if (!appIcon) return;
+  if (process.platform === 'darwin' && app.dock) app.dock.setIcon(appIcon);
+  else window.setIcon(appIcon);
 }
 
 function appIconSourcePath(): string | null {
@@ -528,6 +534,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.removeRegisteredWorkspace, (_event, registryWorkspaceId: string) => workspaceService.removeRegisteredWorkspace(registryWorkspaceId));
   ipcMain.handle(IPC_CHANNELS.openWorkspace, (_event, path: string) => workspaceService.openWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.createWorkspace, (_event, path: string) => workspaceService.createWorkspace(path));
+  ipcMain.handle(IPC_CHANNELS.restoreLastWorkspace, () =>
+    timedMainIpc('restoreLastWorkspace', {}, () => workspaceService.openLastWorkspaceIfAvailable())
+  );
   ipcMain.handle(IPC_CHANNELS.getSnapshot, () => timedMainIpc('getSnapshot', {}, () => workspaceService.getSnapshot()));
   ipcMain.handle(IPC_CHANNELS.getHostEnvironment, () => getHostEnvironment());
   ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());
@@ -693,14 +702,12 @@ if (!hasSingleInstanceLock) {
         available: () => safeStorage.isEncryptionAvailable(),
         encrypt: (value) => safeStorage.encryptString(value),
         decrypt: (value) => safeStorage.decryptString(value)
-      }
+      },
+      { deferLoad: true }
     );
     workspaceService = new WorkspaceService(broadcastSnapshot, { providerCredentialStore });
     registerIpc();
     createWindow();
-    setImmediate(() => {
-      workspaceService.openLastWorkspaceIfAvailable();
-    });
     if (smokeTestMode) {
       setTimeout(() => app.quit(), 1500);
     }

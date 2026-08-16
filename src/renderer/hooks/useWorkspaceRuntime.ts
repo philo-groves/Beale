@@ -14,12 +14,15 @@ import {
   snapshotMetricDetail
 } from '../view-models/runDetailUpdates';
 
+export type WorkspaceStartupPhase = 'shell' | 'registry' | 'workspace' | 'ready';
+
 export function useWorkspaceRuntime(onError: (message: string) => void): {
   snapshot: WorkspaceSnapshot | null;
   workspaceRegistry: WorkspaceRegistryState | null;
   hostEnvironment: HostEnvironment | null;
   windowChromeState: WindowChromeState;
   openAiStatus: OpenAiAccountStatus | null;
+  startupPhase: WorkspaceStartupPhase;
   selectedRunId: string | null;
   setWorkspaceRegistry: Dispatch<SetStateAction<WorkspaceRegistryState | null>>;
   setOpenAiStatus: Dispatch<SetStateAction<OpenAiAccountStatus | null>>;
@@ -33,6 +36,7 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
   const [hostEnvironment, setHostEnvironment] = useState<HostEnvironment | null>(null);
   const [windowChromeState, setWindowChromeState] = useState<WindowChromeState>({ isMaximized: false, isFullScreen: false });
   const [openAiStatus, setOpenAiStatus] = useState<OpenAiAccountStatus | null>(null);
+  const [startupPhase, setStartupPhase] = useState<WorkspaceStartupPhase>('shell');
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const pendingSnapshotRef = useRef<WorkspaceSnapshot | null | undefined>(undefined);
   const pendingWorkspaceRegistryRef = useRef<WorkspaceRegistryState | null>(null);
@@ -60,36 +64,6 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
   }, []);
 
   useEffect(() => {
-    window.beale
-      .getHostEnvironment()
-      .then(setHostEnvironment)
-      .catch((caught: unknown) => onError(errorMessage(caught)));
-
-    devInstrumentation
-      .timeAsync('ipc.getSnapshot.initial', () => window.beale.getSnapshot())
-      .then((initial) => {
-        applySnapshot(initial);
-      })
-      .catch((caught: unknown) => onError(errorMessage(caught)));
-
-    devInstrumentation
-      .timeAsync('ipc.getWorkspaceRegistry.initial', () => window.beale.getWorkspaceRegistry())
-      .then((initial) => {
-        devInstrumentation.recordPayload('ipc.workspaceRegistry.initial', initial, workspaceRegistryMetricDetail(initial));
-        setWorkspaceRegistry(initial);
-      })
-      .catch((caught: unknown) => onError(errorMessage(caught)));
-
-    window.beale
-      .getOpenAiStatus()
-      .then(setOpenAiStatus)
-      .catch((caught: unknown) => onError(errorMessage(caught)));
-
-    window.beale
-      .getWindowChromeState()
-      .then(setWindowChromeState)
-      .catch((caught: unknown) => onError(errorMessage(caught)));
-
     const unsubscribeSnapshot = window.beale.onSnapshot((next) => {
       const applyStartedAt = performance.now();
       const detail = snapshotMetricDetail(next);
@@ -123,7 +97,57 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
       }
     });
     const unsubscribeWindowChromeState = window.beale.onWindowChromeState(setWindowChromeState);
+    let cancelled = false;
+    const startupFrame = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      setStartupPhase('registry');
+      void window.beale
+        .getHostEnvironment()
+        .then((next) => {
+          if (!cancelled) setHostEnvironment(next);
+        })
+        .catch((caught: unknown) => {
+          if (!cancelled) onError(errorMessage(caught));
+        });
+      void window.beale
+        .getWindowChromeState()
+        .then((next) => {
+          if (!cancelled) setWindowChromeState(next);
+        })
+        .catch((caught: unknown) => {
+          if (!cancelled) onError(errorMessage(caught));
+        });
+      void (async () => {
+        try {
+          const registry = await devInstrumentation.timeAsync(
+            'ipc.getWorkspaceRegistry.initial',
+            () => window.beale.getWorkspaceRegistry()
+          );
+          if (cancelled) return;
+          devInstrumentation.recordPayload(
+            'ipc.workspaceRegistry.initial',
+            registry,
+            workspaceRegistryMetricDetail(registry)
+          );
+          setWorkspaceRegistry(registry);
+          setStartupPhase('workspace');
+          await nextRendererFrame();
+          if (cancelled) return;
+          const restored = await devInstrumentation.timeAsync(
+            'ipc.restoreLastWorkspace.initial',
+            () => window.beale.restoreLastWorkspace()
+          );
+          if (!cancelled) applySnapshot(restored);
+        } catch (caught) {
+          if (!cancelled) onError(errorMessage(caught));
+        } finally {
+          if (!cancelled) setStartupPhase('ready');
+        }
+      })();
+    });
     return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(startupFrame);
       unsubscribeSnapshot();
       unsubscribeWorkspaceRegistry();
       unsubscribeWindowChromeState();
@@ -142,6 +166,7 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
     hostEnvironment,
     windowChromeState,
     openAiStatus,
+    startupPhase,
     selectedRunId,
     setWorkspaceRegistry,
     setOpenAiStatus,
@@ -150,6 +175,10 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
     loadSnapshot,
     loadWorkspaceRegistry
   };
+}
+
+function nextRendererFrame(): Promise<void> {
+  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
 }
 
 function workspaceRegistryMetricDetail(registry: WorkspaceRegistryState | null): Record<string, number> {

@@ -29,6 +29,7 @@ export const IPC_CHANNELS = {
   removeRegisteredWorkspace: 'beale:remove-registered-workspace',
   openWorkspace: 'beale:open-workspace',
   createWorkspace: 'beale:create-workspace',
+  restoreLastWorkspace: 'beale:restore-last-workspace',
   getSnapshot: 'beale:get-snapshot',
   getHostEnvironment: 'beale:get-host-environment',
   getOpenAiStatus: 'beale:get-openai-status',
