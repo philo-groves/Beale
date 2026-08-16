@@ -76,6 +76,7 @@ describe('architecture conformance', () => {
           'src/main/hostToolExecutor.ts',
           'src/main/sourceMaterializer.ts',
           'src/main/honeycrispRunEngine.ts',
+          'src/main/honeycrispCliClient.ts',
           'src/main/providerTextCompletion.ts',
           'src/main/researchProfileService.ts',
           'src/main/honeycrispMemorySummary.ts'
@@ -83,6 +84,47 @@ describe('architecture conformance', () => {
     );
 
     expect(hits).toEqual([]);
+  });
+
+  it('forbids new Beale access to Honeycrisp memory.sqlite outside the versioned CLI boundary', () => {
+    const cliBoundaryFiles = new Set([
+      'src/main/honeycrispCliClient.ts',
+      'src/main/honeycrispRunEngine.ts',
+      'src/main/researchProfileService.ts'
+    ]);
+    // These files are the bounded migration debt that subsequent feature moves
+    // must remove. No new Beale source file may open or query Honeycrisp memory.
+    const legacyDirectAccessFiles = new Set([
+      'src/main/database.ts',
+      'src/main/honeycrispMemorySummary.ts',
+      'src/main/memoryDreaming.ts',
+      'src/main/workspaceService.ts'
+    ]);
+    const patterns = [
+      /memory\.sqlite/,
+      /HONEYCRISP_DATABASE_PATH/,
+      /\bmemory_nodes\b/,
+      /\bmemory_edges\b/,
+      /\bmemory_node_(?:sessions|workspaces|assets|tags|catalog_validations)\b/,
+      /\bmemory_evidence_refs\b/,
+      /\bmemory_catalog_snapshots\b/,
+      /\bhoneycrisp_(?:runbooks|reports|artifact_revisions)\b/
+    ];
+    const hits = findPatternHits(filesUnder('src/main').filter(isSourceFile), patterns);
+    const unexpected = hits.filter((hit) => {
+      const path = normalizePath(hit.path);
+      return !cliBoundaryFiles.has(path) && !legacyDirectAccessFiles.has(path);
+    });
+    const observedLegacyFiles = new Set(hits
+      .map((hit) => normalizePath(hit.path))
+      .filter((path) => legacyDirectAccessFiles.has(path)));
+
+    expect(unexpected).toEqual([]);
+    expect(observedLegacyFiles).toEqual(legacyDirectAccessFiles);
+    for (const path of cliBoundaryFiles) {
+      const content = readFileSync(join(ROOT, path), 'utf8');
+      expect(content).not.toMatch(/node:sqlite|new\s+DatabaseSync\s*\(/);
+    }
   });
 
   it('keeps removed Beale agent runtime layers out of the main source tree', () => {

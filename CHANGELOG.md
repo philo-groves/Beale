@@ -15,6 +15,7 @@
 
 ### Added
 
+- Added a versioned Honeycrisp CLI protocol client and an architecture ratchet that prevents direct Honeycrisp memory storage access from spreading beyond the explicitly recorded migration debt.
 - Auto-Review denials now offer an inline Approve Once question in the affected session composer, backed by Honeycrisp's correlated per-command human decision flow.
 - Added the Longshot suggestion workflow for Cybersecurity and Mathematics profiles, targeting evidence-gated reportable high or critical bugs in cyber and concrete paths toward major mathematical breakthroughs.
 - Added a repeat schedule picker to New Research with a default No Repeat state and persisted repeat metadata on started runs.

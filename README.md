@@ -84,6 +84,8 @@ Beale uses Honeycrisp's user-global `~/.honeycrisp/memory.sqlite` database. Oper
 
 For active runs, Honeycrisp hosts a versioned WebSocket session endpoint bound to loopback. Beale authenticates with a per-process bearer token kept in the child environment, then exchanges client-neutral session event and control envelopes. Honeycrisp owns this protocol; Beale only adapts it into desktop state. `BEALE_HONEYCRISP_TRANSPORT=legacy` temporarily restores the older stdio streams for local compatibility testing.
 
+Honeycrisp protocol v1 is the client boundary for future feature migrations. Beale validates versioned CLI success/error envelopes through one host adapter, while the WebSocket session protocol shares the same version. An architecture ratchet forbids new Beale source files from opening or querying Honeycrisp memory storage; the remaining direct database, Memory summary, Memory Dreaming, and path-resolution files are explicit migration debt rather than permitted extension points.
+
 Beale is pre-alpha and uses append-only component-scoped migrations.
 
 The sidebar Skills and MCP Servers views call Honeycrisp's `tools list --json` for the active workspace. Their configuration controls call Honeycrisp's `tools config` commands, so persisted skill directories, selected skill ids, MCP config paths, allowlists, and timeouts live in Honeycrisp's `.honeycrisp/tools.json`. Beale can still forward one-off Honeycrisp CLI runtime flags through `BEALE_HONEYCRISP_RUNTIME_ARGS_JSON` for local debugging.
