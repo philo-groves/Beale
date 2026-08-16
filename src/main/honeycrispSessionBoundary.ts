@@ -822,6 +822,12 @@ function sessionRun(session: HoneycrispSessionRecord | HoneycrispSessionSummary)
   };
 }
 
+function isRootFinalResponse(message: TranscriptMessageRecord): boolean {
+  if (message.role !== 'assistant' || message.phase !== 'final_answer') return false;
+  const agentPath = stringValue(message.metadata.agentPath);
+  return !agentPath || agentPath === '/root';
+}
+
 function sessionDetail(
   session: HoneycrispSessionRecord,
   database: WorkspaceDatabase,
@@ -862,7 +868,7 @@ function sessionDetail(
   if (
     session.status !== 'active' &&
     session.finalResponse &&
-    !transcripts.some((message) => message.role === 'assistant' && message.phase === 'final_answer')
+    !transcripts.some(isRootFinalResponse)
   ) {
     transcripts.push({
       id: `transcript_final_${session.id}_${session.revision}`,
@@ -873,7 +879,7 @@ function sessionDetail(
       phase: 'final_answer',
       contentMarkdown: session.finalResponse,
       source: 'honeycrisp',
-      metadata: {},
+      metadata: { agentPath: '/root' },
       createdAt: session.endedAt ?? session.updatedAt
     });
   }

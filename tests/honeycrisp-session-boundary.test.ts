@@ -198,6 +198,82 @@ describe('Honeycrisp session persistence boundary', () => {
     }
   }, 15_000);
 
+  it('keeps the completed root response when a subagent already has a final transcript', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-root-final-'));
+    createdDirectories.push(directory);
+    const databasePath = join(directory, 'memory.sqlite');
+    const artifactRoot = join(directory, '.beale', 'artifacts');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    configureRealHoneycrisp();
+
+    const rawDatabase = new WorkspaceDatabase(databasePath, artifactRoot, {
+      workspacePath: directory,
+      workspaceId: 'workspace_root_final'
+    });
+    rawDatabase.initialize();
+    const database = createHoneycrispSessionBoundary(rawDatabase);
+    const context = database.createRun({
+      scopeVersionId: database.getActiveScope().id,
+      title: 'Root and subagent responses',
+      promptMarkdown: 'Inspect the parser with a reviewer.',
+      shellSafetyMode: 'auto_review',
+      mode: 'open_discovery',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      attemptStrategy: 'iterative_research',
+      sandboxProfile: 'host',
+      budget: { runEngine: 'honeycrisp' }
+    });
+
+    try {
+      database.createTranscriptMessage({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        role: 'assistant',
+        phase: 'final_answer',
+        contentMarkdown: 'The reviewer found one issue.',
+        source: 'honeycrisp',
+        metadata: { agentPath: '/root/reviewer' }
+      });
+
+      const capturePath = join(directory, 'complete-capture.json');
+      writeFileSync(capturePath, JSON.stringify({
+        schemaVersion: 5,
+        capturedAt: '2026-08-16T22:24:40.699Z',
+        request: { prompt: 'Inspect the parser with a reviewer.' },
+        agent: {
+          id: 'agent_root',
+          status: 'complete',
+          executorName: 'fixture',
+          startedAt: '2026-08-16T22:20:00.000Z',
+          completedAt: '2026-08-16T22:24:40.699Z',
+          outputText: 'The root agent completed the inspection.'
+        },
+        eventTimeline: []
+      }));
+      importHoneycrispSessionCapture(context.run.id, context.attempt.id, capturePath, {
+        databasePath,
+        artifactDirectoryPath: join(dirname(databasePath), 'artifacts')
+      });
+
+      const finals = database.getRunDetail(context.run.id).transcriptMessages.filter((message) =>
+        message.role === 'assistant' && message.phase === 'final_answer'
+      );
+      expect(finals).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          contentMarkdown: 'The reviewer found one issue.',
+          metadata: expect.objectContaining({ agentPath: '/root/reviewer' })
+        }),
+        expect.objectContaining({
+          contentMarkdown: 'The root agent completed the inspection.',
+          metadata: expect.objectContaining({ agentPath: '/root' })
+        })
+      ]));
+    } finally {
+      database.close();
+    }
+  }, 15_000);
+
   it('persists approval revisions as distinct events and reconciles legacy pending records from resolution traces', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-approval-boundary-'));
     createdDirectories.push(directory);
