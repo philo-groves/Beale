@@ -27,7 +27,35 @@ const COMMENTARY_EVENT_PAYLOAD_KEYS = [
   'fixtureOnly',
   'honeycrispKind',
   'toolName',
-  'honeycrispSessionEventId'
+  'honeycrispSessionEventId',
+  'contextUsageEligible',
+  'serializedSizeBytes'
+] as const;
+
+const COMMENTARY_USAGE_PAYLOAD_KEYS = [
+  'input_tokens',
+  'inputTokens',
+  'input',
+  'prompt_tokens',
+  'promptTokens',
+  'output_tokens',
+  'outputTokens',
+  'output',
+  'completion_tokens',
+  'completionTokens',
+  'total_tokens',
+  'totalTokens',
+  'cache_read_tokens',
+  'cached_tokens',
+  'cacheReadTokens',
+  'cacheRead',
+  'cache_write_tokens',
+  'cacheWriteTokens',
+  'cacheWrite',
+  'cache_hit_rate',
+  'cacheHitRate',
+  'source',
+  'estimated'
 ] as const;
 
 const COMMENTARY_CONTENT_PAYLOAD_KEYS = [
@@ -67,6 +95,8 @@ export function projectCommentaryTraceEvent(event: TraceEventRecord): TraceEvent
   const payload = pickRecordValues(event.payload, COMMENTARY_EVENT_PAYLOAD_KEYS);
   const metadata = recordValue(event.payload.metadata);
   if (metadata) payload.metadata = pickRecordValues(metadata, COMMENTARY_TRANSCRIPT_METADATA_KEYS);
+  const usage = recordValue(event.payload.usage);
+  if (usage) payload.usage = boundedRecordValues(usage, COMMENTARY_USAGE_PAYLOAD_KEYS);
 
   if (isHoneycrispToolTraceEvent(event)) {
     const toolPayload = recordValue(event.payload.payload);
@@ -74,6 +104,14 @@ export function projectCommentaryTraceEvent(event: TraceEventRecord): TraceEvent
     payload.commentaryDetailDeferred = true;
   } else if (isCommentaryContentEvent(event)) {
     Object.assign(payload, pickRecordValues(event.payload, COMMENTARY_CONTENT_PAYLOAD_KEYS));
+  }
+
+  if (!isHoneycrispToolTraceEvent(event)) {
+    const nestedPayload = recordValue(event.payload.payload);
+    const contextScaffold = nestedPayload
+      ? pickRecordValues(nestedPayload, ['agentPath', 'contextUsageEligible'] as const)
+      : {};
+    if (Object.keys(contextScaffold).length > 0) payload.payload = contextScaffold;
   }
 
   return { ...event, payload };

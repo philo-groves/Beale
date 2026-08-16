@@ -913,13 +913,10 @@ function sessionDetail(
       createdAt: session.endedAt ?? session.updatedAt
     });
   }
-  const modelSessions = latestRecords(events.flatMap((event) => event.kind === 'beale.model_session'
-    ? recordArrayValue<ModelSessionRecord>(event.payload)
-    : [])).map((modelSession) => ({
-      ...modelSession,
-      status: session.status,
-      updatedAt: session.updatedAt
-    }));
+  const modelSessions = materializedModelSessions(events).map((modelSession) => ({
+    ...modelSession,
+    status: session.status
+  }));
   const captureArtifacts: ArtifactRecord[] = session.attempts.flatMap((attempt) => {
     if (!attempt.capture) return [];
     const serialized = JSON.stringify(attempt.capture.raw);
@@ -1062,6 +1059,40 @@ function latestRecords<T extends { id: string }>(records: readonly T[]): T[] {
   const latest = new Map<string, T>();
   for (const record of records) latest.set(record.id, record);
   return [...latest.values()];
+}
+
+function materializedModelSessions(events: readonly HoneycrispSessionEvent[]): ModelSessionRecord[] {
+  const sessions = new Map<string, ModelSessionRecord>();
+  let latestSessionId: string | null = null;
+  for (const event of events) {
+    if (event.kind === 'beale.model_session') {
+      for (const session of recordArrayValue<ModelSessionRecord>(event.payload)) {
+        sessions.set(session.id, session);
+        latestSessionId = session.id;
+      }
+      continue;
+    }
+    if (event.kind !== 'beale.model_session_update' || !latestSessionId) continue;
+    const update = recordArrayValue<{
+      id: string;
+      patch?: Record<string, unknown>;
+      createdAt?: string;
+    }>(event.payload)[0];
+    const current = sessions.get(latestSessionId);
+    const patch = recordValue(update?.patch);
+    if (!current || !patch) continue;
+    const metadata = recordValue(patch.metadata);
+    sessions.set(latestSessionId, {
+      ...current,
+      ...(Object.prototype.hasOwnProperty.call(patch, 'previousResponseId')
+        ? { previousResponseId: stringValue(patch.previousResponseId) }
+        : {}),
+      ...(stringValue(patch.status) ? { status: stringValue(patch.status)! } : {}),
+      ...(metadata ? { metadata: { ...current.metadata, ...metadata } } : {}),
+      updatedAt: stringValue(update?.createdAt) ?? event.timestamp
+    });
+  }
+  return [...sessions.values()];
 }
 
 function reconciledApprovalRecords(

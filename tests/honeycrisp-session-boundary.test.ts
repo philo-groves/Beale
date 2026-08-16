@@ -57,6 +57,30 @@ describe('Honeycrisp session persistence boundary', () => {
     expect(rawDatabase.getRun(context.run.id)).toBeNull();
     expect(database.getRun(context.run.id)).toMatchObject({ id: context.run.id, status: 'active' });
 
+    const modelSession = database.createModelSession({
+      runId: context.run.id,
+      provider: 'openai-codex',
+      transport: 'host_process',
+      status: 'active',
+      metadata: { initial: true }
+    });
+    database.updateModelSessionByRun(context.run.id, {
+      previousResponseId: 'response_usage',
+      metadata: {
+        latestReportedInputTokens: 40_000,
+        latestCacheHitRate: 0.75
+      }
+    });
+    expect(database.getRunDetail(context.run.id).modelSessions).toContainEqual(expect.objectContaining({
+      id: modelSession.id,
+      previousResponseId: 'response_usage',
+      metadata: {
+        initial: true,
+        latestReportedInputTokens: 40_000,
+        latestCacheHitRate: 0.75
+      }
+    }));
+
     for (const summary of ['First live trace', 'Second live trace', 'Third live trace']) {
       database.appendTraceEvent({
         runId: context.run.id,

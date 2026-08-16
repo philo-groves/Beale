@@ -8,6 +8,12 @@ import {
   commentaryMessagesForSession,
   hydrateCommentaryToolCall
 } from '../src/renderer/view-models/commentary';
+import {
+  contextMeterForDetail,
+  visibleCacheHitRateLabel,
+  visibleContextWindowPercentageLabel,
+  visibleSessionTokenUsageLabel
+} from '../src/renderer/features/momentum/contextMeter';
 import { buildTraceDisplayEventsForAgentPath } from '../src/renderer/view-models/traceDisplay';
 
 describe('run detail commentary projection', () => {
@@ -122,6 +128,54 @@ describe('run detail commentary projection', () => {
       text: 'Rendered reasoning.',
       metadata: { responseId: 'response_one' }
     });
+  });
+
+  it('retains bounded session usage telemetry in the commentary projection', () => {
+    const projected = projectRunDetailForRenderer(runDetail({
+      traceEvents: [
+        traceEvent('root-usage', {
+          source: 'model',
+          type: 'model_message',
+          payload: {
+            agentPath: '/root',
+            usage: {
+              input: 10_000,
+              output: 1_000,
+              cacheRead: 30_000,
+              totalTokens: 41_000,
+              cacheHitRate: 0.75,
+              source: 'Honeycrisp reported model usage',
+              privateProviderDetail: 'not rendered'
+            }
+          }
+        }),
+        traceEvent('auxiliary-usage', {
+          source: 'model',
+          type: 'model_message',
+          payload: {
+            payload: { agentPath: '/auxiliary-model', contextUsageEligible: false, privateValue: 'not rendered' },
+            usage: { input: 500_000, output: 10_000, totalTokens: 510_000 }
+          }
+        })
+      ]
+    }), 'commentary');
+
+    expect(projected.traceEvents[0]?.payload.usage).toEqual({
+      input: 10_000,
+      output: 1_000,
+      cacheRead: 30_000,
+      totalTokens: 41_000,
+      cacheHitRate: 0.75,
+      source: 'Honeycrisp reported model usage'
+    });
+    expect(projected.traceEvents[1]?.payload.payload).toEqual({
+      agentPath: '/auxiliary-model',
+      contextUsageEligible: false
+    });
+    const meter = contextMeterForDetail(projected);
+    expect(visibleSessionTokenUsageLabel(meter)).toBe('41k');
+    expect(visibleCacheHitRateLabel(meter)).toBe('75%');
+    expect(visibleContextWindowPercentageLabel(meter)).toBe('20%');
   });
 
   it('retains a bounded shell command for its pre-expansion label', () => {
