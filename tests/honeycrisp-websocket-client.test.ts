@@ -57,7 +57,8 @@ describe('HoneycrispWebSocketClient', () => {
                 protocolVersion: 1,
                 type: 'server.hello',
                 sessionId: 'session-1',
-                server: { name: 'honeycrisp', version: '0.1.0' }
+                server: { name: 'honeycrisp', version: '0.1.0' },
+                capabilities: ['session.events', 'session.controls']
               }));
               socket.send(JSON.stringify({
                 protocolVersion: 1,

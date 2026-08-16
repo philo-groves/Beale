@@ -173,8 +173,11 @@ describe('architecture conformance', () => {
       /BEALE_HONEYCRISP_TRANSPORT|HONEYCRISP_EVENT_PREFIX|parseHoneycrispLiveEvent|--event-stream|--control-stream/
     ])).toEqual([]);
     const webSocketClient = readFileSync(join(ROOT, 'src/main/honeycrispWebSocketClient.ts'), 'utf8');
-    expect(webSocketClient).toMatch(/import \{ HONEYCRISP_PROTOCOL_VERSION, HONEYCRISP_PROTOCOL_WEBSOCKET_PATH \}/);
+    const cliClient = readFileSync(join(ROOT, 'src/main/honeycrispCliClient.ts'), 'utf8');
+    expect(webSocketClient).toMatch(/from ['"]\.\/honeycrispProtocol['"]/);
+    expect(cliClient).toMatch(/from ['"]\.\/honeycrispProtocol['"]/);
     expect(webSocketClient).not.toMatch(/PROTOCOL_VERSION\s*=\s*1|['"]\/v1\/session['"]/);
+    expect(cliClient).not.toMatch(/PROTOCOL_VERSION\s*=\s*1|interface HoneycrispProtocolEnvelope/);
   });
 
   it('keeps the OpenAI adapter aligned with product defaults and host-only credential state', () => {

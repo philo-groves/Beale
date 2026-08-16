@@ -1,15 +1,17 @@
 import WebSocket, { type RawData } from 'ws';
-import { HONEYCRISP_PROTOCOL_VERSION, HONEYCRISP_PROTOCOL_WEBSOCKET_PATH } from './honeycrispCliClient';
+import {
+  HONEYCRISP_PROTOCOL_BOOTSTRAP_PREFIX,
+  HONEYCRISP_PROTOCOL_VERSION,
+  decodeHoneycrispServerMessage,
+  honeycrispClientHello,
+  honeycrispSessionControl,
+  type HoneycrispTransportBootstrap
+} from './honeycrispProtocol';
 
-export const HONEYCRISP_TRANSPORT_PREFIX = 'HONEYCRISP_TRANSPORT ';
+export const HONEYCRISP_TRANSPORT_PREFIX = HONEYCRISP_PROTOCOL_BOOTSTRAP_PREFIX;
+export { parseHoneycrispTransportBootstrap } from './honeycrispProtocol';
+export type { HoneycrispTransportBootstrap } from './honeycrispProtocol';
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
-
-export interface HoneycrispTransportBootstrap {
-  protocolVersion: typeof HONEYCRISP_PROTOCOL_VERSION;
-  transport: 'websocket';
-  url: string;
-  sessionId: string;
-}
 
 export interface HoneycrispWebSocketClientOptions {
   bootstrap: HoneycrispTransportBootstrap;
@@ -19,39 +21,6 @@ export interface HoneycrispWebSocketClientOptions {
   onError?: (error: Error) => void;
   onClose?: (code: number, reason: string) => void;
   connectTimeoutMs?: number;
-}
-
-export function parseHoneycrispTransportBootstrap(
-  line: string,
-  expectedSessionId: string
-): HoneycrispTransportBootstrap | null {
-  if (!line.startsWith(HONEYCRISP_TRANSPORT_PREFIX)) return null;
-  try {
-    const parsed = JSON.parse(line.slice(HONEYCRISP_TRANSPORT_PREFIX.length)) as unknown;
-    if (!isRecord(parsed)
-      || parsed.protocolVersion !== HONEYCRISP_PROTOCOL_VERSION
-      || parsed.transport !== 'websocket'
-      || parsed.sessionId !== expectedSessionId
-      || typeof parsed.url !== 'string') {
-      return null;
-    }
-    const url = new URL(parsed.url);
-    if (url.protocol !== 'ws:'
-      || url.hostname !== '127.0.0.1'
-      || url.pathname !== HONEYCRISP_PROTOCOL_WEBSOCKET_PATH
-      || url.username
-      || url.password) {
-      return null;
-    }
-    return {
-      protocolVersion: HONEYCRISP_PROTOCOL_VERSION,
-      transport: 'websocket',
-      url: url.toString(),
-      sessionId: parsed.sessionId
-    };
-  } catch {
-    return null;
-  }
 }
 
 export class HoneycrispWebSocketClient {
@@ -86,16 +55,16 @@ export class HoneycrispWebSocketClient {
       timeout.unref();
 
       socket.once('open', () => {
-        socket.send(JSON.stringify({
-          protocolVersion: HONEYCRISP_PROTOCOL_VERSION,
-          type: 'client.hello',
-          sessionId: this.options.bootstrap.sessionId,
-          client: { name: 'beale', version: this.options.clientVersion }
-        }));
+        socket.send(JSON.stringify(honeycrispClientHello(
+          this.options.bootstrap.sessionId,
+          this.options.clientVersion
+        )));
       });
       socket.on('message', (data) => {
-        const message = parseServerMessage(data);
-        if (!message) {
+        let message;
+        try {
+          message = decodeHoneycrispServerMessage(JSON.parse(rawDataText(data)) as unknown);
+        } catch {
           settleError(new Error('Honeycrisp sent an invalid WebSocket protocol message.'));
           socket.close(1002, 'invalid protocol message');
           return;
@@ -115,12 +84,12 @@ export class HoneycrispWebSocketClient {
           }
           return;
         }
-        if (message.type === 'session.event' && isRecord(message.event)) {
+        if (message.type === 'session.event') {
           this.options.onEvent(message.event);
           return;
         }
         if (message.type === 'protocol.error') {
-          const detail = typeof message.message === 'string' ? message.message : 'Unknown protocol error.';
+          const detail = message.error.message;
           settleError(new Error(`Honeycrisp WebSocket protocol error: ${detail}`));
         }
       });
@@ -140,13 +109,7 @@ export class HoneycrispWebSocketClient {
     if (!this.ready || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error('Honeycrisp WebSocket transport is not ready.');
     }
-    this.socket.send(JSON.stringify({
-      protocolVersion: HONEYCRISP_PROTOCOL_VERSION,
-      type: 'session.control',
-      sessionId: this.options.bootstrap.sessionId,
-      requestId: control.requestId,
-      control
-    }));
+    this.socket.send(JSON.stringify(honeycrispSessionControl(this.options.bootstrap.sessionId, control)));
   }
 
   public close(): void {
@@ -160,22 +123,9 @@ export class HoneycrispWebSocketClient {
   }
 }
 
-function parseServerMessage(data: RawData): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(rawDataText(data)) as unknown;
-    return isRecord(parsed) && typeof parsed.type === 'string' ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 function rawDataText(data: RawData): string {
   if (typeof data === 'string') return data;
   if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
   if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
   return data.toString('utf8');
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
