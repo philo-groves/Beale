@@ -86,6 +86,7 @@ import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { DEFAULT_SHELL_SAFETY_MODE } from '../shared/shellSafety';
 import { isProviderModelEnabled } from '../shared/optionalProviderModels';
 import { isLiveResearchRunStatus } from '../shared/types';
+import { isHoneycrispToolTraceEvent, projectRunDetailForRenderer } from '../shared/runDetailProjection';
 import type {
   ApprovalRecord,
   AttemptRecord,
@@ -127,9 +128,12 @@ import type {
   ResearchGoalSuggestionSelectionInput,
   ResearchPromptGenerationInput,
   RunDetail,
+  RunDetailProjection,
   RunDetailUpdate,
   RunDetailUpdateCursor,
   RunDetailVersion,
+  RunMessageDetail,
+  RunMessageDetailRequest,
   RunStatus,
   RunRow,
   SessionTranscriptSearchInput,
@@ -141,6 +145,7 @@ import type {
   ScopeAssetKind,
   StartRunInput,
   SteeringAction,
+  TraceEventRecord,
   VerifierRunRecord,
   WorkspaceExportResult,
   HostEnvironment,
@@ -394,6 +399,7 @@ const WORKSPACE_AGENT_INSTRUCTIONS_MAX_BYTES = 32 * 1024;
 const WORKSPACE_AGENT_INSTRUCTION_FILES = ['AGENTS.override.md', 'AGENTS.md'] as const;
 const CHANGE_BROADCAST_DELAY_MS = 150;
 const ACTIVE_RUN_DETAIL_MEMORY_REFRESH_MS = 5_000;
+const MAX_RUN_DETAIL_EVENT_CACHES = 1;
 
 class MemoryDreamingPlanError extends Error {
   public constructor(message: string, public readonly phase: 'output' | 'validation') {
@@ -599,6 +605,7 @@ export class WorkspaceService {
     promise: Promise<HoneycrispMemorySummary>;
   }>();
   private readonly runDetailMemoryRefreshedAt = new Map<string, number>();
+  private readonly runDetailEventCache = new Map<string, Map<string, TraceEventRecord>>();
   private readonly disposedRuntimeDatabases = new WeakSet<WorkspaceDatabase>();
   private readonly onboardingRepositoryJobs = new Map<string, WorkspaceOnboardingRepositoryJob>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
@@ -2500,12 +2507,17 @@ export class WorkspaceService {
       : detail;
   }
 
-  public async getRunDetailForClient(runId: string, signal?: AbortSignal): Promise<RunDetail> {
+  public async getRunDetailForClient(
+    runId: string,
+    signal?: AbortSignal,
+    projection: RunDetailProjection = 'full'
+  ): Promise<RunDetail> {
     const database = this.requireDb();
     const detail = await getHoneycrispRunDetailForClient(database, runId, signal) ?? database.getRunDetail(runId);
     signal?.throwIfAborted();
+    this.cacheRunDetailEvents(runId, detail.traceEvents, true);
     const runtime = this.getForegroundRuntime();
-    if (!runtime) return detail;
+    if (!runtime) return projectRunDetailForRenderer(detail, projection);
     const withMemory = attachHoneycrispMemory(
       detail,
       await this.memorySummaryForRuntimeAsync(
@@ -2516,7 +2528,7 @@ export class WorkspaceService {
       )
     );
     this.runDetailMemoryRefreshedAt.set(runId, Date.now());
-    return withMemory;
+    return projectRunDetailForRenderer(withMemory, projection);
   }
 
   public getRunDetailVersion(runId: string): RunDetailVersion {
@@ -2543,14 +2555,18 @@ export class WorkspaceService {
   public async getRunDetailUpdateForClient(
     runId: string,
     cursor: RunDetailUpdateCursor,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    projection: RunDetailProjection = 'full'
   ): Promise<RunDetailUpdate> {
     const database = this.requireDb();
     const update = await getHoneycrispRunDetailUpdateForClient(database, runId, cursor, signal)
       ?? database.getRunDetailUpdate(runId, cursor);
     signal?.throwIfAborted();
+    this.cacheRunDetailEvents(runId, update.traceEvents, false);
     const runtime = this.getForegroundRuntime();
-    if (!runtime || !this.runDetailMemoryRefreshDue(runId, update.run.status)) return update;
+    if (!runtime || !this.runDetailMemoryRefreshDue(runId, update.run.status)) {
+      return projectRunDetailForRenderer(update, projection);
+    }
     const withMemory = attachHoneycrispMemory(
       update,
       await this.memorySummaryForRuntimeAsync(
@@ -2561,7 +2577,52 @@ export class WorkspaceService {
       )
     );
     this.runDetailMemoryRefreshedAt.set(runId, Date.now());
-    return withMemory;
+    return projectRunDetailForRenderer(withMemory, projection);
+  }
+
+  public async getRunMessageDetailForClient(
+    input: RunMessageDetailRequest,
+    signal?: AbortSignal
+  ): Promise<RunMessageDetail> {
+    const traceEventIds = normalizedRunMessageTraceEventIds(input.traceEventIds);
+    const cachedEvents = this.cachedRunDetailEvents(input.runId, traceEventIds);
+    if (cachedEvents) return { runId: input.runId, traceEvents: cachedEvents };
+    const database = this.requireDb();
+    const detail = await getHoneycrispRunDetailForClient(database, input.runId, signal)
+      ?? database.getRunDetail(input.runId);
+    signal?.throwIfAborted();
+    this.cacheRunDetailEvents(input.runId, detail.traceEvents, true);
+    const requestedIds = new Set(traceEventIds);
+    return {
+      runId: input.runId,
+      traceEvents: detail.traceEvents.filter((event) => requestedIds.has(event.id))
+    };
+  }
+
+  private cacheRunDetailEvents(runId: string, events: readonly TraceEventRecord[], replace: boolean): void {
+    const byId = replace
+      ? new Map<string, TraceEventRecord>()
+      : new Map(this.runDetailEventCache.get(runId) ?? []);
+    for (const event of events) {
+      if (isHoneycrispToolTraceEvent(event)) byId.set(event.id, event);
+    }
+    this.runDetailEventCache.delete(runId);
+    this.runDetailEventCache.set(runId, byId);
+    while (this.runDetailEventCache.size > MAX_RUN_DETAIL_EVENT_CACHES) {
+      const oldestRunId = this.runDetailEventCache.keys().next().value as string | undefined;
+      if (!oldestRunId) break;
+      this.runDetailEventCache.delete(oldestRunId);
+    }
+  }
+
+  private cachedRunDetailEvents(runId: string, eventIds: readonly string[]): TraceEventRecord[] | null {
+    const byId = this.runDetailEventCache.get(runId);
+    if (!byId) return null;
+    const events = eventIds.map((eventId) => byId.get(eventId));
+    if (events.some((event) => event === undefined)) return null;
+    this.runDetailEventCache.delete(runId);
+    this.runDetailEventCache.set(runId, byId);
+    return events as TraceEventRecord[];
   }
 
   private runDetailMemoryRefreshDue(runId: string, status: RunStatus): boolean {
@@ -3086,6 +3147,7 @@ export class WorkspaceService {
     }
     this.researchPromptControllers.clear();
     this.researchGoalSuggestionContexts.clear();
+    this.runDetailEventCache.clear();
     const foreground = this.detachForegroundRuntime();
     if (foreground) {
       this.disposeRuntime(foreground);
@@ -3828,6 +3890,19 @@ function attachHoneycrispMemory<T extends RunDetail | RunDetailUpdate>(detail: T
     ...detail,
     honeycrispMemory: memory
   };
+}
+
+function normalizedRunMessageTraceEventIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 8) {
+    throw new Error('Run message detail requires between 1 and 8 trace event IDs.');
+  }
+  const ids = value.map((candidate) => {
+    if (typeof candidate !== 'string' || !candidate.trim() || candidate.length > 256) {
+      throw new Error('Run message detail trace event IDs must be non-empty strings of at most 256 characters.');
+    }
+    return candidate;
+  });
+  return [...new Set(ids)];
 }
 
 function honeycrispToolingConfigUpdateArgs(update: HoneycrispToolingConfigUpdate): string[] {

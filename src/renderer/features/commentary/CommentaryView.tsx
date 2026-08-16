@@ -15,10 +15,13 @@ import { MainSteerArea, SessionLoadingState } from '../traces/TraceView';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import {
   commentaryMessagesForSession,
+  hydrateCommentaryToolCall,
+  type CommentaryToolCall,
   type CommentaryMessage
 } from '../../view-models/commentary';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { formatDurationHms } from '../../lib/formatting';
+import { errorMessage } from '../../lib/errors';
 
 interface CommentaryScrollAnchor {
   messageId: string;
@@ -34,6 +37,7 @@ const COMMENTARY_ESTIMATED_MESSAGE_HEIGHT = 104;
 const COMMENTARY_AUTO_FOLLOW_THRESHOLD = COMMENTARY_ESTIMATED_MESSAGE_HEIGHT * 2;
 const COMMENTARY_WINDOW_SLIDE_STEP = 15;
 const COMMENTARY_WINDOW_EDGE_BUFFER = COMMENTARY_ESTIMATED_MESSAGE_HEIGHT * 5;
+const returnToolCallWithoutLoading = async (toolCall: CommentaryToolCall): Promise<CommentaryToolCall> => toolCall;
 
 export const CommentaryView = memo(function CommentaryView({
   busy,
@@ -103,7 +107,19 @@ export const CommentaryView = memo(function CommentaryView({
   const userScrollIntentTimerRef = useRef<number | null>(null);
   const scrollbarDragRef = useRef(false);
   const scrollScopeKeyRef = useRef(scrollScopeKey);
+  const detailRef = useRef(detail);
+  detailRef.current = detail;
   const loading = !detail;
+
+  const requestToolCallDetail = useCallback(async (toolCall: CommentaryToolCall): Promise<CommentaryToolCall> => {
+    const currentDetail = detailRef.current;
+    if (!selectedRunId || !currentDetail) throw new Error('Session detail is unavailable.');
+    const traceEventIds = [toolCall.requestTraceEventId, toolCall.observationTraceEventId]
+      .filter((eventId): eventId is string => Boolean(eventId));
+    const result = await window.beale.getRunMessageDetail({ runId: selectedRunId, traceEventIds });
+    if (result.runId !== selectedRunId) throw new Error('Received tool detail for a different session.');
+    return hydrateCommentaryToolCall(toolCall, result.traceEvents, currentDetail);
+  }, [selectedRunId]);
 
   useDevRenderProbe('commentary.list', () => ({
     messages: messages.length,
@@ -367,6 +383,7 @@ export const CommentaryView = memo(function CommentaryView({
                 autoExpandToolKey={null}
                 searchHighlightQuery={searchHighlightQuery}
                 selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+                onRequestToolCallDetail={requestToolCallDetail}
               />
             ))}
             {!showBackToMain ? (
@@ -383,6 +400,7 @@ export const CommentaryView = memo(function CommentaryView({
                           : null}
                         searchHighlightQuery={searchHighlightQuery}
                         selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+                        onRequestToolCallDetail={requestToolCallDetail}
                       />
                     ))}
                     {bottomSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
@@ -401,6 +419,7 @@ export const CommentaryView = memo(function CommentaryView({
                       : null}
                     searchHighlightQuery={searchHighlightQuery}
                     selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+                    onRequestToolCallDetail={requestToolCallDetail}
                   />
                 ))}
                 {bottomSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
@@ -413,6 +432,7 @@ export const CommentaryView = memo(function CommentaryView({
                 autoExpandToolKey={null}
                 searchHighlightQuery={searchHighlightQuery}
                 selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+                onRequestToolCallDetail={requestToolCallDetail}
               />
             ))}
             {postSessionContent}
@@ -553,12 +573,14 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   message,
   autoExpandToolKey,
   searchHighlightQuery,
-  selected
+  selected,
+  onRequestToolCallDetail = returnToolCallWithoutLoading
 }: {
   message: CommentaryMessage;
   autoExpandToolKey: string | null;
   searchHighlightQuery: string;
   selected: boolean;
+  onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall>;
 }): JSX.Element {
   const hasSearchHighlight = searchHighlightTerms(searchHighlightQuery).length > 0;
   const label = commentaryMessageLabel(message.kind, message.taskAction);
@@ -599,6 +621,7 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
                 autoExpandKey={autoExpandToolKey}
                 hasSearchHighlight={hasSearchHighlight}
                 searchHighlightQuery={searchHighlightQuery}
+                onRequestToolCallDetail={onRequestToolCallDetail}
               />
             ) : hasSearchHighlight ? (
               renderSearchHighlightedText(message.contentMarkdown, searchHighlightQuery)
@@ -616,15 +639,20 @@ function CommentaryToolMessageContent({
   message,
   autoExpandKey,
   hasSearchHighlight,
-  searchHighlightQuery
+  searchHighlightQuery,
+  onRequestToolCallDetail
 }: {
   message: CommentaryMessage;
   autoExpandKey: string | null;
   hasSearchHighlight: boolean;
   searchHighlightQuery: string;
+  onRequestToolCallDetail: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall>;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(autoExpandKey !== null);
   const [expandedCallIds, setExpandedCallIds] = useState<Set<string>>(() => new Set());
+  const [resolvedToolCalls, setResolvedToolCalls] = useState<Map<string, CommentaryToolCall>>(() => new Map());
+  const [loadingCallIds, setLoadingCallIds] = useState<Set<string>>(() => new Set());
+  const [callErrors, setCallErrors] = useState<Map<string, string>>(() => new Map());
   const previousAutoExpandKeyRef = useRef(autoExpandKey);
   const toolCalls = message.toolCalls ?? [];
 
@@ -657,13 +685,30 @@ function CommentaryToolMessageContent({
         <div className="main-commentary-tool-call-list" role="list">
           {toolCalls.map((toolCall) => {
             const callExpanded = expandedCallIds.has(toolCall.id);
+            const resolvedToolCall = resolvedToolCalls.get(toolCall.id) ?? toolCall;
+            const callLoading = loadingCallIds.has(toolCall.id);
+            const callError = callErrors.get(toolCall.id) ?? null;
             return (
               <div className={`main-commentary-tool-call${callExpanded ? ' expanded' : ''}`} role="listitem" key={toolCall.id}>
                 <button
                   type="button"
                   className="main-commentary-tool-call-summary"
                   aria-expanded={callExpanded}
-                  onClick={() => setExpandedCallIds((current) => toggledSetValue(current, toolCall.id))}
+                  onClick={() => {
+                    const expanding = !expandedCallIds.has(toolCall.id);
+                    setExpandedCallIds((current) => toggledSetValue(current, toolCall.id));
+                    if (!expanding || !toolCall.detailsDeferred || resolvedToolCalls.has(toolCall.id) || callLoading) return;
+                    setLoadingCallIds((current) => addedSetValue(current, toolCall.id));
+                    setCallErrors((current) => mapWithoutKey(current, toolCall.id));
+                    void onRequestToolCallDetail(toolCall)
+                      .then((resolved) => {
+                        setResolvedToolCalls((current) => new Map(current).set(toolCall.id, resolved));
+                      })
+                      .catch((caught: unknown) => {
+                        setCallErrors((current) => new Map(current).set(toolCall.id, errorMessage(caught)));
+                      })
+                      .finally(() => setLoadingCallIds((current) => setWithoutValue(current, toolCall.id)));
+                  }}
                 >
                   <code title={toolCall.label}>
                     {hasSearchHighlight
@@ -674,8 +719,14 @@ function CommentaryToolMessageContent({
                 </button>
                 {callExpanded ? (
                   <div className="main-commentary-tool-call-details">
-                    <ToolCallValue label="Input" value={toolCall.input} />
-                    <ToolCallValue label="Output" value={toolCall.output} />
+                    {callLoading ? <div className="main-commentary-tool-call-loading">Loading details…</div> : null}
+                    {callError ? <div className="main-commentary-tool-call-loading">{callError}</div> : null}
+                    {!callLoading && !callError ? (
+                      <>
+                        <ToolCallValue label="Input" value={resolvedToolCall.input} />
+                        <ToolCallValue label="Output" value={resolvedToolCall.output} />
+                      </>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -751,13 +802,14 @@ function captureCommentaryScrollAnchor(
 }
 
 function commentaryMessageRowPropsEqual(
-  left: { message: CommentaryMessage; autoExpandToolKey: string | null; searchHighlightQuery: string; selected: boolean },
-  right: { message: CommentaryMessage; autoExpandToolKey: string | null; searchHighlightQuery: string; selected: boolean }
+  left: { message: CommentaryMessage; autoExpandToolKey: string | null; searchHighlightQuery: string; selected: boolean; onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall> },
+  right: { message: CommentaryMessage; autoExpandToolKey: string | null; searchHighlightQuery: string; selected: boolean; onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall> }
 ): boolean {
   if (
     left.autoExpandToolKey !== right.autoExpandToolKey ||
     left.searchHighlightQuery !== right.searchHighlightQuery ||
-    left.selected !== right.selected
+    left.selected !== right.selected ||
+    left.onRequestToolCallDetail !== right.onRequestToolCallDetail
   ) return false;
   return commentaryMessagesRenderEqual(left.message, right.message);
 }
@@ -782,6 +834,9 @@ function commentaryMessagesRenderEqual(left: CommentaryMessage, right: Commentar
       call.id === candidate.id &&
       call.traceEventId === candidate.traceEventId &&
       call.label === candidate.label &&
+      call.requestTraceEventId === candidate.requestTraceEventId &&
+      call.observationTraceEventId === candidate.observationTraceEventId &&
+      call.detailsDeferred === candidate.detailsDeferred &&
       call.input === candidate.input &&
       call.output === candidate.output;
   });
@@ -844,6 +899,22 @@ function toggledSetValue(values: ReadonlySet<string>, value: string): Set<string
   const next = new Set(values);
   if (next.has(value)) next.delete(value);
   else next.add(value);
+  return next;
+}
+
+function addedSetValue(values: ReadonlySet<string>, value: string): Set<string> {
+  return new Set(values).add(value);
+}
+
+function setWithoutValue(values: ReadonlySet<string>, value: string): Set<string> {
+  const next = new Set(values);
+  next.delete(value);
+  return next;
+}
+
+function mapWithoutKey<T>(values: ReadonlyMap<string, T>, key: string): Map<string, T> {
+  const next = new Map(values);
+  next.delete(key);
   return next;
 }
 

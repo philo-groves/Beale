@@ -172,6 +172,9 @@ export function App(): JSX.Element {
     observeReports: profilingOpen || settingsOpen
   });
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
+  const runDetailProjection = chatView === 'commentary' && !selectedBreakoutRoomId && !pendingSearchTarget
+    ? 'commentary' as const
+    : 'full' as const;
   const selectedRunRefreshKey = useMemo(() => {
     const selected = snapshot?.runs.find((row) => row.run.id === selectedRunId)?.run;
     if (!selected) return null;
@@ -185,6 +188,7 @@ export function App(): JSX.Element {
   const { runDetail, clearRunDetail } = useRunDetailPolling({
     selectedRunId,
     selectedRunState,
+    projection: runDetailProjection,
     refreshKey: selectedRunRefreshKey,
     onError: handleRunDetailError
   });

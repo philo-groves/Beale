@@ -21,6 +21,8 @@ import type {
   ProviderModelDefaults,
   ProviderAuthenticationMethod,
   RunDetailUpdateCursor,
+  RunDetailProjection,
+  RunMessageDetailRequest,
   SessionTranscriptSearchInput,
   MemoryTypeDescriptions,
   ShellOptions,
@@ -47,6 +49,10 @@ app.setName(APP_NAME);
 process.title = APP_NAME;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+function normalizedRunDetailProjection(value: unknown): RunDetailProjection {
+  return value === 'commentary' ? 'commentary' : 'full';
+}
 
 function createWindow(): void {
   const isMac = process.platform === 'darwin';
@@ -619,19 +625,26 @@ function registerIpc(): void {
     )
   );
   ipcMain.handle(IPC_CHANNELS.exportWorkspaceBackup, (_event, note?: string) => workspaceService.exportWorkspaceBackup(note));
-  ipcMain.handle(IPC_CHANNELS.getRunDetail, (event, runId: string) =>
+  ipcMain.handle(IPC_CHANNELS.getRunDetail, (event, runId: string, projection: RunDetailProjection = 'full') =>
     withLatestRunDetailRequest(event, (signal) =>
-      timedMainIpcAsync('getRunDetail', { run: shortMetricId(runId) }, () => workspaceService.getRunDetailForClient(runId, signal))
+      timedMainIpcAsync('getRunDetail', { run: shortMetricId(runId), projection }, () =>
+        workspaceService.getRunDetailForClient(runId, signal, normalizedRunDetailProjection(projection))
+      )
     )
   );
   ipcMain.handle(IPC_CHANNELS.getRunDetailVersion, (_event, runId: string) =>
     timedMainIpcAsync('getRunDetailVersion', { run: shortMetricId(runId) }, () => workspaceService.getRunDetailVersionForClient(runId))
   );
-  ipcMain.handle(IPC_CHANNELS.getRunDetailUpdate, (event, runId: string, cursor: RunDetailUpdateCursor) =>
+  ipcMain.handle(IPC_CHANNELS.getRunDetailUpdate, (event, runId: string, cursor: RunDetailUpdateCursor, projection: RunDetailProjection = 'full') =>
     withLatestRunDetailRequest(event, (signal) =>
-      timedMainIpcAsync('getRunDetailUpdate', { run: shortMetricId(runId), afterTrace: cursor.afterTraceSequence, afterTranscript: cursor.afterTranscriptCount }, () =>
-        workspaceService.getRunDetailUpdateForClient(runId, cursor, signal)
+      timedMainIpcAsync('getRunDetailUpdate', { run: shortMetricId(runId), projection, afterTrace: cursor.afterTraceSequence, afterTranscript: cursor.afterTranscriptCount }, () =>
+        workspaceService.getRunDetailUpdateForClient(runId, cursor, signal, normalizedRunDetailProjection(projection))
       )
+    )
+  );
+  ipcMain.handle(IPC_CHANNELS.getRunMessageDetail, (_event, input: RunMessageDetailRequest) =>
+    timedMainIpcAsync('getRunMessageDetail', { run: shortMetricId(input.runId), events: Array.isArray(input.traceEventIds) ? input.traceEventIds.length : 0 }, () =>
+      workspaceService.getRunMessageDetailForClient(input)
     )
   );
   ipcMain.on(IPC_CHANNELS.cancelRunDetailRequests, (event) => cancelRunDetailRequest(event.sender.id));

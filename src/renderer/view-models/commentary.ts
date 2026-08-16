@@ -1,4 +1,4 @@
-import type { RunDetail } from '@shared/types';
+import type { RunDetail, TraceEventRecord } from '@shared/types';
 import {
   chatMessageCorrelationKey,
   nativeCommentaryCorrelationKeys
@@ -32,6 +32,9 @@ export interface CommentaryToolCall {
   id: string;
   traceEventId: string;
   label: string;
+  requestTraceEventId?: string | null;
+  observationTraceEventId?: string | null;
+  detailsDeferred?: boolean;
   input: unknown;
   output: unknown;
 }
@@ -288,12 +291,37 @@ function commentaryToolCall(projection: MutableToolCallProjection, detail: RunDe
   const requestLabel = projection.requestEvent
     ? honeycrispToolTraceSubtext(projection.requestEvent, detail)
     : '';
+  const detailsDeferred = projection.requestEvent?.payload.commentaryDetailDeferred === true ||
+    projection.observationEvent?.payload.commentaryDetailDeferred === true;
   return {
     id: projection.requestEvent?.id ?? projection.observationEvent?.id ?? projection.primaryEvent.id,
     traceEventId: projection.observationEvent?.id ?? projection.primaryEvent.id,
     label: observationLabel || requestLabel || humanizeToolName(toolName),
-    input: recordValue(requestPayload ?? observationPayload, 'normalizedInputs') ?? {},
-    output: commentaryToolCallOutput(observationPayload)
+    ...(detailsDeferred ? {
+      requestTraceEventId: projection.requestEvent?.id ?? null,
+      observationTraceEventId: projection.observationEvent?.id ?? null,
+      detailsDeferred: true
+    } : {}),
+    input: detailsDeferred ? undefined : recordValue(requestPayload ?? observationPayload, 'normalizedInputs') ?? {},
+    output: detailsDeferred ? undefined : commentaryToolCallOutput(observationPayload)
+  };
+}
+
+export function hydrateCommentaryToolCall(
+  toolCall: CommentaryToolCall,
+  traceEvents: readonly TraceEventRecord[],
+  detail: RunDetail
+): CommentaryToolCall {
+  const byId = new Map(traceEvents.map((event) => [event.id, event]));
+  const requestEvent = toolCall.requestTraceEventId ? byId.get(toolCall.requestTraceEventId) ?? null : null;
+  const observationEvent = toolCall.observationTraceEventId ? byId.get(toolCall.observationTraceEventId) ?? null : null;
+  const primaryEvent = requestEvent ?? observationEvent;
+  if (!primaryEvent) throw new Error('Tool call detail is no longer available.');
+  return {
+    ...commentaryToolCall({ primaryEvent, requestEvent, observationEvent }, detail),
+    id: toolCall.id,
+    traceEventId: toolCall.traceEventId,
+    detailsDeferred: false
   };
 }
 

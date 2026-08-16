@@ -39,7 +39,10 @@ import type {
   ResearchProviderOAuthStartResult,
   ResearchProviderStatus,
   RunDetail,
+  RunDetailProjection,
   RunDetailUpdate,
+  RunMessageDetail,
+  RunMessageDetailRequest,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   StartRunInput,
@@ -268,14 +271,17 @@ const api: BealeApi = {
   exportWorkspaceBackup(note?: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.exportWorkspaceBackup, note);
   },
-  getRunDetail(runId: string) {
-    return invokeRunDetail<RunDetail>(IPC_CHANNELS.getRunDetail, runId);
+  getRunDetail(runId: string, projection: RunDetailProjection = 'full') {
+    return invokeRunDetail<RunDetail>(IPC_CHANNELS.getRunDetail, runId, projection);
   },
   getRunDetailVersion(runId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.getRunDetailVersion, runId);
   },
-  getRunDetailUpdate(runId: string, cursor) {
-    return invokeRunDetail<RunDetailUpdate>(IPC_CHANNELS.getRunDetailUpdate, runId, cursor);
+  getRunDetailUpdate(runId: string, cursor, projection: RunDetailProjection = 'full') {
+    return invokeRunDetail<RunDetailUpdate>(IPC_CHANNELS.getRunDetailUpdate, runId, cursor, projection);
+  },
+  getRunMessageDetail(input: RunMessageDetailRequest): Promise<RunMessageDetail> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getRunMessageDetail, input);
   },
   cancelRunDetailRequests() {
     ipcRenderer.send(IPC_CHANNELS.cancelRunDetailRequests);

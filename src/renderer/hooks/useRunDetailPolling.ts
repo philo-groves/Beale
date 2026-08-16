@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import type { RunDetail, RunStatus } from '@shared/types';
+import type { RunDetail, RunDetailProjection, RunStatus } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming } from '../devInstrumentation';
 import { errorMessage } from '../lib/errors';
 import {
@@ -17,11 +17,13 @@ const VERY_LARGE_RUN_DETAIL_POLL_MS = 2_000;
 export function useRunDetailPolling({
   selectedRunId,
   selectedRunState,
+  projection,
   refreshKey,
   onError
 }: {
   selectedRunId: string | null;
   selectedRunState: RunStatus | null;
+  projection: RunDetailProjection;
   refreshKey: string | null;
   onError: (message: string) => void;
 }): {
@@ -31,6 +33,7 @@ export function useRunDetailPolling({
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const requestSeqRef = useRef(0);
   const versionRef = useRef<string | null>(null);
+  const projectionRef = useRef<RunDetailProjection | null>(null);
   const detailRef = useRef<RunDetail | null>(null);
 
   useEffect(() => {
@@ -39,6 +42,7 @@ export function useRunDetailPolling({
 
   const clearRunDetail = useCallback(() => {
     versionRef.current = null;
+    projectionRef.current = null;
     detailRef.current = null;
     setRunDetail(null);
   }, []);
@@ -52,6 +56,12 @@ export function useRunDetailPolling({
 
     if (detailRef.current?.run.id !== selectedRunId) {
       versionRef.current = null;
+      projectionRef.current = projection;
+      detailRef.current = null;
+      setRunDetail(null);
+    } else if (projectionRef.current !== projection) {
+      versionRef.current = null;
+      projectionRef.current = projection;
       detailRef.current = null;
       setRunDetail(null);
     }
@@ -73,13 +83,13 @@ export function useRunDetailPolling({
       const currentDetail = detailRef.current;
       const request = currentDetail?.run.id !== selectedRunId
         ? devInstrumentation
-            .timeAsync('ipc.getRunDetail', () => window.beale.getRunDetail(selectedRunId), { run: shortMetricId(selectedRunId) })
+            .timeAsync('ipc.getRunDetail', () => window.beale.getRunDetail(selectedRunId, projection), { run: shortMetricId(selectedRunId), projection })
             .then((detail) => ({ detail, version: `initial:${requestSeq}`, update: null }))
         : devInstrumentation
             .timeAsync(
               'ipc.getRunDetailUpdate',
-              () => window.beale.getRunDetailUpdate(selectedRunId, runDetailUpdateCursor(currentDetail)),
-              { run: shortMetricId(selectedRunId) }
+              () => window.beale.getRunDetailUpdate(selectedRunId, runDetailUpdateCursor(currentDetail), projection),
+              { run: shortMetricId(selectedRunId), projection }
             )
             .then((update) => {
               if (!disposed && requestSeq === requestSeqRef.current && update.version.version === versionRef.current) {
@@ -155,7 +165,7 @@ export function useRunDetailPolling({
       if (pollTimer !== null) window.clearTimeout(pollTimer);
       window.beale.cancelRunDetailRequests();
     };
-  }, [clearRunDetail, onError, refreshKey, selectedRunId, selectedRunState]);
+  }, [clearRunDetail, onError, projection, refreshKey, selectedRunId, selectedRunState]);
 
   return { runDetail, clearRunDetail };
 }

@@ -61,6 +61,7 @@
 
 ### Changed
 
+- Commentary session loads now transfer only renderable message content and compact event/tool scaffolding; full tool inputs and outputs load on demand when an individual call is expanded, while Trace mode retains complete detail.
 - App startup now leaves every workspace closed and presents the neutral No Workspace Selected view without loading copy; reopening a known workspace requires an explicit user action.
 - Startup now paints a lightweight no-workspace renderer before requesting the full workbench bundle, then loads the workspace registry without blocking the central workspace view; credential, provider, profiling, and icon work is deferred off the first-window path.
 - Consolidated Beale's Honeycrisp CLI and WebSocket wire DTOs in one adapter module, added CLI request correlation checks, and aligned WebSocket validation and errors with Honeycrisp's shared protocol-v1 contract.

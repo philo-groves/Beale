@@ -3934,6 +3934,12 @@ button.session-summary-item:hover:not(:disabled),
   padding: 5px 0 0;
 }
 
+.main-commentary-tool-call-loading {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .main-commentary-tool-call-value {
   min-width: 0;
   display: grid;

@@ -1501,6 +1501,18 @@ export interface RunDetail {
   honeycrispMemory?: HoneycrispMemorySummary;
 }
 
+export type RunDetailProjection = 'commentary' | 'full';
+
+export interface RunMessageDetailRequest {
+  runId: string;
+  traceEventIds: string[];
+}
+
+export interface RunMessageDetail {
+  runId: string;
+  traceEvents: TraceEventRecord[];
+}
+
 export interface RunDetailVersion {
   runId: string;
   version: string;
@@ -1645,9 +1657,10 @@ export interface BealeApi {
   saveScope(scope: WorkspaceScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
   exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
-  getRunDetail(runId: string): Promise<RunDetail>;
+  getRunDetail(runId: string, projection?: RunDetailProjection): Promise<RunDetail>;
   getRunDetailVersion(runId: string): Promise<RunDetailVersion>;
-  getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): Promise<RunDetailUpdate>;
+  getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor, projection?: RunDetailProjection): Promise<RunDetailUpdate>;
+  getRunMessageDetail(input: RunMessageDetailRequest): Promise<RunMessageDetail>;
   cancelRunDetailRequests(): void;
   searchSessionTranscripts(input: SessionTranscriptSearchInput): Promise<SessionTranscriptSearchResponse>;
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
