@@ -2,6 +2,10 @@ import type { RunDetail, RunStatus } from '@shared/types';
 
 const MAX_SUGGESTION_WORDS = 14;
 const MAX_RESEARCH_FOCUS_WORDS = 10;
+const CLAUSE_CONNECTORS = new Set(['and', 'but', 'nor', 'or', 'then', 'while', 'yet']);
+const INCOMPLETE_ENDING_WORDS = new Set((
+  'a an and as at because but by for from if in into nor of on onto or the then through to under via while with without yet'
+).split(/\s+/u));
 const GENERIC_SUGGESTION_WORDS = new Set((
   'a an analyze analyzing and assess assessing blocker by completed context continue current deeper determine determining '
   + 'ended evidence examine examining explore exploring failed failure findings focus from high-impact highest highest-impact '
@@ -42,8 +46,10 @@ export function shortSteeringSuggestion(value: string): string | null {
   if (!normalized) return null;
   const sentence = firstSentence(normalized);
   const words = sentence.split(/\s+/u).filter(Boolean);
-  if (words.length <= MAX_SUGGESTION_WORDS) return sentence;
-  return words.slice(0, MAX_SUGGESTION_WORDS).join(' ').replace(/[,:;.-]+$/u, '');
+  const clipped = words.length <= MAX_SUGGESTION_WORDS
+    ? sentence
+    : clipAtCoherentBoundary(words, MAX_SUGGESTION_WORDS);
+  return completeSuggestionSentence(clipped);
 }
 
 function finalPromptSuggestion(detail: RunDetail): string | null {
@@ -118,7 +124,7 @@ function compactResearchFocus(value: string): string | null {
   const normalized = firstSentence(normalizeSuggestionText(value))
     .replace(/^(?:objective|goal|task)\s*:?\s*/iu, '')
     .replace(
-      /^(?:(?:the\s+)?(?:research|investigation|analysis|session)|i|we)?\s*(?:confirmed|found|identified|showed|established|concluded)\s+(?:that\s+)?/iu,
+      /^(?:(?:the\s+)?(?:research|investigation|analysis|session)|i|we)?\s*(?:characterized|confirmed|concluded|demonstrated|established|found|identified|reproduced|showed)\s+(?:that\s+)?/iu,
       ''
     )
     .replace(
@@ -129,7 +135,39 @@ function compactResearchFocus(value: string): string | null {
     .trim();
   if (!normalized) return null;
   const words = normalized.split(/\s+/u).filter(Boolean);
-  return words.slice(0, MAX_RESEARCH_FOCUS_WORDS).join(' ').replace(/[,:;.-]+$/u, '') || null;
+  const clipped = words.length <= MAX_RESEARCH_FOCUS_WORDS
+    ? words.join(' ')
+    : clipAtCoherentBoundary(words, MAX_RESEARCH_FOCUS_WORDS);
+  return trimIncompleteEnding(clipped) || null;
+}
+
+function clipAtCoherentBoundary(words: readonly string[], maximumWords: number): string {
+  const clipped = words.slice(0, maximumWords);
+  for (let index = clipped.length - 1; index >= Math.ceil(maximumWords / 2); index -= 1) {
+    const word = clipped[index]?.toLocaleLowerCase().replace(/[^\p{L}]+/gu, '') ?? '';
+    if (CLAUSE_CONNECTORS.has(word)) return clipped.slice(0, index).join(' ');
+  }
+  return clipped.join(' ');
+}
+
+function trimIncompleteEnding(value: string): string {
+  const words = value
+    .replace(/[.!?]+$/u, '')
+    .trim()
+    .split(/\s+/u)
+    .filter(Boolean);
+  while (words.length > 1) {
+    const last = words.at(-1)?.toLocaleLowerCase().replace(/[^\p{L}]+/gu, '') ?? '';
+    if (!INCOMPLETE_ENDING_WORDS.has(last)) break;
+    words.pop();
+  }
+  return words.join(' ').replace(/[,:;.-]+$/u, '').trim();
+}
+
+function completeSuggestionSentence(value: string): string | null {
+  const ending = value.trim().match(/[?!]$/u)?.[0] ?? '.';
+  const body = trimIncompleteEnding(value);
+  return body ? `${body}${ending}` : null;
 }
 
 function isVagueSteeringSuggestion(value: string): boolean {

@@ -111,9 +111,17 @@ describe('renderer trace composer', () => {
   });
 
   it('keeps steering suggestions under fifteen words', () => {
-    expect(shortSteeringSuggestion(
+    const suggestion = shortSteeringSuggestion(
       'Continue by validating the parser crash with saved artifacts and then compare adjacent bounds checks carefully.'
-    )?.split(/\s+/u)).toHaveLength(14);
+    );
+    expect(suggestion?.split(/\s+/u).length).toBeLessThanOrEqual(14);
+    expect(suggestion).toBe('Continue by validating the parser crash with saved artifacts.');
+  });
+
+  it('removes dangling conjunctions from model steering suggestions', () => {
+    expect(shortSteeringSuggestion('Inspect the saved crash artifacts and.')).toBe(
+      'Inspect the saved crash artifacts.'
+    );
   });
 
   it('grounds a generic model suggestion in the latest user steering context', () => {
@@ -173,6 +181,28 @@ describe('renderer trace composer', () => {
 
     expect(steeringInputSuggestion(detail)).toBe(
       'Continue investigating crafted length fields bypass the parser signed bounds check.'
+    );
+  });
+
+  it('clips long completed-session summaries at a coherent clause boundary', () => {
+    const detail = composerDetail('completed', {
+      run: {
+        ...composerDetail('completed').run,
+        title: 'Apple HTTP/2 Origin Coalescing Trust State',
+        promptMarkdown: 'Characterize origin coalescing trust state.',
+        finalDisposition: {
+          outcome: 'objective_achieved',
+          summary: 'Characterized the CFNetwork HTTP/2 ATS crossing on macOS 26.6.1 and physical iOS 26.6 across multiple pin policies.',
+          blockerDependencies: [],
+          externalStateRequired: false,
+          source: 'agent',
+          recordedAt: '2026-08-16T22:24:06.640Z'
+        }
+      }
+    });
+
+    expect(steeringInputSuggestion(detail)).toBe(
+      'Continue investigating the CFNetwork HTTP/2 ATS crossing on macOS 26.6.1.'
     );
   });
 

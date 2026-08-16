@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Tab-completion steering suggestions now remove dangling conjunctions and prepositions, strip additional result-summary lead-ins, and clip long context at a coherent clause boundary instead of producing fragments such as `and.`.
 - Completed Honeycrisp sessions now retain the root agent's final response when a subagent already emitted its own final transcript, instead of suppressing the root response and leaving Commentary without a visible conclusion.
 - Left sidebar scrolling is now confined to the workspace or settings item list, which fills the available height above Agent Settings, keeps list and footer controls aligned, anchors the complete scroll track inside the sidebar immediately before the main content area, and uses Commentary's activity-aware inset scrollbar and conditional alpha fades that reveal the actual live session heat background.
 - Startup now reconciles cached active sidebar sessions through Honeycrisp without opening a workspace, app shutdown records live work as interrupted instead of failed with `Request was aborted`, inactive-session continuations complete their WebSocket handshake before Beale materializes or broadcasts the resumed snapshot, and active continuations no longer replay a prior attempt's terminal response on every detail update.
