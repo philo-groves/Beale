@@ -58,6 +58,7 @@ function createWindow(): void {
   const isMac = process.platform === 'darwin';
   const needsNativeWindowShape = process.platform === 'linux';
   const supportsNativeRoundedCorners = process.platform === 'darwin' || process.platform === 'win32';
+  const appIcon = createAppIcon();
   const window = new BrowserWindow({
     width: 1440,
     height: 940,
@@ -70,6 +71,7 @@ function createWindow(): void {
     transparent: true,
     hasShadow: isMac,
     roundedCorners: supportsNativeRoundedCorners,
+    ...(appIcon ? { icon: appIcon } : {}),
     ...(isMac
       ? {
           titleBarStyle: 'hiddenInset' as const,
@@ -101,9 +103,6 @@ function createWindow(): void {
   } else {
     window.loadFile(join(__dirname, '../renderer/index.html'));
   }
-  window.webContents.once('did-finish-load', () => {
-    setImmediate(() => applyAppIcon(window));
-  });
   installApplicationMenu();
 }
 
@@ -185,12 +184,11 @@ function createAppIcon(): Electron.NativeImage | null {
   return cropped.resize({ width: 256, height: 256, quality: 'best' });
 }
 
-function applyAppIcon(window: BrowserWindow): void {
-  if (window.isDestroyed()) return;
+function applyAppIcon(window?: BrowserWindow): void {
   const appIcon = createAppIcon();
   if (!appIcon) return;
   if (process.platform === 'darwin' && app.dock) app.dock.setIcon(appIcon);
-  else window.setIcon(appIcon);
+  else if (window && !window.isDestroyed()) window.setIcon(appIcon);
 }
 
 function appIconSourcePath(): string | null {
@@ -709,6 +707,7 @@ if (!hasSingleInstanceLock) {
   app.on('second-instance', reopenMainWindow);
 
   app.whenReady().then(() => {
+    applyAppIcon();
     const providerCredentialStore = new ProviderCredentialStore(
       join(app.getPath('userData'), 'provider-credentials.json'),
       {

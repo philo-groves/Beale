@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- macOS source launches now brand the project-local Electron bundle as Beale before startup and embed the Beale icon at the bundle boundary, preventing the stock Electron name and icon from appearing in the Dock during launch and shutdown.
 - Shell approval decisions now append distinct Honeycrisp session events instead of colliding with the original pending record; legacy pending approvals are reconciled from their recorded resolution trace so completed Approve Once actions release the widget and steering composer.
 - New sessions now complete the Honeycrisp WebSocket handshake before Beale performs synchronous registry and snapshot reads, preventing busy workspaces from starving the 15-second host startup window; nonzero host exits retain their actionable stderr diagnostic.
 - Collapsed Commentary tool-call rows now show the actual one-line `shell.run` command with width-based ellipsis instead of the generic `Shell Run` label, including null-utility requests recovered from their bounded executed-shell result.

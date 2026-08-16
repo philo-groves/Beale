@@ -7,7 +7,13 @@
   "description": "Beale authorized vulnerability research workbench",
   "main": "out/main/index.js",
   "scripts": {
+    "brand:electron": "node scripts/brand-electron.mjs",
+    "postinstall": "npm run brand:electron",
+    "prestart": "npm run brand:electron",
+    "start": "electron out/main/index.js",
+    "predev": "npm run brand:electron",
     "dev": "electron-vite dev",
+    "prepreview": "npm run brand:electron",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

@@ -128,7 +128,7 @@ Run from source (recommended, tested):
 
 ```bash
 npm run build
-npx electron out/main/index.js
+npm start
 ```
 
 Start the Electron app in development mode:
