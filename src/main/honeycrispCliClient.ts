@@ -705,6 +705,12 @@ export function getHoneycrispMaintenanceSummary(workspacePath: string): Workspac
   ).result;
 }
 
+export async function getHoneycrispMaintenanceSummaryAsync(workspacePath: string): Promise<WorkspaceDejunkSummary> {
+  return (await invokeWithJsonInputAsync<WorkspaceDejunkSummary>(
+    'maintenance.summary', ['harness', 'maintenance-summary'], { workspacePath }, null
+  )).result;
+}
+
 export function runHoneycrispMaintenance(workspacePath: string): WorkspaceDejunkSummary {
   return invokeWithJsonInput<WorkspaceDejunkSummary>(
     'maintenance.run', ['harness', 'maintenance-run'], { workspacePath }, null

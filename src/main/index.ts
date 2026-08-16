@@ -587,6 +587,11 @@ function registerIpc(): void {
       workspaceService.getHoneycrispReport(reportId)
     )
   );
+  ipcMain.handle(IPC_CHANNELS.getWorkspaceDejunkSummary, (_event, workspaceId: string) =>
+    timedMainIpcAsync('getWorkspaceDejunkSummary', { workspace: shortMetricId(workspaceId) }, () =>
+      workspaceService.getWorkspaceDejunkSummary(workspaceId)
+    )
+  );
   ipcMain.handle(IPC_CHANNELS.runWorkspaceDejunk, () =>
     timedMainIpc('runWorkspaceDejunk', {}, () => workspaceService.runWorkspaceDejunk())
   );

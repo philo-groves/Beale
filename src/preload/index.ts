@@ -20,6 +20,7 @@ import type {
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
   HoneycrispToolingConfigUpdate,
+  WorkspaceDejunkSummary,
   NativeMenuAction,
   WorkspaceOnboardingInput,
   WorkspaceOnboardingProgressUpdate,
@@ -224,6 +225,9 @@ const api: BealeApi = {
   },
   getHoneycrispReport(reportId: string): Promise<HoneycrispReportDocument> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispReport, reportId);
+  },
+  getWorkspaceDejunkSummary(workspaceId: string): Promise<WorkspaceDejunkSummary> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceDejunkSummary, workspaceId);
   },
   runWorkspaceDejunk() {
     return ipcRenderer.invoke(IPC_CHANNELS.runWorkspaceDejunk);

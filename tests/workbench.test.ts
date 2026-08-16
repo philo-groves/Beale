@@ -170,6 +170,20 @@ describe('Beale workbench skeleton', () => {
     migratedDatabase.close();
   });
 
+  it('reuses a materialized workspace snapshot across dashboard and registry reads', () => {
+    const workspace = tempWorkspace();
+    const service = new WorkspaceService();
+
+    const opened = service.createWorkspace(workspace);
+    expect(opened.version).toBeTruthy();
+    expect(opened.workspace.dejunk).toMatchObject({ loading: true, available: false });
+    expect(service.getSnapshot()).toBe(opened);
+
+    service.getWorkspaceRegistryState();
+    expect(service.getSnapshot()).toBe(opened);
+    service.close();
+  });
+
   it('allows Dejunk when prior research sessions are paused', () => {
     const workspace = tempWorkspace();
     const service = new WorkspaceService();

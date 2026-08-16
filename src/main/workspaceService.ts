@@ -66,7 +66,7 @@ import { AgentPluginRegistry } from './agentPluginRegistry';
 import { BealeIntrospectionServer } from './bealeIntrospectionServer';
 import { ProfilingService } from './profilingService';
 import {
-  getWorkspaceDejunkSummary,
+  getWorkspaceDejunkSummaryAsync,
   runWorkspaceDejunk as runWorkspaceDejunkMaintenance
 } from './workspaceDejunk';
 import {
@@ -118,6 +118,7 @@ import type {
   HoneycrispToolingSummary,
   HoneycrispToolingToolSummary,
   WorkspaceDirectorySelection,
+  WorkspaceDejunkSummary,
   WorkspaceOnboardingInput,
   WorkspaceOnboardingProgressUpdate,
   WorkspaceOnboardingRepositoryProgress,
@@ -418,6 +419,7 @@ export interface WorkspaceChange {
 interface EmitChangeOptions {
   syncWorkspaceRegistry?: boolean;
   workspaceRegistryChanged?: boolean;
+  preserveSnapshotCache?: boolean;
 }
 
 export function getHostEnvironment(): HostEnvironment {
@@ -607,6 +609,9 @@ export class WorkspaceService {
     fingerprint: string;
     promise: Promise<HoneycrispMemorySummary>;
   }>();
+  private readonly snapshotCache = new Map<string, { fingerprint: string; snapshot: WorkspaceSnapshot }>();
+  private snapshotVersion = 0;
+  private readonly workspaceDejunkSummaries = new Map<string, WorkspaceDejunkSummary>();
   private readonly runDetailMemoryRefreshedAt = new Map<string, number>();
   private readonly runDetailEventCache = new Map<string, Map<string, TraceEventRecord>>();
   private readonly disposedRuntimeDatabases = new WeakSet<WorkspaceDatabase>();
@@ -1072,9 +1077,24 @@ export class WorkspaceService {
     if (runtime.db.listRunRows().some(({ run }) => isLiveResearchRunStatus(run.status))) {
       throw new Error('Dejunk is unavailable while a research session is active.');
     }
-    runWorkspaceDejunkMaintenance(runtime.workspacePath);
+    const summary = runWorkspaceDejunkMaintenance(runtime.workspacePath);
+    this.workspaceDejunkSummaries.set(runtime.workspacePath, summary);
     this.emitChange({ syncWorkspaceRegistry: false, workspaceRegistryChanged: false });
     return this.requireSnapshot();
+  }
+
+  public async getWorkspaceDejunkSummary(workspaceId: string): Promise<WorkspaceDejunkSummary> {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime || runtime.db.getWorkspaceId() !== workspaceId) {
+      throw new Error(`Workspace is no longer open: ${workspaceId}`);
+    }
+    const summary = await getWorkspaceDejunkSummaryAsync(runtime.workspacePath);
+    const current = this.runtimeForWorkspacePath(runtime.workspacePath);
+    if (current?.db.getWorkspaceId() === workspaceId) {
+      this.workspaceDejunkSummaries.set(runtime.workspacePath, summary);
+      this.snapshotCache.delete(runtime.workspacePath);
+    }
+    return summary;
   }
 
   public async runMemoryDreaming(onProgress: MemoryDreamingProgressHandler | null = null): Promise<WorkspaceSnapshot> {
@@ -1655,7 +1675,9 @@ export class WorkspaceService {
     if (!workspace) {
       throw new Error(`Workspace not found: ${registryWorkspaceId}`);
     }
-    return this.open(workspace.workspacePath, false);
+    // The invoking renderer applies this response directly. Avoid sending the same large
+    // snapshot again through the delayed change broadcast.
+    return this.open(workspace.workspacePath, false, false);
   }
 
   public removeRegisteredWorkspace(registryWorkspaceId: string): WorkspaceSnapshot | null {
@@ -3238,6 +3260,8 @@ export class WorkspaceService {
     this.researchPromptControllers.clear();
     this.researchGoalSuggestionContexts.clear();
     this.runDetailEventCache.clear();
+    this.snapshotCache.clear();
+    this.workspaceDejunkSummaries.clear();
     const foreground = this.detachForegroundRuntime();
     if (foreground) {
       this.disposeRuntime(foreground);
@@ -3275,13 +3299,15 @@ export class WorkspaceService {
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
     mkdirSync(join(bealeDir, 'exports'), { recursive: true });
     mkdirSync(join(bealeDir, 'logs'), { recursive: true });
+    this.snapshotCache.delete(workspacePath);
+    this.workspaceDejunkSummaries.delete(workspacePath);
 
     const foreground = this.getForegroundRuntime();
     if (foreground?.workspacePath === workspacePath) {
       this.refreshResearchProfile(foreground);
       this.getWorkspaceRegistry();
       this.syncWorkspaceRegistry();
-      if (emitChange) this.emitChange();
+      if (emitChange) this.emitChange({ preserveSnapshotCache: true });
       return this.requireSnapshot();
     }
 
@@ -3293,7 +3319,7 @@ export class WorkspaceService {
       this.setForegroundRuntime(background);
       this.getWorkspaceRegistry();
       this.syncWorkspaceRegistry();
-      if (emitChange) this.emitChange();
+      if (emitChange) this.emitChange({ preserveSnapshotCache: true });
       return this.requireSnapshot();
     }
 
@@ -3301,7 +3327,7 @@ export class WorkspaceService {
     this.setForegroundRuntime(runtime);
     this.getWorkspaceRegistry();
     this.syncWorkspaceRegistry();
-    if (emitChange) this.emitChange();
+    if (emitChange) this.emitChange({ preserveSnapshotCache: true });
     return this.requireSnapshot();
   }
 
@@ -3474,6 +3500,7 @@ export class WorkspaceService {
     workspacePath: string,
     change: HoneycrispRunEngineChange = {}
   ): void {
+    this.snapshotCache.clear();
     if (change.sessionLifecycleChanged) {
       this.emitChange({ syncWorkspaceRegistry: true, workspaceRegistryChanged: true });
       return;
@@ -3584,9 +3611,13 @@ export class WorkspaceService {
   }
 
   private snapshotForRuntime(runtime: WorkspaceRuntime): WorkspaceSnapshot {
+    const fingerprint = honeycrispStorageFingerprint(this.honeycrispStorage(runtime));
+    const cached = this.snapshotCache.get(runtime.workspacePath);
+    if (cached?.fingerprint === fingerprint) return cached.snapshot;
     const detail = { workspace: runtime.workspacePath.split(/[\\/]/).pop() ?? 'workspace' };
     const activeScope = this.profileMainTiming('snapshot.activeScope', detail, () => runtime.db.getActiveScope());
-    return {
+    const snapshot: WorkspaceSnapshot = {
+      version: `${runtime.openedAt}:${++this.snapshotVersion}`,
       workspace: this.profileMainTiming('snapshot.workspaceSummary', detail, () => this.getWorkspaceSummary(runtime)),
       openAi: this.profileMainTiming('snapshot.openAiStatus', detail, () => this.openAiAuth.getStatus()),
       executor: this.profileMainTiming('snapshot.executorStatus', detail, () => hostExecutionStatus()),
@@ -3604,6 +3635,8 @@ export class WorkspaceService {
       ),
       notifications: this.profileMainTiming('snapshot.notifications', detail, () => runtime.db.listNotifications())
     };
+    this.snapshotCache.set(runtime.workspacePath, { fingerprint, snapshot });
+    return snapshot;
   }
 
   private pendingShellApprovalsForSnapshot(runtime: WorkspaceRuntime): ApprovalRecord[] {
@@ -3641,9 +3674,14 @@ export class WorkspaceService {
       executionPostureLabel: EXECUTION_POSTURE_LABEL,
       lastWorkspaceBackup: runtime.db.getLastWorkspaceBackup(),
       hostEnvironment: getHostEnvironment(),
-      dejunk: this.profileMainTiming('snapshot.workspaceDejunk', { workspace: runtime.workspacePath }, () =>
-        getWorkspaceDejunkSummary(runtime.workspacePath)
-      )
+      dejunk: this.workspaceDejunkSummaries.get(runtime.workspacePath) ?? {
+        available: false,
+        loading: true,
+        newFileCount: 0,
+        newFileCountCapped: false,
+        baselineAt: runtime.openedAt,
+        lastRun: null
+      }
     };
   }
 
@@ -3812,6 +3850,7 @@ export class WorkspaceService {
   }
 
   private emitChange(options: EmitChangeOptions = {}): void {
+    if (!options.preserveSnapshotCache) this.snapshotCache.clear();
     const syncWorkspaceRegistry = options.syncWorkspaceRegistry ?? true;
     const workspaceRegistryChanged = options.workspaceRegistryChanged ?? syncWorkspaceRegistry;
     this.pendingChangeRequiresWorkspaceRegistrySync ||= syncWorkspaceRegistry;
@@ -3824,10 +3863,11 @@ export class WorkspaceService {
   private flushPendingChange(): void {
     const syncWorkspaceRegistry = this.pendingChangeRequiresWorkspaceRegistrySync;
     const workspaceRegistryChanged = this.pendingChangeIncludesWorkspaceRegistry || syncWorkspaceRegistry;
-    this.emitChangeNow({ syncWorkspaceRegistry, workspaceRegistryChanged });
+    this.emitChangeNow({ syncWorkspaceRegistry, workspaceRegistryChanged, preserveSnapshotCache: true });
   }
 
   private emitChangeNow(options: EmitChangeOptions = {}): void {
+    if (!options.preserveSnapshotCache) this.snapshotCache.clear();
     const syncWorkspaceRegistry = options.syncWorkspaceRegistry ?? true;
     const workspaceRegistryChanged = options.workspaceRegistryChanged ?? syncWorkspaceRegistry;
     this.clearPendingChange();

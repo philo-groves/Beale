@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('renderer runtime update coalescing', () => {
-  it('keeps only the latest snapshot and registry event per animation frame', () => {
+  it('keeps only the latest snapshot and registry event per animation frame and transitions all snapshot applications', () => {
     const source = readFileSync(
       new URL('../src/renderer/hooks/useWorkspaceRuntime.ts', import.meta.url),
       'utf8'
@@ -11,7 +11,8 @@ describe('renderer runtime update coalescing', () => {
     expect(source).toContain('pendingSnapshotRef.current = next;');
     expect(source).toContain('pendingWorkspaceRegistryRef.current = next;');
     expect(source).toContain('window.requestAnimationFrame(() => {');
-    expect(source).toContain('startTransition(() => applySnapshot(latest));');
+    expect(source).toContain('applySnapshot(latest);');
+    expect(source).toContain('startTransition(() => {\n      setSnapshot(next);');
     expect(source).toContain('startTransition(() => setWorkspaceRegistry(latest));');
   });
 

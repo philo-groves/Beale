@@ -78,6 +78,11 @@ interface SessionRunTimelineInput {
   startedAtMs: number;
 }
 
+interface WorkspaceArtifactRevisionInput {
+  artifact: HoneycrispRunbookSummary | HoneycrispReportSummary;
+  revision: HoneycrispRunbookSummary['revisions'][number];
+}
+
 export function buildWorkspaceTimeline(
   runs: readonly RunRow[],
   memories: readonly HoneycrispMemoryNodeSummary[],
@@ -108,6 +113,16 @@ export function buildWorkspaceTimeline(
   for (const candidates of sessionRunsByRun.values()) {
     candidates.sort((left, right) => left.startedAtMs - right.startedAtMs || left.sessionRun.id.localeCompare(right.sessionRun.id));
   }
+  const memoriesByRun = new Map<string, HoneycrispMemoryNodeSummary[]>();
+  for (const memory of memories) {
+    for (const runId of memory.sessionIds) {
+      const candidates = memoriesByRun.get(runId) ?? [];
+      candidates.push(memory);
+      memoriesByRun.set(runId, candidates);
+    }
+  }
+  const runbookRevisionsByRun = artifactRevisionsByRun(runbooks);
+  const reportRevisionsByRun = artifactRevisionsByRun(reports);
   const memoryTypeById = new Map<string, ResearchProfileMemoryType>();
   for (const type of memoryTypes) {
     memoryTypeById.set(type.id, type);
@@ -132,9 +147,8 @@ export function buildWorkspaceTimeline(
         widthPercent: percentOfActivityDuration(clippedEndOffsetMs - clippedStartOffsetMs, activityClock)
       }];
     });
-    const memoryMarkers = memories.flatMap((memory) => {
+    const memoryMarkers = (memoriesByRun.get(row.run.id) ?? []).flatMap((memory) => {
       if (activityClock.spans.length === 0) return [];
-      if (!memory.sessionIds.includes(row.run.id)) return [];
       const createdAtMs = Date.parse(memory.createdAt);
       if (!Number.isFinite(createdAtMs) || createdAtMs > nowMs) return [];
       if (sessionRunAt(sessionRunsByRun.get(row.run.id) ?? [], createdAtMs)?.sessionRun.id !== sessionRun.id) return [];
@@ -151,16 +165,14 @@ export function buildWorkspaceTimeline(
       }];
     });
     const runbookRevisionMarkers = artifactRevisionMarkers(
-      runbooks,
-      row.run.id,
+      runbookRevisionsByRun.get(row.run.id) ?? [],
       sessionRun.id,
       sessionRunsByRun.get(row.run.id) ?? [],
       activityClock,
       nowMs
     );
     const reportRevisionMarkers = artifactRevisionMarkers(
-      reports,
-      row.run.id,
+      reportRevisionsByRun.get(row.run.id) ?? [],
       sessionRun.id,
       sessionRunsByRun.get(row.run.id) ?? [],
       activityClock,
@@ -221,16 +233,14 @@ export function workspaceTimelineResult(sessionRun: SessionRunActivity): Workspa
 }
 
 function artifactRevisionMarkers(
-  artifacts: readonly (HoneycrispRunbookSummary | HoneycrispReportSummary)[],
-  runId: string,
+  revisions: readonly WorkspaceArtifactRevisionInput[],
   sessionRunId: string,
   sessionRuns: readonly SessionRunTimelineInput[],
   activityClock: WorkspaceActivityClock,
   nowMs: number
 ): WorkspaceTimelineArtifactRevisionMarker[] {
   if (activityClock.spans.length === 0) return [];
-  return artifacts.flatMap((artifact) => artifact.revisions.flatMap((revision) => {
-    if (revision.sessionId !== runId) return [];
+  return revisions.flatMap(({ artifact, revision }) => {
     const createdAtMs = Date.parse(revision.createdAt);
     if (!Number.isFinite(createdAtMs) || createdAtMs > nowMs) return [];
     if (sessionRunAt(sessionRuns, createdAtMs)?.sessionRun.id !== sessionRunId) return [];
@@ -244,7 +254,22 @@ function artifactRevisionMarkers(
       createdAt: revision.createdAt,
       leftPercent: percentOfActivityWindow(activityOffsetMs, activityClock)
     }];
-  }));
+  });
+}
+
+function artifactRevisionsByRun(
+  artifacts: readonly (HoneycrispRunbookSummary | HoneycrispReportSummary)[]
+): Map<string, WorkspaceArtifactRevisionInput[]> {
+  const grouped = new Map<string, WorkspaceArtifactRevisionInput[]>();
+  for (const artifact of artifacts) {
+    for (const revision of artifact.revisions) {
+      if (!revision.sessionId) continue;
+      const candidates = grouped.get(revision.sessionId) ?? [];
+      candidates.push({ artifact, revision });
+      grouped.set(revision.sessionId, candidates);
+    }
+  }
+  return grouped;
 }
 
 function sessionRunAt(sessionRuns: readonly SessionRunTimelineInput[], timestampMs: number): SessionRunTimelineInput | null {

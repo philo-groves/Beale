@@ -187,6 +187,8 @@ export interface WorkspaceDejunkRunSummary {
 
 export interface WorkspaceDejunkSummary {
   available: boolean;
+  /** True while the dashboard is loading the filesystem-backed summary off the initial workspace-open path. */
+  loading?: boolean;
   newFileCount: number;
   newFileCountCapped: boolean;
   baselineAt: string;
@@ -1548,6 +1550,8 @@ export interface RunDetailUpdate {
 }
 
 export interface WorkspaceSnapshot {
+  /** Stable across repeated delivery of the same materialized snapshot. */
+  version?: string;
   workspace: WorkspaceSummary;
   openAi: OpenAiAccountStatus;
   executor: ExecutorStatus;
@@ -1643,6 +1647,7 @@ export interface BealeApi {
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
   getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument>;
   getHoneycrispReport(reportId: string): Promise<HoneycrispReportDocument>;
+  getWorkspaceDejunkSummary(workspaceId: string): Promise<WorkspaceDejunkSummary>;
   runWorkspaceDejunk(): Promise<WorkspaceSnapshot>;
   runMemoryDreaming(): Promise<WorkspaceSnapshot>;
   onMemoryDreamingProgress(listener: (update: MemoryDreamingProgressUpdate) => void): () => void;

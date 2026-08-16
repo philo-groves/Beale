@@ -40,17 +40,58 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const pendingSnapshotRef = useRef<WorkspaceSnapshot | null | undefined>(undefined);
   const pendingWorkspaceRegistryRef = useRef<WorkspaceRegistryState | null>(null);
+  const appliedSnapshotVersionRef = useRef<string | null>(null);
+  const dejunkSummaryRequestRef = useRef<string | null>(null);
   const snapshotFrameRef = useRef<number | null>(null);
   const workspaceRegistryFrameRef = useRef<number | null>(null);
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot | null) => {
+    const version = next?.version ?? null;
+    if (version && appliedSnapshotVersionRef.current === version) return;
+    appliedSnapshotVersionRef.current = version;
     devInstrumentation.recordPayload('ipc.snapshot.apply', next, snapshotMetricDetail(next));
-    setSnapshot(next);
-    if (next) {
-      setOpenAiStatus(next.openAi);
-    }
-    setSelectedRunId((current) => selectRunId(current, next));
+    startTransition(() => {
+      setSnapshot(next);
+      if (next) {
+        setOpenAiStatus(next.openAi);
+      }
+      setSelectedRunId((current) => selectRunId(current, next));
+    });
   }, []);
+
+  useEffect(() => {
+    const workspaceId = snapshot?.workspace.workspaceId ?? null;
+    if (!workspaceId || snapshot?.workspace.dejunk.loading !== true) return undefined;
+    if (dejunkSummaryRequestRef.current === workspaceId) return undefined;
+    dejunkSummaryRequestRef.current = workspaceId;
+    let cancelled = false;
+    void window.beale.getWorkspaceDejunkSummary(workspaceId)
+      .then((summary) => {
+        if (cancelled) return;
+        setSnapshot((current) => current?.workspace.workspaceId === workspaceId
+          ? { ...current, workspace: { ...current.workspace, dejunk: summary } }
+          : current);
+      })
+      .catch((caught: unknown) => {
+        if (cancelled) return;
+        setSnapshot((current) => current?.workspace.workspaceId === workspaceId
+          ? {
+              ...current,
+              workspace: {
+                ...current.workspace,
+                dejunk: { ...current.workspace.dejunk, available: false, loading: false }
+              }
+            }
+          : current);
+        onError(errorMessage(caught));
+      })
+      .finally(() => {
+        if (dejunkSummaryRequestRef.current === workspaceId) dejunkSummaryRequestRef.current = null;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onError, snapshot?.workspace.dejunk.loading, snapshot?.workspace.workspaceId]);
 
   const loadSnapshot = useCallback(async () => {
     const next = await devInstrumentation.timeAsync('ipc.getSnapshot', () => window.beale.getSnapshot());
@@ -75,7 +116,7 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
           const latest = pendingSnapshotRef.current;
           pendingSnapshotRef.current = undefined;
           if (latest === undefined) return;
-          startTransition(() => applySnapshot(latest));
+          applySnapshot(latest);
           recordNextFrameTiming('ipc.snapshot.event.apply.nextFrameLatency', applyStartedAt, snapshotMetricDetail(latest));
         });
       }

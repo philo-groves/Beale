@@ -246,7 +246,8 @@ export function WorkspaceHousekeepingPanel({
   const newFileCount = workspaceDejunk?.newFileCount ?? 0;
   const dejunkHeat = workspaceDejunkHeat(newFileCount);
   const activeSession = runs.some(({ run }) => isLiveResearchRunStatus(run.status));
-  const dejunkDisabled = busy || workspaceDejunkInProgress || activeSession || workspaceDejunk?.available === false;
+  const dejunkLoading = workspaceDejunk?.loading === true;
+  const dejunkDisabled = busy || workspaceDejunkInProgress || dejunkLoading || activeSession || workspaceDejunk?.available === false;
 
   return (
     <section className="workspace-side-housekeeping workspace-dream-area" aria-label="Workspace housekeeping">
@@ -261,11 +262,13 @@ export function WorkspaceHousekeepingPanel({
           type="button"
         >
           <span className="workspace-housekeeping-card-count">
-            {workspaceDejunk?.newFileCountCapped ? `${newFileCount.toLocaleString()}+` : newFileCount.toLocaleString()} New {newFileCount === 1 ? 'File' : 'Files'}
+            {dejunkLoading
+              ? 'Loading workspace files…'
+              : <>{workspaceDejunk?.newFileCountCapped ? `${newFileCount.toLocaleString()}+` : newFileCount.toLocaleString()} New {newFileCount === 1 ? 'File' : 'Files'}</>}
           </span>
           <span className="workspace-housekeeping-card-label">
             <Sparkles aria-hidden="true" size={18} />
-            {workspaceDejunkInProgress ? 'Dejunking…' : 'Dejunk'}
+            {workspaceDejunkInProgress ? 'Dejunking…' : dejunkLoading ? 'Loading…' : 'Dejunk'}
           </span>
         </button>
         <button
@@ -344,27 +347,52 @@ export function workspaceResearchSurfaceItems(
     const key = workspaceAssetGroupKey(asset);
     assetGroups.set(key, [...(assetGroups.get(key) ?? []), asset]);
   }
+  const runStatsByAssetId = new Map<string, { count: number; lastResearchedAt: string | null }>();
+  for (const { run } of runs) {
+    if (!run.targetAssetId) continue;
+    const researchedAt = run.startedAt ?? run.createdAt;
+    const current = runStatsByAssetId.get(run.targetAssetId) ?? { count: 0, lastResearchedAt: null };
+    runStatsByAssetId.set(run.targetAssetId, {
+      count: current.count + 1,
+      lastResearchedAt: latestTimestamp(current.lastResearchedAt, researchedAt)
+    });
+  }
+  const memoryIdsByAssetId = new Map<string, Set<string>>();
+  for (const node of memory?.nodes ?? []) {
+    for (const assetId of node.assetIds) {
+      const memoryIds = memoryIdsByAssetId.get(assetId) ?? new Set<string>();
+      memoryIds.add(node.id);
+      memoryIdsByAssetId.set(assetId, memoryIds);
+    }
+  }
   return [...assetGroups.values()].map((groupAssets) => {
     const asset = preferredWorkspaceSurfaceAsset(groupAssets);
-    const assetIds = new Set(groupAssets.map((candidate) => candidate.id));
-    const assetRuns = runs.filter(({ run }) => run.targetAssetId !== null && assetIds.has(run.targetAssetId));
-    const lastResearchedAt = assetRuns
-      .map(({ run }) => run.startedAt ?? run.createdAt)
-      .filter((value): value is string => Boolean(value) && Number.isFinite(Date.parse(value)))
-      .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
+    const assetIds = groupAssets.map((candidate) => candidate.id);
+    const memoryIds = new Set(assetIds.flatMap((assetId) => [...(memoryIdsByAssetId.get(assetId) ?? [])]));
+    const runStats = assetIds.map((assetId) => runStatsByAssetId.get(assetId));
     return {
       asset,
-      assetIds: groupAssets.map((candidate) => candidate.id),
+      assetIds,
       label: workspaceAssetLabel(asset),
-      sessionCount: assetRuns.length,
-      memoryCount: memory?.nodes.filter((node) => node.assetIds.some((assetId) => assetIds.has(assetId))).length ?? 0,
-      lastResearchedAt
+      sessionCount: runStats.reduce((count, stats) => count + (stats?.count ?? 0), 0),
+      memoryCount: memoryIds.size,
+      lastResearchedAt: runStats.reduce<string | null>(
+        (latest, stats) => latestTimestamp(latest, stats?.lastResearchedAt ?? null),
+        null
+      )
     };
   }).sort((left, right) => {
     if (left.asset.direction !== right.asset.direction) return left.asset.direction === 'in_scope' ? -1 : 1;
     return workspaceAssetKindOrder(left.asset.kind) - workspaceAssetKindOrder(right.asset.kind)
       || left.label.localeCompare(right.label);
   });
+}
+
+function latestTimestamp(left: string | null, right: string | null): string | null {
+  const leftMs = left ? Date.parse(left) : Number.NaN;
+  const rightMs = right ? Date.parse(right) : Number.NaN;
+  if (!Number.isFinite(rightMs)) return Number.isFinite(leftMs) ? left : null;
+  return !Number.isFinite(leftMs) || rightMs > leftMs ? right : left;
 }
 
 function workspaceAssetGroupKey(asset: ScopeAsset): string {
@@ -415,8 +443,11 @@ function WorkspaceResearchSurface({
   onAddResource: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
 }): JSX.Element {
-  const items = workspaceResearchSurfaceItems(activeScope?.assets ?? [], runs, honeycrispMemory);
-  const representedKinds = workspaceResearchSurfaceKinds(items);
+  const items = useMemo(
+    () => workspaceResearchSurfaceItems(activeScope?.assets ?? [], runs, honeycrispMemory),
+    [activeScope?.assets, honeycrispMemory, runs]
+  );
+  const representedKinds = useMemo(() => workspaceResearchSurfaceKinds(items), [items]);
   const [activeKind, setActiveKind] = useState<ScopeAssetKind | null>(() => representedKinds[0] ?? null);
   const [dialogState, setDialogState] = useState<{ kind: ScopeAssetKind; item: WorkspaceResearchSurfaceItem | null } | null>(null);
   const [kindPickerOpen, setKindPickerOpen] = useState(false);

@@ -117,6 +117,29 @@ describe('workspace dashboard', () => {
     expect(memoryCountSinceLastDream(memory)).toBe(2);
   });
 
+  it('shows a disabled loading state while the filesystem summary is deferred', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
+      busy: false,
+      honeycrispMemory: memorySummary(),
+      memoryDreamingInProgress: false,
+      researchProfile: testResearchProfile(),
+      runs: [],
+      workspaceDejunk: {
+        available: false,
+        loading: true,
+        newFileCount: 0,
+        newFileCountCapped: false,
+        baselineAt: '2026-08-12T12:00:00.000Z',
+        lastRun: null
+      },
+      onRunMemoryDreaming: () => undefined
+    }));
+
+    expect(html).toContain('Loading workspace files…');
+    expect(html).toContain('Loading…');
+    expect(html).toContain('disabled=""');
+  });
+
   it('places housekeeping below the compact workspace research summary', () => {
     const memory = memorySummary();
     const html = renderToStaticMarkup(createElement(MainSessionWorkspace, {
