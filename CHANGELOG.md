@@ -45,6 +45,7 @@
 
 ### Changed
 
+- Moved memory summaries, Dreaming prompt preparation and reversible persistence, runbook/report reads, and artifact resolution behind Honeycrisp protocol v1. Beale now adapts those operations for its UI and provider stream without directly reading or writing Honeycrisp knowledge tables, and optional run-process wrappers no longer intercept canonical protocol calls.
 - Replaced Beale's primary Honeycrisp live event and control transport with Honeycrisp's versioned authenticated loopback WebSocket protocol; local compatibility tests can explicitly select the temporary legacy stdio transport.
 - Dejunk now structurally recognizes large Xcode `DerivedData` variants, renamed DerivedData roots, and Xcode build/cache layouts at lower high-confidence thresholds while preserving source lookalikes and Git repositories.
 - Sidebar breakout-room labels now use the same muted text palette as the session-list expansion control regardless of room status.

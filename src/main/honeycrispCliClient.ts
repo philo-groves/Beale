@@ -1,8 +1,18 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { resolveHoneycrispInvocation } from './honeycrispInvocation';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { resolveHoneycrispProtocolInvocation } from './honeycrispInvocation';
+import type {
+  HoneycrispMemorySummary,
+  HoneycrispMemoryEdgeSummary,
+  HoneycrispMemoryNodeSummary,
+  HoneycrispReportDocument,
+  HoneycrispRunbookDocument,
+  MemoryDreamingRunSummary,
+  ResearchProfileSnapshot
+} from '@shared/types';
+import type { ResolvedResearchProfile } from '../shared/researchProfile';
 
 export const HONEYCRISP_PROTOCOL_VERSION = 1 as const;
 
@@ -58,6 +68,92 @@ export interface HoneycrispSessionRecord {
 export interface HoneycrispSessionStorage {
   databasePath: string;
   artifactDirectoryPath: string;
+}
+
+export function resolveHoneycrispStoragePaths(
+  profileId: string,
+  options: { databasePath?: string; artifactDirectoryPath?: string; registryDirectory?: string } = {}
+): HoneycrispSessionStorage {
+  const databasePath = options.databasePath
+    ? profileId === 'security-research'
+      ? resolve(options.databasePath)
+      : join(dirname(resolve(options.databasePath)), 'profiles', profileId, 'memory.sqlite')
+    : options.registryDirectory
+      ? resolve(options.registryDirectory, 'honeycrisp', 'profiles', profileId, 'memory.sqlite')
+      : join(homedir(), '.honeycrisp', 'profiles', profileId, 'memory.sqlite');
+  const artifactDirectoryPath = options.artifactDirectoryPath
+    ? profileId === 'security-research'
+      ? resolve(options.artifactDirectoryPath)
+      : join(dirname(resolve(options.artifactDirectoryPath)), profileId, 'artifacts')
+    : join(dirname(databasePath), 'artifacts');
+  return { databasePath, artifactDirectoryPath };
+}
+
+export type MemoryDreamingProfileInput =
+  | { profileSnapshot: ResearchProfileSnapshot; resolvedProfile?: never }
+  | { resolvedProfile: ResolvedResearchProfile; profileSnapshot?: never };
+
+export interface MemoryDreamingPlan {
+  prune: Array<{ nodeId: string; reason: string }>;
+  merge: Array<{
+    survivorNodeId: string;
+    duplicateNodeIds: string[];
+    summary: string | null;
+    body: string | null;
+    attributes?: Record<string, string | number | boolean>;
+    reason: string;
+  }>;
+  revise: Array<{
+    nodeId: string;
+    summary: string | null;
+    body: string | null;
+    attributes?: Record<string, string | number | boolean>;
+    reason: string;
+  }>;
+  reclassify: Array<{
+    nodeId: string;
+    type: string;
+    attributes?: Record<string, string | number | boolean>;
+    reason: string;
+  }>;
+}
+
+export interface MemoryDreamingRunContext {
+  model: string;
+  reasoningEffort: string;
+  inputNodeCount: number;
+  inputSessionCount: number;
+}
+
+export interface HoneycrispDreamingPreparation {
+  instructions: string;
+  typeDescriptions: Record<string, string>;
+  modelJobDefaults: { size: string; reasoningEffort: string } | null;
+  inputTexts: string[];
+}
+
+export interface HoneycrispDreamingSessionInput {
+  id: string;
+  title: string;
+  status: string;
+  createdAt: string;
+  endedAt: string | null;
+  prompt: string;
+  finalSummary: string;
+  transcript: Array<{ role: string; source: string; createdAt: string; content: string }>;
+}
+
+export interface HoneycrispResolvedArtifact {
+  id: string;
+  kind: string;
+  purpose: string;
+  path: string;
+  relativePath: string;
+  uri: string;
+  sizeBytes: number;
+  contentHash: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface HoneycrispProtocolDescriptor {
@@ -198,12 +294,136 @@ export function listHoneycrispSessions(
   ).result;
 }
 
+export function getHoneycrispMemorySummary(
+  input: {
+    workspaceId: string;
+    subjectId: string | null;
+    sessionId?: string;
+    researchProfile?: ResearchProfileSnapshot | null;
+    includeForeignCatalogs?: boolean;
+  },
+  storage: HoneycrispSessionStorage
+): HoneycrispMemorySummary {
+  return invokeWithJsonInput<HoneycrispMemorySummary>('memory.summary', ['knowledge', 'summary'], input, storage).result;
+}
+
+export function prepareHoneycrispMemoryDreaming(
+  typeDescriptions: Record<string, string>,
+  profileInput: MemoryDreamingProfileInput,
+  nodes: HoneycrispMemoryNodeSummary[],
+  edges: HoneycrispMemoryEdgeSummary[],
+  sessions: HoneycrispDreamingSessionInput[],
+  storage: HoneycrispSessionStorage
+): HoneycrispDreamingPreparation {
+  return invokeWithJsonInput<HoneycrispDreamingPreparation>(
+    'dreaming.prepare',
+    ['knowledge', 'dreaming-prepare'],
+    { typeDescriptions, profileInput, nodes, edges, sessions },
+    storage
+  ).result;
+}
+
+export function parseHoneycrispMemoryDreamingPlan(
+  output: string,
+  profileInput: MemoryDreamingProfileInput,
+  storage: HoneycrispSessionStorage
+): MemoryDreamingPlan {
+  return invokeWithJsonInput<MemoryDreamingPlan>(
+    'dreaming.parse_plan',
+    ['knowledge', 'dreaming-parse-plan'],
+    { output, profileInput },
+    storage
+  ).result;
+}
+
+export function applyHoneycrispMemoryDreaming(
+  workspaceId: string,
+  plan: MemoryDreamingPlan,
+  context: MemoryDreamingRunContext,
+  profileInput: MemoryDreamingProfileInput,
+  storage: HoneycrispSessionStorage
+): MemoryDreamingRunSummary {
+  return invokeWithJsonInput<MemoryDreamingRunSummary>(
+    'dreaming.apply',
+    ['knowledge', 'dreaming-apply'],
+    { workspaceId, plan, context, profileInput },
+    storage
+  ).result;
+}
+
+export function recordHoneycrispMemoryDreamingFailure(
+  workspaceId: string,
+  context: MemoryDreamingRunContext,
+  errorMessage: string,
+  profileInput: MemoryDreamingProfileInput,
+  storage: HoneycrispSessionStorage
+): MemoryDreamingRunSummary {
+  return invokeWithJsonInput<MemoryDreamingRunSummary>(
+    'dreaming.record_failure',
+    ['knowledge', 'dreaming-record-failure'],
+    { workspaceId, context, errorMessage, profileInput },
+    storage
+  ).result;
+}
+
+export function restoreHoneycrispMemoryDreamingChange(
+  workspaceId: string,
+  changeId: string,
+  storage: HoneycrispSessionStorage
+): void {
+  invokeWithJsonInput<{ restored: true }>(
+    'dreaming.restore',
+    ['knowledge', 'dreaming-restore'],
+    { workspaceId, changeId },
+    storage
+  );
+}
+
+export function getHoneycrispRunbookDocument(
+  workspaceId: string,
+  runbookId: string,
+  storage: HoneycrispSessionStorage
+): HoneycrispRunbookDocument {
+  return invokeWithJsonInput<HoneycrispRunbookDocument>(
+    'runbook.get',
+    ['knowledge', 'runbook-get'],
+    { workspaceId, runbookId },
+    storage
+  ).result;
+}
+
+export function getHoneycrispReportDocument(
+  workspaceId: string,
+  reportId: string,
+  storage: HoneycrispSessionStorage
+): HoneycrispReportDocument {
+  return invokeWithJsonInput<HoneycrispReportDocument>(
+    'report.get',
+    ['knowledge', 'report-get'],
+    { workspaceId, reportId },
+    storage
+  ).result;
+}
+
+export function resolveHoneycrispArtifact(
+  artifactId: string,
+  storage: HoneycrispSessionStorage,
+  expectedKind?: string
+): HoneycrispResolvedArtifact {
+  return invokeWithJsonInput<HoneycrispResolvedArtifact>(
+    'artifact.resolve',
+    ['knowledge', 'artifact-resolve'],
+    { artifactId, ...(expectedKind ? { expectedKind } : {}) },
+    storage
+  ).result;
+}
+
 export function invokeHoneycrispCliProtocol<T>(
   operation: string,
   args: readonly string[],
   options: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}
 ): HoneycrispProtocolSuccess<T> {
-  const invocation = resolveHoneycrispInvocation();
+  const invocation = resolveHoneycrispProtocolInvocation();
   const result = spawnSync(invocation.command, [...invocation.prefixArgs, ...args], {
     cwd: invocation.cwd,
     encoding: 'utf8',

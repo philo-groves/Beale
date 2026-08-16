@@ -51,7 +51,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ## Architecture (High-Level)
 
-- **Trusted Host** (Electron main): Credentials, authorized-scope policy, artifact acceptance, and workspace-scoped access to the active Honeycrisp profile database
+- **Trusted Host** (Electron main): Credentials, authorized-scope policy, artifact acceptance, and typed access to Honeycrisp's versioned client protocol
 - **Renderer UI**: React + TypeScript interface for visualization and interaction
 - **Execution Posture**: Honeycrisp runs as a host process. Beale does not create or manage a VM/container sandbox.
 - **Agent Integration**: Honeycrisp launches as the research engine; Beale displays workspace-scoped traces, durable knowledge, context, and artifacts from the active research-profile database
@@ -84,11 +84,11 @@ Beale uses Honeycrisp's user-global `~/.honeycrisp/memory.sqlite` database. Oper
 
 For active runs, Honeycrisp hosts a versioned WebSocket session endpoint bound to loopback. Beale authenticates with a per-process bearer token kept in the child environment, then exchanges client-neutral session event and control envelopes. Honeycrisp owns this protocol; Beale only adapts it into desktop state. `BEALE_HONEYCRISP_TRANSPORT=legacy` temporarily restores the older stdio streams for local compatibility testing.
 
-Honeycrisp protocol v1 is the client boundary for feature migrations. Beale validates versioned CLI success/error envelopes through one host adapter, while the WebSocket session protocol shares the same version. Session creation, attempts, live events, capture import, lifecycle state, list/detail queries, and transcript search now select one persistence owner for the lifetime of a session: current Honeycrisp clients use Honeycrisp's revisioned session aggregate, while explicitly legacy clients use the old Beale backend without write-through or dual writes. An architecture ratchet forbids new Beale source files from opening or querying Honeycrisp memory storage; direct Memory summary, Memory Dreaming, remaining workbench storage, and path-resolution access are migration debt rather than extension points.
+Honeycrisp protocol v1 is the client boundary for feature migrations. Beale validates versioned CLI success/error envelopes through one host adapter, while the WebSocket session protocol shares the same version. Session creation, attempts, live events, capture import, lifecycle state, list/detail queries, and transcript search select one persistence owner for the lifetime of a session: current Honeycrisp clients use Honeycrisp's revisioned session aggregate, while explicitly legacy clients use the old Beale backend without write-through or dual writes. Memory summaries, Dreaming prompt preparation and reversible state changes, runbook/report reads, and safe artifact resolution are also Honeycrisp protocol operations. Beale renders those results and supplies provider/UI integration without opening or querying Honeycrisp knowledge tables. The architecture ratchet now leaves only the broader legacy workbench database as recorded migration debt.
 
 Beale is pre-alpha and uses append-only component-scoped migrations.
 
-The sidebar Skills and MCP Servers views call Honeycrisp's `tools list --json` for the active workspace. Their configuration controls call Honeycrisp's `tools config` commands, so persisted skill directories, selected skill ids, MCP config paths, allowlists, and timeouts live in Honeycrisp's `.honeycrisp/tools.json`. Beale can still forward one-off Honeycrisp CLI runtime flags through `BEALE_HONEYCRISP_RUNTIME_ARGS_JSON` for local debugging.
+The sidebar Skills and MCP Servers views call Honeycrisp's `tools list --json` for the active workspace. Their configuration controls call Honeycrisp's `tools config` commands, so persisted skill directories, selected skill ids, MCP config paths, allowlists, and timeouts live in Honeycrisp's `.honeycrisp/tools.json`. Beale can still forward one-off Honeycrisp CLI runtime flags through `BEALE_HONEYCRISP_RUNTIME_ARGS_JSON` for local debugging. Run-process command wrappers do not intercept the feature protocol; a custom protocol CLI must be configured explicitly with `BEALE_HONEYCRISP_PROTOCOL_COMMAND` and implement protocol v1.
 
 ### Research Profiles
 

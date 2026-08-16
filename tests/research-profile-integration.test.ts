@@ -29,6 +29,10 @@ afterEach(() => {
   delete process.env.BEALE_HONEYCRISP_ROOT;
   delete process.env.BEALE_HONEYCRISP_NODE_COMMAND;
   delete process.env.BEALE_HONEYCRISP_PNPM_COMMAND;
+  delete process.env.BEALE_HONEYCRISP_PROTOCOL_COMMAND;
+  delete process.env.BEALE_HONEYCRISP_PROTOCOL_ARGS_JSON;
+  delete process.env.BEALE_HONEYCRISP_PROTOCOL_CWD;
+  delete process.env.BEALE_HONEYCRISP_SESSION_OWNERSHIP;
   delete process.env.BEALE_HONEYCRISP_PROFILE_COMMAND;
   delete process.env.BEALE_HONEYCRISP_PROFILE_ARGS_JSON;
   delete process.env.BEALE_HONEYCRISP_PROFILE_CWD;
@@ -277,6 +281,7 @@ describe('research profile host integration', () => {
     writeFileSync(fakeHoneycrisp, fakeHoneycrispSource());
     process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
     process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, invocationLog]);
+    configureProfileIntegrationProtocol(root);
 
     const firstProfile = profileWithWorkflow('1.0.0', 'discovery');
     const secondProfileBase = profileWithWorkflow('2.0.0', 'analysis-pass');
@@ -407,6 +412,7 @@ describe('research profile host integration', () => {
     writeFileSync(fakeHoneycrisp, fakeHoneycrispSource());
     process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
     process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, invocationLog]);
+    configureProfileIntegrationProtocol(root);
 
     let currentProfile = resolvedTestResearchProfile(generalResearchProfile());
     const modelRequests: Record<string, unknown>[] = [];
@@ -833,6 +839,7 @@ describe('research profile host integration', () => {
     writeFileSync(fakeHoneycrisp, fakeHoneycrispSource(captureOptions));
     process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
     process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, invocationLog]);
+    configureProfileIntegrationProtocol(root);
 
     const service = new WorkspaceService(() => undefined, {
       workspaceRegistryDirectory: join(root, 'registry'),
@@ -1046,6 +1053,31 @@ function fakeHoneycrispSource(options: FakeHoneycrispCaptureOptions = {}): strin
     "if (corruptResearchProfileHash) captureResearchProfile.hash = '0'.repeat(64);",
     "const capture = { schemaVersion: 5, capturedAt: now, request: { prompt: value('-p') }, ...(!omitResearchProfile ? { researchProfile: captureResearchProfile } : {}), agent: { id: 'agent_profile_fixture', status: 'complete', executorName: 'profile-fixture', startedAt: now, completedAt: now, outputText: 'Profile fixture complete.' }, eventTimeline: [] };",
     "writeFileSync(capturePath, JSON.stringify(capture) + '\\n');"
+  ].join('\n');
+}
+
+function configureProfileIntegrationProtocol(root: string): void {
+  const fixture = join(root, 'fake-honeycrisp-protocol.mjs');
+  writeFileSync(fixture, fakeHoneycrispProtocolSource());
+  process.env.BEALE_HONEYCRISP_PROTOCOL_COMMAND = process.execPath;
+  process.env.BEALE_HONEYCRISP_PROTOCOL_ARGS_JSON = JSON.stringify([fixture]);
+  // These profile-focused tests use a run-only fixture. Session ownership has
+  // dedicated boundary coverage and must not be inferred from this fixture.
+  process.env.BEALE_HONEYCRISP_SESSION_OWNERSHIP = 'legacy';
+}
+
+function fakeHoneycrispProtocolSource(): string {
+  return [
+    "import { dirname } from 'node:path';",
+    "import { readFileSync } from 'node:fs';",
+    'const args = process.argv.slice(2);',
+    "const value = (flag) => args[args.indexOf(flag) + 1];",
+    "if (args[0] !== 'knowledge' || args[1] !== 'summary') process.exit(2);",
+    "const input = JSON.parse(readFileSync(value('--input'), 'utf8'));",
+    "const databasePath = process.env.HONEYCRISP_DATABASE_PATH ?? '';",
+    "const artifactDirectoryPath = process.env.HONEYCRISP_ARTIFACT_DIRECTORY ?? '';",
+    "const result = { status: 'empty', source: 'honeycrisp_sqlite', contextWorkspaceId: input.workspaceId, contextSubjectId: input.subjectId, activeCatalogHash: input.researchProfile?.profileHash ?? null, databasePath, storageRoot: dirname(databasePath), artifactDirectoryPath, databaseSizeBytes: 0, nodeCount: 0, edgeCount: 0, evidenceRefCount: 0, storageArtifactCount: 0, runbookCount: 0, reportCount: 0, latestNodeUpdatedAt: null, nodeTypeCounts: {}, nodeStatusCounts: {}, nodeProvenanceCounts: {}, nodes: [], edges: [], runbooks: [], reports: [], dreaming: { available: false, scope: 'workspace', hiddenNodeCount: 0, restorableChangeCount: 0, lastRun: null, changes: [] }, directories: [{ name: 'artifacts', path: artifactDirectoryPath, purpose: 'Honeycrisp artifact storage.', exists: false, entryCount: 0 }], lastError: null };",
+    "console.log(JSON.stringify({ protocol: 'honeycrisp', protocolVersion: 1, operation: 'memory.summary', ok: true, result }));"
   ].join('\n');
 }
 

@@ -12,6 +12,8 @@ const createdDirectories: string[] = [];
 afterEach(() => {
   delete process.env.BEALE_HONEYCRISP_COMMAND;
   delete process.env.BEALE_HONEYCRISP_ARGS_JSON;
+  delete process.env.BEALE_HONEYCRISP_PROTOCOL_COMMAND;
+  delete process.env.BEALE_HONEYCRISP_PROTOCOL_ARGS_JSON;
   for (const directory of createdDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -57,8 +59,8 @@ describe('Honeycrisp CLI protocol client', () => {
       }))});`
     ].join('\n'));
     chmodSync(fixture, 0o700);
-    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
-    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fixture]);
+    process.env.BEALE_HONEYCRISP_PROTOCOL_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_PROTOCOL_ARGS_JSON = JSON.stringify([fixture]);
 
     expect(getHoneycrispProtocolDescriptor()).toMatchObject({
       protocol: 'honeycrisp',

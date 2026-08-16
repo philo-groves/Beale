@@ -42,6 +42,46 @@ export function resolveHoneycrispInvocation(): HoneycrispInvocation {
   };
 }
 
+/**
+ * Feature-protocol calls use the canonical Honeycrisp CLI, independently of
+ * optional run-process wrappers. A custom protocol binary must opt in through
+ * the dedicated protocol variables and implement protocol v1.
+ */
+export function resolveHoneycrispProtocolInvocation(): HoneycrispInvocation {
+  const command = process.env.BEALE_HONEYCRISP_PROTOCOL_COMMAND?.trim();
+  if (command) {
+    return {
+      command,
+      prefixArgs: parseEnvArgs('BEALE_HONEYCRISP_PROTOCOL_ARGS_JSON'),
+      cwd: process.env.BEALE_HONEYCRISP_PROTOCOL_CWD?.trim() || process.cwd(),
+      configuredBy: 'env_command',
+      usesNodeRuntime: isPlainNodeExecutable(command)
+    };
+  }
+  const root = process.env.BEALE_HONEYCRISP_PROTOCOL_ROOT?.trim()
+    || process.env.BEALE_HONEYCRISP_ROOT?.trim()
+    || resolve(process.cwd(), '..', 'honeycrisp');
+  const cliPath = join(root, 'packages', 'cli', 'dist', 'cli.js');
+  if (existsSync(cliPath)) {
+    return {
+      command: process.env.BEALE_HONEYCRISP_PROTOCOL_NODE_COMMAND?.trim() || resolveHoneycrispNodeCommand(),
+      prefixArgs: [cliPath],
+      cwd: root,
+      configuredBy: process.env.BEALE_HONEYCRISP_PROTOCOL_ROOT || process.env.BEALE_HONEYCRISP_ROOT ? 'env_root' : 'sibling_root',
+      usesNodeRuntime: true
+    };
+  }
+  return {
+    command: process.env.BEALE_HONEYCRISP_PROTOCOL_PNPM_COMMAND?.trim()
+      || process.env.BEALE_HONEYCRISP_PNPM_COMMAND?.trim()
+      || 'pnpm',
+    prefixArgs: ['--dir', root, 'start'],
+    cwd: root,
+    configuredBy: process.env.BEALE_HONEYCRISP_PROTOCOL_ROOT || process.env.BEALE_HONEYCRISP_ROOT ? 'env_root' : 'sibling_root',
+    usesNodeRuntime: false
+  };
+}
+
 function resolveHoneycrispNodeCommand(): string {
   const candidates = [
     process.env.BEALE_HONEYCRISP_NODE_COMMAND?.trim(),

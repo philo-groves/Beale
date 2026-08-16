@@ -57,7 +57,7 @@ describe('architecture conformance', () => {
     const persistenceFiles = new Set([
       'src/main/database.ts',
       'src/main/databaseMigrations.ts',
-      'src/main/memoryDreaming.ts',
+      'src/main/legacyMemoryDreamingSchema.ts',
       'src/main/workspaceRegistry.ts'
     ]);
     const files = filesUnder('src').filter(isSourceFile).filter((path) => !persistenceFiles.has(normalizePath(path)));
@@ -95,13 +95,10 @@ describe('architecture conformance', () => {
       'src/main/honeycrispSessionBoundary.ts',
       'src/main/researchProfileService.ts'
     ]);
-    // These files are the bounded migration debt that subsequent feature moves
-    // must remove. No new Beale source file may open or query Honeycrisp memory.
+    // The Beale database still owns workbench-only records during the remaining
+    // migration. All knowledge features use the Honeycrisp protocol boundary.
     const legacyDirectAccessFiles = new Set([
-      'src/main/database.ts',
-      'src/main/honeycrispMemorySummary.ts',
-      'src/main/memoryDreaming.ts',
-      'src/main/workspaceService.ts'
+      'src/main/database.ts'
     ]);
     const patterns = [
       /memory\.sqlite/,
@@ -129,6 +126,10 @@ describe('architecture conformance', () => {
       expect(content).not.toMatch(/node:sqlite|new\s+DatabaseSync\s*\(/);
     }
     expect(findPatternHits(filesUnder('src/main').filter(isSourceFile), [/\bhoneycrisp_sessions\b/])).toEqual([]);
+    const files = filesUnder('src/main').map(normalizePath);
+    expect(files).not.toContain('src/main/memoryDreaming.ts');
+    expect(files).not.toContain('src/main/honeycrispRunbook.ts');
+    expect(files).not.toContain('src/main/honeycrispReport.ts');
   });
 
   it('keeps removed Beale agent runtime layers out of the main source tree', () => {

@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import ts from 'typescript';
 import { applyDatabaseMigrations } from './databaseMigrations';
-import { MEMORY_DREAMING_RUN_PROVENANCE_TRIGGER_SQL, MEMORY_DREAMING_SCHEMA_SQL } from './memoryDreaming';
+import { MEMORY_DREAMING_RUN_PROVENANCE_TRIGGER_SQL, MEMORY_DREAMING_SCHEMA_SQL } from './legacyMemoryDreamingSchema';
 import { decodeResearchProfileJson, decodeResolvedResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
 import { normalizeShellSafetyMode } from '../shared/shellSafety';
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
@@ -3737,24 +3737,6 @@ export class WorkspaceDatabase {
 
   public getArtifactRoot(): string {
     return this.artifactRoot;
-  }
-
-  public getHoneycrispRunbookRelativePath(runbookId: string): string | null {
-    const table = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'honeycrisp_runbooks'").get());
-    if (!table) return null;
-    const row = rowOrUndefined(
-      this.db.prepare('SELECT relative_path FROM honeycrisp_runbooks WHERE id = ? AND workspace_id = ?').get(runbookId, this.workspaceId)
-    );
-    return row ? text(row, 'relative_path') : null;
-  }
-
-  public getHoneycrispReportRelativePath(reportId: string): string | null {
-    const table = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'honeycrisp_reports'").get());
-    if (!table) return null;
-    const row = rowOrUndefined(
-      this.db.prepare('SELECT relative_path FROM honeycrisp_reports WHERE id = ? AND workspace_id = ?').get(reportId, this.workspaceId)
-    );
-    return row ? text(row, 'relative_path') : null;
   }
 
   public getLastWorkspaceBackup(): WorkspaceExportResult | null {
