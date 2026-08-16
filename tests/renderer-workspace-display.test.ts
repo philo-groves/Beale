@@ -50,7 +50,6 @@ describe('renderer workspace display view models', () => {
     const secondSession = session({ id: 'session_second', registryWorkspaceId: second.id, workspacePath: second.workspacePath });
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
-      vmPreference: { enabled: false, backendKind: null, updatedAt: null },
       workspaces: [first, second],
       researchSessions: [firstSession, secondSession]
     };
@@ -114,7 +113,6 @@ describe('renderer workspace display view models', () => {
     const selectedSession = session({ registryWorkspaceId: registeredWorkspace.id });
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
-      vmPreference: { enabled: false, backendKind: null, updatedAt: null },
       workspaces: [registeredWorkspace],
       researchSessions: [selectedSession]
     };
@@ -170,7 +168,6 @@ describe('renderer workspace display view models', () => {
     const registeredWorkspace = { ...workspace('workspace_test', '/workspace/test'), workspaceName: 'Snapchat' };
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
-      vmPreference: { enabled: false, backendKind: null, updatedAt: null },
       workspaces: [registeredWorkspace],
       researchSessions: Array.from({ length: 5 }, (_, index) => session({
         id: `session_${index}`,
@@ -232,7 +229,6 @@ describe('renderer workspace display view models', () => {
     });
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
-      vmPreference: { enabled: false, backendKind: null, updatedAt: null },
       workspaces: [registeredWorkspace],
       researchSessions: [selectedSession, previousSession]
     };
@@ -272,7 +268,6 @@ describe('renderer workspace display view models', () => {
     const activeSession = session({ status: 'active', registryWorkspaceId: registeredWorkspace.id });
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
-      vmPreference: { enabled: false, backendKind: null, updatedAt: null },
       workspaces: [registeredWorkspace],
       researchSessions: [activeSession]
     };
@@ -309,7 +304,6 @@ describe('renderer workspace display view models', () => {
     const selectedSession = session({ registryWorkspaceId: registeredWorkspace.id });
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
-      vmPreference: { enabled: false, backendKind: null, updatedAt: null },
       workspaces: [registeredWorkspace],
       researchSessions: [selectedSession]
     };

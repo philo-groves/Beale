@@ -1,13 +1,11 @@
 import WebSocket, { type RawData } from 'ws';
+import { HONEYCRISP_PROTOCOL_VERSION, HONEYCRISP_PROTOCOL_WEBSOCKET_PATH } from './honeycrispCliClient';
 
 export const HONEYCRISP_TRANSPORT_PREFIX = 'HONEYCRISP_TRANSPORT ';
-export const HONEYCRISP_TRANSPORT_PROTOCOL_VERSION = 1 as const;
-
-const HONEYCRISP_TRANSPORT_PATH = '/v1/session';
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 
 export interface HoneycrispTransportBootstrap {
-  protocolVersion: typeof HONEYCRISP_TRANSPORT_PROTOCOL_VERSION;
+  protocolVersion: typeof HONEYCRISP_PROTOCOL_VERSION;
   transport: 'websocket';
   url: string;
   sessionId: string;
@@ -31,7 +29,7 @@ export function parseHoneycrispTransportBootstrap(
   try {
     const parsed = JSON.parse(line.slice(HONEYCRISP_TRANSPORT_PREFIX.length)) as unknown;
     if (!isRecord(parsed)
-      || parsed.protocolVersion !== HONEYCRISP_TRANSPORT_PROTOCOL_VERSION
+      || parsed.protocolVersion !== HONEYCRISP_PROTOCOL_VERSION
       || parsed.transport !== 'websocket'
       || parsed.sessionId !== expectedSessionId
       || typeof parsed.url !== 'string') {
@@ -40,13 +38,13 @@ export function parseHoneycrispTransportBootstrap(
     const url = new URL(parsed.url);
     if (url.protocol !== 'ws:'
       || url.hostname !== '127.0.0.1'
-      || url.pathname !== HONEYCRISP_TRANSPORT_PATH
+      || url.pathname !== HONEYCRISP_PROTOCOL_WEBSOCKET_PATH
       || url.username
       || url.password) {
       return null;
     }
     return {
-      protocolVersion: HONEYCRISP_TRANSPORT_PROTOCOL_VERSION,
+      protocolVersion: HONEYCRISP_PROTOCOL_VERSION,
       transport: 'websocket',
       url: url.toString(),
       sessionId: parsed.sessionId
@@ -89,7 +87,7 @@ export class HoneycrispWebSocketClient {
 
       socket.once('open', () => {
         socket.send(JSON.stringify({
-          protocolVersion: HONEYCRISP_TRANSPORT_PROTOCOL_VERSION,
+          protocolVersion: HONEYCRISP_PROTOCOL_VERSION,
           type: 'client.hello',
           sessionId: this.options.bootstrap.sessionId,
           client: { name: 'beale', version: this.options.clientVersion }
@@ -102,7 +100,7 @@ export class HoneycrispWebSocketClient {
           socket.close(1002, 'invalid protocol message');
           return;
         }
-        if (message.protocolVersion !== HONEYCRISP_TRANSPORT_PROTOCOL_VERSION
+        if (message.protocolVersion !== HONEYCRISP_PROTOCOL_VERSION
           || message.sessionId !== this.options.bootstrap.sessionId) {
           settleError(new Error('Honeycrisp WebSocket protocol or session mismatch.'));
           socket.close(1002, 'protocol or session mismatch');
@@ -143,7 +141,7 @@ export class HoneycrispWebSocketClient {
       throw new Error('Honeycrisp WebSocket transport is not ready.');
     }
     this.socket.send(JSON.stringify({
-      protocolVersion: HONEYCRISP_TRANSPORT_PROTOCOL_VERSION,
+      protocolVersion: HONEYCRISP_PROTOCOL_VERSION,
       type: 'session.control',
       sessionId: this.options.bootstrap.sessionId,
       requestId: control.requestId,

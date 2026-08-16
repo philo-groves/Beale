@@ -43,11 +43,16 @@
 - Completed sessions now show three session-grounded next-step suggestions in a compact three-row loading surface; selecting one opens New Research and streams an expanded prompt from that goal.
 - Commentary and other Markdown trace prose now render inline and display LaTeX notation locally with KaTeX, including both dollar and `\\(...\\)` / `\\[...\\]` delimiters.
 
+### Removed
+
+- Removed Beale's dormant project graph and local semantic-index stores, production fixture runtime, host tool/verifier executors, synthetic VM context model and schema, and duplicated Dreaming schema initialization.
+- Removed Beale's legacy Honeycrisp stdio event/control protocol and its test-only compatibility switch; active sessions now use the versioned Honeycrisp WebSocket boundary exclusively.
+
 ### Changed
 
 - Moved auxiliary model-job routing and provider completion semantics, provider defaults, Agent Plugin registry/runtime assembly, source discovery and repository materialization, and Dejunk maintenance behind Honeycrisp protocol v1. Beale now retains only typed adapters, host credential injection, client-specific built-ins, and UI gating.
 - Moved memory summaries, Dreaming prompt preparation and reversible persistence, runbook/report reads, and artifact resolution behind Honeycrisp protocol v1. Beale now adapts those operations for its UI and provider stream without directly reading or writing Honeycrisp knowledge tables, and optional run-process wrappers no longer intercept canonical protocol calls.
-- Replaced Beale's primary Honeycrisp live event and control transport with Honeycrisp's versioned authenticated loopback WebSocket protocol; local compatibility tests can explicitly select the temporary legacy stdio transport.
+- Replaced Beale's Honeycrisp live event and control transport with Honeycrisp's versioned authenticated loopback WebSocket protocol.
 - Dejunk now structurally recognizes large Xcode `DerivedData` variants, renamed DerivedData roots, and Xcode build/cache layouts at lower high-confidence thresholds while preserving source lookalikes and Git repositories.
 - Sidebar breakout-room labels now use the same muted text palette as the session-list expansion control regardless of room status.
 - New Research now starts user-written objectives directly by default. Optional Add Context generation produces a 100-250 word cyber objective brief capped at 4,000 characters, uses only a bounded set of relevant assets, memories, prior outcomes, and source coverage, and leaves authorization, profile, AGENTS.md, tools, and full memory context to Honeycrisp's runtime injection.

@@ -3,7 +3,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { existsSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../shared/modelDefaults';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 
 const SECRET_ENV_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|COOKIE|CREDENTIAL|OPENAI/i;
 export const OPENAI_SUBSCRIPTION_LOGIN_COMMAND = 'codex login';
@@ -494,7 +494,8 @@ export function findCodexDesktopBinCommand(binRoot: string): string | null {
 }
 
 export function codexDesktopCommandFromInstallLocation(installLocation: string): string {
-  return join(installLocation.trim(), 'app', 'resources', 'codex.exe');
+  const root = installLocation.trim();
+  return win32.isAbsolute(root) ? win32.join(root, 'app', 'resources', 'codex.exe') : join(root, 'app', 'resources', 'codex.exe');
 }
 
 function collectCommandCompletion(child: ChildProcessWithoutNullStreams, label: string): Promise<void> {

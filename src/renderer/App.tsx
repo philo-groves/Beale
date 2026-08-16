@@ -399,16 +399,7 @@ export function App(): JSX.Element {
     setWorkspaceOnboardingProgress(null);
   }, []);
 
-  const openWorkspaceAlert = useCallback(
-    (alert: WorkspaceAlert) => {
-      if (alert.id.startsWith('semantic-index-')) {
-        setSettingsSection('general');
-        setSettingsOpen(true);
-        dismissWorkspaceAlert(alert.id);
-      }
-    },
-    [dismissWorkspaceAlert]
-  );
+  const openWorkspaceAlert = useCallback((_alert: WorkspaceAlert) => undefined, []);
 
   const runWorkspaceAction = useCallback(
     async (action: () => Promise<void>, { markBusy = true, reloadRegistry = true }: WorkspaceActionOptions = {}) => {
@@ -1199,8 +1190,6 @@ export function App(): JSX.Element {
               providerModelCatalog={enabledResearchProviderModelCatalog}
               honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
               activeScope={selectedRunId ? null : snapshot?.activeScope ?? null}
-              projectGraph={selectedRunId ? null : snapshot?.projectGraph ?? null}
-              projectSemantic={selectedRunId ? null : snapshot?.projectSemantic ?? null}
               researchProfile={selectedRunId ? activeRunDetail?.researchProfile?.profile ?? null : snapshot?.researchProfile.profile ?? null}
               sessionHeatPreferences={sessionHeatPreferences}
               workspaceName={snapshot?.activeScope.workspaceName ?? 'Workspace'}

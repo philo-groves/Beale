@@ -139,7 +139,6 @@ function traceEvent(input: Pick<TraceEventRecord, 'source' | 'type' | 'summary' 
     sensitivity: 'internal',
     modelVisible: true,
     createdAt: '2026-04-29T00:00:00.000Z',
-    vmContextId: null,
     artifactId: null,
     toolCallId: null,
     approvalId: null,

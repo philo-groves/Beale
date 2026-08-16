@@ -76,7 +76,6 @@ export function TraceDetailModal({
           <span>References</span>
           <InspectorReference label="id" value={event.id} />
           {event.attemptId ? <InspectorReference label="attempt" value={event.attemptId} /> : null}
-          {event.vmContextId ? <InspectorReference label="vm" value={event.vmContextId} /> : null}
           {event.artifactId ? <InspectorReference label="artifact" value={event.artifactId} /> : null}
           {event.toolCallId ? <InspectorReference label="tool" value={event.toolCallId} /> : null}
           {event.approvalId ? <InspectorReference label="approval" value={event.approvalId} /> : null}

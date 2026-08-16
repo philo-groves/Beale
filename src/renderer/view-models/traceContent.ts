@@ -113,7 +113,7 @@ export function trimTraceLabelPeriod(label: string): string {
 export function traceCategoryFallbackPrefix(category: TraceCategoryId): string {
   if (category === 'agent_output' || category === 'reasoning') return 'Report';
   if (category === 'tools') return 'Run';
-  if (category === 'vm_execution') return 'Execute';
+  if (category === 'execution') return 'Execute';
   if (category === 'research') return 'Research';
   if (category === 'artifacts') return 'Record';
   if (category === 'verifier') return 'Verify';
@@ -1083,7 +1083,6 @@ function tracePayloadDetailText(event: TraceEventRecord, category: TraceCategory
       detailPartsForModelSystemEvent(event),
       detailPartsForVerifierEvent(event),
       detailPartsForNetworkEvent(event),
-      detailPartsForVmEvent(event),
       detailPartsForResearchArtifactEvent(event),
       detailPartsForReviewEvent(event),
       detailPartsForUserEvent(event),
@@ -1278,31 +1277,6 @@ function detailPartsForNetworkEvent(event: TraceEventRecord): string[] | null {
     tracePart('backend', tracePayloadPrimitive(payload, 'backend')),
     tracePart('rule', tracePayloadPrimitive(payload, 'policyRule')),
     tracePart('reason', tracePayloadPrimitive(payload, 'reason'))
-  ].filter((part): part is string => Boolean(part));
-}
-
-function detailPartsForVmEvent(event: TraceEventRecord): string[] | null {
-  if (event.type !== 'vm_event') return null;
-  const payload = event.payload;
-  return [
-    pathPart('vm', tracePayloadPrimitive(payload, 'vmContextId')),
-    tracePart('state', tracePayloadPrimitive(payload, 'state') ?? tracePayloadPrimitive(payload, 'previousState')),
-    tracePart('backend', tracePayloadPrimitive(payload, 'backend')),
-    tracePart('provider', tracePayloadPrimitive(payload, 'provider')),
-    pathPart('image', tracePayloadPrimitive(payload, 'imageRef')),
-    tracePart('snapshot', tracePayloadPrimitive(payload, 'snapshotRef')),
-    pathPart('host', tracePayloadPrimitive(payload, 'hostPath') ?? tracePayloadPrimitive(payload, 'requestedHostPath')),
-    pathPart('guest', tracePayloadPrimitive(payload, 'guestPath')),
-    tracePart('mode', tracePayloadPrimitive(payload, 'mode')),
-    importSummaryPart(payload),
-    providerResultPart(payload),
-    traceBooleanPart('target execution', tracePayloadPrimitive(payload, 'targetExecution')),
-    traceBooleanPart('host db mounted', tracePayloadPrimitive(payload, 'hostDatabaseMounted')),
-    traceBooleanPart('OpenAI creds mounted', tracePayloadPrimitive(payload, 'openAiCredentialsMounted')),
-    traceBooleanPart('review required', tracePayloadPrimitive(payload, 'userReviewRequired')),
-    tracePart('reason', tracePayloadPrimitive(payload, 'reason')),
-    tracePayloadPrimitive(payload, 'error'),
-    tracePart('recovered', tracePayloadPrimitive(payload, 'recoveredAt'))
   ].filter((part): part is string => Boolean(part));
 }
 

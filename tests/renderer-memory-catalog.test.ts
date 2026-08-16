@@ -762,7 +762,6 @@ function memoryToolEvent(
     sensitivity: 'internal',
     modelVisible: true,
     createdAt: `2026-07-19T12:0${sequence}:00.000Z`,
-    vmContextId: null,
     artifactId: null,
     toolCallId: actionId,
     approvalId: null
@@ -806,7 +805,6 @@ function summaryDetail(): RunDetail {
     findings: [],
     verifierContracts: [],
     verifierRuns: [],
-    vmContexts: [],
     modelSessions: [],
     contextCompactions: [],
     policyEvents: [],
@@ -895,7 +893,6 @@ function subagentCommentaryEvent(): TraceEventRecord {
     sensitivity: 'internal',
     modelVisible: true,
     createdAt: '2026-07-19T12:01:00.000Z',
-    vmContextId: null,
     artifactId: null,
     toolCallId: null,
     approvalId: null

@@ -123,7 +123,7 @@ function isMomentumVerifyingEvent(event: TraceEventRecord): boolean {
   if (category === 'verifier') return true;
   const text = momentumEventText(event);
   return (
-    category === 'vm_execution' ||
+    category === 'execution' ||
     /\b(verifier|verify|verified|repro|reproduction|debugger|poc|proof|crash|sanitizer|exploit|execute|test|assert)\b/.test(text)
   );
 }

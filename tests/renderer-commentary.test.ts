@@ -360,7 +360,7 @@ describe('renderer commentary projection', () => {
       displayEvent('recovery', { interruptedByRecovery: true }, {
         sequence: 2,
         source: 'system',
-        type: 'vm_event',
+        type: 'research_event',
         summary: 'Workspace recovery paused interrupted run after app restart.'
       })
     ], { includeInitialPrompt: false });
@@ -784,7 +784,6 @@ function displayEvent(
     sensitivity: 'internal',
     modelVisible: true,
     createdAt: '2026-08-03T10:00:00.000Z',
-    vmContextId: null,
     artifactId: null,
     toolCallId: null,
     approvalId: null,

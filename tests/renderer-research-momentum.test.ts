@@ -129,7 +129,6 @@ function traceEvent(input: Partial<TraceEventRecord> = {}): TraceEventRecord {
     sensitivity: 'internal',
     modelVisible: true,
     createdAt: '2026-04-30T11:59:00.000Z',
-    vmContextId: null,
     artifactId: null,
     toolCallId: null,
     approvalId: null,

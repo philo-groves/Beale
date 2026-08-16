@@ -22,7 +22,6 @@ import type {
   SessionFinalDisposition,
   RunEngineKind,
   RunStatus,
-  VmPreference,
   WorkspaceSnapshot
 } from '@shared/types';
 import type { ResearchProfileId } from '@shared/types';
@@ -33,11 +32,6 @@ interface SqlRow {
   [key: string]: unknown;
 }
 
-const DEFAULT_VM_PREFERENCE: VmPreference = {
-  enabled: false,
-  backendKind: null,
-  updatedAt: null
-};
 const DEFAULT_SHELL_OPTIONS: ShellOptions = {
   defaultConcurrency: 4,
   utilities: { sudo: 0 }
@@ -76,14 +70,9 @@ export class WorkspaceRegistry {
   public getState(): WorkspaceRegistryState {
     return {
       registryPath: this.registryPath,
-      vmPreference: this.getVmPreference(),
       workspaces: this.listWorkspaces(),
       researchSessions: this.listResearchSessions()
     };
-  }
-
-  public getVmPreference(): VmPreference {
-    return DEFAULT_VM_PREFERENCE;
   }
 
   public getProfilingEnabled(): boolean {

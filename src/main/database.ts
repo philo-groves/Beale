@@ -5,7 +5,6 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import ts from 'typescript';
 import { applyDatabaseMigrations } from './databaseMigrations';
-import { MEMORY_DREAMING_RUN_PROVENANCE_TRIGGER_SQL, MEMORY_DREAMING_SCHEMA_SQL } from './legacyMemoryDreamingSchema';
 import { decodeResearchProfileJson, decodeResolvedResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
 import { normalizeShellSafetyMode } from '../shared/shellSafety';
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
@@ -33,12 +32,7 @@ import type {
   OpenAiTransport,
   ProjectInventoryRefreshReport,
   ProjectInventorySummary,
-  WorkspaceGraphProjection,
-  WorkspaceGraphVisualization,
-  ProjectGraphSummary,
   ProjectSearchResult,
-  ProjectSemanticSearchResult,
-  ProjectSemanticSummary,
   ProjectStructureSummary,
   ResearchModelSelection,
   ResearchProfileSnapshot,
@@ -77,7 +71,6 @@ import type {
   VerifierContractEditInput,
   VerifierContractRecord,
   VerifierRunRecord,
-  VmContextRecord,
   WorkspaceExportResult,
   WorkspaceRecoveryReport
 } from '@shared/types';
@@ -95,7 +88,6 @@ export interface AppendTraceInput {
   payload?: Record<string, unknown>;
   sensitivity?: string;
   modelVisible?: boolean;
-  vmContextId?: string | null;
   artifactId?: string | null;
   toolCallId?: string | null;
   approvalId?: string | null;
@@ -138,7 +130,6 @@ export interface CreateVerifierRunInput {
   contractId: string;
   runId: string;
   attemptId?: string | null;
-  vmContextId?: string | null;
   status: string;
   blockedIssue: string;
   behaviorPreserved: string;
@@ -179,7 +170,6 @@ export interface CreateToolCallInput {
   resultSummary?: string;
   result?: Record<string, unknown>;
   policyDecisionId?: string | null;
-  vmContextId?: string | null;
 }
 
 export interface CreateAttemptInput {
@@ -188,11 +178,6 @@ export interface CreateAttemptInput {
   status?: AttemptStatus;
   shortState: string;
   strategyRole: string;
-  vmBackend?: string;
-  vmImageId?: string;
-  vmSnapshotId?: string;
-  vmState?: string;
-  vmMetadata?: Record<string, unknown>;
   cost?: Record<string, unknown>;
   tokenUsage?: Record<string, unknown>;
 }
@@ -238,11 +223,6 @@ export interface StartRunRecordInput {
   targetAssetId?: string | null;
   targetPath?: string | null;
   budget: Record<string, unknown>;
-  vmBackend?: string;
-  vmImageId?: string;
-  vmSnapshotId?: string;
-  vmState?: string;
-  vmMetadata?: Record<string, unknown>;
 }
 
 export interface ResearchRecommendationRunContext {
@@ -303,59 +283,6 @@ interface ProjectSearchDocumentRecord {
   updatedAt: string;
 }
 
-interface ProjectSemanticChunkInput {
-  scopeVersionId: string;
-  runId?: string | null;
-  sourceDocumentId: string;
-  namespace: string;
-  entityType: string;
-  entityId: string;
-  title: string;
-  content: string;
-  contentHash: string;
-  sourcePath?: string | null;
-  chunkIndex: number;
-  tokenCount: number;
-  vectorProvider: string;
-  vectorModel: string;
-  vector: Record<string, number>;
-  metadata: Record<string, unknown>;
-  indexedAt: string;
-}
-
-interface ProjectSemanticQueryProfile {
-  terms: string[];
-  termWeights: Map<string, number>;
-  namespaceWeights: Record<string, number>;
-  totalWeight: number;
-}
-
-interface ProjectSemanticRankScore {
-  score: number;
-  baseScore: number;
-  rerankScore: number;
-  vectorScore: number;
-  lexicalScore: number;
-  titleScore: number;
-  namespaceScore: number;
-  entityScore: number;
-  pathScore: number;
-  proximityScore: number;
-  provenanceScore: number;
-  securityScore: number;
-  scopeScore: number;
-  structureScore: number;
-  researchMemoryScore: number;
-  duplicateRiskPenalty: number;
-  matchedTerms: string[];
-  rankReason: string;
-}
-
-interface ProjectSemanticDirectSourceText {
-  text: string;
-  truncated: boolean;
-}
-
 interface ProjectInventoryInsertInput {
   scopeVersionId: string;
   asset: ScopeAsset;
@@ -414,32 +341,6 @@ interface ProjectStructureCandidate {
   relations?: Array<Omit<ProjectStructureRelationInput, 'scopeVersionId' | 'sourceEntityId' | 'indexedAt'>>;
 }
 
-type ProjectSemanticJobStatus = Extract<ProjectSemanticSummary['status'], 'queued' | 'indexing' | 'error' | 'canceled'>;
-
-interface ProjectSemanticJobState {
-  status: ProjectSemanticJobStatus;
-  reason: string;
-  queuedAt: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-  error: string | null;
-  processed: number | null;
-  total: number | null;
-}
-
-interface ProjectSemanticDirtyState {
-  reason: string;
-  markedAt: string;
-}
-
-interface ProjectSemanticRefreshState {
-  indexedAt: string | null;
-  durationMs: number | null;
-  sourceDocumentCount: number;
-  chunkCount: number;
-  indexSizeBytes: number;
-}
-
 export interface ProjectStructureEntityRecord {
   id: string;
   scopeVersionId: string;
@@ -486,48 +387,9 @@ export interface ProjectSourceCoveragePathRecord {
   indexedAt: string;
 }
 
-export interface ProjectGraphNodeRecord {
-  id: string;
-  scopeVersionId: string;
-  nodeKind: string;
-  entityType: string;
-  entityId: string;
-  label: string;
-  sourcePath: string | null;
-  metadata: Record<string, unknown>;
-  indexedAt: string;
-}
-
-export interface ProjectGraphEdgeRecord {
-  id: string;
-  scopeVersionId: string;
-  sourceNodeId: string;
-  edgeKind: string;
-  targetNodeId: string | null;
-  targetEntityType: string;
-  targetEntityId: string | null;
-  targetLabel: string;
-  metadata: Record<string, unknown>;
-  indexedAt: string;
-}
-
-export interface ProjectGraphNeighborhood {
-  status: 'hit' | 'miss';
-  root: ProjectGraphNodeRecord | null;
-  depth: number;
-  nodes: ProjectGraphNodeRecord[];
-  edges: ProjectGraphEdgeRecord[];
-}
-
-export interface ProjectGraphVariantRecord {
-  node: ProjectGraphNodeRecord;
-  edge: ProjectGraphEdgeRecord;
-}
-
 export interface CreatedRunContext {
   run: RunRecord;
   attempt: AttemptRecord;
-  vmContext: VmContextRecord;
 }
 
 const PROJECT_INVENTORY_MAX_FILES = 10_000;
@@ -540,149 +402,6 @@ const PROJECT_STRUCTURE_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const PROJECT_STRUCTURE_MAX_ENTITIES_PER_FILE = 400;
 const PROJECT_STRUCTURE_MAX_DEFINITION_LINES = 300;
 const PROJECT_STRUCTURE_BINARY_MAX_ENTITIES_PER_FILE = 80;
-const BINARY_GRAPH_EDGE_KINDS = new Set(['imports_symbol', 'exports_symbol', 'contains_string', 'references_url', 'references_permission']);
-const PROJECT_SEMANTIC_ENABLED_META_KEY = 'project_semantic_index_enabled';
-const PROJECT_SEMANTIC_JOB_META_KEY = 'project_semantic_index_job';
-const PROJECT_SEMANTIC_DIRTY_META_KEY = 'project_semantic_index_dirty';
-const PROJECT_SEMANTIC_VECTOR_PROVIDER = 'local_hash';
-const PROJECT_SEMANTIC_VECTOR_MODEL = 'local-hash-v3';
-const PROJECT_SEMANTIC_MAX_SOURCE_CHARS = 64 * 1024;
-const PROJECT_SEMANTIC_CHUNK_MAX_CHARS = 2400;
-const PROJECT_SEMANTIC_CHUNK_OVERLAP_CHARS = 240;
-const PROJECT_SEMANTIC_MAX_CHUNKS_PER_DOCUMENT = 12;
-const PROJECT_SEMANTIC_SOURCE_CHUNK_BASE_INDEX = 1000;
-const PROJECT_SEMANTIC_ENTITY_CHUNK_BASE_INDEX = 2000;
-const PROJECT_SEMANTIC_SOURCE_CHUNK_MAX_LINES = 80;
-const PROJECT_SEMANTIC_SOURCE_CHUNK_OVERLAP_LINES = 8;
-const PROJECT_SEMANTIC_MAX_SOURCE_CHUNKS_PER_DOCUMENT = 24;
-const PROJECT_SEMANTIC_MAX_ENTITY_CHUNKS_PER_DOCUMENT = 8;
-const PROJECT_SEMANTIC_ENTITY_CONTEXT_LINES = 3;
-const PROJECT_SEMANTIC_MAX_VECTOR_TERMS = 256;
-const PROJECT_SEMANTIC_SEARCH_CANDIDATE_LIMIT = 768;
-const PROJECT_SEMANTIC_SEARCH_PREFILTER_TERM_LIMIT = 18;
-const PROJECT_GRAPH_GENERIC_LABELS = new Set([
-  'api',
-  'app',
-  'async',
-  'auth',
-  'authorization',
-  'body',
-  'client',
-  'data',
-  'delete',
-  'error',
-  'exec',
-  'fetch',
-  'get',
-  'handler',
-  'headers',
-  'id',
-  'input',
-  'insert',
-  'list',
-  'method',
-  'middleware',
-  'object',
-  'params',
-  'parse',
-  'permission',
-  'permissions',
-  'policy',
-  'post',
-  'query',
-  'request',
-  'response',
-  'route',
-  'select',
-  'string',
-  'test',
-  'token',
-  'update',
-  'url',
-  'user',
-  'value'
-]);
-
-function projectSemanticEnabledMetaKey(scopeVersionId: string): string {
-  return `${PROJECT_SEMANTIC_ENABLED_META_KEY}:${scopeVersionId}`;
-}
-
-function projectSemanticRefreshMetaKey(scopeVersionId: string): string {
-  return `${PROJECT_SEMANTIC_ENABLED_META_KEY}:${scopeVersionId}:last_refresh`;
-}
-
-function projectSemanticJobMetaKey(scopeVersionId: string): string {
-  return `${PROJECT_SEMANTIC_JOB_META_KEY}:${scopeVersionId}`;
-}
-
-function projectSemanticDirtyMetaKey(scopeVersionId: string): string {
-  return `${PROJECT_SEMANTIC_DIRTY_META_KEY}:${scopeVersionId}`;
-}
-
-function normalizeProjectGraphLabel(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function projectGraphClusterId(kind: string, value: string): string {
-  const normalized = normalizeProjectGraphLabel(value).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  return `${kind}:${normalized || 'unknown'}`.slice(0, 120);
-}
-
-function isProjectGraphGenericLabel(value: string): boolean {
-  const normalized = normalizeProjectGraphLabel(value);
-  if (!normalized || normalized.length <= 2 || /^\d+$/.test(normalized)) return true;
-  if (PROJECT_GRAPH_GENERIC_LABELS.has(normalized)) return true;
-  return /^[a-z]+$/.test(normalized) && normalized.length <= 4;
-}
-
-function projectGraphRepositoryLabel(sourcePath: string | null): string | null {
-  const segments = projectGraphPathSegments(sourcePath);
-  const repositorySegment = segments.find((segment) => /^(github\.com|gitlab\.com|bitbucket\.org)_/.test(segment));
-  if (!repositorySegment) return null;
-  const match = /^(github\.com|gitlab\.com|bitbucket\.org)_(.+)$/.exec(repositorySegment);
-  if (!match) return repositorySegment;
-  const repositoryParts = match[2].split('_').filter(Boolean);
-  if (repositoryParts.length >= 2) return `${repositoryParts[0]}/${repositoryParts[1]}`;
-  return `${match[1]}/${repositoryParts.join('/') || repositorySegment}`;
-}
-
-function projectGraphPathLabel(sourcePath: string | null): string {
-  const segments = projectGraphPathSegments(sourcePath);
-  const repositoryIndex = segments.findIndex((segment) => /^(github\.com|gitlab\.com|bitbucket\.org)_/.test(segment));
-  const relevantSegments = repositoryIndex >= 0 ? segments.slice(repositoryIndex + 1) : segments;
-  return relevantSegments.slice(-4).join('/');
-}
-
-function projectGraphSourceGroupLabel(sourcePath: string | null): string | null {
-  const segments = projectGraphPathSegments(sourcePath);
-  const repositoryIndex = segments.findIndex((segment) => /^(github\.com|gitlab\.com|bitbucket\.org)_/.test(segment));
-  const relevantSegments = repositoryIndex >= 0 ? segments.slice(repositoryIndex + 1) : segments;
-  if (relevantSegments.length === 0) return null;
-  if (['apps', 'packages', 'crates', 'src', 'lib', 'cmd', 'internal', 'pkg'].includes(relevantSegments[0]) && relevantSegments.length > 1) {
-    return `${relevantSegments[0]}/${relevantSegments[1]}`;
-  }
-  return relevantSegments[0];
-}
-
-function projectGraphPathSegments(sourcePath: string | null): string[] {
-  if (!sourcePath) return [];
-  return sourcePath.replace(/\\/g, '/').split('/').filter(Boolean);
-}
-
-function isProjectGraphTestOrDocPath(sourcePath: string | null): boolean {
-  const path = (sourcePath ?? '').replace(/\\/g, '/').toLowerCase();
-  return path.includes('/test/') || path.includes('/tests/') || path.includes('__tests__') || path.includes('/docs/') || path.endsWith('/readme.md') || path.includes('/.github/');
-}
-
-function topProjectGraphCounts(counts: Map<string, number>, limit: number): Record<string, number> {
-  return Object.fromEntries(
-    [...counts.entries()]
-      .filter(([, count]) => count > 0)
-      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-      .slice(0, limit)
-  );
-}
-
 const PROJECT_INDEX_SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache', '.next', 'target', 'build']);
 const PROJECT_INDEX_MANIFEST_FILES = new Set([
   'package.json',
@@ -1159,20 +878,6 @@ function projectFtsQuery(query: string): string | null {
   return terms.map((term) => `"${term.replace(/"/g, '""')}"`).join(' AND ');
 }
 
-function projectSemanticPrefilterTerms(query: string, profile: ProjectSemanticQueryProfile): string[] {
-  const seen = new Set<string>();
-  const terms: string[] = [];
-  const add = (term: string): void => {
-    const normalized = term.trim().toLowerCase();
-    if (normalized.length < 2 || seen.has(normalized)) return;
-    seen.add(normalized);
-    terms.push(normalized);
-  };
-  for (const term of projectSearchTerms(query)) add(term);
-  for (const term of profile.terms) add(term);
-  return terms.slice(0, PROJECT_SEMANTIC_SEARCH_PREFILTER_TERM_LIMIT);
-}
-
 function projectSearchPreview(title: string, body: string, query: string, maxLength = 260): string {
   const terms = projectSearchTerms(query);
   const compact = `${title}\n${body}`.replace(/\s+/g, ' ').trim();
@@ -1189,691 +894,6 @@ function projectSearchPreview(title: string, body: string, query: string, maxLen
   return `${start > 0 ? '...' : ''}${compact.slice(start, end).trim()}${end < compact.length ? '...' : ''}`;
 }
 
-function semanticSearchPreview(content: string, query: string, maxLength = 300): string {
-  const terms = semanticTokens(query).map((token) => token.term);
-  const compact = content.replace(/\s+/g, ' ').trim();
-  if (compact.length <= maxLength) return compact;
-  const lower = compact.toLowerCase();
-  const firstMatch = terms.reduce((best, term) => {
-    const index = lower.indexOf(term);
-    if (index < 0) return best;
-    return best < 0 ? index : Math.min(best, index);
-  }, -1);
-  const anchor = firstMatch >= 0 ? firstMatch : 0;
-  const start = Math.max(0, anchor - 90);
-  const end = Math.min(compact.length, start + maxLength);
-  return `${start > 0 ? '...' : ''}${compact.slice(start, end).trim()}${end < compact.length ? '...' : ''}`;
-}
-
-function projectSemanticNamespace(document: ProjectSearchDocumentRecord): string {
-  if (document.entityType === 'structure_entity') {
-    const entityKind = typeof document.metadata.entityKind === 'string' ? document.metadata.entityKind : '';
-    if (entityKind.startsWith('binary_')) return 'binary';
-    if (entityKind.startsWith('mobile_') || entityKind === 'url_scheme') return 'mobile';
-    if (entityKind === 'web_endpoint' || entityKind === 'graphql_operation' || entityKind === 'route') return 'web';
-    return 'code';
-  }
-  if (document.entityType === 'inventory_item') {
-    const resourceKind = typeof document.metadata.resourceKind === 'string' ? document.metadata.resourceKind : '';
-    if (resourceKind === 'binary') return 'binary';
-    if (resourceKind === 'manifest') return 'docs';
-    return 'code';
-  }
-  if (['verifier_run', 'verifier_contract', 'artifact', 'trace_event', 'transcript', 'run'].includes(document.entityType)) return 'research_memory';
-  return 'docs';
-}
-
-function semanticChunksForDocument(document: ProjectSearchDocumentRecord, indexedAt: string, sourceTextCache: Map<string, ProjectSemanticDirectSourceText | null>): ProjectSemanticChunkInput[] {
-  const namespace = projectSemanticNamespace(document);
-  const source = `${document.title}\n${document.body}`.trim().slice(0, PROJECT_SEMANTIC_MAX_SOURCE_CHARS);
-  const chunks: ProjectSemanticChunkInput[] = [];
-  let offset = 0;
-  let chunkIndex = 0;
-  while (offset < source.length && chunkIndex < PROJECT_SEMANTIC_MAX_CHUNKS_PER_DOCUMENT) {
-    const end = Math.min(source.length, offset + PROJECT_SEMANTIC_CHUNK_MAX_CHARS);
-    const content = source.slice(offset, end).trim();
-    if (content) {
-      chunks.push(
-        projectSemanticChunkFromContent(document, {
-          namespace,
-          title: document.title,
-          content,
-          chunkIndex,
-          metadata: {
-            ...document.metadata,
-            semanticSourceKind: 'search_document'
-          },
-          indexedAt
-        })
-      );
-      chunkIndex += 1;
-    }
-    if (end >= source.length) break;
-    offset = Math.max(end - PROJECT_SEMANTIC_CHUNK_OVERLAP_CHARS, offset + 1);
-  }
-  chunks.push(...semanticDirectSourceChunksForDocument(document, namespace, indexedAt, sourceTextCache));
-  return chunks;
-}
-
-function projectSemanticChunkFromContent(
-  document: ProjectSearchDocumentRecord,
-  input: {
-    namespace: string;
-    title: string;
-    content: string;
-    chunkIndex: number;
-    metadata: Record<string, unknown>;
-    indexedAt: string;
-  }
-): ProjectSemanticChunkInput {
-  const content = input.content.trim();
-  const vector = semanticVectorForText(semanticVectorInput(input.namespace, input.title, content, input.metadata), input.namespace);
-  const tokenCount = semanticTokens(content).length;
-  const contentHash = createHash('sha256').update(content).digest('hex');
-  return {
-    scopeVersionId: document.scopeVersionId,
-    runId: document.runId,
-    sourceDocumentId: document.id,
-    namespace: input.namespace,
-    entityType: document.entityType,
-    entityId: document.entityId,
-    title: input.title,
-    content,
-    contentHash,
-    sourcePath: document.sourcePath,
-    chunkIndex: input.chunkIndex,
-    tokenCount,
-    vectorProvider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
-    vectorModel: PROJECT_SEMANTIC_VECTOR_MODEL,
-    vector,
-    metadata: {
-      ...input.metadata,
-      sourceDocumentId: document.id,
-      namespace: input.namespace,
-      chunkIndex: input.chunkIndex,
-      provider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
-      model: PROJECT_SEMANTIC_VECTOR_MODEL,
-      localOnly: true
-    },
-    indexedAt: input.indexedAt
-  };
-}
-
-function semanticDirectSourceChunksForDocument(
-  document: ProjectSearchDocumentRecord,
-  namespace: string,
-  indexedAt: string,
-  sourceTextCache: Map<string, ProjectSemanticDirectSourceText | null>
-): ProjectSemanticChunkInput[] {
-  if (!document.sourcePath || !isAbsolute(document.sourcePath)) return [];
-  if (document.entityType === 'inventory_item') {
-    const resourceKind = typeof document.metadata.resourceKind === 'string' ? document.metadata.resourceKind : '';
-    if (!semanticResourceKindSupportsDirectText(resourceKind)) return [];
-    const sourceText = getSemanticDirectSourceText(document.sourcePath, resourceKind, sourceTextCache);
-    if (!sourceText) return [];
-    const lines = sourceText.text.split('\n');
-    return semanticLineRangeChunks(document, {
-      namespace,
-      indexedAt,
-      lines,
-      titlePrefix: `${document.title} source`,
-      lineStart: 1,
-      lineEnd: lines.length,
-      chunkBaseIndex: PROJECT_SEMANTIC_SOURCE_CHUNK_BASE_INDEX,
-      maxChunks: PROJECT_SEMANTIC_MAX_SOURCE_CHUNKS_PER_DOCUMENT,
-      metadata: {
-        ...document.metadata,
-        semanticSourceKind: 'source_range',
-        sourcePath: document.sourcePath,
-        resourceKind,
-        language: typeof document.metadata.language === 'string' ? document.metadata.language : '',
-        truncatedFile: sourceText.truncated
-      }
-    });
-  }
-
-  if (document.entityType !== 'structure_entity') return [];
-  const resourceKind = typeof document.metadata.resourceKind === 'string' ? document.metadata.resourceKind : 'source';
-  if (!semanticResourceKindSupportsDirectText(resourceKind)) return [];
-  const sourceText = getSemanticDirectSourceText(document.sourcePath, resourceKind, sourceTextCache);
-  if (!sourceText) return [];
-  const lines = sourceText.text.split('\n');
-  const lineStart = semanticMetadataNumber(document.metadata.lineStart);
-  const lineEnd = semanticMetadataNumber(document.metadata.lineEnd) ?? lineStart;
-  if (!lineStart || !lineEnd) return [];
-  const entityKind = typeof document.metadata.entityKind === 'string' ? document.metadata.entityKind : '';
-  const contextLines = projectStructureEntityOwnsRange(entityKind) ? PROJECT_SEMANTIC_ENTITY_CONTEXT_LINES : 0;
-  const start = Math.max(1, lineStart - contextLines);
-  const end = Math.min(lines.length, Math.max(lineStart, lineEnd) + contextLines);
-  return semanticLineRangeChunks(document, {
-    namespace,
-    indexedAt,
-    lines,
-    titlePrefix: `${document.title} ${basename(document.sourcePath)}`,
-    lineStart: start,
-    lineEnd: end,
-    chunkBaseIndex: PROJECT_SEMANTIC_ENTITY_CHUNK_BASE_INDEX,
-    maxChunks: PROJECT_SEMANTIC_MAX_ENTITY_CHUNKS_PER_DOCUMENT,
-    metadata: {
-      ...document.metadata,
-      semanticSourceKind: 'entity_range',
-      sourcePath: document.sourcePath,
-      resourceKind,
-      entityKind,
-      entityName: typeof document.metadata.name === 'string' ? document.metadata.name : document.entityId,
-      entityLineStart: lineStart,
-      entityLineEnd: lineEnd,
-      truncatedFile: sourceText.truncated
-    }
-  });
-}
-
-function semanticLineRangeChunks(
-  document: ProjectSearchDocumentRecord,
-  input: {
-    namespace: string;
-    indexedAt: string;
-    lines: string[];
-    titlePrefix: string;
-    lineStart: number;
-    lineEnd: number;
-    chunkBaseIndex: number;
-    maxChunks: number;
-    metadata: Record<string, unknown>;
-  }
-): ProjectSemanticChunkInput[] {
-  const chunks: ProjectSemanticChunkInput[] = [];
-  const firstLine = Math.max(1, Math.min(input.lines.length, Math.floor(input.lineStart)));
-  const lastLine = Math.max(firstLine, Math.min(input.lines.length, Math.floor(input.lineEnd)));
-  let start = firstLine;
-  while (start <= lastLine && chunks.length < input.maxChunks) {
-    const selectedLines: string[] = [];
-    let end = start - 1;
-    while (end < lastLine && selectedLines.length < PROJECT_SEMANTIC_SOURCE_CHUNK_MAX_LINES) {
-      const candidateLine = (input.lines[end] ?? '').slice(0, PROJECT_SEMANTIC_CHUNK_MAX_CHARS);
-      const candidate = [...selectedLines, candidateLine].join('\n');
-      if (selectedLines.length > 0 && candidate.length > PROJECT_SEMANTIC_CHUNK_MAX_CHARS) break;
-      selectedLines.push(candidateLine);
-      end += 1;
-      if (candidate.length >= PROJECT_SEMANTIC_CHUNK_MAX_CHARS) break;
-    }
-    if (selectedLines.length === 0) {
-      selectedLines.push((input.lines[start - 1] ?? '').slice(0, PROJECT_SEMANTIC_CHUNK_MAX_CHARS));
-      end = start;
-    }
-    const excerpt = selectedLines.join('\n').trim();
-    if (excerpt) {
-      const lineTitle = `${input.titlePrefix}:${start}-${end}`;
-      chunks.push(
-        projectSemanticChunkFromContent(document, {
-          namespace: input.namespace,
-          title: lineTitle,
-          content: `${lineTitle}\n${excerpt}`,
-          chunkIndex: input.chunkBaseIndex + chunks.length,
-          metadata: {
-            ...input.metadata,
-            lineStart: start,
-            lineEnd: end,
-            sourceRange: `${start}-${end}`
-          },
-          indexedAt: input.indexedAt
-        })
-      );
-    }
-    if (end >= lastLine) break;
-    start = Math.max(start + 1, end + 1 - PROJECT_SEMANTIC_SOURCE_CHUNK_OVERLAP_LINES);
-  }
-  return chunks;
-}
-
-function semanticResourceKindSupportsDirectText(resourceKind: string): boolean {
-  return resourceKind === 'source' || resourceKind === 'text' || resourceKind === 'manifest';
-}
-
-function getSemanticDirectSourceText(path: string, resourceKind: string, sourceTextCache: Map<string, ProjectSemanticDirectSourceText | null>): ProjectSemanticDirectSourceText | null {
-  const key = `${resourceKind}:${path}`;
-  if (sourceTextCache.has(key)) return sourceTextCache.get(key) ?? null;
-  let result: ProjectSemanticDirectSourceText | null = null;
-  try {
-    const stat = lstatSync(path);
-    if (stat.isFile() && !stat.isSymbolicLink()) {
-      result = readProjectStructureText(path, resourceKind, stat.size);
-    }
-  } catch {
-    result = null;
-  }
-  sourceTextCache.set(key, result);
-  return result;
-}
-
-function semanticMetadataNumber(value: unknown): number | null {
-  const number = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
-  return Number.isFinite(number) ? Math.max(1, Math.floor(number)) : null;
-}
-
-function semanticVectorInput(namespace: string, title: string, content: string, metadata: Record<string, unknown>): string {
-  return [namespace, title, content, semanticMetadataText(metadata)].filter(Boolean).join('\n');
-}
-
-function semanticMetadataText(metadata: Record<string, unknown>): string {
-  const values: string[] = [];
-  const keys = [
-    'sourcePath',
-    'relativePath',
-    'language',
-    'resourceKind',
-    'entityKind',
-    'entityName',
-    'name',
-    'signature',
-    'component',
-    'bugClass',
-    'state',
-    'kind',
-    'mode',
-    'sourceRange'
-  ];
-  for (const key of keys) {
-    const value = metadata[key];
-    if (typeof value === 'string' && value.trim()) values.push(value);
-    else if (typeof value === 'number' && Number.isFinite(value)) values.push(String(value));
-  }
-  const cweMappings = metadata.cweMappings;
-  if (Array.isArray(cweMappings)) {
-    for (const mapping of cweMappings) {
-      if (!mapping || typeof mapping !== 'object') continue;
-      const record = mapping as Record<string, unknown>;
-      for (const key of ['cweId', 'cweName']) {
-        const value = record[key];
-        if (typeof value === 'string' && value.trim()) values.push(value);
-      }
-    }
-  }
-  return values.join('\n');
-}
-
-function semanticTokens(value: string): Array<{ term: string; weight: number }> {
-  const raw = value
-    .split(/[^a-z0-9_.$/@:-]+/i)
-    .flatMap((token) => semanticTokenCandidates(token))
-    .filter((token): token is string => Boolean(token && token.length >= 2 && !SEMANTIC_STOP_WORDS.has(token)));
-  const tokens: Array<{ term: string; weight: number }> = [];
-  for (const term of raw) {
-    tokens.push({ term, weight: 1 });
-    for (const synonym of semanticSynonymsForTerm(term)) tokens.push({ term: synonym, weight: 0.45 });
-  }
-  return tokens;
-}
-
-function semanticSynonymsForTerm(term: string): string[] {
-  if (!Object.prototype.hasOwnProperty.call(SEMANTIC_SYNONYMS, term)) return [];
-  const synonyms = SEMANTIC_SYNONYMS[term];
-  return Array.isArray(synonyms) ? synonyms : [];
-}
-
-function semanticTokenCandidates(value: string): string[] {
-  const stripped = value.trim().replace(/^[-_.:/]+|[-_.:/]+$/g, '');
-  if (!stripped) return [];
-  const candidates = new Set<string>();
-  const normalizedFull = semanticNormalizeToken(stripped.toLowerCase());
-  if (normalizedFull) candidates.add(normalizedFull);
-  const expanded = stripped
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .split(/[_.$/@:-]+|\s+/)
-    .map((part) => semanticNormalizeToken(part.toLowerCase()))
-    .filter((part) => part.length >= 2);
-  for (const part of expanded) candidates.add(part);
-  return Array.from(candidates);
-}
-
-function semanticNormalizeToken(value: string): string {
-  const token = value.trim().replace(/^[-_.:/]+|[-_.:/]+$/g, '');
-  if (!token) return '';
-  if (token.length > 4 && token.endsWith('ies')) return `${token.slice(0, -3)}y`;
-  if (token.length > 5 && token.endsWith('ing')) return token.slice(0, -3);
-  if (token.length > 4 && token.endsWith('ed')) return token.slice(0, -2);
-  if (token.length > 3 && token.endsWith('s') && !token.endsWith('ss')) return token.slice(0, -1);
-  return token;
-}
-
-function semanticVectorForText(value: string, namespace: string): Record<string, number> {
-  const sorted = Array.from(semanticWeightedTerms(`${namespace} ${value}`).entries())
-    .map(([term, weight]) => [term, Math.round((1 + Math.log(weight)) * 1000) / 1000] as const)
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .slice(0, PROJECT_SEMANTIC_MAX_VECTOR_TERMS);
-  return Object.fromEntries(sorted);
-}
-
-function semanticWeightedTerms(value: string): Map<string, number> {
-  const weights = new Map<string, number>();
-  for (const { term, weight } of semanticTokens(value)) {
-    weights.set(term, (weights.get(term) ?? 0) + weight);
-  }
-  return weights;
-}
-
-function semanticCosineSimilarity(left: Record<string, number>, right: Record<string, number>): number {
-  let dot = 0;
-  let leftNorm = 0;
-  let rightNorm = 0;
-  for (const value of Object.values(left)) leftNorm += value * value;
-  for (const [term, value] of Object.entries(right)) {
-    rightNorm += value * value;
-    dot += (left[term] ?? 0) * value;
-  }
-  if (leftNorm === 0 || rightNorm === 0) return 0;
-  return dot / Math.sqrt(leftNorm * rightNorm);
-}
-
-function semanticQueryProfile(query: string): ProjectSemanticQueryProfile {
-  const termWeights = semanticWeightedTerms(query);
-  const terms = Array.from(termWeights.keys());
-  const namespaceWeights = semanticNamespaceWeights(termWeights);
-  const totalWeight = Array.from(termWeights.values()).reduce((sum, weight) => sum + weight, 0);
-  return { terms, termWeights, namespaceWeights, totalWeight };
-}
-
-function semanticNamespaceWeights(termWeights: Map<string, number>): Record<string, number> {
-  const namespaceHints: Record<string, string[]> = {
-    binary: ['binary', 'crash', 'fault', 'jni', 'native', 'signal', 'sigsegv', 'symbol', 'wasm'],
-    code: ['auth', 'authorization', 'class', 'function', 'guard', 'handler', 'import', 'method', 'middleware', 'parser', 'query', 'route', 'sql'],
-    docs: ['policy', 'readme', 'rule', 'scope'],
-    mobile: ['activity', 'android', 'camera', 'exported', 'ios', 'manifest', 'mobile', 'permission', 'provider', 'receiver', 'service'],
-    research_memory: ['artifact', 'chain', 'evidence', 'impact', 'memory', 'observation', 'primitive', 'reproduced', 'trajectory', 'verifier'],
-    web: ['api', 'csrf', 'endpoint', 'graphql', 'http', 'request', 'response', 'route', 'ssrf', 'url', 'xss']
-  };
-  const weights: Record<string, number> = {};
-  for (const [namespace, hints] of Object.entries(namespaceHints)) {
-    const score = hints.reduce((sum, hint) => sum + (termWeights.get(hint) ?? 0), 0);
-    if (score > 0) weights[namespace] = Math.min(0.16, score * 0.035);
-  }
-  return weights;
-}
-
-const SEMANTIC_SECURITY_SIGNAL_TERMS = new Set([
-  'access',
-  'account',
-  'admin',
-  'auth',
-  'authentication',
-  'authorization',
-  'authorize',
-  'authz',
-  'bypass',
-  'check',
-  'cookie',
-  'credential',
-  'csrf',
-  'deserialization',
-  'deserialize',
-  'exposure',
-  'exported',
-  'guard',
-  'idor',
-  'injection',
-  'intent',
-  'key',
-  'native',
-  'oauth',
-  'parser',
-  'permission',
-  'privilege',
-  'redirect',
-  'route',
-  'secret',
-  'session',
-  'signature',
-  'sink',
-  'sql',
-  'sqli',
-  'ssrf',
-  'token',
-  'traversal',
-  'validation',
-  'xss'
-]);
-
-const SEMANTIC_HIGH_VALUE_ENTITY_KINDS = new Set([
-  'binary_exported_symbol',
-  'binary_imported_symbol',
-  'binary_string',
-  'binary_symbol',
-  'function',
-  'graphql_operation',
-  'method',
-  'mobile_permission',
-  'permission_marker',
-  'route',
-  'security_marker',
-  'sink',
-  'web_endpoint'
-]);
-
-const SEMANTIC_RESEARCH_MEMORY_ENTITY_TYPES = new Set(['artifact', 'verifier_contract', 'verifier_run']);
-const SEMANTIC_STRONG_RESEARCH_STATES = new Set(['pass', 'completed', 'approved']);
-const SEMANTIC_DUPLICATE_RISK_STATES = new Set(['failed', 'error', 'rejected']);
-const SEMANTIC_DUPLICATE_RISK_TERMS = ['failed', 'error', 'rejected', 'not reproducible', 'out of scope'];
-
-function semanticRankScore(row: SqlRow, profile: ProjectSemanticQueryProfile, queryVector: Record<string, number>): ProjectSemanticRankScore {
-  const vectorScore = semanticCosineSimilarity(parseSemanticVector(row.vector_json), queryVector);
-  const titleWeights = semanticWeightedTerms(text(row, 'title'));
-  const metadata = parseJson(row.metadata_json);
-  const content = text(row, 'content');
-  const rankingText = `${text(row, 'title')}\n${content}\n${nullableText(row, 'source_path') ?? ''}\n${semanticMetadataText(metadata)}`;
-  const contentWeights = semanticWeightedTerms(rankingText);
-  const matchedTerms = profile.terms.filter((term) => contentWeights.has(term)).slice(0, 12);
-  const matchedWeight = matchedTerms.reduce((sum, term) => sum + (profile.termWeights.get(term) ?? 0), 0);
-  const lexicalScore = profile.totalWeight > 0 ? Math.min(1, matchedWeight / profile.totalWeight) : 0;
-  const titleMatchedWeight = profile.terms.filter((term) => titleWeights.has(term)).reduce((sum, term) => sum + (profile.termWeights.get(term) ?? 0), 0);
-  const titleScore = profile.totalWeight > 0 ? Math.min(1, titleMatchedWeight / profile.totalWeight) : 0;
-  const namespaceScore = profile.namespaceWeights[text(row, 'namespace')] ?? 0;
-  const entityScore = semanticEntityScore(text(row, 'entity_type'));
-  const pathScore = semanticPathScore(nullableText(row, 'source_path'), profile);
-  const proximityScore = semanticProximityScore(content, matchedTerms);
-  const provenanceScore = semanticProvenanceScore(text(row, 'entity_type'), metadata);
-  const baseScore = vectorScore * 0.56 + lexicalScore * 0.2 + titleScore * 0.08 + proximityScore + pathScore + namespaceScore + entityScore + provenanceScore;
-  const securityScore = semanticSecurityScore(contentWeights);
-  const scopeScore = semanticScopeScore(row, metadata);
-  const structureScore = semanticStructureScore(row, metadata);
-  const researchMemoryScore = semanticResearchMemoryScore(row, metadata);
-  const duplicateRiskPenalty = semanticDuplicateRiskPenalty(row, metadata, rankingText);
-  const rerankScore = securityScore + scopeScore + structureScore + researchMemoryScore - duplicateRiskPenalty;
-  const score = Math.max(0, baseScore + rerankScore);
-  const rounded: ProjectSemanticRankScore = {
-    score: roundSemanticScore(score),
-    baseScore: roundSemanticScore(baseScore),
-    rerankScore: roundSemanticScore(rerankScore),
-    vectorScore: roundSemanticScore(vectorScore),
-    lexicalScore: roundSemanticScore(lexicalScore),
-    titleScore: roundSemanticScore(titleScore),
-    namespaceScore: roundSemanticScore(namespaceScore),
-    entityScore: roundSemanticScore(entityScore),
-    pathScore: roundSemanticScore(pathScore),
-    proximityScore: roundSemanticScore(proximityScore),
-    provenanceScore: roundSemanticScore(provenanceScore),
-    securityScore: roundSemanticScore(securityScore),
-    scopeScore: roundSemanticScore(scopeScore),
-    structureScore: roundSemanticScore(structureScore),
-    researchMemoryScore: roundSemanticScore(researchMemoryScore),
-    duplicateRiskPenalty: roundSemanticScore(duplicateRiskPenalty),
-    matchedTerms,
-    rankReason: ''
-  };
-  return { ...rounded, rankReason: semanticRankReason(rounded) };
-}
-
-function semanticEntityScore(entityType: string): number {
-  if (entityType === 'structure_entity') return 0.035;
-  if (entityType === 'artifact') return 0.03;
-  if (entityType === 'verifier_run' || entityType === 'verifier_contract') return 0.025;
-  if (entityType === 'inventory_item') return 0.015;
-  return 0;
-}
-
-function semanticPathScore(sourcePath: string | null, profile: ProjectSemanticQueryProfile): number {
-  if (!sourcePath || profile.totalWeight <= 0) return 0;
-  const pathWeights = semanticWeightedTerms(sourcePath);
-  const matchedWeight = profile.terms.filter((term) => pathWeights.has(term)).reduce((sum, term) => sum + (profile.termWeights.get(term) ?? 0), 0);
-  return Math.min(0.055, (matchedWeight / profile.totalWeight) * 0.055);
-}
-
-function semanticProximityScore(content: string, matchedTerms: string[]): number {
-  if (matchedTerms.length < 2) return 0;
-  const lower = content.toLowerCase();
-  const positions = matchedTerms
-    .map((term) => lower.indexOf(term))
-    .filter((position) => position >= 0)
-    .sort((left, right) => left - right);
-  if (positions.length < 2) return 0;
-  let bestSpan = Number.POSITIVE_INFINITY;
-  for (let index = 1; index < positions.length; index += 1) {
-    bestSpan = Math.min(bestSpan, positions[index] - positions[index - 1]);
-  }
-  if (bestSpan <= 160) return 0.07;
-  if (bestSpan <= 420) return 0.045;
-  return 0.02;
-}
-
-function semanticProvenanceScore(entityType: string, metadata: Record<string, unknown>): number {
-  const sourceKind = typeof metadata.semanticSourceKind === 'string' ? metadata.semanticSourceKind : '';
-  if (sourceKind === 'entity_range') return 0.055;
-  if (sourceKind === 'source_range') return 0.04;
-  if (entityType === 'structure_entity') return 0.025;
-  if (entityType === 'inventory_item') return 0.01;
-  return 0;
-}
-
-function semanticSecurityScore(weights: Map<string, number>): number {
-  let matched = 0;
-  for (const term of SEMANTIC_SECURITY_SIGNAL_TERMS) {
-    if (weights.has(term)) matched += 1;
-  }
-  if (matched === 0) return 0;
-  return Math.min(0.09, 0.025 + matched * 0.012);
-}
-
-function semanticScopeScore(row: SqlRow, metadata: Record<string, unknown>): number {
-  let score = 0;
-  const sourcePath = nullableText(row, 'source_path');
-  const metadataSourcePath = typeof metadata.sourcePath === 'string' ? metadata.sourcePath : '';
-  const sourceKind = typeof metadata.semanticSourceKind === 'string' ? metadata.semanticSourceKind : '';
-  if ((sourcePath && isAbsolute(sourcePath)) || (metadataSourcePath && isAbsolute(metadataSourcePath))) score += 0.02;
-  if (sourceKind === 'source_range' || sourceKind === 'entity_range') score += 0.015;
-  if (typeof metadata.resourceKind === 'string' && metadata.resourceKind.trim()) score += 0.005;
-  if (semanticMetadataNumber(metadata.lineStart) || semanticMetadataNumber(metadata.entityLineStart)) score += 0.005;
-  if (typeof metadata.sourceDocumentId === 'string' && metadata.sourceDocumentId.trim()) score += 0.005;
-  return Math.min(0.045, score);
-}
-
-function semanticStructureScore(row: SqlRow, metadata: Record<string, unknown>): number {
-  let score = 0;
-  const entityType = text(row, 'entity_type');
-  const entityKind = typeof metadata.entityKind === 'string' ? metadata.entityKind : '';
-  const sourceKind = typeof metadata.semanticSourceKind === 'string' ? metadata.semanticSourceKind : '';
-  if (entityType === 'structure_entity') score += 0.025;
-  if (sourceKind === 'entity_range') score += 0.015;
-  if (SEMANTIC_HIGH_VALUE_ENTITY_KINDS.has(entityKind)) score += 0.02;
-  if (typeof metadata.signature === 'string' && metadata.signature.trim()) score += 0.005;
-  if (typeof metadata.name === 'string' && metadata.name.trim()) score += 0.005;
-  if (semanticMetadataNumber(metadata.lineStart) || semanticMetadataNumber(metadata.entityLineStart)) score += 0.005;
-  return Math.min(0.055, score);
-}
-
-function semanticResearchMemoryScore(row: SqlRow, metadata: Record<string, unknown>): number {
-  let score = 0;
-  const namespace = text(row, 'namespace');
-  const entityType = text(row, 'entity_type');
-  const state = typeof metadata.state === 'string' ? metadata.state : '';
-  if (namespace === 'research_memory') score += 0.012;
-  if (SEMANTIC_RESEARCH_MEMORY_ENTITY_TYPES.has(entityType)) score += 0.018;
-  if (SEMANTIC_STRONG_RESEARCH_STATES.has(state)) score += 0.025;
-  if (Array.isArray(metadata.cweMappings) && metadata.cweMappings.length > 0) score += 0.01;
-  if (typeof metadata.primaryCweId === 'string' && metadata.primaryCweId.trim()) score += 0.01;
-  return Math.min(0.05, score);
-}
-
-function semanticDuplicateRiskPenalty(row: SqlRow, metadata: Record<string, unknown>, rankingText: string): number {
-  let penalty = 0;
-  const state = typeof metadata.state === 'string' ? metadata.state : '';
-  if (SEMANTIC_DUPLICATE_RISK_STATES.has(state)) penalty += 0.075;
-  const lower = `${text(row, 'title')}\n${rankingText}`.toLowerCase();
-  if (SEMANTIC_DUPLICATE_RISK_TERMS.some((term) => lower.includes(term))) penalty += 0.045;
-  if (typeof metadata.duplicateOf === 'string' && metadata.duplicateOf.trim()) penalty += 0.04;
-  return Math.min(0.12, penalty);
-}
-
-function semanticRankReason(score: ProjectSemanticRankScore): string {
-  const reasons: string[] = [];
-  if (score.vectorScore >= 0.18) reasons.push('strong local vector overlap');
-  else if (score.vectorScore >= 0.06) reasons.push('local vector overlap');
-  if (score.lexicalScore >= 0.5) reasons.push('term overlap');
-  else if (score.lexicalScore > 0) reasons.push('partial term overlap');
-  if (score.titleScore > 0) reasons.push('title overlap');
-  if (score.proximityScore > 0) reasons.push('nearby term evidence');
-  if (score.pathScore > 0) reasons.push('path fit');
-  if (score.namespaceScore > 0) reasons.push('namespace fit');
-  if (score.entityScore > 0 || score.provenanceScore > 0) reasons.push('indexed source provenance');
-  if (score.securityScore > 0) reasons.push('security-relevant surface');
-  if (score.scopeScore > 0) reasons.push('scope-backed source');
-  if (score.structureScore > 0) reasons.push('code-structure fit');
-  if (score.researchMemoryScore > 0) reasons.push('prior research signal');
-  if (score.duplicateRiskPenalty > 0) reasons.push('duplicate or dismissed risk penalty');
-  return reasons.join('; ') || 'local semantic similarity';
-}
-
-function roundSemanticScore(value: number): number {
-  return Math.round(value * 1000) / 1000;
-}
-
-function parseSemanticVector(value: SqlPrimitive | undefined): Record<string, number> {
-  const parsed = parseJson(value);
-  const vector: Record<string, number> = {};
-  for (const [key, item] of Object.entries(parsed)) {
-    if (typeof item === 'number' && Number.isFinite(item)) vector[key] = item;
-  }
-  return vector;
-}
-
-function semanticDiversifyRankedCandidates(
-  candidates: Array<{ row: SqlRow; score: ProjectSemanticRankScore }>,
-  limit: number
-): Array<{ row: SqlRow; score: ProjectSemanticRankScore }> {
-  const max = Math.max(1, Math.floor(limit));
-  const selected: Array<{ row: SqlRow; score: ProjectSemanticRankScore }> = [];
-  const selectedIds = new Set<string>();
-  const pathCounts = new Map<string, number>();
-  const documentCounts = new Map<string, number>();
-
-  const tryAdd = (candidate: { row: SqlRow; score: ProjectSemanticRankScore }, strict: boolean): void => {
-    if (selected.length >= max) return;
-    const id = text(candidate.row, 'id');
-    if (selectedIds.has(id)) return;
-    const sourcePath = nullableText(candidate.row, 'source_path');
-    const sourceDocumentId = text(candidate.row, 'source_document_id');
-    const sourceKind = semanticRowSourceKind(candidate.row);
-    if (strict) {
-      const pathCount = sourcePath ? (pathCounts.get(sourcePath) ?? 0) : 0;
-      if (sourcePath && pathCount >= 3 && sourceKind !== 'source_range') return;
-      if (sourcePath && pathCount >= 4) return;
-      if ((documentCounts.get(sourceDocumentId) ?? 0) >= 2 && sourceKind !== 'entity_range') return;
-    }
-    selectedIds.add(id);
-    if (sourcePath) pathCounts.set(sourcePath, (pathCounts.get(sourcePath) ?? 0) + 1);
-    documentCounts.set(sourceDocumentId, (documentCounts.get(sourceDocumentId) ?? 0) + 1);
-    selected.push(candidate);
-  };
-
-  for (const candidate of candidates) tryAdd(candidate, true);
-  for (const candidate of candidates) tryAdd(candidate, false);
-  return selected.sort((left, right) => right.score.score - left.score.score || text(right.row, 'indexed_at').localeCompare(text(left.row, 'indexed_at')));
-}
-
-function semanticRowSourceKind(row: SqlRow): string {
-  const metadata = parseJson(row.metadata_json);
-  return typeof metadata.semanticSourceKind === 'string' ? metadata.semanticSourceKind : '';
-}
-
 function projectSearchDocumentId(scopeVersionId: string, entityType: string, entityId: string): string {
   return createHash('sha256').update(`${scopeVersionId}\n${entityType}\n${entityId}`).digest('hex');
 }
@@ -1888,22 +908,6 @@ function projectStructureEntityId(scopeVersionId: string, path: string, entityKi
 
 function projectStructureRelationId(scopeVersionId: string, sourceEntityId: string, relationKind: string, targetKind: string, targetName: string): string {
   return `structure_rel_${createHash('sha256').update(`${scopeVersionId}\n${sourceEntityId}\n${relationKind}\n${targetKind}\n${targetName}`).digest('hex').slice(0, 32)}`;
-}
-
-function projectGraphNodeId(scopeVersionId: string, entityType: string, entityId: string): string {
-  return `graph_node_${createHash('sha256').update(`${scopeVersionId}\n${entityType}\n${entityId}`).digest('hex').slice(0, 32)}`;
-}
-
-function researchComponentEntityId(component: string): string {
-  return `component_${createHash('sha256').update(component.trim().toLowerCase()).digest('hex').slice(0, 24)}`;
-}
-
-function projectGraphEdgeId(scopeVersionId: string, sourceNodeId: string, edgeKind: string, targetEntityType: string, targetEntityId: string | null, targetLabel: string): string {
-  return `graph_edge_${createHash('sha256').update(`${scopeVersionId}\n${sourceNodeId}\n${edgeKind}\n${targetEntityType}\n${targetEntityId ?? ''}\n${targetLabel}`).digest('hex').slice(0, 32)}`;
-}
-
-function projectSemanticChunkId(scopeVersionId: string, sourceDocumentId: string, chunkIndex: number, contentHash: string): string {
-  return `semantic_${createHash('sha256').update(`${scopeVersionId}\n${sourceDocumentId}\n${chunkIndex}\n${contentHash}`).digest('hex').slice(0, 32)}`;
 }
 
 function normalizedProjectPath(path: string): string {
@@ -3762,7 +2766,7 @@ export class WorkspaceDatabase {
     );
     const interruptedAttemptRows = rows(
       this.db
-        .prepare("SELECT a.id, a.run_id, a.vm_context_id FROM attempts a JOIN runs r ON r.id = a.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND a.status IN ('queued', 'active')")
+        .prepare("SELECT a.id, a.run_id FROM attempts a JOIN runs r ON r.id = a.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND a.status IN ('queued', 'active')")
         .all(this.workspaceId)
     );
     const interruptedModelRows = rows(
@@ -3787,20 +2791,6 @@ export class WorkspaceDatabase {
         )
         .all(this.workspaceId)
     );
-    const interruptedVmRows = rows(
-      this.db
-        .prepare(
-          `SELECT DISTINCT v.* FROM vm_contexts v
-           JOIN attempts a ON a.vm_context_id = v.id
-           JOIN runs r ON r.id = a.run_id
-           JOIN scope_versions s ON s.id = r.scope_version_id
-           WHERE v.destroyed_at IS NULL
-             AND s.workspace_id = ?
-             AND v.state NOT IN ('destroyed', 'preserved', 'recovery_pending')
-             AND (r.status IN ('queued', 'active') OR a.status IN ('queued', 'active'))`
-        )
-        .all(this.workspaceId)
-    );
     const report: WorkspaceRecoveryReport = {
       recoveredAt,
       reason,
@@ -3809,7 +2799,6 @@ export class WorkspaceDatabase {
       interruptedModelSessions: interruptedModelRows.length,
       interruptedToolCalls: interruptedToolRows.length,
       interruptedVerifierRuns: interruptedVerifierRows.length,
-      interruptedVmContexts: interruptedVmRows.length,
       notes: []
     };
 
@@ -3819,7 +2808,6 @@ export class WorkspaceDatabase {
       report.interruptedModelSessions +
       report.interruptedToolCalls +
       report.interruptedVerifierRuns +
-      report.interruptedVmContexts +
       interruptedApprovalRows.length;
     if (total === 0) {
       report.notes.push('No interrupted authoritative state found.');
@@ -3828,9 +2816,6 @@ export class WorkspaceDatabase {
     }
 
     report.notes.push('Interrupted active work was paused or marked for review on workspace open.');
-    if (report.interruptedVmContexts > 0) {
-      report.notes.push('VM contexts that were not known destroyed were marked recovery_pending for user review.');
-    }
     if (interruptedApprovalRows.length > 0) {
       report.notes.push(`${interruptedApprovalRows.length} pending shell approval request${interruptedApprovalRows.length === 1 ? '' : 's'} denied during recovery.`);
     }
@@ -3891,16 +2876,6 @@ export class WorkspaceDatabase {
           .prepare("UPDATE approvals SET decision = 'denied', reason = ?, decided_at = ? WHERE id = ? AND decision = 'pending' AND decided_at IS NULL")
           .run('Shell approval denied because the prior Honeycrisp process was interrupted.', recoveredAt, text(row, 'id'));
       }
-      for (const row of interruptedVmRows) {
-        const metadata = {
-          ...parseJson(row.metadata_json),
-          recoveryRequired: true,
-          recoveredAt,
-          previousState: text(row, 'state'),
-          reason
-        };
-        this.db.prepare('UPDATE vm_contexts SET state = ?, metadata_json = ? WHERE id = ?').run('recovery_pending', toJson(metadata), text(row, 'id'));
-      }
       for (const row of interruptedRunRows) {
         const runId = text(row, 'id');
         const attempt = interruptedAttemptRows.find((attemptRow) => text(attemptRow, 'run_id') === runId);
@@ -3908,7 +2883,7 @@ export class WorkspaceDatabase {
         this.appendTraceEvent({
           runId,
           attemptId,
-          type: 'vm_event',
+          type: 'research_event',
           source: 'system',
           summary: 'Workspace recovery paused interrupted run after app restart.',
           payload: {
@@ -3918,7 +2893,6 @@ export class WorkspaceDatabase {
             authoritativeStatePreserved: true,
             userReviewRequired: true
           },
-          vmContextId: attempt ? nullableText(attempt, 'vm_context_id') : null,
           modelVisible: false
         });
         const existingRecoveryError = rowOrUndefined(
@@ -3949,7 +2923,6 @@ export class WorkspaceDatabase {
               recoveredAt,
               reason
             },
-            vmContextId: attempt ? nullableText(attempt, 'vm_context_id') : null,
             modelVisible: false
           });
           this.createTranscriptMessage({
@@ -4195,7 +3168,6 @@ export class WorkspaceDatabase {
       for (const asset of cleanedAssets) {
         this.insertScopeAsset(id, asset, createdAt);
       }
-      this.setMetaValue(projectSemanticEnabledMetaKey(id), '0', createdAt);
     });
 
     const scope = this.getActiveScope();
@@ -4208,7 +3180,6 @@ export class WorkspaceDatabase {
   public createRun(input: StartRunRecordInput): CreatedRunContext {
     const runId = createId('run');
     const attemptId = createId('attempt');
-    const vmContextId = createId('vm');
     const createdAt = nowIso();
     const scope = this.getScopeVersion(input.scopeVersionId);
     const researchProfileSnapshotId = input.researchProfileSnapshotId?.trim() || null;
@@ -4223,25 +3194,6 @@ export class WorkspaceDatabase {
     const promptTranscriptId = promptMarkdown ? createId('transcript') : null;
 
     this.transaction(() => {
-      this.db
-        .prepare(
-          `INSERT INTO vm_contexts (
-            id, backend, image_id, snapshot_id, state, scope_version_id,
-            created_at, destroyed_at, metadata_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          vmContextId,
-          input.vmBackend ?? 'host',
-          input.vmImageId ?? 'host-machine',
-          input.vmSnapshotId ?? 'none',
-          input.vmState ?? 'host_active',
-          input.scopeVersionId,
-          createdAt,
-          null,
-          toJson(input.vmMetadata ?? { executor: 'host', targetExecution: true, executionPosture: 'host_process' })
-        );
-
       this.db
         .prepare(
           `INSERT INTO runs (
@@ -4275,9 +3227,9 @@ export class WorkspaceDatabase {
       this.db
         .prepare(
           `INSERT INTO attempts (
-            id, run_id, parent_attempt_id, status, short_state, seed, strategy_role, vm_context_id,
+            id, run_id, parent_attempt_id, status, short_state, seed, strategy_role,
             cost_json, token_usage_json, started_at, ended_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           attemptId,
@@ -4287,7 +3239,6 @@ export class WorkspaceDatabase {
           'Initializing host-process research plan.',
           randomUUID(),
           'initial_portfolio',
-          vmContextId,
           toJson({ label: '$0.00' }),
           toJson({ promptTokens: 0, completionTokens: 0, source: 'not_reported' }),
           createdAt,
@@ -4329,8 +3280,7 @@ export class WorkspaceDatabase {
 
     const run = this.getRun(runId);
     const attempt = this.getAttempt(attemptId);
-    const vmContext = this.getVmContext(vmContextId);
-    if (!run || !attempt || !vmContext) {
+    if (!run || !attempt) {
       throw new Error('Failed to create run context');
     }
     this.indexRunSearchDocument(run);
@@ -4338,8 +3288,7 @@ export class WorkspaceDatabase {
       const promptMessage = this.getTranscriptMessage(promptTranscriptId);
       if (promptMessage) this.indexTranscriptSearchDocument(promptMessage);
     }
-    this.refreshProjectGraph(run.scopeVersionId);
-    return { run, attempt, vmContext };
+    return { run, attempt };
   }
 
   public createModelSession(input: CreateModelSessionInput): ModelSessionRecord {
@@ -4417,35 +3366,15 @@ export class WorkspaceDatabase {
   public createAttempt(input: CreateAttemptInput): AttemptRecord {
     const run = this.getRun(input.runId);
     if (!run) throw new Error(`Run not found: ${input.runId}`);
-    const vmContextId = createId('vm');
     const attemptId = createId('attempt');
     const createdAt = nowIso();
-    const vmState = input.vmState ?? 'working';
     this.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO vm_contexts (
-            id, backend, image_id, snapshot_id, state, scope_version_id,
-            created_at, destroyed_at, metadata_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          vmContextId,
-          input.vmBackend ?? 'host',
-          input.vmImageId ?? 'host-machine',
-          input.vmSnapshotId ?? 'none',
-          vmState,
-          run.scopeVersionId,
-          createdAt,
-          vmState === 'destroyed' ? createdAt : null,
-          toJson(input.vmMetadata ?? { executor: 'host', targetExecution: true, executionPosture: 'host_process' })
-        );
-      this.db
-        .prepare(
           `INSERT INTO attempts (
-            id, run_id, parent_attempt_id, status, short_state, seed, strategy_role, vm_context_id,
+            id, run_id, parent_attempt_id, status, short_state, seed, strategy_role,
             cost_json, token_usage_json, started_at, ended_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           attemptId,
@@ -4455,7 +3384,6 @@ export class WorkspaceDatabase {
           input.shortState,
           randomUUID(),
           input.strategyRole,
-          vmContextId,
           toJson(input.cost ?? { label: '$0.00' }),
           toJson(input.tokenUsage ?? { promptTokens: 0, completionTokens: 0, source: 'not_reported' }),
           createdAt,
@@ -4498,8 +3426,8 @@ export class WorkspaceDatabase {
       .prepare(
         `INSERT INTO trace_events (
           id, run_id, attempt_id, sequence, type, source, summary, payload_json, sensitivity,
-          model_visible, created_at, vm_context_id, artifact_id, tool_call_id, approval_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          model_visible, created_at, artifact_id, tool_call_id, approval_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -4513,7 +3441,6 @@ export class WorkspaceDatabase {
         input.sensitivity ?? 'internal',
         input.modelVisible === false ? 0 : 1,
         createdAt,
-        input.vmContextId ?? null,
         input.artifactId ?? null,
         input.toolCallId ?? null,
         input.approvalId ?? null
@@ -4524,7 +3451,6 @@ export class WorkspaceDatabase {
       throw new Error('Failed to append trace event');
     }
     this.indexTraceSearchDocument(event);
-    this.refreshProjectGraphForRun(input.runId);
     return event;
   }
 
@@ -4559,7 +3485,6 @@ export class WorkspaceDatabase {
       throw new Error('Failed to create transcript message');
     }
     this.indexTranscriptSearchDocument(message);
-    this.refreshProjectGraphForRun(input.runId);
     return message;
   }
 
@@ -4810,8 +3735,8 @@ export class WorkspaceDatabase {
         `INSERT INTO tool_calls (
           id, run_id, attempt_id, tool_name, tool_version, input_json, status,
           result_summary, result_json, started_at, ended_at, policy_decision_id,
-          vm_context_id, trace_event_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          trace_event_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -4826,7 +3751,6 @@ export class WorkspaceDatabase {
         startedAt,
         endedAt,
         input.policyDecisionId ?? null,
-        input.vmContextId ?? null,
         null
       );
     return id;
@@ -5110,41 +4034,6 @@ export class WorkspaceDatabase {
       .run(status, shortState, endedAt, attemptId);
   }
 
-  public updateVmState(vmContextId: string, state: string): void {
-    const destroyedAt = state === 'destroyed' ? nowIso() : null;
-    this.db.prepare('UPDATE vm_contexts SET state = ?, destroyed_at = COALESCE(?, destroyed_at) WHERE id = ?').run(state, destroyedAt, vmContextId);
-  }
-
-  public updateVmContext(
-    vmContextId: string,
-    patch: { backend?: string; imageId?: string; snapshotId?: string; state?: string; metadata?: Record<string, unknown> }
-  ): void {
-    const existing = this.getVmContext(vmContextId);
-    if (!existing) return;
-    const state = patch.state ?? existing.state;
-    const destroyedAt = state === 'destroyed' ? nowIso() : null;
-    this.db
-      .prepare(
-        `UPDATE vm_contexts
-         SET backend = ?,
-             image_id = ?,
-             snapshot_id = ?,
-             state = ?,
-             destroyed_at = COALESCE(?, destroyed_at),
-             metadata_json = ?
-         WHERE id = ?`
-      )
-      .run(
-        patch.backend ?? existing.backend,
-        patch.imageId ?? existing.imageId,
-        patch.snapshotId ?? existing.snapshotId,
-        state,
-        destroyedAt,
-        toJson(patch.metadata ? { ...existing.metadata, ...patch.metadata } : existing.metadata),
-        vmContextId
-      );
-  }
-
   public createArtifact(input: CreateArtifactInput): ArtifactRecord {
     const id = createId('artifact');
     const buffer = typeof input.content === 'string' ? Buffer.from(input.content) : input.content;
@@ -5184,7 +4073,6 @@ export class WorkspaceDatabase {
     if (!artifact) throw new Error('Failed to create artifact');
     this.indexArtifactSearchDocument(artifact);
     const runId = artifactRunId(this.db, artifact.id);
-    if (runId) this.refreshProjectGraphForRun(runId);
     return artifact;
   }
 
@@ -5193,14 +4081,12 @@ export class WorkspaceDatabase {
     const artifact = this.getArtifact(artifactId);
     if (artifact) this.indexArtifactSearchDocument(artifact);
     const event = this.getTraceEvent(traceEventId);
-    if (event) this.refreshProjectGraphForRun(event.runId);
   }
 
   public markArtifactSensitive(artifactId: string): void {
     this.db.prepare('UPDATE artifacts SET sensitivity = ?, model_visible = ? WHERE id = ?').run('sensitive', 0, artifactId);
     this.deleteProjectSearchDocuments("entity_type = 'artifact' AND entity_id = ?", [artifactId]);
     const runId = artifactRunId(this.db, artifactId);
-    if (runId) this.refreshProjectGraphForRun(runId);
   }
 
   public createVerifierContract(input: CreateVerifierContractInput): VerifierContractRecord {
@@ -5233,7 +4119,6 @@ export class WorkspaceDatabase {
     const contract = this.getVerifierContract(id);
     if (!contract) throw new Error('Failed to create verifier contract');
     this.indexVerifierContractSearchDocument(contract);
-    this.refreshProjectGraphForRun(contract.runId);
     return contract;
   }
 
@@ -5267,7 +4152,6 @@ export class WorkspaceDatabase {
     const updated = this.getVerifierContract(contractId);
     if (!updated) throw new Error(`Verifier contract not found after update: ${contractId}`);
     this.indexVerifierContractSearchDocument(updated);
-    this.refreshProjectGraphForRun(updated.runId);
     return updated;
   }
 
@@ -5277,16 +4161,15 @@ export class WorkspaceDatabase {
     this.db
       .prepare(
         `INSERT INTO verifier_runs (
-          id, contract_id, run_id, attempt_id, vm_context_id, status, blocked_issue,
+          id, contract_id, run_id, attempt_id, status, blocked_issue,
           behavior_preserved, diagnostics_clean, regression_tests, result_json, started_at, ended_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
         input.contractId,
         input.runId,
         input.attemptId ?? null,
-        input.vmContextId ?? null,
         input.status,
         input.blockedIssue,
         input.behaviorPreserved,
@@ -5299,7 +4182,6 @@ export class WorkspaceDatabase {
     const verifierRun = this.getVerifierRun(id);
     if (!verifierRun) throw new Error('Failed to create verifier run');
     this.indexVerifierRunSearchDocument(verifierRun);
-    this.refreshProjectGraphForRun(verifierRun.runId);
     return verifierRun;
   }
 
@@ -5845,16 +4727,6 @@ export class WorkspaceDatabase {
       ).map((row) => this.mapArtifact(row)),
       verifierContracts: rows(this.db.prepare('SELECT * FROM verifier_contracts WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapVerifierContract(row)),
       verifierRuns: rows(this.db.prepare('SELECT * FROM verifier_runs WHERE run_id = ? ORDER BY started_at ASC, rowid ASC').all(runId)).map((row) => this.mapVerifierRun(row)),
-      vmContexts: rows(
-        this.db
-          .prepare(
-            `SELECT DISTINCT v.* FROM vm_contexts v
-             LEFT JOIN attempts a ON a.vm_context_id = v.id
-             WHERE a.run_id = ? OR v.id IN (SELECT vm_context_id FROM trace_events WHERE run_id = ? AND vm_context_id IS NOT NULL)
-             ORDER BY v.created_at ASC`
-          )
-          .all(runId, runId)
-      ).map((row) => this.mapVmContext(row)),
       modelSessions: rows(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapModelSession(row)),
       contextCompactions: rows(this.db.prepare('SELECT * FROM context_compactions WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
         this.mapContextCompaction(row)
@@ -6254,823 +5126,6 @@ export class WorkspaceDatabase {
     return observations.slice(-5000);
   }
 
-  public getProjectGraphSummary(scopeVersionId = this.getActiveScope().id): ProjectGraphSummary {
-    this.db.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
-    const nodeRow = rowOrUndefined(
-      this.db
-        .prepare(
-          `SELECT COUNT(*) AS node_count, MAX(indexed_at) AS indexed_at
-           FROM project_graph_nodes
-           WHERE scope_version_id = ?`
-        )
-        .get(scopeVersionId)
-    );
-    const edgeRow = rowOrUndefined(
-      this.db
-        .prepare(
-          `SELECT
-             COUNT(*) AS edge_count,
-             SUM(CASE WHEN metadata_json LIKE '%"source":"structure_relation"%' THEN 1 ELSE 0 END) AS structural_edge_count,
-             SUM(CASE WHEN target_node_id IS NULL THEN 1 ELSE 0 END) AS unresolved_edge_count
-           FROM project_graph_edges
-           WHERE scope_version_id = ?`
-        )
-        .get(scopeVersionId)
-    );
-    const nodeCount = nodeRow ? numberValue(nodeRow, 'node_count') : 0;
-    const edgeCount = edgeRow ? numberValue(edgeRow, 'edge_count') : 0;
-    const expectedNodeFamilyCounts = this.projectGraphExpectedNodeFamilyCounts(scopeVersionId);
-    const expectedNodeCount = Object.values(expectedNodeFamilyCounts).reduce((sum, count) => sum + count, 0);
-    const nodeFamilyCounts = this.projectGraphActualNodeFamilyCounts(scopeVersionId);
-    const edgeFamilyCounts = this.projectGraphActualEdgeFamilyCounts(scopeVersionId);
-    const extractionFamilyCounts = this.projectGraphExtractionFamilyCounts(scopeVersionId);
-    const staleReasons = this.projectGraphStaleReasons(expectedNodeFamilyCounts, nodeFamilyCounts);
-    const status = nodeCount === 0 ? 'empty' : staleReasons.length > 0 ? 'stale' : 'ready';
-    const statusRow = rowOrUndefined(this.db.prepare('SELECT * FROM project_graph_status WHERE scope_version_id = ?').get(scopeVersionId));
-    this.recordProjectGraphStatus(scopeVersionId, {
-      rebuildReason: nullableText(statusRow ?? {}, 'last_rebuild_reason'),
-      indexedAt: nodeRow ? nullableText(nodeRow, 'indexed_at') : null,
-      durationMs: nullableNumber(statusRow ?? {}, 'last_rebuild_duration_ms'),
-      incrementBuildCount: false,
-      expectedNodeCount,
-      actualNodeCount: nodeCount,
-      actualEdgeCount: edgeCount,
-      staleReasons,
-      nodeFamilyCounts,
-      edgeFamilyCounts
-    });
-    const updatedStatusRow = rowOrUndefined(this.db.prepare('SELECT * FROM project_graph_status WHERE scope_version_id = ?').get(scopeVersionId));
-    return {
-      scopeVersionId,
-      status,
-      nodeCount,
-      edgeCount,
-      structuralEdgeCount: edgeRow ? numberValue(edgeRow, 'structural_edge_count') : 0,
-      unresolvedEdgeCount: edgeRow ? numberValue(edgeRow, 'unresolved_edge_count') : 0,
-      expectedNodeCount,
-      staleReasons,
-      rebuildReason: nullableText(updatedStatusRow ?? {}, 'last_rebuild_reason'),
-      buildCount: updatedStatusRow ? numberValue(updatedStatusRow, 'build_count') : 0,
-      nodeFamilyCounts,
-      edgeFamilyCounts,
-      extractionFamilyCounts,
-      indexedAt: nodeRow ? nullableText(nodeRow, 'indexed_at') : null
-    };
-  }
-
-  public getWorkspaceGraphVisualization(
-    scopeVersionId = this.getActiveScope().id,
-    options: { nodeLimit?: number; edgeLimit?: number } = {}
-  ): WorkspaceGraphVisualization {
-    const summary = this.getProjectGraphSummary(scopeVersionId);
-    const nodeLimit = Math.max(12, Math.min(120, Math.floor(options.nodeLimit ?? 64)));
-    const edgeLimit = Math.max(12, Math.min(180, Math.floor(options.edgeLimit ?? 36)));
-    const candidateEdges = rows(
-      this.db
-        .prepare(
-          `WITH candidate_edges AS (
-             SELECT e.*,
-                    CASE
-                      WHEN COALESCE(s.source_path, '') LIKE '%.test.%' THEN 1
-                      WHEN COALESCE(s.source_path, '') LIKE '%/test/%' THEN 1
-                      WHEN COALESCE(s.source_path, '') LIKE '%/.github/workflows/%' THEN 2
-                      WHEN COALESCE(s.source_path, '') LIKE '%README.md' THEN 2
-                      ELSE 0
-                    END AS source_priority,
-                    ROW_NUMBER() OVER (
-                      PARTITION BY e.edge_kind, LOWER(e.target_label), COALESCE(s.source_path, ''), COALESCE(t.source_path, ''), LOWER(s.label)
-                      ORDER BY e.indexed_at DESC, e.id ASC
-                    ) AS relation_rank
-             FROM project_graph_edges e
-             JOIN project_graph_nodes s ON s.scope_version_id = e.scope_version_id
-              AND s.id = e.source_node_id
-             LEFT JOIN project_graph_nodes t ON t.scope_version_id = e.scope_version_id
-              AND t.id = e.target_node_id
-             WHERE e.scope_version_id = ?
-               AND e.target_node_id IS NOT NULL
-               AND e.source_node_id <> e.target_node_id
-           )
-           SELECT *
-           FROM candidate_edges
-           WHERE relation_rank = 1
-           ORDER BY
-             CASE edge_kind
-               WHEN 'routes_to' THEN 0
-               WHEN 'handles_with' THEN 1
-               WHEN 'uses_middleware' THEN 2
-               WHEN 'checks_permission' THEN 3
-               WHEN 'reaches_sink' THEN 4
-               WHEN 'parses_body' THEN 5
-               WHEN 'serializes_response' THEN 6
-               WHEN 'reads_model' THEN 7
-               WHEN 'writes_model' THEN 8
-               WHEN 'supports_hypothesis' THEN 9
-               WHEN 'verifies_finding' THEN 10
-               WHEN 'evidence_for' THEN 11
-               WHEN 'calls' THEN 12
-               WHEN 'imports_symbol' THEN 13
-               WHEN 'exports_symbol' THEN 14
-               WHEN 'references_permission' THEN 15
-               WHEN 'references_url' THEN 16
-               ELSE 30
-             END,
-             source_priority ASC,
-             indexed_at DESC,
-             edge_kind ASC,
-             target_label ASC
-           LIMIT ?`
-        )
-        .all(scopeVersionId, edgeLimit * 4)
-    ).map((row) => this.mapProjectGraphEdge(row));
-    const selectedEdges: ProjectGraphEdgeRecord[] = [];
-    const nodeIds = new Set<string>();
-    const edgeKindCounts = new Map<string, number>();
-    const targetCounts = new Map<string, number>();
-    const edgeKindLimit = Math.max(4, Math.ceil(edgeLimit / 10));
-    const targetLimit = Math.max(3, Math.ceil(edgeLimit / 14));
-    for (const edge of candidateEdges) {
-      if (!edge.targetNodeId) continue;
-      const edgeKindCount = edgeKindCounts.get(edge.edgeKind) ?? 0;
-      if (edgeKindCount >= edgeKindLimit) continue;
-      const targetKey = `${edge.targetEntityType}:${edge.targetLabel.trim().toLowerCase()}`;
-      const targetCount = targetCounts.get(targetKey) ?? 0;
-      if (targetCount >= targetLimit) continue;
-      const additions = [edge.sourceNodeId, edge.targetNodeId].filter((nodeId) => !nodeIds.has(nodeId));
-      if (selectedEdges.length > 0 && nodeIds.size + additions.length > nodeLimit) continue;
-      selectedEdges.push(edge);
-      nodeIds.add(edge.sourceNodeId);
-      nodeIds.add(edge.targetNodeId);
-      edgeKindCounts.set(edge.edgeKind, edgeKindCount + 1);
-      targetCounts.set(targetKey, targetCount + 1);
-      if (selectedEdges.length >= edgeLimit) break;
-    }
-    if (selectedEdges.length === 0 && nodeIds.size < nodeLimit) {
-      const supplementalLimit = nodeLimit - nodeIds.size;
-      for (const node of rows(
-        this.db
-          .prepare(
-            `SELECT n.*
-             FROM project_graph_nodes n
-             WHERE n.scope_version_id = ?
-             ORDER BY
-               CASE n.entity_type
-                 WHEN 'scope_version' THEN 0
-                 WHEN 'scope_asset' THEN 1
-                 WHEN 'run' THEN 2
-                 WHEN 'verifier_run' THEN 3
-                 WHEN 'verifier_contract' THEN 4
-                 WHEN 'artifact' THEN 5
-                 WHEN 'structure_entity' THEN 6
-                 WHEN 'inventory_item' THEN 7
-                 ELSE 20
-               END,
-               n.indexed_at DESC,
-               n.label ASC
-             LIMIT ?`
-          )
-          .all(scopeVersionId, supplementalLimit + nodeIds.size)
-      ).map((row) => this.mapProjectGraphNode(row))) {
-        if (nodeIds.size >= nodeLimit) break;
-        nodeIds.add(node.id);
-      }
-    }
-    const selectedNodes = nodeIds.size > 0 ? this.getProjectGraphNodesById(scopeVersionId, [...nodeIds]) : [];
-    const selectedNodeIds = new Set(selectedNodes.map((node) => node.id));
-    const displayEdges = selectedEdges.filter((edge) => selectedNodeIds.has(edge.sourceNodeId) && Boolean(edge.targetNodeId) && selectedNodeIds.has(edge.targetNodeId ?? ''));
-    const selectedDegreeCounts = new Map<string, number>();
-    for (const edge of displayEdges) {
-      selectedDegreeCounts.set(edge.sourceNodeId, (selectedDegreeCounts.get(edge.sourceNodeId) ?? 0) + 1);
-      if (edge.targetNodeId) selectedDegreeCounts.set(edge.targetNodeId, (selectedDegreeCounts.get(edge.targetNodeId) ?? 0) + 1);
-    }
-    return {
-      scopeVersionId,
-      status: summary.status,
-      nodeCount: summary.nodeCount,
-      edgeCount: summary.edgeCount,
-      sampledNodeCount: selectedNodes.length,
-      sampledEdgeCount: displayEdges.length,
-      truncated: summary.nodeCount > selectedNodes.length || summary.edgeCount > displayEdges.length,
-      nodes: selectedNodes.map((node) => ({
-        id: node.id,
-        nodeKind: node.nodeKind,
-        entityType: node.entityType,
-        entityId: node.entityId,
-        label: node.label,
-        sourcePath: node.sourcePath,
-        degree: selectedDegreeCounts.get(node.id) ?? 0,
-        indexedAt: node.indexedAt
-      })),
-      edges: displayEdges.map((edge) => ({
-        id: edge.id,
-        sourceNodeId: edge.sourceNodeId,
-        targetNodeId: edge.targetNodeId ?? '',
-        edgeKind: edge.edgeKind,
-        targetLabel: edge.targetLabel,
-        indexedAt: edge.indexedAt
-      })),
-      generatedAt: nowIso()
-    };
-  }
-
-  public getWorkspaceGraphProjection(scopeVersionId = this.getActiveScope().id): WorkspaceGraphProjection {
-    const summary = this.getProjectGraphSummary(scopeVersionId);
-    const nodes = rows(
-      this.db
-        .prepare(
-          `SELECT
-             id,
-             scope_version_id,
-             node_kind,
-             entity_type,
-             entity_id,
-             label,
-             source_path,
-             indexed_at
-           FROM project_graph_nodes
-           WHERE scope_version_id = ?
-           ORDER BY
-             CASE entity_type
-               WHEN 'scope_version' THEN 0
-               WHEN 'scope_asset' THEN 1
-               WHEN 'run' THEN 2
-               WHEN 'verifier_run' THEN 3
-               WHEN 'verifier_contract' THEN 4
-               WHEN 'artifact' THEN 5
-               WHEN 'structure_entity' THEN 6
-               WHEN 'inventory_item' THEN 7
-               WHEN 'trace_event' THEN 8
-               WHEN 'transcript' THEN 9
-               ELSE 30
-             END,
-             label ASC,
-             id ASC`
-        )
-        .all(scopeVersionId)
-    ).map((row) => this.mapProjectGraphProjectionNode(row));
-    const edges = rows(
-      this.db
-        .prepare(
-          `SELECT
-             id,
-             scope_version_id,
-             source_node_id,
-             edge_kind,
-             target_node_id,
-             target_entity_type,
-             target_entity_id,
-             target_label,
-             indexed_at
-           FROM project_graph_edges
-           WHERE scope_version_id = ?
-           ORDER BY
-             CASE edge_kind
-               WHEN 'routes_to' THEN 0
-               WHEN 'handles_with' THEN 1
-               WHEN 'uses_middleware' THEN 2
-               WHEN 'checks_permission' THEN 3
-               WHEN 'reaches_sink' THEN 4
-               WHEN 'parses_body' THEN 5
-               WHEN 'serializes_response' THEN 6
-               WHEN 'reads_model' THEN 7
-               WHEN 'writes_model' THEN 8
-               WHEN 'supports_hypothesis' THEN 9
-               WHEN 'verifies_finding' THEN 10
-               WHEN 'evidence_for' THEN 11
-               WHEN 'calls' THEN 12
-               WHEN 'imports_symbol' THEN 13
-               WHEN 'exports_symbol' THEN 14
-               WHEN 'references_permission' THEN 15
-               WHEN 'references_url' THEN 16
-               ELSE 30
-             END,
-             target_label ASC,
-             id ASC`
-        )
-        .all(scopeVersionId)
-    ).map((row) => this.mapProjectGraphProjectionEdge(row));
-    const nodesById = new Map(nodes.map((node) => [node.id, node]));
-    const degreeCounts = new Map<string, number>();
-    const nodeFamilyCounts = new Map<string, number>();
-    const edgeFamilyCounts = new Map<string, number>();
-    const repositoryCounts = new Map<string, number>();
-    const sourceGroupCounts = new Map<string, number>();
-    const labelCounts = new Map<string, number>();
-    const genericLabelCounts = new Map<string, number>();
-    const qualityFlagCounts = new Map<string, number>();
-    const clusterMap = new Map<string, WorkspaceGraphProjection['clusters'][number]>();
-    const increment = (counts: Map<string, number>, key: string, amount = 1): void => {
-      counts.set(key, (counts.get(key) ?? 0) + amount);
-    };
-    const ensureCluster = (
-      id: string,
-      kind: WorkspaceGraphProjection['clusters'][number]['kind'],
-      label: string,
-      parentId: string | null = null,
-      qualityFlags: string[] = []
-    ): WorkspaceGraphProjection['clusters'][number] => {
-      const existing = clusterMap.get(id);
-      if (existing) return existing;
-      const cluster = { id, kind, label, nodeCount: 0, edgeCount: 0, qualityFlags, parentId };
-      clusterMap.set(id, cluster);
-      return cluster;
-    };
-    const bumpNodeCluster = (id: string, kind: WorkspaceGraphProjection['clusters'][number]['kind'], label: string, parentId: string | null = null, flags: string[] = []): void => {
-      ensureCluster(id, kind, label, parentId, flags).nodeCount += 1;
-    };
-    const bumpEdgeCluster = (id: string, kind: WorkspaceGraphProjection['clusters'][number]['kind'], label: string, parentId: string | null = null, flags: string[] = []): void => {
-      ensureCluster(id, kind, label, parentId, flags).edgeCount += 1;
-    };
-    const noteQuality = (flag: string): string => {
-      increment(qualityFlagCounts, flag);
-      return flag;
-    };
-
-    for (const node of nodes) {
-      increment(nodeFamilyCounts, node.entityType);
-      const normalizedLabel = normalizeProjectGraphLabel(node.label);
-      increment(labelCounts, normalizedLabel || 'unknown');
-      const repositoryLabel = projectGraphRepositoryLabel(node.sourcePath);
-      if (repositoryLabel) increment(repositoryCounts, repositoryLabel);
-      const sourceGroupLabel = projectGraphSourceGroupLabel(node.sourcePath);
-      if (sourceGroupLabel) increment(sourceGroupCounts, sourceGroupLabel);
-    }
-
-    let resolvedEdgeCount = 0;
-    let unresolvedEdgeCount = 0;
-    let selfEdgeCount = 0;
-    for (const edge of edges) {
-      increment(edgeFamilyCounts, edge.edgeKind);
-      const targetExists = Boolean(edge.targetNodeId && nodesById.has(edge.targetNodeId));
-      if (!targetExists) {
-        unresolvedEdgeCount += 1;
-        continue;
-      }
-      resolvedEdgeCount += 1;
-      increment(degreeCounts, edge.sourceNodeId);
-      if (edge.targetNodeId !== edge.sourceNodeId) {
-        increment(degreeCounts, edge.targetNodeId ?? '');
-      } else {
-        selfEdgeCount += 1;
-      }
-    }
-
-    const repeatedLabelCounts = new Map([...labelCounts.entries()].filter(([, count]) => count > 1));
-    const projectedNodes: WorkspaceGraphProjection['nodes'] = nodes.map((node) => {
-      const qualityFlags: string[] = [];
-      const normalizedLabel = normalizeProjectGraphLabel(node.label);
-      const repeatedLabelCount = labelCounts.get(normalizedLabel || 'unknown') ?? 0;
-      if (isProjectGraphGenericLabel(node.label)) {
-        qualityFlags.push(noteQuality('generic_label'));
-        increment(genericLabelCounts, normalizedLabel || 'unknown');
-      }
-      if (repeatedLabelCount > 1) qualityFlags.push(noteQuality('repeated_label'));
-      if (isProjectGraphTestOrDocPath(node.sourcePath)) qualityFlags.push(noteQuality('test_or_doc_path'));
-
-      const entityClusterId = projectGraphClusterId('entity_family', node.entityType);
-      const clusterIds = [entityClusterId];
-      bumpNodeCluster(entityClusterId, 'entity_family', node.entityType);
-
-      const repositoryLabel = projectGraphRepositoryLabel(node.sourcePath);
-      if (repositoryLabel) {
-        const repositoryClusterId = projectGraphClusterId('repository', repositoryLabel);
-        clusterIds.push(repositoryClusterId);
-        bumpNodeCluster(repositoryClusterId, 'repository', repositoryLabel);
-      }
-
-      const sourceGroupLabel = projectGraphSourceGroupLabel(node.sourcePath);
-      if (sourceGroupLabel) {
-        const sourceGroupClusterId = projectGraphClusterId('source_group', sourceGroupLabel);
-        clusterIds.push(sourceGroupClusterId);
-        bumpNodeCluster(sourceGroupClusterId, 'source_group', sourceGroupLabel);
-      }
-
-      if (repeatedLabelCount >= 3) {
-        const labelClusterId = projectGraphClusterId('repeated_label', normalizedLabel || 'unknown');
-        clusterIds.push(labelClusterId);
-        bumpNodeCluster(labelClusterId, 'repeated_label', node.label || 'Unknown', null, ['repeated_label']);
-      }
-
-      for (const flag of qualityFlags) {
-        const qualityClusterId = projectGraphClusterId('quality', flag);
-        clusterIds.push(qualityClusterId);
-        bumpNodeCluster(qualityClusterId, 'quality', flag, null, [flag]);
-      }
-
-      return {
-        id: node.id,
-        nodeKind: node.nodeKind,
-        entityType: node.entityType,
-        entityId: node.entityId,
-        label: node.label,
-        sourcePath: node.sourcePath,
-        degree: degreeCounts.get(node.id) ?? 0,
-        indexedAt: node.indexedAt,
-        clusterIds: [...new Set(clusterIds)],
-        qualityFlags: [...new Set(qualityFlags)],
-        pathLabel: projectGraphPathLabel(node.sourcePath),
-        repositoryLabel,
-        sourceGroupLabel
-      };
-    });
-
-    const projectedEdges: WorkspaceGraphProjection['edges'] = edges.map((edge) => {
-      const qualityFlags: string[] = [];
-      if (!edge.targetNodeId || !nodesById.has(edge.targetNodeId)) qualityFlags.push(noteQuality('unresolved_target'));
-      if (edge.targetNodeId && edge.targetNodeId === edge.sourceNodeId) qualityFlags.push(noteQuality('self_relation'));
-      if (isProjectGraphGenericLabel(edge.targetLabel)) qualityFlags.push(noteQuality('generic_target_label'));
-      const familyClusterId = projectGraphClusterId('relationship_family', edge.edgeKind);
-      const clusterIds = [familyClusterId];
-      bumpEdgeCluster(familyClusterId, 'relationship_family', edge.edgeKind);
-      const normalizedTargetLabel = normalizeProjectGraphLabel(edge.targetLabel);
-      if ((labelCounts.get(normalizedTargetLabel) ?? 0) >= 3) {
-        const repeatedClusterId = projectGraphClusterId('repeated_label', normalizedTargetLabel || 'unknown');
-        clusterIds.push(repeatedClusterId);
-        bumpEdgeCluster(repeatedClusterId, 'repeated_label', edge.targetLabel || 'Unknown', null, ['repeated_label']);
-      }
-      for (const flag of qualityFlags) {
-        const qualityClusterId = projectGraphClusterId('quality', flag);
-        clusterIds.push(qualityClusterId);
-        bumpEdgeCluster(qualityClusterId, 'quality', flag, null, [flag]);
-      }
-      return {
-        id: edge.id,
-        sourceNodeId: edge.sourceNodeId,
-        targetNodeId: edge.targetNodeId,
-        edgeKind: edge.edgeKind,
-        targetEntityType: edge.targetEntityType,
-        targetEntityId: edge.targetEntityId,
-        targetLabel: edge.targetLabel,
-        clusterIds: [...new Set(clusterIds)],
-        qualityFlags: [...new Set(qualityFlags)],
-        indexedAt: edge.indexedAt
-      };
-    });
-
-    return {
-      scopeVersionId,
-      status: summary.status,
-      nodes: projectedNodes,
-      edges: projectedEdges,
-      clusters: [...clusterMap.values()].sort((left, right) => right.nodeCount + right.edgeCount - (left.nodeCount + left.edgeCount) || left.label.localeCompare(right.label)),
-      diagnostics: {
-        nodeCount: nodes.length,
-        edgeCount: edges.length,
-        resolvedEdgeCount,
-        unresolvedEdgeCount,
-        selfEdgeCount,
-        genericLabelNodeCount: projectedNodes.filter((node) => node.qualityFlags.includes('generic_label')).length,
-        repeatedLabelNodeCount: projectedNodes.filter((node) => node.qualityFlags.includes('repeated_label')).length,
-        testOrDocNodeCount: projectedNodes.filter((node) => node.qualityFlags.includes('test_or_doc_path')).length,
-        nodeFamilyCounts: topProjectGraphCounts(nodeFamilyCounts, 100),
-        edgeFamilyCounts: topProjectGraphCounts(edgeFamilyCounts, 100),
-        repositoryCounts: topProjectGraphCounts(repositoryCounts, 100),
-        sourceGroupCounts: topProjectGraphCounts(sourceGroupCounts, 100),
-        genericLabelCounts: topProjectGraphCounts(genericLabelCounts, 24),
-        repeatedLabelCounts: topProjectGraphCounts(repeatedLabelCounts, 24),
-        qualityFlagCounts: topProjectGraphCounts(qualityFlagCounts, 24)
-      },
-      generatedAt: nowIso()
-    };
-  }
-
-  public refreshProjectGraph(scopeVersionId = this.getActiveScope().id, indexedAt = nowIso(), reason = 'manual_refresh'): ProjectGraphSummary {
-    void indexedAt;
-    void reason;
-    return this.getProjectGraphSummary(scopeVersionId);
-  }
-
-  private refreshProjectGraphForRun(runId: string): void {
-    const run = this.getRun(runId);
-    if (run) {
-      // Graph freshness is derived from source-table counts. Avoid rebuilding on hot trace/resource writes;
-      // graph query APIs rebuild lazily when graph context is actually requested.
-    }
-  }
-
-  private ensureProjectGraphFresh(scopeVersionId: string): ProjectGraphSummary {
-    return this.getProjectGraphSummary(scopeVersionId);
-  }
-
-  private projectGraphExpectedNodeFamilyCounts(scopeVersionId: string): Record<string, number> {
-    const count = (sql: string, ...params: SqlPrimitive[]) => {
-      const row = rowOrUndefined(this.db.prepare(sql).get(...params));
-      return row ? numberValue(row, 'count') : 0;
-    };
-    const lineageRunSql = this.scopeVersionLineagePredicate('scope_version_id');
-    const joinedLineageRunSql = this.scopeVersionLineagePredicate('r.scope_version_id');
-    const families: Record<string, number> = {
-      scope_version: 1,
-      scope_asset: count('SELECT COUNT(*) AS count FROM scope_assets WHERE scope_version_id = ?', scopeVersionId),
-      inventory_item: count('SELECT COUNT(*) AS count FROM project_inventory_items WHERE scope_version_id = ?', scopeVersionId),
-      structure_entity: count('SELECT COUNT(*) AS count FROM project_structure_entities WHERE scope_version_id = ?', scopeVersionId),
-      run: count(`SELECT COUNT(*) AS count FROM runs WHERE ${lineageRunSql}`, scopeVersionId),
-      trace_event: count(`SELECT COUNT(*) AS count FROM trace_events WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
-      transcript: count(`SELECT COUNT(*) AS count FROM transcript_messages WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
-      artifact: count(
-        `SELECT COUNT(DISTINCT a.id) AS count
-         FROM artifacts a
-         JOIN trace_events t ON t.artifact_id = a.id
-         JOIN runs r ON r.id = t.run_id
-         WHERE ${joinedLineageRunSql}`,
-        scopeVersionId
-      ),
-      verifier_contract: count(`SELECT COUNT(*) AS count FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
-      verifier_run: count(`SELECT COUNT(*) AS count FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId)
-    };
-    return Object.fromEntries(Object.entries(families).filter(([, value]) => value > 0));
-  }
-
-  private projectGraphActualNodeFamilyCounts(scopeVersionId: string): Record<string, number> {
-    return Object.fromEntries(
-      rows(
-        this.db
-          .prepare(
-            `SELECT entity_type, COUNT(*) AS count
-             FROM project_graph_nodes
-             WHERE scope_version_id = ?
-             GROUP BY entity_type
-             ORDER BY entity_type ASC`
-          )
-          .all(scopeVersionId)
-      ).map((row) => [text(row, 'entity_type'), numberValue(row, 'count')])
-    );
-  }
-
-  private projectGraphActualEdgeFamilyCounts(scopeVersionId: string): Record<string, number> {
-    return Object.fromEntries(
-      rows(
-        this.db
-          .prepare(
-            `SELECT edge_kind, COUNT(*) AS count
-             FROM project_graph_edges
-             WHERE scope_version_id = ?
-             GROUP BY edge_kind
-             ORDER BY edge_kind ASC`
-          )
-          .all(scopeVersionId)
-      ).map((row) => [text(row, 'edge_kind'), numberValue(row, 'count')])
-    );
-  }
-
-  private projectGraphExtractionFamilyCounts(scopeVersionId: string): Record<string, number> {
-    return Object.fromEntries(
-      rows(
-        this.db
-          .prepare(
-            `SELECT json_extract(metadata_json, '$.extractionFamily') AS extraction_family, COUNT(*) AS count
-             FROM project_structure_entities
-             WHERE scope_version_id = ?
-               AND json_extract(metadata_json, '$.extractionFamily') IS NOT NULL
-               AND TRIM(json_extract(metadata_json, '$.extractionFamily')) <> ''
-             GROUP BY extraction_family
-             ORDER BY extraction_family ASC`
-          )
-          .all(scopeVersionId)
-      ).map((row) => [text(row, 'extraction_family'), numberValue(row, 'count')])
-    );
-  }
-
-  private projectGraphStaleReasons(expectedNodeFamilyCounts: Record<string, number>, actualNodeFamilyCounts: Record<string, number>): string[] {
-    const reasons: string[] = [];
-    for (const [family, expectedCount] of Object.entries(expectedNodeFamilyCounts)) {
-      const actualCount = actualNodeFamilyCounts[family] ?? 0;
-      if (actualCount < expectedCount) reasons.push(`missing_node_family:${family}:${actualCount}/${expectedCount}`);
-    }
-    return reasons;
-  }
-
-  private recordProjectGraphStatus(
-    scopeVersionId: string,
-    input: {
-      rebuildReason: string | null;
-      indexedAt: string | null;
-      durationMs: number | null;
-      incrementBuildCount: boolean;
-      expectedNodeCount?: number;
-      actualNodeCount?: number;
-      actualEdgeCount?: number;
-      staleReasons?: string[];
-      nodeFamilyCounts?: Record<string, number>;
-      edgeFamilyCounts?: Record<string, number>;
-    }
-  ): void {
-    this.db.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
-    const expectedNodeFamilyCounts = this.projectGraphExpectedNodeFamilyCounts(scopeVersionId);
-    const nodeFamilyCounts = input.nodeFamilyCounts ?? this.projectGraphActualNodeFamilyCounts(scopeVersionId);
-    const edgeFamilyCounts = input.edgeFamilyCounts ?? this.projectGraphActualEdgeFamilyCounts(scopeVersionId);
-    const staleReasons = input.staleReasons ?? this.projectGraphStaleReasons(expectedNodeFamilyCounts, nodeFamilyCounts);
-    const expectedNodeCount = input.expectedNodeCount ?? Object.values(expectedNodeFamilyCounts).reduce((sum, count) => sum + count, 0);
-    const actualNodeCount = input.actualNodeCount ?? Object.values(nodeFamilyCounts).reduce((sum, count) => sum + count, 0);
-    const actualEdgeCount = input.actualEdgeCount ?? Object.values(edgeFamilyCounts).reduce((sum, count) => sum + count, 0);
-    const existing = rowOrUndefined(this.db.prepare('SELECT build_count, last_rebuild_reason, last_rebuild_duration_ms FROM project_graph_status WHERE scope_version_id = ?').get(scopeVersionId));
-    const buildCount = (existing ? numberValue(existing, 'build_count') : 0) + (input.incrementBuildCount ? 1 : 0);
-    this.db
-      .prepare(
-        `INSERT INTO project_graph_status (
-          scope_version_id, build_count, last_rebuild_reason, stale_reasons_json,
-          node_family_counts_json, edge_family_counts_json, expected_node_count,
-          actual_node_count, actual_edge_count, last_rebuild_duration_ms, indexed_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(scope_version_id)
-        DO UPDATE SET
-          build_count = excluded.build_count,
-          last_rebuild_reason = excluded.last_rebuild_reason,
-          stale_reasons_json = excluded.stale_reasons_json,
-          node_family_counts_json = excluded.node_family_counts_json,
-          edge_family_counts_json = excluded.edge_family_counts_json,
-          expected_node_count = excluded.expected_node_count,
-          actual_node_count = excluded.actual_node_count,
-          actual_edge_count = excluded.actual_edge_count,
-          last_rebuild_duration_ms = excluded.last_rebuild_duration_ms,
-          indexed_at = excluded.indexed_at,
-          updated_at = excluded.updated_at`
-      )
-      .run(
-        scopeVersionId,
-        buildCount,
-        input.rebuildReason ?? nullableText(existing ?? {}, 'last_rebuild_reason'),
-        toJson(staleReasons),
-        toJson(nodeFamilyCounts),
-        toJson(edgeFamilyCounts),
-        expectedNodeCount,
-        actualNodeCount,
-        actualEdgeCount,
-        input.durationMs ?? nullableNumber(existing ?? {}, 'last_rebuild_duration_ms'),
-        input.indexedAt,
-        nowIso()
-      );
-  }
-
-  public findProjectGraphNodes(
-    scopeVersionId: string,
-    query: string,
-    filters: { entityType?: string; nodeKind?: string; limit?: number; refresh?: boolean } = {}
-  ): ProjectGraphNodeRecord[] {
-    if (filters.refresh !== false) this.ensureProjectGraphFresh(scopeVersionId);
-    const trimmed = query.trim().toLowerCase();
-    const conditions = ['scope_version_id = ?'];
-    const params: SqlPrimitive[] = [scopeVersionId];
-    if (filters.entityType) {
-      conditions.push('entity_type = ?');
-      params.push(filters.entityType);
-    }
-    if (filters.nodeKind) {
-      conditions.push('node_kind = ?');
-      params.push(filters.nodeKind);
-    }
-    if (trimmed) {
-      conditions.push("(LOWER(label || ' ' || node_kind || ' ' || entity_type || ' ' || entity_id || ' ' || COALESCE(source_path, '') || ' ' || metadata_json) LIKE ? ESCAPE '\\')");
-      params.push(`%${escapeLike(trimmed)}%`);
-    }
-    const limit = Math.max(1, Math.min(100, Math.floor(filters.limit ?? 20)));
-    return rows(
-      this.db
-        .prepare(
-          `SELECT *
-           FROM project_graph_nodes
-           WHERE ${conditions.join(' AND ')}
-           ORDER BY indexed_at DESC, node_kind ASC, label ASC
-           LIMIT ?`
-        )
-        .all(...params, limit)
-    ).map((row) => this.mapProjectGraphNode(row));
-  }
-
-  public listProjectGraphEdgesForNode(scopeVersionId: string, nodeId: string, options: { edgeKinds?: string[]; limit?: number; refresh?: boolean } = {}): ProjectGraphEdgeRecord[] {
-    if (options.refresh !== false) this.ensureProjectGraphFresh(scopeVersionId);
-    const edgeKinds = (options.edgeKinds ?? []).map((kind) => kind.trim()).filter(Boolean);
-    const params: SqlPrimitive[] = [scopeVersionId, nodeId, nodeId];
-    const edgeKindSql = edgeKinds.length > 0 ? ` AND edge_kind IN (${edgeKinds.map(() => '?').join(', ')})` : '';
-    params.push(...edgeKinds);
-    const limit = Math.max(1, Math.min(200, Math.floor(options.limit ?? 40)));
-    return rows(
-      this.db
-        .prepare(
-          `SELECT *
-           FROM project_graph_edges
-           WHERE scope_version_id = ?
-             AND (source_node_id = ? OR target_node_id = ?)
-             ${edgeKindSql}
-           ORDER BY edge_kind ASC, target_label ASC
-           LIMIT ?`
-        )
-        .all(...params, limit)
-    ).map((row) => this.mapProjectGraphEdge(row));
-  }
-
-  public listProjectGraphVariantNodesForNode(scopeVersionId: string, nodeId: string, options: { edgeKinds?: string[]; limit?: number; refresh?: boolean } = {}): ProjectGraphVariantRecord[] {
-    if (options.refresh !== false) this.ensureProjectGraphFresh(scopeVersionId);
-    const edgeKinds = (options.edgeKinds ?? []).map((kind) => kind.trim()).filter(Boolean);
-    if (edgeKinds.length === 0) return [];
-    const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 24)));
-    const records: ProjectGraphVariantRecord[] = [];
-    const seen = new Set<string>();
-    const seedEdges = this.listProjectGraphEdgesForNode(scopeVersionId, nodeId, { edgeKinds, limit: Math.min(100, limit * 4), refresh: false });
-    for (const seed of seedEdges) {
-      if (records.length >= limit) break;
-      const remaining = limit - records.length;
-      const targetPredicate = seed.targetNodeId
-        ? 'e.target_node_id = ?'
-        : "e.target_node_id IS NULL AND e.target_entity_type = ? AND LOWER(e.target_label) = LOWER(?)";
-      const targetParams: SqlPrimitive[] = seed.targetNodeId ? [seed.targetNodeId] : [seed.targetEntityType, seed.targetLabel];
-      const resultRows = rows(
-        this.db
-          .prepare(
-            `SELECT n.*, e.id AS variant_edge_id, e.scope_version_id AS variant_edge_scope_version_id,
-                    e.source_node_id AS variant_edge_source_node_id, e.edge_kind AS variant_edge_kind,
-                    e.target_node_id AS variant_edge_target_node_id, e.target_entity_type AS variant_edge_target_entity_type,
-                    e.target_entity_id AS variant_edge_target_entity_id, e.target_label AS variant_edge_target_label,
-                    e.metadata_json AS variant_edge_metadata_json, e.indexed_at AS variant_edge_indexed_at
-             FROM project_graph_edges e
-             JOIN project_graph_nodes n ON n.scope_version_id = e.scope_version_id
-              AND n.id = e.source_node_id
-             WHERE e.scope_version_id = ?
-               AND e.edge_kind = ?
-               AND e.id <> ?
-               AND e.source_node_id <> ?
-               AND ${targetPredicate}
-             ORDER BY
-               CASE e.edge_kind
-                 WHEN 'reaches_sink' THEN 0
-                 WHEN 'checks_permission' THEN 1
-                 WHEN 'routes_to' THEN 2
-                 WHEN 'handles_with' THEN 3
-                 WHEN 'uses_middleware' THEN 4
-                 WHEN 'calls' THEN 5
-                 WHEN 'supports_hypothesis' THEN 6
-                 WHEN 'verifies_finding' THEN 7
-                 WHEN 'imports_symbol' THEN 8
-                 WHEN 'exports_symbol' THEN 9
-                 WHEN 'references_permission' THEN 10
-                 WHEN 'references_url' THEN 11
-                 WHEN 'contains_string' THEN 12
-                 ELSE 13
-               END,
-               n.node_kind ASC,
-               n.label ASC
-             LIMIT ?`
-          )
-          .all(scopeVersionId, seed.edgeKind, seed.id, seed.sourceNodeId, ...targetParams, remaining)
-      );
-      for (const row of resultRows) {
-        if (records.length >= limit) break;
-        const key = text(row, 'variant_edge_id');
-        if (seen.has(key)) continue;
-        seen.add(key);
-        records.push({
-          node: this.mapProjectGraphNode(row),
-          edge: this.mapProjectGraphEdge({
-            id: row.variant_edge_id,
-            scope_version_id: row.variant_edge_scope_version_id,
-            source_node_id: row.variant_edge_source_node_id,
-            edge_kind: row.variant_edge_kind,
-            target_node_id: row.variant_edge_target_node_id,
-            target_entity_type: row.variant_edge_target_entity_type,
-            target_entity_id: row.variant_edge_target_entity_id,
-            target_label: row.variant_edge_target_label,
-            metadata_json: row.variant_edge_metadata_json,
-            indexed_at: row.variant_edge_indexed_at
-          })
-        });
-      }
-    }
-    return records;
-  }
-
-  public getProjectGraphNeighborhood(
-    scopeVersionId: string,
-    entityType: string,
-    entityId: string,
-    options: { depth?: number; edgeKinds?: string[]; limit?: number; refresh?: boolean } = {}
-  ): ProjectGraphNeighborhood {
-    if (options.refresh !== false) this.ensureProjectGraphFresh(scopeVersionId);
-    const root = this.getProjectGraphNode(scopeVersionId, entityType, entityId);
-    if (!root) return { status: 'miss', root: null, depth: 0, nodes: [], edges: [] };
-    const maxDepth = Math.max(1, Math.min(3, Math.floor(options.depth ?? 1)));
-    const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 40)));
-    const nodeMap = new Map<string, ProjectGraphNodeRecord>([[root.id, root]]);
-    const edgeMap = new Map<string, ProjectGraphEdgeRecord>();
-    let frontier = [root.id];
-    for (let depth = 0; depth < maxDepth && frontier.length > 0 && edgeMap.size < limit; depth += 1) {
-      const next = new Set<string>();
-      for (const nodeId of frontier) {
-        for (const edge of this.listProjectGraphEdgesForNode(scopeVersionId, nodeId, { edgeKinds: options.edgeKinds, limit, refresh: false })) {
-          if (edgeMap.size >= limit) break;
-          edgeMap.set(edge.id, edge);
-          for (const adjacentId of [edge.sourceNodeId, edge.targetNodeId].filter((id): id is string => Boolean(id))) {
-            if (nodeMap.has(adjacentId)) continue;
-            const adjacent = this.getProjectGraphNodeById(scopeVersionId, adjacentId);
-            if (!adjacent) continue;
-            nodeMap.set(adjacent.id, adjacent);
-            next.add(adjacent.id);
-          }
-        }
-      }
-      frontier = [...next];
-    }
-    return { status: 'hit', root, depth: maxDepth, nodes: [...nodeMap.values()], edges: [...edgeMap.values()] };
-  }
-
   public findProjectStructureEntity(scopeVersionId: string, path: string, name: string, options: { refreshInventory?: boolean } = {}): ProjectStructureEntityRecord | null {
     if (options.refreshInventory !== false) {
       this.ensureProjectInventory(scopeVersionId);
@@ -7220,368 +5275,6 @@ export class WorkspaceDatabase {
         )
         .all(...params, Math.max(1, Math.floor(limit)))
     ).map((row) => this.mapProjectStructureRelation(row));
-  }
-
-  public getProjectSemanticIndexEnabled(scopeVersionId = this.getActiveScope().id): boolean {
-    void scopeVersionId;
-    return false;
-  }
-
-  public setProjectSemanticIndexEnabled(
-    enabled: boolean,
-    scopeVersionId = this.getActiveScope().id,
-    options: { refresh?: boolean } = {}
-  ): ProjectSemanticSummary {
-    this.setMetaValue(projectSemanticEnabledMetaKey(scopeVersionId), enabled ? '1' : '0');
-    if (enabled && options.refresh !== false) {
-      return this.refreshProjectSemanticIndex(scopeVersionId, { reason: 'enabled' });
-    }
-    if (!enabled) {
-      this.clearProjectSemanticJobState(scopeVersionId);
-      this.clearProjectSemanticDirtyState(scopeVersionId);
-    }
-    return this.getProjectSemanticSummary(scopeVersionId);
-  }
-
-  public queueProjectSemanticIndex(scopeVersionId = this.getActiveScope().id, reason = 'manual_rebuild'): ProjectSemanticSummary {
-    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return this.getProjectSemanticSummary(scopeVersionId);
-    const now = nowIso();
-    this.setProjectSemanticJobState(scopeVersionId, {
-      status: 'queued',
-      reason,
-      queuedAt: now,
-      startedAt: null,
-      finishedAt: null,
-      error: null,
-      processed: null,
-      total: null
-    });
-    return this.getProjectSemanticSummary(scopeVersionId);
-  }
-
-  public markProjectSemanticIndexingStarted(scopeVersionId = this.getActiveScope().id, reason = 'background_rebuild'): ProjectSemanticSummary {
-    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return this.getProjectSemanticSummary(scopeVersionId);
-    const existing = this.getProjectSemanticJobState(scopeVersionId);
-    const now = nowIso();
-    this.setProjectSemanticJobState(scopeVersionId, {
-      status: 'indexing',
-      reason: existing?.reason ?? reason,
-      queuedAt: existing?.queuedAt ?? now,
-      startedAt: now,
-      finishedAt: null,
-      error: null,
-      processed: existing?.processed ?? 0,
-      total: existing?.total ?? null
-    });
-    return this.getProjectSemanticSummary(scopeVersionId);
-  }
-
-  public markProjectSemanticIndexingFailed(scopeVersionId = this.getActiveScope().id, error: unknown, reason = 'background_rebuild'): ProjectSemanticSummary {
-    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return this.getProjectSemanticSummary(scopeVersionId);
-    const existing = this.getProjectSemanticJobState(scopeVersionId);
-    this.setProjectSemanticJobState(scopeVersionId, {
-      status: 'error',
-      reason: existing?.reason ?? reason,
-      queuedAt: existing?.queuedAt ?? null,
-      startedAt: existing?.startedAt ?? null,
-      finishedAt: nowIso(),
-      error: error instanceof Error ? error.message : String(error),
-      processed: existing?.processed ?? null,
-      total: existing?.total ?? null
-    });
-    return this.getProjectSemanticSummary(scopeVersionId);
-  }
-
-  public markProjectSemanticIndexingCanceled(scopeVersionId = this.getActiveScope().id, reason = 'disabled'): ProjectSemanticSummary {
-    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) {
-      this.clearProjectSemanticJobState(scopeVersionId);
-      return this.getProjectSemanticSummary(scopeVersionId);
-    }
-    const existing = this.getProjectSemanticJobState(scopeVersionId);
-    this.setProjectSemanticJobState(scopeVersionId, {
-      status: 'canceled',
-      reason,
-      queuedAt: existing?.queuedAt ?? null,
-      startedAt: existing?.startedAt ?? null,
-      finishedAt: nowIso(),
-      error: null,
-      processed: existing?.processed ?? null,
-      total: existing?.total ?? null
-    });
-    return this.getProjectSemanticSummary(scopeVersionId);
-  }
-
-  public getProjectSemanticAutoRefreshReason(scopeVersionId = this.getActiveScope().id, fallbackReason = 'auto_refresh'): string | null {
-    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return null;
-    const job = this.getProjectSemanticJobState(scopeVersionId);
-    if (job?.status === 'queued' || job?.status === 'indexing' || job?.status === 'error') return null;
-    if (job?.status === 'canceled') return job.reason || fallbackReason;
-    const dirty = this.getProjectSemanticDirtyState(scopeVersionId);
-    if (dirty) return dirty.reason;
-    const summary = this.getProjectSemanticSummary(scopeVersionId);
-    if (summary.status === 'empty' || summary.status === 'stale') return fallbackReason;
-    return null;
-  }
-
-  public beginProjectSemanticIndexRefresh(
-    scopeVersionId = this.getActiveScope().id,
-    reason = 'background_rebuild'
-  ): { indexedAt: string; sourceDocumentCount: number; startedAtMs: number } {
-    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) {
-      return { indexedAt: nowIso(), sourceDocumentCount: 0, startedAtMs: Date.now() };
-    }
-    const existing = this.getProjectSemanticJobState(scopeVersionId);
-    const now = nowIso();
-    const sourceRow = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS source_document_count FROM project_search_documents WHERE scope_version_id = ?').get(scopeVersionId));
-    const sourceDocumentCount = sourceRow ? numberValue(sourceRow, 'source_document_count') : 0;
-    this.setProjectSemanticJobState(scopeVersionId, {
-      status: 'indexing',
-      reason: existing?.reason ?? reason,
-      queuedAt: existing?.queuedAt ?? now,
-      startedAt: now,
-      finishedAt: null,
-      error: null,
-      processed: 0,
-      total: sourceDocumentCount
-    });
-    return { indexedAt: now, sourceDocumentCount, startedAtMs: Date.now() };
-  }
-
-  public listProjectSemanticSourceDocuments(scopeVersionId = this.getActiveScope().id, limit = 25, offset = 0): ProjectSearchDocumentRecord[] {
-    return rows(
-      this.db
-        .prepare(
-          `SELECT *
-           FROM project_search_documents
-           WHERE scope_version_id = ?
-           ORDER BY updated_at DESC, entity_type ASC, entity_id ASC
-           LIMIT ? OFFSET ?`
-        )
-        .all(scopeVersionId, Math.max(1, Math.floor(limit)), Math.max(0, Math.floor(offset)))
-    ).map((row) => this.mapProjectSearchDocument(row));
-  }
-
-  public indexProjectSemanticSourceDocuments(
-    scopeVersionId: string,
-    documents: ProjectSearchDocumentRecord[],
-    indexedAt: string,
-    processedCount: number,
-    totalCount: number
-  ): { processedCount: number; chunkCount: number } {
-    const sourceTextCache = new Map<string, ProjectSemanticDirectSourceText | null>();
-    const preparedDocuments = documents.map((document) => ({
-      document,
-      chunks: semanticChunksForDocument(document, indexedAt, sourceTextCache)
-    }));
-    const chunkCount = preparedDocuments.reduce((total, prepared) => total + prepared.chunks.length, 0);
-    this.transaction(() => {
-      const deleteChunks = this.db.prepare('DELETE FROM project_semantic_chunks WHERE scope_version_id = ? AND source_document_id = ?');
-      for (const { document, chunks } of preparedDocuments) {
-        deleteChunks.run(scopeVersionId, document.id);
-        for (const chunk of chunks) {
-          this.insertProjectSemanticChunk(chunk);
-        }
-      }
-    });
-    this.updateProjectSemanticIndexProgress(scopeVersionId, processedCount, totalCount);
-    return { processedCount, chunkCount };
-  }
-
-  public finishProjectSemanticIndexRefresh(scopeVersionId: string, indexedAt: string, startedAtMs: number, sourceDocumentCount: number): ProjectSemanticSummary {
-    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return this.getProjectSemanticSummary(scopeVersionId);
-    this.db
-      .prepare(
-        `DELETE FROM project_semantic_chunks
-         WHERE scope_version_id = ?
-           AND indexed_at <> ?`
-      )
-      .run(scopeVersionId, indexedAt);
-    this.clearProjectSemanticDirtyState(scopeVersionId, indexedAt);
-    this.clearProjectSemanticJobState(scopeVersionId);
-    const refreshed = this.getProjectSemanticSummary(scopeVersionId);
-    this.setMetaValue(
-      projectSemanticRefreshMetaKey(scopeVersionId),
-      JSON.stringify({
-        indexedAt,
-        durationMs: Date.now() - startedAtMs,
-        sourceDocumentCount,
-        chunkCount: refreshed.chunkCount,
-        indexSizeBytes: refreshed.indexSizeBytes
-      }),
-      nowIso()
-    );
-    return this.getProjectSemanticSummary(scopeVersionId);
-  }
-
-  public getProjectSemanticSummary(scopeVersionId = this.getActiveScope().id): ProjectSemanticSummary {
-    const enabled = this.getProjectSemanticIndexEnabled(scopeVersionId);
-    const rowsByNamespace = rows(
-      this.db
-        .prepare(
-          `SELECT namespace, COUNT(*) AS count
-           FROM project_semantic_chunks
-           WHERE scope_version_id = ?
-           GROUP BY namespace
-           ORDER BY namespace ASC`
-        )
-        .all(scopeVersionId)
-    );
-    const namespaceCounts: Record<string, number> = {};
-    let chunkCount = 0;
-    for (const row of rowsByNamespace) {
-      const count = numberValue(row, 'count');
-      namespaceCounts[text(row, 'namespace')] = count;
-      chunkCount += count;
-    }
-    const row = rowOrUndefined(
-      this.db
-        .prepare(
-          `SELECT
-             SUM(CASE WHEN vector_json <> '{}' THEN 1 ELSE 0 END) AS embedded_chunk_count,
-             COUNT(DISTINCT source_document_id) AS indexed_source_document_count,
-             SUM(LENGTH(title) + LENGTH(content) + LENGTH(vector_json) + LENGTH(metadata_json)) AS index_size_bytes,
-             MAX(indexed_at) AS indexed_at
-           FROM project_semantic_chunks
-           WHERE scope_version_id = ?`
-        )
-        .get(scopeVersionId)
-    );
-    const sourceRow = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS source_document_count FROM project_search_documents WHERE scope_version_id = ?').get(scopeVersionId));
-    const lastRefresh = this.getProjectSemanticLastRefreshState(scopeVersionId);
-    const chunkIndexedAt = row ? nullableText(row, 'indexed_at') : null;
-    const indexedAt = chunkIndexedAt ?? lastRefresh?.indexedAt ?? null;
-    const sourceDocumentCount = sourceRow ? numberValue(sourceRow, 'source_document_count') : 0;
-    const chunkIndexedSourceDocumentCount = row ? numberValue(row, 'indexed_source_document_count') : 0;
-    const indexedSourceDocumentCount =
-      lastRefresh?.indexedAt === indexedAt
-        ? Math.max(chunkIndexedSourceDocumentCount, Math.min(lastRefresh.sourceDocumentCount, sourceDocumentCount))
-        : chunkIndexedSourceDocumentCount;
-    const stale = enabled && chunkCount > 0 && (indexedSourceDocumentCount !== sourceDocumentCount || this.projectSemanticIndexLooksStale(scopeVersionId, indexedAt));
-    const job = this.getProjectSemanticJobState(scopeVersionId);
-    const derivedStatus: ProjectSemanticSummary['status'] = !enabled ? 'disabled' : stale ? 'stale' : chunkCount > 0 ? 'ready' : 'empty';
-    const status: ProjectSemanticSummary['status'] = enabled && job ? job.status : derivedStatus;
-    return {
-      scopeVersionId,
-      enabled,
-      status,
-      provider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
-      model: PROJECT_SEMANTIC_VECTOR_MODEL,
-      remoteEmbeddingEnabled: false,
-      chunkCount,
-      embeddedChunkCount: row ? numberValue(row, 'embedded_chunk_count') : 0,
-      sourceDocumentCount,
-      indexedSourceDocumentCount,
-      indexSizeBytes: row ? numberValue(row, 'index_size_bytes') : 0,
-      lastRefreshDurationMs: lastRefresh?.durationMs ?? null,
-      namespaceCounts,
-      indexedAt,
-      queuedAt: job?.queuedAt ?? null,
-      startedAt: job?.startedAt ?? null,
-      finishedAt: job?.finishedAt ?? null,
-      jobReason: job?.reason ?? null,
-      lastError: job?.error ?? null,
-      progressProcessed: job?.processed ?? null,
-      progressTotal: job?.total ?? null
-    };
-  }
-
-  public ensureProjectSemanticIndex(scopeVersionId = this.getActiveScope().id): ProjectSemanticSummary {
-    const summary = this.getProjectSemanticSummary(scopeVersionId);
-    if (!summary.enabled) return summary;
-    if (summary.chunkCount === 0 || this.projectSemanticIndexLooksStale(scopeVersionId, summary.indexedAt)) {
-      return this.refreshProjectSemanticIndex(scopeVersionId);
-    }
-    return summary;
-  }
-
-  public refreshProjectSemanticIndex(scopeVersionId = this.getActiveScope().id, options: { refreshInventory?: boolean; reason?: string } = {}): ProjectSemanticSummary {
-    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return this.getProjectSemanticSummary(scopeVersionId);
-    if (options.refreshInventory !== false) {
-      this.ensureProjectInventory(scopeVersionId);
-    }
-    const refresh = this.beginProjectSemanticIndexRefresh(scopeVersionId, options.reason ?? 'manual_rebuild');
-    let processed = 0;
-    try {
-      while (processed < refresh.sourceDocumentCount) {
-        const documents = this.listProjectSemanticSourceDocuments(scopeVersionId, 100, processed);
-        if (documents.length === 0) break;
-        processed += documents.length;
-        this.indexProjectSemanticSourceDocuments(scopeVersionId, documents, refresh.indexedAt, processed, refresh.sourceDocumentCount);
-      }
-      return this.finishProjectSemanticIndexRefresh(scopeVersionId, refresh.indexedAt, refresh.startedAtMs, refresh.sourceDocumentCount);
-    } catch (error) {
-      this.markProjectSemanticIndexingFailed(scopeVersionId, error, options.reason ?? 'manual_rebuild');
-      throw error;
-    }
-  }
-
-  public searchProjectSemanticChunksForRun(runId: string, query: string, limit = 8, options: { refreshIndex?: boolean; scopeVersionId?: string } = {}): ProjectSemanticSearchResult[] {
-    const run = this.getRun(runId);
-    if (!run) throw new Error(`Run not found: ${runId}`);
-    const scopeVersionId = options.scopeVersionId ?? run.scopeVersionId;
-    const trimmed = query.trim();
-    if (!trimmed || !this.getProjectSemanticIndexEnabled(scopeVersionId)) return [];
-    if (options.refreshIndex !== false) {
-      this.ensureProjectSemanticIndex(scopeVersionId);
-    }
-    const profile = semanticQueryProfile(trimmed);
-    const queryVector = semanticVectorForText(trimmed, 'query');
-    const rankedCandidates = this.projectSemanticCandidateRows(scopeVersionId, trimmed, profile)
-      .map((row) => ({ row, score: semanticRankScore(row, profile, queryVector) }))
-      .filter((candidate) => candidate.score.baseScore >= 0.08 && (candidate.score.vectorScore > 0 || candidate.score.lexicalScore > 0 || candidate.score.titleScore > 0))
-      .sort((left, right) => right.score.score - left.score.score || text(right.row, 'indexed_at').localeCompare(text(left.row, 'indexed_at')));
-    return semanticDiversifyRankedCandidates(rankedCandidates, limit)
-      .map(({ row, score }) => this.mapProjectSemanticSearchResult(row, trimmed, score));
-  }
-
-  private projectSemanticCandidateRows(scopeVersionId: string, query: string, profile: ProjectSemanticQueryProfile): SqlRow[] {
-    const candidates: SqlRow[] = [];
-    const seen = new Set<string>();
-    const append = (candidateRows: SqlRow[]): void => {
-      for (const row of candidateRows) {
-        if (candidates.length >= PROJECT_SEMANTIC_SEARCH_CANDIDATE_LIMIT) return;
-        const id = text(row, 'id');
-        if (seen.has(id)) continue;
-        seen.add(id);
-        candidates.push(row);
-      }
-    };
-    const terms = projectSemanticPrefilterTerms(query, profile);
-    if (terms.length === 0) return candidates;
-    const scoreSql = terms
-      .map(
-        () =>
-          `(CASE WHEN LOWER(c.title) LIKE ? ESCAPE '\\' THEN 8 ELSE 0 END +
-            CASE WHEN LOWER(COALESCE(c.source_path, '')) LIKE ? ESCAPE '\\' THEN 6 ELSE 0 END +
-            CASE WHEN LOWER(c.content) LIKE ? ESCAPE '\\' THEN 4 ELSE 0 END +
-            CASE WHEN LOWER(c.vector_json) LIKE ? ESCAPE '\\' THEN 3 ELSE 0 END +
-            CASE WHEN LOWER(c.metadata_json) LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END)`
-      )
-      .join(' + ');
-    const params: SqlPrimitive[] = [];
-    for (const term of terms) {
-      const pattern = `%${escapeLike(term)}%`;
-      params.push(pattern, pattern, pattern, pattern, pattern);
-    }
-    params.push(scopeVersionId, PROJECT_SEMANTIC_SEARCH_CANDIDATE_LIMIT);
-    append(
-      rows(
-        this.db
-          .prepare(
-            `SELECT *
-             FROM (
-               SELECT c.*, ${scoreSql} AS semantic_prefilter_score
-               FROM project_semantic_chunks c
-               WHERE c.scope_version_id = ?
-             )
-             WHERE semantic_prefilter_score > 0
-             ORDER BY semantic_prefilter_score DESC, indexed_at DESC
-             LIMIT ?`
-          )
-          .all(...params)
-      )
-    );
-    return candidates;
   }
 
   public ensureProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventorySummary {
@@ -7742,16 +5435,6 @@ export class WorkspaceDatabase {
       ).map((row) => this.mapArtifact(row)),
       verifierContracts: rows(this.db.prepare('SELECT * FROM verifier_contracts WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapVerifierContract(row)),
       verifierRuns: rows(this.db.prepare('SELECT * FROM verifier_runs WHERE run_id = ? ORDER BY started_at ASC, rowid ASC').all(runId)).map((row) => this.mapVerifierRun(row)),
-      vmContexts: rows(
-        this.db
-          .prepare(
-            `SELECT DISTINCT v.* FROM vm_contexts v
-             LEFT JOIN attempts a ON a.vm_context_id = v.id
-             WHERE a.run_id = ? OR v.id IN (SELECT vm_context_id FROM trace_events WHERE run_id = ? AND vm_context_id IS NOT NULL)
-             ORDER BY v.created_at ASC`
-          )
-          .all(runId, runId)
-      ).map((row) => this.mapVmContext(row)),
       modelSessions: rows(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapModelSession(row)),
       contextCompactions: rows(this.db.prepare('SELECT * FROM context_compactions WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
         this.mapContextCompaction(row)
@@ -7819,10 +5502,6 @@ export class WorkspaceDatabase {
         up: (database) => {
           database.exec(SCHEMA_SQL);
           database.exec(RUN_FIXTURE_SETUP_SCHEMA_SQL);
-          database.exec(PROJECT_GRAPH_SCHEMA_SQL);
-          database.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
-          database.exec(PROJECT_SEMANTIC_SCHEMA_SQL);
-          database.exec(PROJECT_SEARCH_PERFORMANCE_INDEXES_SQL);
           database.prepare("DELETE FROM workspace_meta WHERE key = 'schema_version'").run();
         }
       },
@@ -7963,7 +5642,6 @@ export class WorkspaceDatabase {
                 contract_id TEXT NOT NULL REFERENCES verifier_contracts(id) ON DELETE CASCADE,
                 run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
                 attempt_id TEXT REFERENCES attempts(id),
-                vm_context_id TEXT REFERENCES vm_contexts(id),
                 status TEXT NOT NULL,
                 blocked_issue TEXT NOT NULL,
                 behavior_preserved TEXT NOT NULL,
@@ -7973,7 +5651,16 @@ export class WorkspaceDatabase {
                 started_at TEXT NOT NULL,
                 ended_at TEXT
               );
-              INSERT INTO verifier_runs SELECT * FROM verifier_runs_migration_backup;
+              INSERT INTO verifier_runs (
+                id, contract_id, run_id, attempt_id, status, blocked_issue,
+                behavior_preserved, diagnostics_clean, regression_tests, result_json,
+                started_at, ended_at
+              )
+              SELECT
+                id, contract_id, run_id, attempt_id, status, blocked_issue,
+                behavior_preserved, diagnostics_clean, regression_tests, result_json,
+                started_at, ended_at
+              FROM verifier_runs_migration_backup;
               DROP TABLE verifier_runs_migration_backup;
               CREATE INDEX IF NOT EXISTS idx_verifier_runs_status ON verifier_runs(status);
             `);
@@ -8012,16 +5699,6 @@ export class WorkspaceDatabase {
           database.exec(`
             DELETE FROM project_search_documents
             WHERE entity_type IN ('hypothesis', 'finding', 'evidence', 'weakness');
-            DELETE FROM project_graph_edges
-            WHERE source_node_id IN (
-              SELECT id FROM project_graph_nodes WHERE entity_type IN ('hypothesis', 'finding', 'evidence', 'weakness', 'research_component')
-            )
-               OR target_node_id IN (
-              SELECT id FROM project_graph_nodes WHERE entity_type IN ('hypothesis', 'finding', 'evidence', 'weakness', 'research_component')
-            )
-               OR target_entity_type IN ('hypothesis', 'finding', 'evidence', 'weakness', 'research_component');
-            DELETE FROM project_graph_nodes
-            WHERE entity_type IN ('hypothesis', 'finding', 'evidence', 'weakness', 'research_component');
             CREATE INDEX IF NOT EXISTS idx_verifier_contracts_memory_node ON verifier_contracts(memory_node_id);
             CREATE INDEX IF NOT EXISTS idx_exports_memory_node ON exports(memory_node_id);
           `);
@@ -8060,21 +5737,6 @@ export class WorkspaceDatabase {
                 ELSE title
               END,
               body = replace(replace(body, 'hypothesis_event', 'research_event'), 'finding_event', 'research_event'),
-              metadata_json = CASE
-                WHEN json_valid(metadata_json) THEN json_set(metadata_json, '$.type', 'research_event')
-                ELSE metadata_json
-              END
-            WHERE entity_type = 'trace_event'
-              AND entity_id IN (SELECT id FROM legacy_trace_taxonomy_ids);
-
-            UPDATE project_graph_nodes
-            SET
-              node_kind = 'trace:research_event',
-              label = CASE
-                WHEN label LIKE 'Hypothesis created:%' THEN 'Research note recorded:' || substr(label, length('Hypothesis created:') + 1)
-                WHEN label LIKE 'Simulated finding recorded%' THEN 'Fixture research outcome recorded; real target execution is still required.'
-                ELSE label
-              END,
               metadata_json = CASE
                 WHEN json_valid(metadata_json) THEN json_set(metadata_json, '$.type', 'research_event')
                 ELSE metadata_json
@@ -8133,10 +5795,6 @@ export class WorkspaceDatabase {
             WHERE body LIKE '%adaptive_portfolio%'
                OR metadata_json LIKE '%adaptive_portfolio%';
 
-            UPDATE project_graph_nodes
-            SET metadata_json = replace(metadata_json, 'adaptive_portfolio', 'iterative_research')
-            WHERE metadata_json LIKE '%adaptive_portfolio%';
-
             UPDATE exports
             SET kind = 'artifact_bundle'
             WHERE kind = 'evidence_bundle';
@@ -8175,15 +5833,6 @@ export class WorkspaceDatabase {
               (entity_type = 'artifact' AND entity_id IN (SELECT id FROM artifacts WHERE kind = 'artifact_bundle_export'))
               OR (entity_type = 'trace_event' AND entity_id IN (SELECT id FROM trace_events WHERE summary = 'Artifact bundle export created.'));
 
-            UPDATE project_graph_nodes
-            SET
-              node_kind = replace(node_kind, 'evidence_bundle', 'artifact_bundle'),
-              label = replace(label, 'Evidence bundle', 'Artifact bundle'),
-              metadata_json = replace(metadata_json, 'evidence_bundle', 'artifact_bundle')
-            WHERE
-              (entity_type = 'artifact' AND entity_id IN (SELECT id FROM artifacts WHERE kind = 'artifact_bundle_export'))
-              OR (entity_type = 'trace_event' AND entity_id IN (SELECT id FROM trace_events WHERE summary = 'Artifact bundle export created.'));
-
             DROP TABLE legacy_trace_taxonomy_ids;
           `);
         }
@@ -8191,60 +5840,12 @@ export class WorkspaceDatabase {
       {
         version: 6,
         name: 'reversible_memory_dreaming',
-        up: (database) => {
-          database.exec(MEMORY_DREAMING_SCHEMA_SQL);
-        }
+        up: () => undefined
       },
       {
         version: 7,
         name: 'semantic_memory_dreaming',
-        up: (database) => {
-          if (!tableHasColumn(database, 'memory_dreaming_runs', 'model')) {
-            database.exec("ALTER TABLE memory_dreaming_runs ADD COLUMN model TEXT NOT NULL DEFAULT 'unknown';");
-          }
-          if (!tableHasColumn(database, 'memory_dreaming_runs', 'reasoning_effort')) {
-            database.exec("ALTER TABLE memory_dreaming_runs ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'unknown';");
-          }
-          if (!tableHasColumn(database, 'memory_dreaming_runs', 'input_node_count')) {
-            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN input_node_count INTEGER NOT NULL DEFAULT 0;');
-          }
-          if (!tableHasColumn(database, 'memory_dreaming_runs', 'input_session_count')) {
-            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN input_session_count INTEGER NOT NULL DEFAULT 0;');
-          }
-          database.exec(`
-            ALTER TABLE memory_dreaming_changes RENAME TO memory_dreaming_changes_pre_semantic;
-            CREATE TABLE memory_dreaming_changes (
-              id TEXT PRIMARY KEY,
-              run_id TEXT NOT NULL REFERENCES memory_dreaming_runs(id) ON DELETE CASCADE,
-              workspace_id TEXT NOT NULL,
-              action TEXT NOT NULL CHECK (action IN ('prune', 'merge_duplicates', 'revise')),
-              title TEXT NOT NULL,
-              node_type TEXT NOT NULL,
-              hidden_node_ids_json TEXT NOT NULL,
-              survivor_node_id TEXT,
-              reason TEXT NOT NULL,
-              before_json TEXT NOT NULL,
-              after_json TEXT NOT NULL,
-              created_at TEXT NOT NULL,
-              restored_at TEXT
-            );
-            INSERT INTO memory_dreaming_changes (
-              id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
-              survivor_node_id, reason, before_json, after_json, created_at, restored_at
-            )
-            SELECT
-              id, run_id, workspace_id,
-              CASE action WHEN 'hide_stale' THEN 'prune' ELSE action END,
-              title, node_type, hidden_node_ids_json, survivor_node_id, reason,
-              before_json, after_json, created_at, restored_at
-            FROM memory_dreaming_changes_pre_semantic;
-            DROP TABLE memory_dreaming_changes_pre_semantic;
-            CREATE INDEX idx_memory_dreaming_changes_workspace_created
-            ON memory_dreaming_changes(workspace_id, created_at DESC);
-            CREATE INDEX idx_memory_dreaming_changes_run
-            ON memory_dreaming_changes(run_id);
-          `);
-        }
+        up: () => undefined
       },
       {
         version: 8,
@@ -8297,114 +5898,12 @@ export class WorkspaceDatabase {
       {
         version: 11,
         name: 'memory_dreaming_reclassification',
-        up: (database) => {
-          if (!tableHasColumn(database, 'memory_dreaming_runs', 'reclassified_node_count')) {
-            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN reclassified_node_count INTEGER NOT NULL DEFAULT 0;');
-          }
-          database.exec(`
-            ALTER TABLE memory_dreaming_changes RENAME TO memory_dreaming_changes_pre_reclassification;
-            CREATE TABLE memory_dreaming_changes (
-              id TEXT PRIMARY KEY,
-              run_id TEXT NOT NULL REFERENCES memory_dreaming_runs(id) ON DELETE CASCADE,
-              workspace_id TEXT NOT NULL,
-              action TEXT NOT NULL CHECK (action IN ('prune', 'merge_duplicates', 'revise', 'reclassify')),
-              title TEXT NOT NULL,
-              node_type TEXT NOT NULL,
-              hidden_node_ids_json TEXT NOT NULL,
-              survivor_node_id TEXT,
-              reason TEXT NOT NULL,
-              before_json TEXT NOT NULL,
-              after_json TEXT NOT NULL,
-              created_at TEXT NOT NULL,
-              restored_at TEXT
-            );
-            INSERT INTO memory_dreaming_changes (
-              id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
-              survivor_node_id, reason, before_json, after_json, created_at, restored_at
-            )
-            SELECT
-              id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
-              survivor_node_id, reason, before_json, after_json, created_at, restored_at
-            FROM memory_dreaming_changes_pre_reclassification;
-            DROP TABLE memory_dreaming_changes_pre_reclassification;
-            CREATE INDEX idx_memory_dreaming_changes_workspace_created
-            ON memory_dreaming_changes(workspace_id, created_at DESC);
-            CREATE INDEX idx_memory_dreaming_changes_run
-            ON memory_dreaming_changes(run_id);
-          `);
-        }
+        up: () => undefined
       },
       {
         version: 12,
         name: 'memory_dreaming_failed_runs',
-        up: (database) => {
-          if (tableHasColumn(database, 'memory_dreaming_runs', 'error_message')) return;
-          database.exec(`
-            ALTER TABLE memory_dreaming_changes RENAME TO memory_dreaming_changes_pre_failures;
-            ALTER TABLE memory_dreaming_runs RENAME TO memory_dreaming_runs_pre_failures;
-            CREATE TABLE memory_dreaming_runs (
-              id TEXT PRIMARY KEY,
-              workspace_id TEXT NOT NULL,
-              status TEXT NOT NULL CHECK (status IN ('completed', 'restored', 'failed')),
-              stale_hidden_count INTEGER NOT NULL DEFAULT 0,
-              duplicate_hidden_count INTEGER NOT NULL DEFAULT 0,
-              duplicate_group_count INTEGER NOT NULL DEFAULT 0,
-              reclassified_node_count INTEGER NOT NULL DEFAULT 0,
-              edited_node_count INTEGER NOT NULL DEFAULT 0,
-              created_at TEXT NOT NULL,
-              completed_at TEXT NOT NULL,
-              restored_at TEXT,
-              model TEXT NOT NULL DEFAULT 'unknown',
-              reasoning_effort TEXT NOT NULL DEFAULT 'unknown',
-              input_node_count INTEGER NOT NULL DEFAULT 0,
-              input_session_count INTEGER NOT NULL DEFAULT 0,
-              error_message TEXT
-            );
-            CREATE TABLE memory_dreaming_changes (
-              id TEXT PRIMARY KEY,
-              run_id TEXT NOT NULL REFERENCES memory_dreaming_runs(id) ON DELETE CASCADE,
-              workspace_id TEXT NOT NULL,
-              action TEXT NOT NULL CHECK (action IN ('prune', 'merge_duplicates', 'revise', 'reclassify')),
-              title TEXT NOT NULL,
-              node_type TEXT NOT NULL,
-              hidden_node_ids_json TEXT NOT NULL,
-              survivor_node_id TEXT,
-              reason TEXT NOT NULL,
-              before_json TEXT NOT NULL,
-              after_json TEXT NOT NULL,
-              created_at TEXT NOT NULL,
-              restored_at TEXT
-            );
-            INSERT INTO memory_dreaming_runs (
-              id, workspace_id, status, stale_hidden_count, duplicate_hidden_count,
-              duplicate_group_count, reclassified_node_count, edited_node_count,
-              created_at, completed_at, restored_at, model, reasoning_effort,
-              input_node_count, input_session_count, error_message
-            )
-            SELECT
-              id, workspace_id, status, stale_hidden_count, duplicate_hidden_count,
-              duplicate_group_count, reclassified_node_count, edited_node_count,
-              created_at, completed_at, restored_at, model, reasoning_effort,
-              input_node_count, input_session_count, NULL
-            FROM memory_dreaming_runs_pre_failures;
-            INSERT INTO memory_dreaming_changes (
-              id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
-              survivor_node_id, reason, before_json, after_json, created_at, restored_at
-            )
-            SELECT
-              id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
-              survivor_node_id, reason, before_json, after_json, created_at, restored_at
-            FROM memory_dreaming_changes_pre_failures;
-            DROP TABLE memory_dreaming_changes_pre_failures;
-            DROP TABLE memory_dreaming_runs_pre_failures;
-            CREATE INDEX idx_memory_dreaming_runs_workspace_created
-            ON memory_dreaming_runs(workspace_id, created_at DESC);
-            CREATE INDEX idx_memory_dreaming_changes_workspace_created
-            ON memory_dreaming_changes(workspace_id, created_at DESC);
-            CREATE INDEX idx_memory_dreaming_changes_run
-            ON memory_dreaming_changes(run_id);
-          `);
-        }
+        up: () => undefined
       },
       {
         version: 13,
@@ -8485,21 +5984,7 @@ export class WorkspaceDatabase {
       {
         version: 15,
         name: 'memory_dreaming_run_profile_provenance',
-        up: (database) => {
-          if (!tableHasColumn(database, 'memory_dreaming_runs', 'research_profile_hash')) {
-            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN research_profile_hash TEXT;');
-          }
-          if (!tableHasColumn(database, 'memory_dreaming_runs', 'research_profile_id')) {
-            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN research_profile_id TEXT;');
-          }
-          if (!tableHasColumn(database, 'memory_dreaming_runs', 'research_profile_version')) {
-            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN research_profile_version TEXT;');
-          }
-          if (!tableHasColumn(database, 'memory_dreaming_runs', 'memory_catalog_hash')) {
-            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN memory_catalog_hash TEXT;');
-          }
-          database.exec(MEMORY_DREAMING_RUN_PROVENANCE_TRIGGER_SQL);
-        }
+        up: () => undefined
       },
       {
         version: 16,
@@ -8510,9 +5995,6 @@ export class WorkspaceDatabase {
           }
           if (tableHasColumn(database, 'runs', 'network_profile')) {
             database.exec('ALTER TABLE runs DROP COLUMN network_profile;');
-          }
-          if (tableHasColumn(database, 'vm_contexts', 'network_profile')) {
-            database.exec('ALTER TABLE vm_contexts DROP COLUMN network_profile;');
           }
         }
       },
@@ -8643,18 +6125,13 @@ export class WorkspaceDatabase {
               END;
             `);
           }
-          for (const table of ['artifacts', 'vm_contexts']) {
-            const linkedRunIds = table === 'artifacts'
-              ? 'SELECT DISTINCT run_id FROM trace_events WHERE artifact_id = NEW.id'
-              : `SELECT run_id FROM attempts WHERE vm_context_id = NEW.id
-                 UNION SELECT run_id FROM trace_events WHERE vm_context_id = NEW.id`;
-            database.exec(`
-              CREATE TRIGGER IF NOT EXISTS run_detail_revision_${table}_update
-              AFTER UPDATE ON ${table} BEGIN
-                UPDATE run_detail_revisions SET revision = revision + 1 WHERE run_id IN (${linkedRunIds});
-              END;
-            `);
-          }
+          database.exec(`
+            CREATE TRIGGER IF NOT EXISTS run_detail_revision_artifacts_update
+            AFTER UPDATE ON artifacts BEGIN
+              UPDATE run_detail_revisions SET revision = revision + 1
+              WHERE run_id IN (SELECT DISTINCT run_id FROM trace_events WHERE artifact_id = NEW.id);
+            END;
+          `);
         }
       },
       {
@@ -8780,71 +6257,6 @@ export class WorkspaceDatabase {
     return `${this.workspaceId}:${key}`;
   }
 
-  private getProjectSemanticJobState(scopeVersionId: string): ProjectSemanticJobState | null {
-    const value = this.getMetaValue(projectSemanticJobMetaKey(scopeVersionId));
-    if (!value) return null;
-    const parsed = parseJson(value);
-    const status = parsed.status;
-    if (status !== 'queued' && status !== 'indexing' && status !== 'error' && status !== 'canceled') return null;
-    return {
-      status,
-      reason: typeof parsed.reason === 'string' ? parsed.reason : 'background_rebuild',
-      queuedAt: typeof parsed.queuedAt === 'string' ? parsed.queuedAt : null,
-      startedAt: typeof parsed.startedAt === 'string' ? parsed.startedAt : null,
-      finishedAt: typeof parsed.finishedAt === 'string' ? parsed.finishedAt : null,
-      error: typeof parsed.error === 'string' ? parsed.error : null,
-      processed: typeof parsed.processed === 'number' && Number.isFinite(parsed.processed) ? parsed.processed : null,
-      total: typeof parsed.total === 'number' && Number.isFinite(parsed.total) ? parsed.total : null
-    };
-  }
-
-  private setProjectSemanticJobState(scopeVersionId: string, state: ProjectSemanticJobState): void {
-    this.setMetaValue(projectSemanticJobMetaKey(scopeVersionId), JSON.stringify(state), nowIso());
-  }
-
-  private updateProjectSemanticIndexProgress(scopeVersionId: string, processed: number, total: number): void {
-    const existing = this.getProjectSemanticJobState(scopeVersionId);
-    if (!existing || existing.status !== 'indexing') return;
-    this.setProjectSemanticJobState(scopeVersionId, {
-      ...existing,
-      processed: Math.max(0, Math.floor(processed)),
-      total: Math.max(0, Math.floor(total))
-    });
-  }
-
-  private clearProjectSemanticJobState(scopeVersionId: string): void {
-    this.deleteMetaValue(projectSemanticJobMetaKey(scopeVersionId));
-  }
-
-  private getProjectSemanticDirtyState(scopeVersionId: string): ProjectSemanticDirtyState | null {
-    const value = this.getMetaValue(projectSemanticDirtyMetaKey(scopeVersionId));
-    if (!value) return null;
-    const parsed = parseJson(value);
-    const reason = typeof parsed.reason === 'string' && parsed.reason.trim() ? parsed.reason : 'search_document_changed';
-    const markedAt = typeof parsed.markedAt === 'string' ? parsed.markedAt : '';
-    return markedAt ? { reason, markedAt } : null;
-  }
-
-  private markProjectSemanticIndexDirty(scopeVersionId: string, reason: string): void {
-    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return;
-    const markedAt = nowIso();
-    this.setMetaValue(projectSemanticDirtyMetaKey(scopeVersionId), JSON.stringify({ reason, markedAt }), markedAt);
-  }
-
-  private clearProjectSemanticDirtyState(scopeVersionId: string, indexedAt?: string): void {
-    if (!indexedAt) {
-      this.deleteMetaValue(projectSemanticDirtyMetaKey(scopeVersionId));
-      return;
-    }
-    const dirty = this.getProjectSemanticDirtyState(scopeVersionId);
-    if (!dirty) return;
-    const dirtyTime = Date.parse(dirty.markedAt);
-    const indexedTime = Date.parse(indexedAt);
-    if (!Number.isFinite(dirtyTime) || !Number.isFinite(indexedTime) || dirtyTime <= indexedTime) {
-      this.deleteMetaValue(projectSemanticDirtyMetaKey(scopeVersionId));
-    }
-  }
-
   private insertScopeAsset(scopeVersionId: string, asset: ScopeAssetInput, createdAt: string): void {
     this.db
       .prepare(
@@ -8925,38 +6337,6 @@ export class WorkspaceDatabase {
     return false;
   }
 
-  private projectSemanticIndexLooksStale(scopeVersionId: string, indexedAt: string | null): boolean {
-    if (!indexedAt) return true;
-    const providerMismatch = rowOrUndefined(
-      this.db
-        .prepare(
-          `SELECT COUNT(*) AS count
-           FROM project_semantic_chunks
-           WHERE scope_version_id = ?
-             AND (vector_provider <> ? OR vector_model <> ?)`
-        )
-        .get(scopeVersionId, PROJECT_SEMANTIC_VECTOR_PROVIDER, PROJECT_SEMANTIC_VECTOR_MODEL)
-    );
-    if (providerMismatch && numberValue(providerMismatch, 'count') > 0) return true;
-    const row = rowOrUndefined(this.db.prepare('SELECT MAX(updated_at) AS document_updated_at FROM project_search_documents WHERE scope_version_id = ?').get(scopeVersionId));
-    const documentUpdatedAt = row ? nullableText(row, 'document_updated_at') : null;
-    return Boolean(documentUpdatedAt && Date.parse(documentUpdatedAt) > Date.parse(indexedAt));
-  }
-
-  private getProjectSemanticLastRefreshState(scopeVersionId: string): ProjectSemanticRefreshState | null {
-    const value = this.getMetaValue(projectSemanticRefreshMetaKey(scopeVersionId));
-    if (!value) return null;
-    const parsed = parseJson(value);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    return {
-      indexedAt: typeof parsed.indexedAt === 'string' && parsed.indexedAt.trim() ? parsed.indexedAt : null,
-      durationMs: typeof parsed.durationMs === 'number' && Number.isFinite(parsed.durationMs) ? parsed.durationMs : null,
-      sourceDocumentCount: typeof parsed.sourceDocumentCount === 'number' && Number.isFinite(parsed.sourceDocumentCount) ? Math.max(0, Math.floor(parsed.sourceDocumentCount)) : 0,
-      chunkCount: typeof parsed.chunkCount === 'number' && Number.isFinite(parsed.chunkCount) ? Math.max(0, Math.floor(parsed.chunkCount)) : 0,
-      indexSizeBytes: typeof parsed.indexSizeBytes === 'number' && Number.isFinite(parsed.indexSizeBytes) ? Math.max(0, Math.floor(parsed.indexSizeBytes)) : 0
-    };
-  }
-
   private resolveProjectStructureRelationTargets(scopeVersionId: string): void {
     const unresolved = rows(
       this.db
@@ -9016,475 +6396,11 @@ export class WorkspaceDatabase {
     }
   }
 
-  private rebuildProjectGraph(scopeVersionId: string, indexedAt: string): void {
-    const scope = this.getScopeVersion(scopeVersionId);
-    const scopeNodeId = this.upsertProjectGraphNode({
-      scopeVersionId,
-      entityType: 'scope_version',
-      entityId: scopeVersionId,
-      nodeKind: 'authorized_scope',
-      label: scope.workspaceName,
-      sourcePath: null,
-      metadata: {
-        version: scope.version,
-        scopeOwner: scope.scopeOwner,
-        status: scope.status
-      },
-      indexedAt
-    });
-
-    for (const asset of scope.assets) {
-      const assetNodeId = this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'scope_asset',
-        entityId: asset.id,
-        nodeKind: `scope_asset:${asset.kind}`,
-        label: asset.value,
-        sourcePath: isAbsolute(asset.value) ? asset.value : null,
-        metadata: {
-          direction: asset.direction,
-          kind: asset.kind,
-          sensitivity: asset.sensitivity,
-          attributes: asset.attributes
-        },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: assetNodeId,
-        edgeKind: 'belongs_to_scope',
-        targetNodeId: scopeNodeId,
-        targetEntityType: 'scope_version',
-        targetEntityId: scopeVersionId,
-        targetLabel: scope.workspaceName,
-        metadata: { source: 'scope_asset' },
-        indexedAt
-      });
-    }
-
-    const inventoryRows = rows(this.db.prepare('SELECT * FROM project_inventory_items WHERE scope_version_id = ?').all(scopeVersionId));
-    for (const row of inventoryRows) {
-      const inventoryId = text(row, 'id');
-      const path = text(row, 'path');
-      const itemKind = text(row, 'item_kind');
-      const resourceKind = text(row, 'resource_kind');
-      const inventoryNodeId = this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'inventory_item',
-        entityId: inventoryId,
-        nodeKind: `${itemKind}:${resourceKind}`,
-        label: basename(path) || path,
-        sourcePath: path,
-        metadata: {
-          assetId: text(row, 'asset_id'),
-          itemKind,
-          resourceKind,
-          language: text(row, 'language'),
-          sizeBytes: nullableNumber(row, 'size_bytes'),
-          sha256: nullableText(row, 'sha256'),
-          sensitivity: text(row, 'sensitivity')
-        },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: inventoryNodeId,
-        edgeKind: 'belongs_to_scope',
-        targetNodeId: scopeNodeId,
-        targetEntityType: 'scope_version',
-        targetEntityId: scopeVersionId,
-        targetLabel: scope.workspaceName,
-        metadata: { source: 'inventory' },
-        indexedAt
-      });
-    }
-
-    const structureRows = rows(this.db.prepare('SELECT * FROM project_structure_entities WHERE scope_version_id = ?').all(scopeVersionId));
-    for (const row of structureRows) {
-      const structureId = text(row, 'id');
-      const inventoryItemId = text(row, 'inventory_item_id');
-      const entityKind = text(row, 'entity_kind');
-      const name = text(row, 'name');
-      const path = text(row, 'path');
-      const structureMetadata = parseJson(row.metadata_json);
-      const structureNodeId = this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'structure_entity',
-        entityId: structureId,
-        nodeKind: entityKind,
-        label: name,
-        sourcePath: path,
-        metadata: {
-          inventoryItemId,
-          assetId: text(row, 'asset_id'),
-          signature: text(row, 'signature'),
-          language: text(row, 'language'),
-          lineStart: numberValue(row, 'line_start'),
-          lineEnd: numberValue(row, 'line_end'),
-          parentId: nullableText(row, 'parent_id')
-        },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: projectGraphNodeId(scopeVersionId, 'inventory_item', inventoryItemId),
-        edgeKind: 'defines',
-        targetNodeId: structureNodeId,
-        targetEntityType: 'structure_entity',
-        targetEntityId: structureId,
-        targetLabel: name,
-        metadata: { source: 'structure_entity', path },
-        indexedAt
-      });
-      const binaryGraphEdgeKind = stringFromUnknown(structureMetadata.relationKind) ?? '';
-      if (structureMetadata.binaryDerived === true && BINARY_GRAPH_EDGE_KINDS.has(binaryGraphEdgeKind)) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: projectGraphNodeId(scopeVersionId, 'inventory_item', inventoryItemId),
-          edgeKind: binaryGraphEdgeKind,
-          targetNodeId: structureNodeId,
-          targetEntityType: 'structure_entity',
-          targetEntityId: structureId,
-          targetLabel: name,
-          metadata: {
-            source: 'binary_structure',
-            path,
-            entityKind,
-            binaryStringKind: structureMetadata.binaryStringKind ?? null,
-            binarySymbolRole: structureMetadata.binarySymbolRole ?? null
-          },
-          indexedAt
-        });
-      }
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: structureNodeId,
-        edgeKind: 'belongs_to_scope',
-        targetNodeId: scopeNodeId,
-        targetEntityType: 'scope_version',
-        targetEntityId: scopeVersionId,
-        targetLabel: scope.workspaceName,
-        metadata: { source: 'structure_entity' },
-        indexedAt
-      });
-    }
-
-    const relationRows = rows(this.db.prepare('SELECT * FROM project_structure_relations WHERE scope_version_id = ?').all(scopeVersionId));
-    for (const row of relationRows) {
-      const sourceEntityId = text(row, 'source_entity_id');
-      const targetEntityId = nullableText(row, 'target_entity_id');
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: projectGraphNodeId(scopeVersionId, 'structure_entity', sourceEntityId),
-        edgeKind: text(row, 'relation_kind'),
-        targetNodeId: targetEntityId ? projectGraphNodeId(scopeVersionId, 'structure_entity', targetEntityId) : null,
-        targetEntityType: targetEntityId ? 'structure_entity' : text(row, 'target_kind'),
-        targetEntityId,
-        targetLabel: text(row, 'target_name'),
-        metadata: {
-          ...parseJson(row.metadata_json),
-          source: 'structure_relation',
-          structureRelationId: text(row, 'id'),
-          targetKind: text(row, 'target_kind')
-        },
-        indexedAt
-      });
-    }
-
-    const lineageRunSql = this.scopeVersionLineagePredicate('scope_version_id');
-    const joinedLineageRunSql = this.scopeVersionLineagePredicate('r.scope_version_id');
-    const runRows = rows(this.db.prepare(`SELECT * FROM runs WHERE ${lineageRunSql}`).all(scopeVersionId));
-    for (const row of runRows) {
-      const run = this.mapRun(row);
-      const runNodeId = this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'run',
-        entityId: run.id,
-        nodeKind: 'run',
-        label: run.title,
-        sourcePath: run.targetPath,
-        metadata: {
-          status: run.status,
-          mode: run.mode,
-          model: run.model,
-          targetAssetId: run.targetAssetId,
-          sandboxProfile: run.sandboxProfile
-        },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: runNodeId,
-        edgeKind: 'belongs_to_scope',
-        targetNodeId: scopeNodeId,
-        targetEntityType: 'scope_version',
-        targetEntityId: scopeVersionId,
-        targetLabel: scope.workspaceName,
-        metadata: { source: 'run' },
-        indexedAt
-      });
-    }
-
-    const traceRows = rows(this.db.prepare(`SELECT * FROM trace_events WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
-    for (const row of traceRows) {
-      const event = this.mapTraceEvent(row);
-      const traceNodeId = this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'trace_event',
-        entityId: event.id,
-        nodeKind: `trace:${event.type}`,
-        label: event.summary,
-        sourcePath: null,
-        metadata: {
-          runId: event.runId,
-          sequence: event.sequence,
-          type: event.type,
-          source: event.source,
-          modelVisible: event.modelVisible,
-          artifactId: event.artifactId,
-          toolCallId: event.toolCallId
-        },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: traceNodeId,
-        edgeKind: 'belongs_to_run',
-        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', event.runId),
-        targetEntityType: 'run',
-        targetEntityId: event.runId,
-        targetLabel: event.runId,
-        metadata: { source: 'trace_event' },
-        indexedAt
-      });
-    }
-
-    const transcriptRows = rows(this.db.prepare(`SELECT * FROM transcript_messages WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
-    for (const row of transcriptRows) {
-      const message = this.mapTranscriptMessage(row);
-      const transcriptNodeId = this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'transcript',
-        entityId: message.id,
-        nodeKind: `transcript:${message.role}`,
-        label: message.contentMarkdown.slice(0, 160) || message.source,
-        sourcePath: null,
-        metadata: {
-          runId: message.runId,
-          attemptId: message.attemptId,
-          traceEventId: message.traceEventId,
-          role: message.role,
-          source: message.source
-        },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: transcriptNodeId,
-        edgeKind: 'belongs_to_run',
-        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', message.runId),
-        targetEntityType: 'run',
-        targetEntityId: message.runId,
-        targetLabel: message.runId,
-        metadata: { source: 'transcript' },
-        indexedAt
-      });
-      if (message.traceEventId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: transcriptNodeId,
-          edgeKind: 'derived_from_trace',
-          targetNodeId: projectGraphNodeId(scopeVersionId, 'trace_event', message.traceEventId),
-          targetEntityType: 'trace_event',
-          targetEntityId: message.traceEventId,
-          targetLabel: message.traceEventId,
-          metadata: { source: 'transcript' },
-          indexedAt
-        });
-      }
-    }
-
-    const artifactRows = rows(
-      this.db
-        .prepare(
-          `SELECT DISTINCT a.*
-           FROM artifacts a
-           JOIN trace_events t ON t.artifact_id = a.id
-           JOIN runs r ON r.id = t.run_id
-           WHERE ${joinedLineageRunSql}`
-        )
-        .all(scopeVersionId)
-    );
-    const workspaceRoot = dirname(dirname(this.databasePath));
-    for (const row of artifactRows) {
-      const artifact = this.mapArtifact(row);
-      this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'artifact',
-        entityId: artifact.id,
-        nodeKind: `artifact:${artifact.kind}`,
-        label: artifact.id,
-        sourcePath: join(workspaceRoot, artifact.relativePath),
-        metadata: {
-          kind: artifact.kind,
-          sha256: artifact.sha256,
-          sizeBytes: artifact.sizeBytes,
-          sensitivity: artifact.sensitivity,
-          modelVisible: artifact.modelVisible,
-          source: artifact.source,
-          provenanceTraceEventId: artifact.provenanceTraceEventId
-        },
-        indexedAt
-      });
-      if (artifact.provenanceTraceEventId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: projectGraphNodeId(scopeVersionId, 'artifact', artifact.id),
-          edgeKind: 'produced_by_trace',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'trace_event', artifact.provenanceTraceEventId),
-          targetEntityType: 'trace_event',
-          targetEntityId: artifact.provenanceTraceEventId,
-          targetLabel: artifact.provenanceTraceEventId,
-          metadata: { source: 'artifact_provenance' },
-          indexedAt
-        });
-      }
-    }
-
-    for (const row of traceRows) {
-      const event = this.mapTraceEvent(row);
-      if (!event.artifactId) continue;
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: projectGraphNodeId(scopeVersionId, 'trace_event', event.id),
-        edgeKind: 'produced_artifact',
-        targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'artifact', event.artifactId),
-        targetEntityType: 'artifact',
-        targetEntityId: event.artifactId,
-        targetLabel: event.artifactId,
-        metadata: { source: 'trace_event' },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'artifact', event.artifactId) ?? projectGraphNodeId(scopeVersionId, 'artifact', event.artifactId),
-        edgeKind: 'produced_by_trace',
-        targetNodeId: projectGraphNodeId(scopeVersionId, 'trace_event', event.id),
-        targetEntityType: 'trace_event',
-        targetEntityId: event.id,
-        targetLabel: event.id,
-        metadata: { source: 'artifact_provenance', runId: event.runId },
-        indexedAt
-      });
-    }
-
-    const contractRows = rows(this.db.prepare(`SELECT * FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
-    for (const row of contractRows) {
-      const contract = this.mapVerifierContract(row);
-      const nodeId = this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'verifier_contract',
-        entityId: contract.id,
-        nodeKind: `verifier_contract:${contract.mode}`,
-        label: `${contract.mode} verifier contract`,
-        sourcePath: null,
-        metadata: {
-          runId: contract.runId,
-          status: contract.status,
-          memoryNodeId: contract.memoryNodeId
-        },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: nodeId,
-        edgeKind: 'belongs_to_run',
-        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', contract.runId),
-        targetEntityType: 'run',
-        targetEntityId: contract.runId,
-        targetLabel: contract.runId,
-        metadata: { source: 'verifier_contract' },
-        indexedAt
-      });
-    }
-
-    const verifierRunRows = rows(this.db.prepare(`SELECT * FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
-    for (const row of verifierRunRows) {
-      const verifierRun = this.mapVerifierRun(row);
-      const nodeId = this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'verifier_run',
-        entityId: verifierRun.id,
-        nodeKind: `verifier_run:${verifierRun.status}`,
-        label: `${verifierRun.status} verifier run`,
-        sourcePath: null,
-        metadata: {
-          runId: verifierRun.runId,
-          contractId: verifierRun.contractId,
-          status: verifierRun.status,
-          vmContextId: verifierRun.vmContextId,
-          artifactId: stringFromUnknown(verifierRun.result.artifactId)
-        },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: nodeId,
-        edgeKind: 'belongs_to_run',
-        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', verifierRun.runId),
-        targetEntityType: 'run',
-        targetEntityId: verifierRun.runId,
-        targetLabel: verifierRun.runId,
-        metadata: { source: 'verifier_run' },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: nodeId,
-        edgeKind: 'runs_verifier_contract',
-        targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'verifier_contract', verifierRun.contractId),
-        targetEntityType: 'verifier_contract',
-        targetEntityId: verifierRun.contractId,
-        targetLabel: verifierRun.contractId,
-        metadata: { source: 'verifier_run' },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'verifier_contract', verifierRun.contractId) ?? projectGraphNodeId(scopeVersionId, 'verifier_contract', verifierRun.contractId),
-        edgeKind: 'has_verifier_run',
-        targetNodeId: nodeId,
-        targetEntityType: 'verifier_run',
-        targetEntityId: verifierRun.id,
-        targetLabel: `${verifierRun.status} verifier run`,
-        metadata: { source: 'verifier_run', status: verifierRun.status },
-        indexedAt
-      });
-      const verifierArtifactId = stringFromUnknown(verifierRun.result.artifactId);
-      if (verifierArtifactId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'produced_artifact',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'artifact', verifierArtifactId),
-          targetEntityType: 'artifact',
-          targetEntityId: verifierArtifactId,
-          targetLabel: verifierArtifactId,
-          metadata: { source: 'verifier_run' },
-          indexedAt
-        });
-      }
-    }
-
-    this.resolveProjectGraphEdgeTargets(scopeVersionId);
-  }
-
   private scanProjectInventoryPath(path: string, asset: ScopeAsset, state: ProjectInventoryScanState): void {
     if (state.scannedFiles >= PROJECT_INVENTORY_MAX_FILES) {
       state.truncated = true;
       return;
     }
-
     let stat;
     try {
       stat = lstatSync(path);
@@ -9496,7 +6412,6 @@ export class WorkspaceDatabase {
       state.skippedCount += 1;
       return;
     }
-
     if (stat.isDirectory()) {
       this.insertProjectInventoryItem({
         scopeVersionId: asset.scopeVersionId,
@@ -9508,13 +6423,9 @@ export class WorkspaceDatabase {
         sizeBytes: null,
         mtimeMs: Math.round(stat.mtimeMs),
         sha256: null,
-        metadata: {
-          relativePath: safeRelativePath(asset.value, path),
-          assetKind: asset.kind
-        },
+        metadata: { relativePath: safeRelativePath(asset.value, path), assetKind: asset.kind },
         indexedAt: state.indexedAt
       });
-
       let entries: string[];
       try {
         entries = readdirSync(path);
@@ -9529,12 +6440,10 @@ export class WorkspaceDatabase {
       }
       return;
     }
-
     if (!stat.isFile()) {
       state.skippedCount += 1;
       return;
     }
-
     state.scannedFiles += 1;
     const resourceKind = classifyProjectResourceKind(path, false);
     const sizeBytes = stat.size;
@@ -9851,150 +6760,6 @@ export class WorkspaceDatabase {
       );
   }
 
-  private upsertProjectGraphNode(input: {
-    scopeVersionId: string;
-    entityType: string;
-    entityId: string;
-    nodeKind: string;
-    label: string;
-    sourcePath: string | null;
-    metadata: Record<string, unknown>;
-    indexedAt: string;
-  }): string {
-    const id = projectGraphNodeId(input.scopeVersionId, input.entityType, input.entityId);
-    this.db
-      .prepare(
-        `INSERT INTO project_graph_nodes (
-          id, scope_version_id, node_kind, entity_type, entity_id,
-          label, source_path, metadata_json, indexed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(scope_version_id, entity_type, entity_id)
-        DO UPDATE SET
-          node_kind = excluded.node_kind,
-          label = excluded.label,
-          source_path = excluded.source_path,
-          metadata_json = excluded.metadata_json,
-          indexed_at = excluded.indexed_at`
-      )
-      .run(
-        id,
-        input.scopeVersionId,
-        input.nodeKind,
-        input.entityType,
-        input.entityId,
-        input.label,
-        input.sourcePath,
-        toJson(input.metadata),
-        input.indexedAt
-      );
-    return id;
-  }
-
-  private insertProjectGraphEdge(input: {
-    scopeVersionId: string;
-    sourceNodeId: string;
-    edgeKind: string;
-    targetNodeId: string | null;
-    targetEntityType: string;
-    targetEntityId: string | null;
-    targetLabel: string;
-    metadata: Record<string, unknown>;
-    indexedAt: string;
-  }): void {
-    const id = projectGraphEdgeId(input.scopeVersionId, input.sourceNodeId, input.edgeKind, input.targetEntityType, input.targetEntityId, input.targetLabel);
-    this.db
-      .prepare(
-        `INSERT INTO project_graph_edges (
-          id, scope_version_id, source_node_id, edge_kind, target_node_id,
-          target_entity_type, target_entity_id, target_label, metadata_json, indexed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(scope_version_id, source_node_id, edge_kind, target_entity_type, target_entity_id, target_label)
-        DO UPDATE SET
-          target_node_id = excluded.target_node_id,
-          metadata_json = excluded.metadata_json,
-          indexed_at = excluded.indexed_at`
-      )
-      .run(
-        id,
-        input.scopeVersionId,
-        input.sourceNodeId,
-        input.edgeKind,
-        input.targetNodeId,
-        input.targetEntityType,
-        input.targetEntityId,
-        input.targetLabel,
-        toJson(input.metadata),
-        input.indexedAt
-      );
-  }
-
-  private resolveProjectGraphEdgeTargets(scopeVersionId: string): void {
-    const unresolved = rows(
-      this.db
-        .prepare(
-          `SELECT id, target_entity_type, target_entity_id
-           FROM project_graph_edges
-           WHERE scope_version_id = ?
-             AND target_node_id IS NULL
-             AND target_entity_id IS NOT NULL`
-        )
-        .all(scopeVersionId)
-    );
-    for (const edge of unresolved) {
-      const targetNodeId = this.projectGraphNodeIdIfExists(scopeVersionId, text(edge, 'target_entity_type'), text(edge, 'target_entity_id'));
-      if (targetNodeId) {
-        this.db.prepare('UPDATE project_graph_edges SET target_node_id = ? WHERE id = ?').run(targetNodeId, text(edge, 'id'));
-      }
-    }
-  }
-
-  private insertProjectSemanticChunk(input: ProjectSemanticChunkInput): void {
-    const id = projectSemanticChunkId(input.scopeVersionId, input.sourceDocumentId, input.chunkIndex, input.contentHash);
-    this.db
-      .prepare(
-        `INSERT INTO project_semantic_chunks (
-          id, scope_version_id, run_id, source_document_id, namespace, entity_type,
-          entity_id, title, content, content_hash, source_path, chunk_index,
-          token_count, vector_provider, vector_model, vector_json, metadata_json, indexed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(scope_version_id, source_document_id, chunk_index, content_hash)
-        DO UPDATE SET
-          run_id = excluded.run_id,
-          namespace = excluded.namespace,
-          entity_type = excluded.entity_type,
-          entity_id = excluded.entity_id,
-          title = excluded.title,
-          content = excluded.content,
-          source_path = excluded.source_path,
-          token_count = excluded.token_count,
-          vector_provider = excluded.vector_provider,
-          vector_model = excluded.vector_model,
-          vector_json = excluded.vector_json,
-          metadata_json = excluded.metadata_json,
-          indexed_at = excluded.indexed_at`
-      )
-      .run(
-        id,
-        input.scopeVersionId,
-        input.runId ?? null,
-        input.sourceDocumentId,
-        input.namespace,
-        input.entityType,
-        input.entityId,
-        input.title,
-        input.content,
-        input.contentHash,
-        input.sourcePath ?? null,
-        input.chunkIndex,
-        input.tokenCount,
-        input.vectorProvider,
-        input.vectorModel,
-        toJson(input.vector),
-        toJson(input.metadata),
-        input.indexedAt
-      );
-  }
-
   private deleteProjectSearchDocuments(whereSql: string, params: SqlPrimitive[]): void {
     const docRows = rows(this.db.prepare(`SELECT id, scope_version_id FROM project_search_documents WHERE ${whereSql}`).all(...params));
     const affectedScopeVersionIds = new Set<string>();
@@ -10004,7 +6769,6 @@ export class WorkspaceDatabase {
     }
     this.db.prepare(`DELETE FROM project_search_documents WHERE ${whereSql}`).run(...params);
     for (const scopeVersionId of affectedScopeVersionIds) {
-      this.markProjectSemanticIndexDirty(scopeVersionId, 'search_document_changed');
     }
   }
 
@@ -10060,7 +6824,6 @@ export class WorkspaceDatabase {
       )
       .run(id, input.scopeVersionId, input.runId ?? null, input.entityType, input.entityId, title, body);
     if (meaningfulChange) {
-      this.markProjectSemanticIndexDirty(input.scopeVersionId, 'search_document_changed');
     }
   }
 
@@ -10227,7 +6990,6 @@ export class WorkspaceDatabase {
       metadata: {
         contractId: verifierRun.contractId,
         status: verifierRun.status,
-        vmContextId: verifierRun.vmContextId,
         result: verifierRun.result
       },
       createdAt: verifierRun.startedAt,
@@ -10266,53 +7028,6 @@ export class WorkspaceDatabase {
     };
   }
 
-  private mapProjectSemanticSearchResult(row: SqlRow, query: string, score: ProjectSemanticRankScore): ProjectSemanticSearchResult {
-    return {
-      chunkId: text(row, 'id'),
-      scopeVersionId: text(row, 'scope_version_id'),
-      runId: nullableText(row, 'run_id'),
-      sourceDocumentId: text(row, 'source_document_id'),
-      namespace: text(row, 'namespace'),
-      entityType: text(row, 'entity_type'),
-      entityId: text(row, 'entity_id'),
-      title: text(row, 'title'),
-      sourcePath: nullableText(row, 'source_path'),
-      snippet: semanticSearchPreview(text(row, 'content'), query),
-      score: score.score,
-      vectorScore: score.vectorScore,
-      lexicalScore: score.lexicalScore,
-      titleScore: score.titleScore,
-      namespaceScore: score.namespaceScore,
-      entityScore: score.entityScore,
-      matchedTerms: score.matchedTerms,
-      rankReason: score.rankReason,
-      metadata: {
-        ...parseJson(row.metadata_json),
-        semanticRanking: {
-          score: score.score,
-          baseScore: score.baseScore,
-          rerankScore: score.rerankScore,
-          vectorScore: score.vectorScore,
-          lexicalScore: score.lexicalScore,
-          titleScore: score.titleScore,
-          namespaceScore: score.namespaceScore,
-          entityScore: score.entityScore,
-          pathScore: score.pathScore,
-          proximityScore: score.proximityScore,
-          provenanceScore: score.provenanceScore,
-          securityScore: score.securityScore,
-          scopeScore: score.scopeScore,
-          structureScore: score.structureScore,
-          researchMemoryScore: score.researchMemoryScore,
-          duplicateRiskPenalty: score.duplicateRiskPenalty,
-          matchedTerms: score.matchedTerms,
-          reason: score.rankReason
-        }
-      },
-      indexedAt: text(row, 'indexed_at')
-    };
-  }
-
   private mapProjectStructureEntity(row: SqlRow): ProjectStructureEntityRecord {
     return {
       id: text(row, 'id'),
@@ -10342,107 +7057,6 @@ export class WorkspaceDatabase {
       targetName: text(row, 'target_name'),
       targetEntityId: nullableText(row, 'target_entity_id'),
       metadata: parseJson(row.metadata_json),
-      indexedAt: text(row, 'indexed_at')
-    };
-  }
-
-  private getProjectGraphNode(scopeVersionId: string, entityType: string, entityId: string): ProjectGraphNodeRecord | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM project_graph_nodes WHERE scope_version_id = ? AND entity_type = ? AND entity_id = ?').get(scopeVersionId, entityType, entityId));
-    return row ? this.mapProjectGraphNode(row) : null;
-  }
-
-  private projectGraphNodeIdIfExists(scopeVersionId: string, entityType: string, entityId: string): string | null {
-    return this.getProjectGraphNode(scopeVersionId, entityType, entityId)?.id ?? null;
-  }
-
-  private getProjectGraphNodeById(scopeVersionId: string, nodeId: string): ProjectGraphNodeRecord | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM project_graph_nodes WHERE scope_version_id = ? AND id = ?').get(scopeVersionId, nodeId));
-    return row ? this.mapProjectGraphNode(row) : null;
-  }
-
-  private getProjectGraphNodesById(scopeVersionId: string, nodeIds: string[]): ProjectGraphNodeRecord[] {
-    const uniqueNodeIds = [...new Set(nodeIds)].filter(Boolean);
-    if (uniqueNodeIds.length === 0) return [];
-    const placeholders = uniqueNodeIds.map(() => '?').join(', ');
-    return rows(
-      this.db
-        .prepare(
-          `SELECT *
-           FROM project_graph_nodes
-           WHERE scope_version_id = ?
-             AND id IN (${placeholders})
-           ORDER BY
-             CASE entity_type
-               WHEN 'scope_version' THEN 0
-               WHEN 'scope_asset' THEN 1
-               WHEN 'run' THEN 2
-               WHEN 'verifier_run' THEN 3
-               WHEN 'verifier_contract' THEN 4
-               WHEN 'artifact' THEN 5
-               WHEN 'structure_entity' THEN 6
-               WHEN 'inventory_item' THEN 7
-               ELSE 20
-             END,
-             label ASC`
-        )
-        .all(scopeVersionId, ...uniqueNodeIds)
-    ).map((row) => this.mapProjectGraphNode(row));
-  }
-
-  private mapProjectGraphNode(row: SqlRow): ProjectGraphNodeRecord {
-    return {
-      id: text(row, 'id'),
-      scopeVersionId: text(row, 'scope_version_id'),
-      nodeKind: text(row, 'node_kind'),
-      entityType: text(row, 'entity_type'),
-      entityId: text(row, 'entity_id'),
-      label: text(row, 'label'),
-      sourcePath: nullableText(row, 'source_path'),
-      metadata: parseJson(row.metadata_json),
-      indexedAt: text(row, 'indexed_at')
-    };
-  }
-
-  private mapProjectGraphProjectionNode(row: SqlRow): ProjectGraphNodeRecord {
-    return {
-      id: text(row, 'id'),
-      scopeVersionId: text(row, 'scope_version_id'),
-      nodeKind: text(row, 'node_kind'),
-      entityType: text(row, 'entity_type'),
-      entityId: text(row, 'entity_id'),
-      label: text(row, 'label'),
-      sourcePath: nullableText(row, 'source_path'),
-      metadata: {},
-      indexedAt: text(row, 'indexed_at')
-    };
-  }
-
-  private mapProjectGraphEdge(row: SqlRow): ProjectGraphEdgeRecord {
-    return {
-      id: text(row, 'id'),
-      scopeVersionId: text(row, 'scope_version_id'),
-      sourceNodeId: text(row, 'source_node_id'),
-      edgeKind: text(row, 'edge_kind'),
-      targetNodeId: nullableText(row, 'target_node_id'),
-      targetEntityType: text(row, 'target_entity_type'),
-      targetEntityId: nullableText(row, 'target_entity_id'),
-      targetLabel: text(row, 'target_label'),
-      metadata: parseJson(row.metadata_json),
-      indexedAt: text(row, 'indexed_at')
-    };
-  }
-
-  private mapProjectGraphProjectionEdge(row: SqlRow): ProjectGraphEdgeRecord {
-    return {
-      id: text(row, 'id'),
-      scopeVersionId: text(row, 'scope_version_id'),
-      sourceNodeId: text(row, 'source_node_id'),
-      edgeKind: text(row, 'edge_kind'),
-      targetNodeId: nullableText(row, 'target_node_id'),
-      targetEntityType: text(row, 'target_entity_type'),
-      targetEntityId: nullableText(row, 'target_entity_id'),
-      targetLabel: text(row, 'target_label'),
-      metadata: {},
       indexedAt: text(row, 'indexed_at')
     };
   }
@@ -10482,11 +7096,6 @@ export class WorkspaceDatabase {
   private getAttempt(attemptId: string): AttemptRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM attempts WHERE id = ?').get(attemptId));
     return row ? this.mapAttempt(row) : null;
-  }
-
-  private getVmContext(vmContextId: string): VmContextRecord | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM vm_contexts WHERE id = ?').get(vmContextId));
-    return row ? this.mapVmContext(row) : null;
   }
 
   private getArtifact(artifactId: string): ArtifactRecord | null {
@@ -10616,7 +7225,6 @@ export class WorkspaceDatabase {
       shortState: text(row, 'short_state'),
       seed: text(row, 'seed'),
       strategyRole: text(row, 'strategy_role'),
-      vmContextId: nullableText(row, 'vm_context_id'),
       cost: parseJson(row.cost_json),
       tokenUsage: parseJson(row.token_usage_json),
       startedAt: text(row, 'started_at'),
@@ -10662,7 +7270,6 @@ export class WorkspaceDatabase {
       sensitivity: text(row, 'sensitivity'),
       modelVisible: booleanValue(row, 'model_visible'),
       createdAt: text(row, 'created_at'),
-      vmContextId: nullableText(row, 'vm_context_id'),
       artifactId: nullableText(row, 'artifact_id'),
       toolCallId: nullableText(row, 'tool_call_id'),
       approvalId: nullableText(row, 'approval_id')
@@ -10799,7 +7406,6 @@ export class WorkspaceDatabase {
       contractId: text(row, 'contract_id'),
       runId: text(row, 'run_id'),
       attemptId: nullableText(row, 'attempt_id'),
-      vmContextId: nullableText(row, 'vm_context_id'),
       status: text(row, 'status'),
       blockedIssue: text(row, 'blocked_issue'),
       behaviorPreserved: text(row, 'behavior_preserved'),
@@ -10808,20 +7414,6 @@ export class WorkspaceDatabase {
       result: parseJson(row.result_json),
       startedAt: text(row, 'started_at'),
       endedAt: nullableText(row, 'ended_at')
-    };
-  }
-
-  private mapVmContext(row: SqlRow): VmContextRecord {
-    return {
-      id: text(row, 'id'),
-      backend: text(row, 'backend'),
-      imageId: text(row, 'image_id'),
-      snapshotId: text(row, 'snapshot_id'),
-      state: text(row, 'state'),
-      scopeVersionId: text(row, 'scope_version_id'),
-      createdAt: text(row, 'created_at'),
-      destroyedAt: nullableText(row, 'destroyed_at'),
-      metadata: parseJson(row.metadata_json)
     };
   }
 
@@ -11137,95 +7729,6 @@ CREATE INDEX IF NOT EXISTS idx_project_structure_rel_source ON project_structure
 CREATE INDEX IF NOT EXISTS idx_project_structure_rel_target ON project_structure_relations(scope_version_id, target_kind, target_name);
 `;
 
-const PROJECT_GRAPH_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS project_graph_nodes (
-  id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
-  node_kind TEXT NOT NULL,
-  entity_type TEXT NOT NULL,
-  entity_id TEXT NOT NULL,
-  label TEXT NOT NULL,
-  source_path TEXT,
-  metadata_json TEXT NOT NULL,
-  indexed_at TEXT NOT NULL,
-  UNIQUE(scope_version_id, entity_type, entity_id)
-);
-
-CREATE TABLE IF NOT EXISTS project_graph_edges (
-  id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
-  source_node_id TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
-  edge_kind TEXT NOT NULL,
-  target_node_id TEXT REFERENCES project_graph_nodes(id) ON DELETE SET NULL,
-  target_entity_type TEXT NOT NULL,
-  target_entity_id TEXT,
-  target_label TEXT NOT NULL,
-  metadata_json TEXT NOT NULL,
-  indexed_at TEXT NOT NULL,
-  UNIQUE(scope_version_id, source_node_id, edge_kind, target_entity_type, target_entity_id, target_label)
-);
-
-CREATE INDEX IF NOT EXISTS idx_project_graph_nodes_scope_kind ON project_graph_nodes(scope_version_id, node_kind);
-CREATE INDEX IF NOT EXISTS idx_project_graph_nodes_entity ON project_graph_nodes(scope_version_id, entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_project_graph_nodes_path ON project_graph_nodes(scope_version_id, source_path);
-CREATE INDEX IF NOT EXISTS idx_project_graph_edges_source ON project_graph_edges(source_node_id, edge_kind);
-CREATE INDEX IF NOT EXISTS idx_project_graph_edges_target ON project_graph_edges(scope_version_id, target_entity_type, target_entity_id);
-CREATE INDEX IF NOT EXISTS idx_project_graph_edges_kind ON project_graph_edges(scope_version_id, edge_kind);
-`;
-
-const PROJECT_GRAPH_STATUS_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS project_graph_status (
-  scope_version_id TEXT PRIMARY KEY REFERENCES scope_versions(id) ON DELETE CASCADE,
-  build_count INTEGER NOT NULL DEFAULT 0,
-  last_rebuild_reason TEXT,
-  stale_reasons_json TEXT NOT NULL DEFAULT '[]',
-  node_family_counts_json TEXT NOT NULL DEFAULT '{}',
-  edge_family_counts_json TEXT NOT NULL DEFAULT '{}',
-  expected_node_count INTEGER NOT NULL DEFAULT 0,
-  actual_node_count INTEGER NOT NULL DEFAULT 0,
-  actual_edge_count INTEGER NOT NULL DEFAULT 0,
-  last_rebuild_duration_ms INTEGER,
-  indexed_at TEXT,
-  updated_at TEXT NOT NULL
-);
-`;
-
-const PROJECT_SEMANTIC_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS project_semantic_chunks (
-  id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
-  run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
-  source_document_id TEXT NOT NULL REFERENCES project_search_documents(id) ON DELETE CASCADE,
-  namespace TEXT NOT NULL,
-  entity_type TEXT NOT NULL,
-  entity_id TEXT NOT NULL,
-  title TEXT NOT NULL,
-  content TEXT NOT NULL,
-  content_hash TEXT NOT NULL,
-  source_path TEXT,
-  chunk_index INTEGER NOT NULL,
-  token_count INTEGER NOT NULL,
-  vector_provider TEXT NOT NULL,
-  vector_model TEXT NOT NULL,
-  vector_json TEXT NOT NULL,
-  metadata_json TEXT NOT NULL,
-  indexed_at TEXT NOT NULL,
-  UNIQUE(scope_version_id, source_document_id, chunk_index, content_hash)
-);
-
-CREATE INDEX IF NOT EXISTS idx_project_semantic_scope_namespace ON project_semantic_chunks(scope_version_id, namespace);
-CREATE INDEX IF NOT EXISTS idx_project_semantic_source_document ON project_semantic_chunks(source_document_id);
-CREATE INDEX IF NOT EXISTS idx_project_semantic_entity ON project_semantic_chunks(scope_version_id, entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_project_semantic_updated ON project_semantic_chunks(indexed_at);
-`;
-
-const PROJECT_SEARCH_PERFORMANCE_INDEXES_SQL = `
-CREATE INDEX IF NOT EXISTS idx_project_semantic_scope_document ON project_semantic_chunks(scope_version_id, source_document_id);
-CREATE INDEX IF NOT EXISTS idx_project_graph_edges_scope_source_kind ON project_graph_edges(scope_version_id, source_node_id, edge_kind);
-CREATE INDEX IF NOT EXISTS idx_project_graph_edges_scope_target_node_kind ON project_graph_edges(scope_version_id, target_node_id, edge_kind);
-CREATE INDEX IF NOT EXISTS idx_project_graph_edges_variant_node ON project_graph_edges(scope_version_id, edge_kind, target_node_id);
-CREATE INDEX IF NOT EXISTS idx_project_graph_edges_variant_label ON project_graph_edges(scope_version_id, edge_kind, target_entity_type, target_label);
-`;
 
 const RESEARCH_GOAL_SUGGESTION_CACHE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS research_goal_suggestion_cache (
@@ -11368,18 +7871,6 @@ ON session_activity_intervals(attempt_id, started_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_session_activity_intervals_one_open
 ON session_activity_intervals(run_id) WHERE ended_at IS NULL;
 
-CREATE TABLE IF NOT EXISTS vm_contexts (
-  id TEXT PRIMARY KEY,
-  backend TEXT NOT NULL,
-  image_id TEXT NOT NULL,
-  snapshot_id TEXT NOT NULL,
-  state TEXT NOT NULL,
-  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id),
-  created_at TEXT NOT NULL,
-  destroyed_at TEXT,
-  metadata_json TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS attempts (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -11388,7 +7879,6 @@ CREATE TABLE IF NOT EXISTS attempts (
   short_state TEXT NOT NULL,
   seed TEXT NOT NULL,
   strategy_role TEXT NOT NULL,
-  vm_context_id TEXT REFERENCES vm_contexts(id),
   cost_json TEXT NOT NULL,
   token_usage_json TEXT NOT NULL,
   started_at TEXT NOT NULL,
@@ -11433,7 +7923,6 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   started_at TEXT NOT NULL,
   ended_at TEXT,
   policy_decision_id TEXT REFERENCES approvals(id),
-  vm_context_id TEXT REFERENCES vm_contexts(id),
   trace_event_id TEXT
 );
 
@@ -11464,7 +7953,6 @@ CREATE TABLE IF NOT EXISTS trace_events (
   sensitivity TEXT NOT NULL,
   model_visible INTEGER NOT NULL CHECK (model_visible IN (0, 1)),
   created_at TEXT NOT NULL,
-  vm_context_id TEXT REFERENCES vm_contexts(id),
   artifact_id TEXT REFERENCES artifacts(id),
   tool_call_id TEXT REFERENCES tool_calls(id),
   approval_id TEXT REFERENCES approvals(id),
@@ -11505,7 +7993,6 @@ CREATE TABLE IF NOT EXISTS verifier_runs (
   contract_id TEXT NOT NULL REFERENCES verifier_contracts(id) ON DELETE CASCADE,
   run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
   attempt_id TEXT REFERENCES attempts(id),
-  vm_context_id TEXT REFERENCES vm_contexts(id),
   status TEXT NOT NULL,
   blocked_issue TEXT NOT NULL,
   behavior_preserved TEXT NOT NULL,

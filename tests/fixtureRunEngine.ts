@@ -1,9 +1,15 @@
-import type { CreatedRunContext, WorkspaceDatabase } from './database';
-import type { FixtureScenario, StartRunInput } from '@shared/types';
-import { generateSessionTitle } from '../shared/sessionTitle';
-import { resolveGoalObjective } from '../shared/goalObjective';
+import type { CreatedRunContext, WorkspaceDatabase } from '../src/main/database';
+import type { StartRunInput } from '../src/shared/types';
+import { generateSessionTitle } from '../src/shared/sessionTitle';
+import { resolveGoalObjective } from '../src/shared/goalObjective';
 
 type ScenarioStep = (context: CreatedRunContext) => void;
+
+export type FixtureScenario = 'multi_branch_trace' | 'source_review' | 'crash_artifact' | 'scope_block' | 'verifier_pass';
+export type FixtureStartRunInput = Omit<StartRunInput, 'runEngine'> & {
+  runEngine: 'fixture' | 'honeycrisp';
+  fixtureScenario?: FixtureScenario;
+};
 
 interface ScheduledRun {
   context: CreatedRunContext;
@@ -23,7 +29,7 @@ export class FixtureRunEngine {
   ) {}
 
   public startRun(
-    input: StartRunInput,
+    input: FixtureStartRunInput,
     mode: 'scheduled' | 'complete' = 'scheduled',
     researchProfileSnapshotId?: string | null
   ): CreatedRunContext {
@@ -51,12 +57,7 @@ export class FixtureRunEngine {
         runEngine: 'fixture',
         goalEnabled: input.goalEnabled,
         goalObjective
-      },
-      vmBackend: 'fixture',
-      vmImageId: 'fixture-beale-toolchain',
-      vmSnapshotId: 'fixture-clean-snapshot',
-      vmState: 'working',
-      vmMetadata: { executor: 'fixture', targetExecution: false }
+      }
     }), this.db);
 
     this.db.appendTraceEvent({
@@ -74,15 +75,14 @@ export class FixtureRunEngine {
     this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
-      type: 'vm_event',
+      type: 'research_event',
       source: 'executor',
       summary: 'Fixture executor allocated a simulated execution context.',
       payload: {
         executor: 'fixture',
         targetExecution: false,
         boundary: 'No target code, build scripts, PoCs, tests, fuzzing, or debugger sessions executed.'
-      },
-      vmContextId: context.vmContext.id
+      }
     });
     this.db.appendTraceEvent({
       runId: context.run.id,
@@ -159,7 +159,13 @@ export class FixtureRunEngine {
 
   private scheduleNext(scheduled: ScheduledRun): void {
     const steps = getSteps(scheduled.scenario);
-    const run = this.db.getRun(scheduled.context.run.id);
+    let run;
+    try {
+      run = this.db.getRun(scheduled.context.run.id);
+    } catch {
+      this.scheduledRuns.delete(scheduled.context.run.id);
+      return;
+    }
     if (!run || run.status !== 'active') {
       return;
     }
@@ -169,7 +175,13 @@ export class FixtureRunEngine {
     }
 
     scheduled.timer = setTimeout(() => {
-      const latestRun = this.db.getRun(scheduled.context.run.id);
+      let latestRun;
+      try {
+        latestRun = this.db.getRun(scheduled.context.run.id);
+      } catch {
+        this.scheduledRuns.delete(scheduled.context.run.id);
+        return;
+      }
       if (!latestRun || latestRun.status !== 'active') {
         scheduled.timer = null;
         return;
@@ -180,6 +192,7 @@ export class FixtureRunEngine {
       this.onChange();
       this.scheduleNext(scheduled);
     }, STEP_DELAY_MS);
+    scheduled.timer.unref();
   }
 }
 
@@ -225,16 +238,7 @@ function recordFixtureBranches(context: CreatedRunContext): void {
       parentAttemptId: context.attempt.id,
       status: 'completed',
       shortState: branch.state,
-      strategyRole: branch.role,
-      vmBackend: 'fixture',
-      vmImageId: 'fixture-beale-toolchain',
-      vmSnapshotId: 'fixture-clean-snapshot',
-      vmState: 'destroyed',
-      vmMetadata: {
-        executor: 'fixture',
-        targetExecution: false,
-        fixtureBranch: true
-      }
+      strategyRole: branch.role
     });
     db.appendTraceEvent({
       runId: context.run.id,
@@ -246,8 +250,7 @@ function recordFixtureBranches(context: CreatedRunContext): void {
         fixtureScenario: 'multi_branch_trace',
         parentAttemptId: context.attempt.id,
         branchRole: branch.role
-      },
-      vmContextId: attempt.vmContextId
+      }
     });
   }
 }
@@ -269,7 +272,6 @@ function recordTool(
     status: 'completed',
     resultSummary,
     result,
-    vmContextId: context.vmContext.id
   });
   db.appendTraceEvent({
     runId: context.run.id,
@@ -279,7 +281,6 @@ function recordTool(
     summary: `Requested ${toolName}.`,
     payload: input,
     toolCallId,
-    vmContextId: context.vmContext.id
   });
   const resultEvent = db.appendTraceEvent({
     runId: context.run.id,
@@ -293,7 +294,6 @@ function recordTool(
       ...result
     },
     toolCallId,
-    vmContextId: context.vmContext.id
   });
   db.linkToolCallTrace(toolCallId, resultEvent.id);
   return toolCallId;
@@ -329,7 +329,6 @@ function recordArtifact(
       observationBacked: true
     },
     artifactId: artifact.id,
-    vmContextId: context.vmContext.id
   });
   db.setArtifactProvenance(artifact.id, event.id);
   return artifact.id;
@@ -368,7 +367,7 @@ function recordVerifier(
     memoryNodeId: null,
     mode: 'reproduction',
     status: 'approved',
-    targetStates: { vmContextId: context.vmContext.id },
+    targetStates: {},
     setupStepsMarkdown: 'Use simulated target state from the fixture executor.',
     triggerStepsMarkdown: 'Replay the deterministic fixture trigger.',
     expectedObservations: result,
@@ -387,7 +386,6 @@ function recordVerifier(
     contractId: contract.id,
     runId: context.run.id,
     attemptId: context.attempt.id,
-    vmContextId: context.vmContext.id,
     status,
     blockedIssue: status === 'pass' ? 'confirmed' : status === 'fail' ? 'not_observed' : 'inconclusive',
     behaviorPreserved: 'not_applicable',
@@ -408,7 +406,6 @@ function recordVerifier(
       observationBacked: true,
       ...result
     },
-    vmContextId: context.vmContext.id
   });
   return verifierRun.id;
 }
@@ -426,15 +423,13 @@ function finishRun(context: CreatedRunContext, status: 'completed' | 'blocked', 
     source: 'fixture'
   });
   if (status === 'completed') {
-    db.updateVmState(context.vmContext.id, 'destroyed');
     db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
-      type: 'vm_event',
+      type: 'research_event',
       source: 'executor',
       summary: 'Fixture execution context closed after simulated run completion.',
-      payload: { executor: 'fixture', targetExecution: false },
-      vmContextId: context.vmContext.id
+      payload: { executor: 'fixture', targetExecution: false }
     });
   }
 }
@@ -588,7 +583,6 @@ function verifierPassSteps(): ScenarioStep[] {
           artifactId
         },
         artifactId,
-        vmContextId: context.vmContext.id
       });
     },
     (context) => {

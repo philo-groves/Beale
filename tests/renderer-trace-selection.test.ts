@@ -39,7 +39,6 @@ function traceEvent(id: string, payload: Record<string, unknown> = {}): TraceDis
     sensitivity: 'internal',
     modelVisible: true,
     createdAt: '2026-04-30T00:00:00.000Z',
-    vmContextId: null,
     artifactId: null,
     toolCallId: null,
     approvalId: null

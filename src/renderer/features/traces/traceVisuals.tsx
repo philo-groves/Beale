@@ -36,7 +36,7 @@ export const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'agent_output', label: 'Agent Output', description: 'Model messages, status updates, and researcher-facing agent responses.' },
   { id: 'reasoning', label: 'Reasoning', description: 'Provider-generated summaries of reasoning, intent, and concise rationale. Hidden chain-of-thought is not exposed.' },
   { id: 'tools', label: 'Tools', description: 'Tool calls, tool results, and execution summaries.' },
-  { id: 'vm_execution', label: 'Execution', description: 'Host execution, commands, cleanup, and target execution.' },
+  { id: 'execution', label: 'Execution', description: 'Host execution, commands, cleanup, and target execution.' },
   { id: 'research', label: 'Research', description: 'Honeycrisp observations, inferences, hypotheses, assumptions, and research notes.' },
   { id: 'artifacts', label: 'Artifacts', description: 'Generated files, captured outputs, exports, and durable references.' },
   { id: 'verifier', label: 'Verifier', description: 'Verifier contracts, pass/fail results, and verification gating.' },
@@ -83,7 +83,7 @@ export function traceCategoryIcon(category: TraceCategoryId): JSX.Element {
   if (category === 'agent_output') return <Sparkles size={13} />;
   if (category === 'reasoning') return <Brain size={13} />;
   if (category === 'tools') return <Terminal size={13} />;
-  if (category === 'vm_execution') return <Server size={13} />;
+  if (category === 'execution') return <Server size={13} />;
   if (category === 'research') return <Lightbulb size={13} />;
   if (category === 'artifacts') return <FileOutput size={13} />;
   if (category === 'verifier') return <ShieldCheck size={13} />;

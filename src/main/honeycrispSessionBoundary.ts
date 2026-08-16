@@ -18,8 +18,7 @@ import type {
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   TraceEventRecord,
-  TranscriptMessageRecord,
-  VmContextRecord
+  TranscriptMessageRecord
 } from '@shared/types';
 import { createId, type CreatedRunContext, type WorkspaceDatabase } from './database';
 import {
@@ -68,7 +67,6 @@ export function createHoneycrispSessionBoundary(database: WorkspaceDatabase): Wo
       const createdAt = new Date().toISOString();
       const runId = createId('run');
       const attemptId = createId('attempt');
-      const vmContextId = createId('vm');
       const run: RunRecord = {
         id: runId,
         scopeVersionId: input.scopeVersionId,
@@ -91,17 +89,6 @@ export function createHoneycrispSessionBoundary(database: WorkspaceDatabase): Wo
         startedAt: createdAt,
         endedAt: null
       };
-      const vmContext: VmContextRecord = {
-        id: vmContextId,
-        backend: input.vmBackend ?? 'host',
-        imageId: input.vmImageId ?? 'host-machine',
-        snapshotId: input.vmSnapshotId ?? 'none',
-        state: input.vmState ?? 'host_active',
-        scopeVersionId: input.scopeVersionId,
-        createdAt,
-        destroyedAt: null,
-        metadata: input.vmMetadata ?? { executor: 'honeycrisp', targetExecution: false, executionPosture: 'host_process' }
-      };
       const attempt: AttemptRecord = {
         id: attemptId,
         runId,
@@ -110,7 +97,6 @@ export function createHoneycrispSessionBoundary(database: WorkspaceDatabase): Wo
         shortState: 'Initializing Honeycrisp research plan.',
         seed: randomUUID(),
         strategyRole: 'initial_portfolio',
-        vmContextId,
         cost: { label: '$0.00' },
         tokenUsage: { promptTokens: 0, completionTokens: 0, source: 'not_reported' },
         startedAt: createdAt,
@@ -129,12 +115,12 @@ export function createHoneycrispSessionBoundary(database: WorkspaceDatabase): Wo
         profile: run.researchProfileSnapshotId
           ? { snapshotId: run.researchProfileSnapshotId }
           : null,
-        metadata: { bealeRun: run, vmContexts: [vmContext] },
+        metadata: { bealeRun: run },
         attemptMetadata: { bealeAttempt: attempt },
         createdAt
       }, storage);
       ownedRunIds.add(runId);
-      return { run, attempt, vmContext };
+      return { run, attempt };
     }) as WorkspaceDatabase['createRun'],
 
     createAttempt: ((input: Parameters<WorkspaceDatabase['createAttempt']>[0]): AttemptRecord => {
@@ -148,7 +134,6 @@ export function createHoneycrispSessionBoundary(database: WorkspaceDatabase): Wo
         shortState: input.shortState,
         seed: randomUUID(),
         strategyRole: input.strategyRole,
-        vmContextId: createId('vm'),
         cost: { label: '$0.00' },
         tokenUsage: { promptTokens: 0, completionTokens: 0, source: 'not_reported' },
         startedAt,
@@ -230,7 +215,6 @@ export function createHoneycrispSessionBoundary(database: WorkspaceDatabase): Wo
         sensitivity: input.sensitivity ?? 'internal',
         modelVisible: input.modelVisible ?? true,
         createdAt: new Date().toISOString(),
-        vmContextId: input.vmContextId ?? null,
         artifactId: input.artifactId ?? null,
         toolCallId: input.toolCallId ?? null,
         approvalId: input.approvalId ?? null
@@ -628,9 +612,6 @@ function sessionDetail(session: HoneycrispSessionRecord, database: WorkspaceData
       createdAt: session.endedAt ?? session.updatedAt
     });
   }
-  const vmContexts = Array.isArray(session.metadata.vmContexts)
-    ? session.metadata.vmContexts.filter(isRecord).map((value) => value as unknown as VmContextRecord)
-    : [];
   const modelSessions = latestRecords(events.flatMap((event) => event.kind === 'beale.model_session'
     ? recordArrayValue<ModelSessionRecord>(event.payload)
     : [])).map((modelSession) => ({
@@ -673,7 +654,6 @@ function sessionDetail(session: HoneycrispSessionRecord, database: WorkspaceData
         shortState: attempt.summary,
         seed: stringValue(stored?.seed) ?? attempt.id,
         strategyRole: stringValue(stored?.strategyRole) ?? 'session_continuation',
-        vmContextId: stringValue(stored?.vmContextId),
         cost: recordValue(stored?.cost) ?? { label: '$0.00' },
         tokenUsage: recordValue(stored?.tokenUsage) ?? {},
         startedAt: attempt.startedAt,
@@ -688,7 +668,6 @@ function sessionDetail(session: HoneycrispSessionRecord, database: WorkspaceData
     artifacts: [...captureArtifacts, ...latestRecords(events.flatMap((event) => event.kind === 'beale.artifact' ? recordArrayValue<ArtifactRecord>(event.payload) : []))],
     verifierContracts: [],
     verifierRuns: [],
-    vmContexts,
     modelSessions,
     contextCompactions: [],
     policyEvents: latestRecords(events.flatMap((event) => event.kind === 'beale.approval' ? recordArrayValue<ApprovalRecord>(event.payload) : [])),
@@ -719,7 +698,6 @@ function traceFromSessionEvent(runId: string, event: HoneycrispSessionEvent, seq
     sensitivity: 'internal',
     modelVisible: true,
     createdAt: event.timestamp,
-    vmContextId: null,
     artifactId: null,
     toolCallId: null,
     approvalId: null

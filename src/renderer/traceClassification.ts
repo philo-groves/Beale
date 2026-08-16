@@ -4,7 +4,7 @@ export type TraceCategoryId =
   | 'agent_output'
   | 'reasoning'
   | 'tools'
-  | 'vm_execution'
+  | 'execution'
   | 'research'
   | 'artifacts'
   | 'verifier'
@@ -38,7 +38,7 @@ export function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId 
   if (event.type === 'verifier_result' || event.source === 'verifier') return 'verifier';
   if (event.type === 'research_event') return 'research';
   if (isArtifactEvent(event)) return 'artifacts';
-  if (isVmExecutionEvent(event)) return 'vm_execution';
+  if (isExecutionEvent(event)) return 'execution';
   if (isToolEvent(event)) return isCodeNavigationEvent(event, toolName) ? 'code_navigation' : 'tools';
   if (event.source === 'model' || event.type === 'model_message') {
     return modelEventLooksLikeReasoning(event) ? 'reasoning' : 'agent_output';
@@ -140,9 +140,8 @@ function isArtifactEvent(event: TraceEventRecord): boolean {
   return event.type === 'artifact_created' || /\b(artifact|export|reference)\b/.test(summary);
 }
 
-function isVmExecutionEvent(event: TraceEventRecord): boolean {
-  const summary = event.summary.toLowerCase();
-  return event.source === 'executor' || event.type === 'vm_event' || /\b(vm|guest|firecracker|docker|snapshot|sandbox)\b/.test(summary);
+function isExecutionEvent(event: TraceEventRecord): boolean {
+  return event.source === 'executor';
 }
 
 function isToolEvent(event: TraceEventRecord): boolean {

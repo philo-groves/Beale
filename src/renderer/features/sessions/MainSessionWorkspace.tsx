@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ProjectGraphSummary, ProjectSemanticSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, ScopeAssetInput, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
+import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, ScopeAssetInput, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceHousekeepingPanel, WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
@@ -25,8 +25,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   providerModelCatalog,
   honeycrispMemory,
   activeScope = null,
-  projectGraph = null,
-  projectSemantic = null,
   researchProfile,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   workspaceName,
@@ -83,8 +81,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   providerModelCatalog: ResearchProviderModelCatalog[];
   honeycrispMemory: HoneycrispMemorySummary | null;
   activeScope?: WorkspaceScopeVersion | null;
-  projectGraph?: ProjectGraphSummary | null;
-  projectSemantic?: ProjectSemanticSummary | null;
   researchProfile: ResearchProfile | null;
   sessionHeatPreferences?: SessionHeatPreferences;
   workspaceName: string;
@@ -163,8 +159,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           memoryDreamingInProgress={memoryDreamingInProgress}
           memoryDreamingProgress={memoryDreamingProgress}
           honeycrispMemory={honeycrispMemory}
-          projectGraph={projectGraph}
-          projectSemantic={projectSemantic}
           researchProfile={researchProfile}
           workspaceName={workspaceName}
           runs={runs}

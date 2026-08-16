@@ -17,7 +17,7 @@ const ALL_CATEGORIES: TraceCategoryId[] = [
   'agent_output',
   'reasoning',
   'tools',
-  'vm_execution',
+  'execution',
   'research',
   'artifacts',
   'verifier',
@@ -194,7 +194,6 @@ describe('renderer trace display view models', () => {
       source: 'model',
       type: 'model_message',
       payload: { turn: 3 },
-      vmContextId: 'vm_test',
       createdAt: '2026-04-30T10:02:00.000Z'
     });
     const detail = runDetail({
@@ -222,7 +221,6 @@ describe('renderer trace display view models', () => {
       source: 'model',
       summary: 'Reasoning.',
       transcriptMessageId: 'message_reasoning',
-      vmContextId: 'vm_test',
       payload: {
         linkedTraceEventId: 'trace_linked',
         text: '**Focus** inspect auth',
@@ -349,7 +347,6 @@ function traceEvent(input: Partial<TraceEventRecord> = {}): TraceEventRecord {
     sensitivity: 'internal',
     modelVisible: true,
     createdAt: '2026-04-30T10:00:00.000Z',
-    vmContextId: null,
     artifactId: null,
     toolCallId: null,
     approvalId: null,
@@ -394,7 +391,6 @@ function runDetail(input: { traceEvents?: TraceEventRecord[]; transcriptMessages
     findings: [],
     verifierContracts: [],
     verifierRuns: [],
-    vmContexts: [],
     modelSessions: [],
     contextCompactions: [],
     policyEvents: [],

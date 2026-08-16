@@ -233,7 +233,6 @@ function traceEvent(input: Partial<TraceDisplayEvent>): TraceDisplayEvent {
     sensitivity: 'internal',
     modelVisible: true,
     createdAt: '2026-08-12T12:00:01.000Z',
-    vmContextId: null,
     artifactId: null,
     toolCallId: null,
     approvalId: null,

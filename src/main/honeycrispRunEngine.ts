@@ -112,7 +112,7 @@ interface ActiveHoneycrispRun {
   resolvedShellApprovalRequestIds: Set<string>;
   automaticWebSocketRetryCount: number;
   transportToken: string;
-  transportMode: 'pending' | 'websocket' | 'legacy';
+  transportMode: 'pending' | 'websocket';
   webSocketClient: HoneycrispWebSocketClient | null;
 }
 
@@ -276,7 +276,6 @@ const MAX_SUMMARY_CHARS = 220;
 const HONEYCRISP_REPORTED_USAGE_SOURCE = 'Honeycrisp reported model usage';
 const HONEYCRISP_ESTIMATED_USAGE_SOURCE = 'Honeycrisp serialized capture estimate';
 const HONEYCRISP_MIXED_USAGE_SOURCE = 'Honeycrisp reported total plus capture estimate';
-const HONEYCRISP_EVENT_PREFIX = 'HONEYCRISP_EVENT ';
 const CONTINUATION_CONTEXT_MAX_CHARS = 32_000;
 const CONTINUATION_SUBAGENT_MAX_COUNT = 12;
 const CONTINUATION_SUBAGENT_OUTPUT_MAX_CHARS = 600;
@@ -335,16 +334,6 @@ export class HoneycrispRunEngine {
         goalObjective,
         researchWorkflowId: workflowId,
         collaboration: normalizedInput.collaboration ?? null
-      },
-      vmBackend: 'host',
-      vmImageId: 'host-machine',
-      vmSnapshotId: 'none',
-      vmState: 'host_active',
-      vmMetadata: {
-        executor: 'honeycrisp',
-        targetExecution: false,
-        hostProcess: true,
-        honeycrispWorkspaceRoot: this.workspacePath
       }
     });
     this.db.createModelSession({
@@ -377,7 +366,6 @@ export class HoneycrispRunEngine {
         goalObjectivePresent: Boolean(goalObjective),
         sandboxProfile: input.sandboxProfile
       },
-      vmContextId: context.vmContext.id
     });
 
     return this.launchRun(context, normalizedInput, scope, false, researchProfile);
@@ -409,27 +397,10 @@ export class HoneycrispRunEngine {
       parentAttemptId: parentAttempt?.id ?? null,
       status: 'active',
       shortState: 'Continuing the current Honeycrisp research session.',
-      strategyRole: 'session_continuation',
-      vmBackend: 'host',
-      vmImageId: 'host-machine',
-      vmSnapshotId: 'none',
-      vmState: 'host_active',
-      vmMetadata: {
-        executor: 'honeycrisp',
-        targetExecution: false,
-        hostProcess: true,
-        continuation: true,
-        ...(options.automaticWebSocketRetryCount
-          ? { automaticWebSocketRetryCount: options.automaticWebSocketRetryCount }
-          : {}),
-        honeycrispWorkspaceRoot: this.workspacePath
-      }
+      strategyRole: 'session_continuation'
     });
     this.db.beginSessionRunActivity(runId, attempt.id);
-    const refreshed = this.db.getRunDetail(runId);
-    const vmContext = refreshed.vmContexts.find((candidate) => candidate.id === attempt.vmContextId);
-    if (!vmContext) throw new Error(`Continuation VM context not found for run ${runId}.`);
-    const context: CreatedRunContext = { run, attempt, vmContext };
+    const context: CreatedRunContext = { run, attempt };
     const continuationFallbackPrompt = buildContinuationPrompt(
       run,
       detail.transcriptMessages,
@@ -474,8 +445,7 @@ export class HoneycrispRunEngine {
         type: 'user_note',
         source: 'user',
         summary: 'User steering extended the current research session.',
-        payload: { instruction: redactForModelText(instruction), continuation: true },
-        vmContextId: vmContext.id
+        payload: { instruction: redactForModelText(instruction), continuation: true }
       });
       this.db.createTranscriptMessage({
         runId,
@@ -547,7 +517,6 @@ export class HoneycrispRunEngine {
     }
     const providerSettings = this.getProviderSettings?.();
     const agentPluginRuntime = this.getAgentPluginHoneycrispRuntime?.();
-    const legacyTransport = process.env.BEALE_HONEYCRISP_TRANSPORT?.trim() === 'legacy';
     const args = [
       ...(invocation.usesNodeRuntime ? [HONEYCRISP_MAX_OLD_SPACE_ARG] : []),
       ...invocation.prefixArgs,
@@ -573,15 +542,14 @@ export class HoneycrispRunEngine {
         researchProfile ? undefined : this.getMemoryTypeDescriptions?.(),
         providerSettings,
         collaborationConfigPath ?? undefined,
-        agentPluginRuntime?.args,
-        !legacyTransport
+        agentPluginRuntime?.args
       )
     ];
     const transportToken = `${randomUUID()}${randomUUID()}`;
     this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
-      type: 'vm_event',
+      type: 'research_event',
       source: 'executor',
       summary: continuation ? 'Honeycrisp host process launched to continue the current session.' : 'Honeycrisp host process launched.',
       payload: {
@@ -614,14 +582,13 @@ export class HoneycrispRunEngine {
         legacyMemoryTypeDescriptions: !researchProfile && Boolean(this.getMemoryTypeDescriptions?.()),
         automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0
       },
-      vmContextId: context.vmContext.id
     });
 
     const childEnvironment = honeycrispProcessEnvironment({
       databasePath: this.db.getDatabasePath(),
       artifactDirectoryPath: join(dirname(this.db.getDatabasePath()), 'artifacts')
     }, providerSettings?.preferredAuthenticationMethods);
-    if (!legacyTransport) childEnvironment.HONEYCRISP_TRANSPORT_TOKEN = transportToken;
+    childEnvironment.HONEYCRISP_TRANSPORT_TOKEN = transportToken;
     const child = spawn(invocation.command, args, {
       cwd: invocation.cwd,
       env: childEnvironment,
@@ -647,7 +614,7 @@ export class HoneycrispRunEngine {
       resolvedShellApprovalRequestIds: new Set(),
       automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0,
       transportToken,
-      transportMode: legacyTransport ? 'legacy' : 'pending',
+      transportMode: 'pending',
       webSocketClient: null
     };
     this.activeRuns.set(context.run.id, active);
@@ -713,9 +680,6 @@ export class HoneycrispRunEngine {
     active.stopped = true;
     active.stopReason = reason;
     this.clearTimeLimit(active);
-    if (active.paused && active.transportMode === 'legacy' && process.platform !== 'win32') {
-      signalHoneycrispProcess(active.child, 'SIGCONT');
-    }
     try {
       this.sendControl(active, { schemaVersion: 1, type: 'stop' });
     } catch {
@@ -738,11 +702,10 @@ export class HoneycrispRunEngine {
       this.db.appendTraceEvent({
         runId: active.context.run.id,
         attemptId: active.context.attempt.id,
-        type: 'vm_event',
+        type: 'research_event',
         source: 'system',
         summary: 'Session time limit reached.',
         payload: { maxMinutes },
-        vmContextId: active.context.vmContext.id,
         modelVisible: false
       });
       this.onChange();
@@ -774,11 +737,6 @@ export class HoneycrispRunEngine {
       throw new Error('Wait for the pending shell safety control before pausing the Honeycrisp process.');
     }
     this.sendControl(active, { schemaVersion: 1, type: 'pause' });
-    if (active.transportMode === 'legacy'
-      && process.platform !== 'win32'
-      && !signalHoneycrispProcess(active.child, 'SIGSTOP')) {
-      throw new Error(`Unable to pause Honeycrisp process for run ${runId}.`);
-    }
     active.paused = true;
     return true;
   }
@@ -787,11 +745,6 @@ export class HoneycrispRunEngine {
     const active = this.activeRuns.get(runId);
     if (!active) return false;
     if (!active.paused) return true;
-    if (active.transportMode === 'legacy'
-      && process.platform !== 'win32'
-      && !signalHoneycrispProcess(active.child, 'SIGCONT')) {
-      throw new Error(`Unable to resume Honeycrisp process for run ${runId}.`);
-    }
     active.paused = false;
     this.sendControl(active, { schemaVersion: 1, type: 'resume' });
     return true;
@@ -861,9 +814,6 @@ export class HoneycrispRunEngine {
     for (const active of this.activeRuns.values()) {
       this.clearTimeLimit(active);
       this.clearForceStopTimer(active);
-      if (active.paused && active.transportMode === 'legacy' && process.platform !== 'win32') {
-        signalHoneycrispProcess(active.child, 'SIGCONT');
-      }
       try {
         this.sendControl(active, { schemaVersion: 1, type: 'stop' });
       } catch {
@@ -910,17 +860,10 @@ export class HoneycrispRunEngine {
 
   private dispatchPendingControl(active: ActiveHoneycrispRun, pending: PendingHoneycrispControl): void {
     if (pending.dispatched || active.transportMode === 'pending') return;
-    if (active.transportMode === 'websocket') {
-      if (!active.webSocketClient) {
-        throw new Error(`Honeycrisp WebSocket transport is unavailable for run ${active.context.run.id}.`);
-      }
-      active.webSocketClient.sendControl(pending.wireMessage);
-    } else {
-      if (active.child.stdin.destroyed || active.child.stdin.writableEnded) {
-        throw new Error(`Honeycrisp legacy control stream is unavailable for run ${active.context.run.id}.`);
-      }
-      active.child.stdin.write(`${JSON.stringify(pending.wireMessage)}\n`, 'utf8');
+    if (!active.webSocketClient) {
+      throw new Error(`Honeycrisp WebSocket transport is unavailable for run ${active.context.run.id}.`);
     }
+    active.webSocketClient.sendControl(pending.wireMessage);
     pending.dispatched = true;
     if (pending.type === 'steer' || isSafetyControlType(pending.type)) {
       pending.timeout = setTimeout(
@@ -940,11 +883,10 @@ export class HoneycrispRunEngine {
         this.db.appendTraceEvent({
           runId: active.context.run.id,
           attemptId: active.context.attempt.id,
-          type: 'vm_event',
+          type: 'research_event',
           source: 'executor',
           summary: 'Honeycrisp control delivery failed.',
           payload: { requestId: pending.requestId, type: pending.type, error: errorMessage(error) },
-          vmContextId: active.context.vmContext.id,
           modelVisible: false
         });
       }
@@ -1001,14 +943,13 @@ export class HoneycrispRunEngine {
           acknowledgedByHoneycrisp: true,
           explicitRiskAcceptance: updated.shellSafetyMode === 'danger'
         },
-        vmContextId: context.vmContext.id,
         modelVisible: false
       });
     }
     this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
-      type: 'vm_event',
+      type: 'research_event',
       source: 'executor',
       summary: accepted
         ? `Honeycrisp acknowledged ${controlType} control.`
@@ -1023,7 +964,6 @@ export class HoneycrispRunEngine {
         ...(controlRequestId ? { controlRequestId } : {}),
         ...(stringPayload(payload, 'error') ? { error: stringPayload(payload, 'error') } : {})
       },
-      vmContextId: context.vmContext.id,
       modelVisible: false
     });
     if (!accepted && pending?.type === 'steer' && active && !active.stopped) {
@@ -1054,7 +994,6 @@ export class HoneycrispRunEngine {
         source: 'policy',
         summary: 'Honeycrisp accepted a shell decision but did not confirm its resolution; the session was stopped fail closed.',
         payload: { approvalRequestId, timeoutMs: controlAckTimeoutMs() },
-        vmContextId: active.context.vmContext.id,
         modelVisible: false
       });
       this.onChange({ forceSnapshot: true });
@@ -1095,7 +1034,6 @@ export class HoneycrispRunEngine {
         timeoutMs: controlAckTimeoutMs(),
         deliveryStatus: 'unacknowledged'
       },
-      vmContextId: active.context.vmContext.id,
       modelVisible: false
     });
     this.onChange({ forceSnapshot: true });
@@ -1116,7 +1054,7 @@ export class HoneycrispRunEngine {
     this.db.appendTraceEvent({
       runId: active.context.run.id,
       attemptId: active.context.attempt.id,
-      type: 'vm_event',
+      type: 'research_event',
       source: 'executor',
       summary,
       payload: {
@@ -1126,7 +1064,6 @@ export class HoneycrispRunEngine {
         reason,
         ...(reason === 'timeout' ? { timeoutMs } : {})
       },
-      vmContextId: active.context.vmContext.id,
       modelVisible: false
     });
     if (this.db.getRun(active.context.run.id)?.status === 'active') {
@@ -1168,7 +1105,6 @@ export class HoneycrispRunEngine {
         summary: 'Pending shell command denied when Honeycrisp closed.',
         payload: { approvalId, approvalRequestId, decision: 'denied', reason },
         approvalId,
-        vmContextId: active.context.vmContext.id,
         modelVisible: false
       });
     }
@@ -1199,7 +1135,7 @@ export class HoneycrispRunEngine {
       this.db.appendTraceEvent({
         runId: active.context.run.id,
         attemptId: this.db.getRunDetail(active.context.run.id).attempts.at(-1)?.id ?? null,
-        type: 'vm_event',
+        type: 'research_event',
         source: 'executor',
         summary: 'Honeycrisp launched the queued steering continuation after the prior process exited.',
         payload: {
@@ -1220,7 +1156,6 @@ export class HoneycrispRunEngine {
           controlRequestIds: queued.map((control) => control.requestId),
           error: errorMessage(error)
         },
-        vmContextId: active.context.vmContext.id,
         modelVisible: false
       });
       this.onChange();
@@ -1246,11 +1181,10 @@ export class HoneycrispRunEngine {
         this.db.appendTraceEvent({
           runId: active.context.run.id,
           attemptId: active.context.attempt.id,
-          type: 'vm_event',
+          type: 'research_event',
           source: 'executor',
           summary: 'Honeycrisp WebSocket transport error.',
           payload: { error: error.message },
-          vmContextId: active.context.vmContext.id,
           modelVisible: false
         });
         this.onChange();
@@ -1261,11 +1195,10 @@ export class HoneycrispRunEngine {
         this.db.appendTraceEvent({
           runId: active.context.run.id,
           attemptId: active.context.attempt.id,
-          type: 'vm_event',
+          type: 'research_event',
           source: 'executor',
           summary: 'Honeycrisp WebSocket transport closed.',
           payload: { code, reason: reason.slice(0, 256) },
-          vmContextId: active.context.vmContext.id,
           modelVisible: false
         });
         this.onChange();
@@ -1281,11 +1214,10 @@ export class HoneycrispRunEngine {
       this.db.appendTraceEvent({
         runId: active.context.run.id,
         attemptId: active.context.attempt.id,
-        type: 'vm_event',
+        type: 'research_event',
         source: 'executor',
         summary: 'Honeycrisp WebSocket transport established.',
         payload: { protocolVersion: bootstrap.protocolVersion, transport: bootstrap.transport },
-        vmContextId: active.context.vmContext.id,
         modelVisible: false
       });
       this.flushPendingControls(active);
@@ -1304,19 +1236,10 @@ export class HoneycrispRunEngine {
       if (active && bootstrap) this.connectWebSocketTransport(active, bootstrap);
       if (bootstrap) return;
     }
-    const liveEvent = stream === 'stdout' ? parseHoneycrispLiveEvent(text) : null;
-    if (liveEvent) {
-      if (active?.transportMode === 'pending') {
-        active.transportMode = 'legacy';
-        this.flushPendingControls(active);
-      }
-      this.recordLiveEvent(context, liveEvent);
-      return;
-    }
     this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
-      type: 'vm_event',
+      type: 'research_event',
       source: 'executor',
       summary: `Honeycrisp ${stream}: ${truncateSummary(text)}`,
       payload: {
@@ -1324,7 +1247,6 @@ export class HoneycrispRunEngine {
         text: text.slice(0, MAX_LIVE_OUTPUT_CHARS),
         truncated: text.length > MAX_LIVE_OUTPUT_CHARS
       },
-      vmContextId: context.vmContext.id,
       modelVisible: false
     });
     this.onChange();
@@ -1352,7 +1274,7 @@ export class HoneycrispRunEngine {
       this.db.appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
-        type: 'vm_event',
+        type: 'research_event',
         source: 'executor',
         summary: 'Session title generation failed.',
         payload: {
@@ -1362,7 +1284,6 @@ export class HoneycrispRunEngine {
           errorMessage: stringPayload(event.payload ?? {}, 'errorMessage'),
           recoveredTitle: titleRecovered ? recoveredTitle : undefined
         },
-        vmContextId: context.vmContext.id,
         modelVisible: false
       });
       this.onChange({ workspaceRegistryChanged: titleRecovered });
@@ -1447,7 +1368,6 @@ export class HoneycrispRunEngine {
           ...(event.payload ?? {}),
           ...(usage ? { usage } : {})
         },
-        vmContextId: context.vmContext.id,
         modelVisible: false
       });
       if (reportedUsage && !subagent) {
@@ -1470,7 +1390,7 @@ export class HoneycrispRunEngine {
       this.db.appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
-        type: 'vm_event',
+        type: 'research_event',
         source: 'executor',
         summary: honeycrispLiveEventSummary(event),
         payload: {
@@ -1478,7 +1398,6 @@ export class HoneycrispRunEngine {
           honeycrispTimestamp: event.timestamp ?? null,
           ...(event.payload ?? {})
         },
-        vmContextId: context.vmContext.id,
         modelVisible: false
       });
       this.onChange();
@@ -1515,7 +1434,6 @@ export class HoneycrispRunEngine {
           decision: 'denied',
           reason: 'executable_audit_projection_mismatch'
         },
-        vmContextId: context.vmContext.id,
         modelVisible: false
       });
       this.onChange({ forceSnapshot: true });
@@ -1551,7 +1469,6 @@ export class HoneycrispRunEngine {
         ...requestedAction
       },
       approvalId: approval.id,
-      vmContextId: context.vmContext.id,
       modelVisible: false
     });
     this.onChange({ forceSnapshot: true });
@@ -1603,7 +1520,6 @@ export class HoneycrispRunEngine {
         ...requestedAction
       },
       approvalId: approval.id,
-      vmContextId: context.vmContext.id,
       modelVisible: false
     });
     this.onChange({ forceSnapshot: Boolean(existingApprovalId) });
@@ -1626,7 +1542,6 @@ export class HoneycrispRunEngine {
         transcriptRole: 'system',
         ...payload
       },
-      vmContextId: context.vmContext.id,
       modelVisible: false
     });
     this.onChange();
@@ -1659,7 +1574,6 @@ export class HoneycrispRunEngine {
         transcriptRole: 'system',
         ...payload
       },
-      vmContextId: context.vmContext.id,
       modelVisible: false
     });
     this.onChange();
@@ -1706,7 +1620,6 @@ export class HoneycrispRunEngine {
         ...payload,
         ...(eventId ? { honeycrispEventId: eventId } : {})
       },
-      vmContextId: context.vmContext.id,
       modelVisible: false
     });
     this.onChange();
@@ -1796,7 +1709,6 @@ export class HoneycrispRunEngine {
         transcriptRole: 'system',
         ...(event.payload ?? {})
       },
-      vmContextId: context.vmContext.id,
       modelVisible: false
     });
     const finalText = action === 'completed' ? stringPayload(payload, 'message') : null;
@@ -1824,7 +1736,6 @@ export class HoneycrispRunEngine {
           live: true,
           lifecycleCompleted: true
         },
-        vmContextId: context.vmContext.id
       });
       this.db.createTranscriptMessage({
         runId: context.run.id,
@@ -1883,7 +1794,6 @@ export class HoneycrispRunEngine {
         itemId,
         live: true
       },
-      vmContextId: context.vmContext.id
     });
     this.db.createTranscriptMessage({
       runId: context.run.id,
@@ -1951,7 +1861,6 @@ export class HoneycrispRunEngine {
         honeycrispTimestamp: event.timestamp ?? null,
         toolName: stringPayload(payload ?? {}, 'toolName') ?? null
       },
-      vmContextId: context.vmContext.id
     });
     this.db.createTranscriptMessage({
       runId: context.run.id,
@@ -2034,7 +1943,6 @@ export class HoneycrispRunEngine {
         model,
         redacted: payload.redacted === true
       },
-      vmContextId: context.vmContext.id
     });
     this.db.createTranscriptMessage({
       runId: context.run.id,
@@ -2079,11 +1987,10 @@ export class HoneycrispRunEngine {
       this.db.appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
-        type: 'vm_event',
+        type: 'research_event',
         source: 'executor',
         summary: stoppedSummary,
         payload: processPayload,
-        vmContextId: context.vmContext.id
       });
       this.db.updateAttemptState(context.attempt.id, 'stopped', stoppedSummary);
       this.db.updateRunStatus(context.run.id, 'stopped', stoppedSummary);
@@ -2143,7 +2050,7 @@ export class HoneycrispRunEngine {
         this.db.appendTraceEvent({
           runId: context.run.id,
           attemptId: context.attempt.id,
-          type: 'vm_event',
+          type: 'research_event',
           source: 'executor',
           summary: 'Honeycrisp automatically continued after a transient WebSocket failure.',
           payload: {
@@ -2153,7 +2060,6 @@ export class HoneycrispRunEngine {
             capturePath,
             resumeMode: 'capture'
           },
-          vmContextId: context.vmContext.id,
           modelVisible: false
         });
         this.onChange();
@@ -2174,7 +2080,6 @@ export class HoneycrispRunEngine {
               retry: automaticWebSocketRetryCount,
               error: errorMessage(error)
             },
-            vmContextId: context.vmContext.id,
             modelVisible: false
           });
           this.db.updateRunStatus(context.run.id, 'failed', failureSummary);
@@ -2270,7 +2175,6 @@ export class HoneycrispRunEngine {
           : {})
       },
       artifactId: captureArtifact.id,
-      vmContextId: context.vmContext.id
     });
 
     this.db.appendTraceEvent({
@@ -2283,7 +2187,6 @@ export class HoneycrispRunEngine {
         request: capture.request ?? null,
         agent: honeycrispAgentPayload(capture)
       },
-      vmContextId: context.vmContext.id,
       modelVisible: false
     });
 
@@ -2324,7 +2227,6 @@ export class HoneycrispRunEngine {
             confidence: item.confidence ?? null,
             evidenceRefIds: item.evidenceRefIds ?? []
           },
-          vmContextId: context.vmContext.id
         });
       }
     }
@@ -2348,7 +2250,6 @@ export class HoneycrispRunEngine {
           nextPromptSuggestions,
           captureArtifactId: captureArtifact.id
         },
-        vmContextId: context.vmContext.id
       });
       this.db.createTranscriptMessage({
         runId: context.run.id,
@@ -2398,7 +2299,6 @@ export class HoneycrispRunEngine {
         payload: shellToolEvent ? sanitizedShellToolEventPayload(event.payload) : event.payload ?? null,
         artifactRefs: event.artifactRefs ?? null
       },
-      vmContextId: context.vmContext.id,
       ...(shellToolEvent ? { modelVisible: false } : {})
     });
   }
@@ -2411,7 +2311,6 @@ export class HoneycrispRunEngine {
       source: 'system',
       summary,
       payload,
-      vmContextId: context.vmContext.id
     });
     this.db.updateAttemptState(context.attempt.id, 'failed', summary);
     this.db.updateRunStatus(context.run.id, 'failed', summary);
@@ -2467,16 +2366,6 @@ class LineBuffer {
     const line = this.buffer.replace(/\r$/, '');
     this.buffer = '';
     this.emit(line);
-  }
-}
-
-function parseHoneycrispLiveEvent(line: string): HoneycrispLiveEvent | null {
-  if (!line.startsWith(HONEYCRISP_EVENT_PREFIX)) return null;
-  try {
-    const parsed = JSON.parse(line.slice(HONEYCRISP_EVENT_PREFIX.length)) as unknown;
-    return decodeHoneycrispLiveEvent(parsed);
-  } catch {
-    return null;
   }
 }
 
@@ -2609,8 +2498,7 @@ function honeycrispRunArgs(
   memoryTypeDescriptions?: MemoryTypeDescriptions,
   providerSettings?: ProviderSettings,
   collaborationConfigPath?: string,
-  agentPluginRuntimeArgs: readonly string[] = [],
-  webSocketTransport = true
+  agentPluginRuntimeArgs: readonly string[] = []
 ): string[] {
   const args = [
     '--workspace-root',
@@ -2621,9 +2509,7 @@ function honeycrispRunArgs(
     workspaceContextPath,
     '--executor',
     'agent',
-    ...(webSocketTransport ? ['--websocket-transport'] : []),
-    '--event-stream',
-    '--control-stream',
+    '--websocket-transport',
     '--session-id',
     sessionId,
     ...(attemptId ? ['--attempt-id', attemptId] : []),

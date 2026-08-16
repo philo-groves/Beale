@@ -17,6 +17,7 @@ import type {
 import type { ResolvedResearchProfile } from '../shared/researchProfile';
 
 export const HONEYCRISP_PROTOCOL_VERSION = 1 as const;
+export const HONEYCRISP_PROTOCOL_WEBSOCKET_PATH = '/v1/session' as const;
 
 export type HoneycrispSessionStatus = 'active' | 'paused' | 'blocked' | 'completed' | 'failed' | 'stopped';
 
@@ -218,7 +219,7 @@ export interface HoneycrispProtocolDescriptor {
   transports: {
     cli: { framing: 'single-json-envelope'; errors: 'envelope-and-nonzero-exit' };
     websocket: {
-      path: '/v1/session';
+      path: typeof HONEYCRISP_PROTOCOL_WEBSOCKET_PATH;
       authentication: 'bearer';
       capabilities: ['session.events', 'session.controls'];
     };

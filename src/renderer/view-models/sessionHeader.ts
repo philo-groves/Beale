@@ -45,7 +45,6 @@ export function latestRunDetailDate(detail: RunDetail): Date | null {
     ...(detail.honeycrispMemory?.nodes.flatMap((node) => [node.createdAt, node.updatedAt]) ?? []),
     ...detail.verifierContracts.flatMap((contract) => [contract.createdAt, contract.updatedAt]),
     ...detail.verifierRuns.flatMap((run) => [run.startedAt, run.endedAt]),
-    ...detail.vmContexts.flatMap((context) => [context.createdAt, context.destroyedAt]),
     ...detail.modelSessions.flatMap((session) => [session.createdAt, session.updatedAt]),
     ...detail.policyEvents.flatMap((event) => [event.createdAt, event.decidedAt]),
     ...detail.exports.flatMap((exportRecord) => [exportRecord.createdAt, exportRecord.reviewedAt])

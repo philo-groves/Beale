@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ResearchProfile, StartRunInput } from '../src/shared/types';
-import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
+import { WorkspaceService } from '../src/main/workspaceService';
+import { startRunForTest } from './workspaceTestSupport';
+import type { FixtureStartRunInput } from './fixtureRunEngine';
 import { resolvedTestResearchProfile, testResearchProfile } from './researchProfileFixture';
 
 const createdDirectories: string[] = [];
@@ -524,7 +526,7 @@ describe('model-reasoned memory Dreaming', () => {
         profile: { name: 'Memory-disabled research', capabilities: { memoryEnabled: false } }
       });
       const database = new DatabaseSync(opened.workspace.databasePath);
-      expect(database.prepare('SELECT COUNT(*) AS count FROM memory_dreaming_runs').get()).toEqual({ count: 0 });
+      expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_dreaming_runs'").get()).toBeUndefined();
       database.close();
     } finally {
       service.close();
@@ -598,7 +600,7 @@ function temporaryDirectory(): string {
   return directory;
 }
 
-function runInput(): StartRunInput {
+function runInput(): FixtureStartRunInput {
   return {
     runEngine: 'fixture',
     shellSafetyMode: 'auto_review',

@@ -5,7 +5,6 @@ import { performance } from 'node:perf_hooks';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { FixtureRunEngine } from './fixtureRunEngine';
 import {
   WorkspaceDatabase,
   type ProjectSourceCoveragePathRecord,
@@ -62,7 +61,6 @@ import {
   sourceRepositoryCandidates
 } from './sourceMaterializer';
 import { redactForModelText, redactJsonForModel } from './redaction';
-import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import {
   parseAndSelectResearchGoalCandidates,
   researchGoalCandidateCount,
@@ -84,7 +82,6 @@ import type {
   ProviderModelDefaults,
   ProviderAuthenticationMethod,
   ExecutorStatus,
-  FixtureScenario,
   GeneratedResearchGoalSuggestions,
   GeneratedResearchPrompt,
   HackerOneScopeLookupResult,
@@ -130,10 +127,7 @@ import type {
   ScopeAssetKind,
   StartRunInput,
   SteeringAction,
-  VerifierContractRecord,
   VerifierRunRecord,
-  VmContextRecord,
-  VmPreference,
   WorkspaceExportResult,
   HostEnvironment,
   OpenAiAccountStatus,
@@ -147,8 +141,6 @@ import type {
   ProfilingMetricDetail,
   ProfilingReport,
   ProfilingState,
-  ProjectGraphSummary,
-  ProjectSemanticSummary,
   ResearchProfile,
   ResearchProfileId,
   ResearchProfileSnapshot,
@@ -162,7 +154,6 @@ import type {
   WorkspaceSnapshot,
   WorkspaceSummary,
   AgentPluginRegistryState,
-  RunEngineKind,
   ShellSafetyMode
 } from '@shared/types';
 
@@ -172,11 +163,6 @@ const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 const RESEARCH_PROMPT_GENERATION_REASONING_EFFORT = 'medium';
 const RESEARCH_GOAL_SUGGESTION_REASONING_EFFORT = 'low';
 const MAX_RESEARCH_GOAL_CONTEXT_CACHE_ENTRIES = 8;
-const DEFAULT_VM_PREFERENCE: VmPreference = {
-  enabled: false,
-  backendKind: null,
-  updatedAt: null
-};
 const MAX_CACHED_BACKGROUND_RUNTIMES = 4;
 type ProfileModelRoute = HoneycrispAuxiliaryModelRoute;
 type DisclosureExportKind = 'artifact_bundle' | 'research_bundle' | 'redacted_trace' | 'report_draft';
@@ -448,8 +434,7 @@ function hostExecutionStatus(): ExecutorStatus {
       shell: true,
       python: true,
       debugger: true
-    },
-    backends: []
+    }
   };
 }
 
@@ -474,7 +459,6 @@ interface WorkspaceRuntime {
   openedAt: string;
   lastRecovery: WorkspaceRecoveryReport | null;
   db: WorkspaceDatabase;
-  fixtureEngine: FixtureRunEngine | null;
   honeycrispEngine: HoneycrispRunEngine;
   researchProfile: ResearchProfileSnapshot;
 }
@@ -567,7 +551,6 @@ interface ResearchGoalSuggestionGroundingContext {
 
 export class WorkspaceService {
   private db: WorkspaceDatabase | null = null;
-  private fixtureEngine: FixtureRunEngine | null = null;
   private honeycrispEngine: HoneycrispRunEngine | null = null;
   private researchProfile: ResearchProfileSnapshot | null = null;
   private readonly researchProfileService = new ResearchProfileService();
@@ -875,10 +858,9 @@ export class WorkspaceService {
   private introspectionStartRunInput(args: Record<string, unknown>): StartRunInput {
     const explicit = isRecord(args.startRunInput) ? args.startRunInput : null;
     if (explicit) return explicit as unknown as StartRunInput;
-    const runEngine = optionalToolString(args, 'runEngine');
     const shellSafetyMode = optionalToolString(args, 'shellSafetyMode');
     return {
-      runEngine: (runEngine === 'fixture' ? 'fixture' : 'honeycrisp') as RunEngineKind,
+      runEngine: 'honeycrisp',
       provider: optionalToolString(args, 'provider'),
       shellSafetyMode: (shellSafetyMode === 'auto_review' || shellSafetyMode === 'danger'
         ? shellSafetyMode
@@ -2215,7 +2197,7 @@ export class WorkspaceService {
     return this.requireSnapshot();
   }
 
-  public startRun(input: StartRunInput, mode: 'scheduled' | 'complete' = 'scheduled'): WorkspaceSnapshot {
+  public startRun(input: StartRunInput, _mode: 'scheduled' | 'complete' = 'scheduled'): WorkspaceSnapshot {
     const requestedShellSafetyMode = (input as { shellSafetyMode?: unknown }).shellSafetyMode;
     if (requestedShellSafetyMode !== undefined && !isShellSafetyMode(requestedShellSafetyMode)) {
       throw new Error(`Unsupported shell safety mode: ${String(requestedShellSafetyMode)}`);
@@ -2238,9 +2220,7 @@ export class WorkspaceService {
     if (requestedProvider && !explicitProvider) {
       throw new Error(`Unsupported Lead provider: ${requestedProvider}`);
     }
-    const leadProvider = explicitProvider
-      ?? providerSettings.defaultProviderId
-      ?? (normalizedInput.runEngine === 'fixture' ? 'openai-codex' : null);
+    const leadProvider = explicitProvider ?? providerSettings.defaultProviderId;
     if (!leadProvider) {
       throw new Error('No Lead provider is configured. Choose one in Provider settings before starting research.');
     }
@@ -2265,14 +2245,10 @@ export class WorkspaceService {
         providerSettings
       );
     }
-    if (normalizedInput.runEngine === 'honeycrisp') {
-      this.requireHoneycrispEngine().startRun(normalizedInput, researchProfile);
-    } else if (normalizedInput.runEngine === 'fixture') {
-      requireFixtureRunEngineEnabled();
-      this.requireFixtureEngine().startRun(normalizedInput, mode, researchProfile.id);
-    } else {
+    if (normalizedInput.runEngine !== 'honeycrisp') {
       throw new Error(`Unsupported research run engine: ${String(normalizedInput.runEngine)}`);
     }
+    this.requireHoneycrispEngine().startRun(normalizedInput, researchProfile);
     this.emitChangeNow();
     return this.requireSnapshot();
   }
@@ -2510,9 +2486,6 @@ export class WorkspaceService {
             throw new Error(`Active Honeycrisp process not found for run ${action.runId}.`);
           }
         }
-        if (runEngine === 'fixture') {
-          this.fixtureEngine?.pause(action.runId);
-        }
         if (attempt) db.updateAttemptState(attempt.id, 'paused', 'Paused by user steering.');
         db.updateRunStatus(action.runId, 'paused', 'Paused by user steering.');
         db.appendTraceEvent({
@@ -2557,13 +2530,9 @@ export class WorkspaceService {
           summary: 'Run resumed by user.',
           payload: { note: action.note ?? '', instruction: instruction ?? '' }
         });
-        if (runEngine === 'fixture') {
-          this.fixtureEngine?.resume(action.runId);
-        }
         break;
       }
       case 'stop': {
-        this.fixtureEngine?.stop(action.runId);
         this.honeycrispEngine?.stop(action.runId);
         if (attempt) db.updateAttemptState(attempt.id, 'stopped', 'Stopped by user steering.');
         db.updateRunStatus(action.runId, 'stopped', 'Stopped by user steering.');
@@ -2624,11 +2593,6 @@ export class WorkspaceService {
             ...(honeycrispDispatch ? { controlRequestId: honeycrispDispatch.requestId } : {})
           }
         });
-        if (runEngine === 'fixture' && run.status === 'paused') {
-          if (attempt) db.updateAttemptState(attempt.id, 'active', 'User steering added to current run.');
-          db.updateRunStatus(action.runId, 'active', 'User steering added to current run.');
-          this.fixtureEngine?.resume(action.runId);
-        }
         break;
       }
       case 'set_shell_safety_mode': {
@@ -2671,7 +2635,6 @@ export class WorkspaceService {
           summary: 'Run fork requested with additional instruction.',
           payload: { instruction: action.instruction }
         });
-        const scenario = fixtureScenarioFromBudget(run.budget);
         const persistedGoalObjective = typeof run.budget.goalObjective === 'string'
           ? run.budget.goalObjective
           : null;
@@ -2700,8 +2663,7 @@ export class WorkspaceService {
             maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0),
             repeatSchedule: normalizeRepeatSchedule(run.budget.repeatSchedule)
           },
-          runEngine: runEngine === 'fixture' ? 'fixture' : 'honeycrisp',
-          fixtureScenario: scenario
+          runEngine: 'honeycrisp'
         };
         const parentResearchProfile = db.getRunResearchProfileSnapshot(action.runId);
         if (run.researchProfileSnapshotId && !parentResearchProfile) {
@@ -2709,43 +2671,7 @@ export class WorkspaceService {
         }
         const researchProfile = parentResearchProfile ?? this.refreshResearchProfile(foregroundRuntime);
         if (!parentResearchProfile) forkInput.workflowId = undefined;
-        if (forkInput.runEngine === 'honeycrisp') {
-          this.requireHoneycrispEngine().startRun(forkInput, researchProfile);
-        } else {
-          requireFixtureRunEngineEnabled();
-          this.requireFixtureEngine().startRun(forkInput, 'scheduled', researchProfile.id);
-        }
-        break;
-      }
-      case 'restart_from_snapshot': {
-        const detail = db.getRunDetail(action.runId);
-        const vmContext = selectVmContext(detail, attempt, undefined);
-        const snapshotRef = action.snapshotRef?.trim() || vmContext.snapshotId || 'clean';
-        const previousState = vmContext.state;
-        db.updateVmContext(vmContext.id, {
-          snapshotId: snapshotRef,
-          state: 'host_active',
-          metadata: { restartedFromSnapshot: snapshotRef, previousState, providerRemoved: true, executionPosture: 'host_process' }
-        });
-        if (attempt && (run.status === 'paused' || run.status === 'blocked')) {
-          db.updateAttemptState(attempt.id, 'active', `Host process execution record refreshed from ${snapshotRef}.`);
-          db.updateRunStatus(action.runId, 'active', `Host process execution record refreshed from ${snapshotRef}.`);
-        }
-        db.appendTraceEvent({
-          runId: action.runId,
-          attemptId: attempt?.id ?? null,
-          type: 'vm_event',
-          source: 'user',
-          summary: 'Host process execution record refreshed by user.',
-          payload: {
-            vmContextId: vmContext.id,
-            snapshotRef,
-            previousState,
-            note: redactForModelText(action.note ?? '')
-          },
-          vmContextId: vmContext.id,
-          modelVisible: false
-        });
+        this.requireHoneycrispEngine().startRun(forkInput, researchProfile);
         break;
       }
       case 'update_run_budget': {
@@ -2766,64 +2692,20 @@ export class WorkspaceService {
         });
         break;
       }
-      case 'rerun_verifier': {
-        const contract = requireVerifierContract(db.getRunDetail(action.runId), action.verifierContractId);
-        runVerifierContract(db, action.runId, contract, attempt?.id ?? null, attempt?.vmContextId ?? null, action.note ?? '');
-        break;
-      }
-      case 'edit_verifier_contract': {
-        const contract = requireVerifierContract(db.getRunDetail(action.runId), action.verifierContractId);
-        const updated = db.updateVerifierContract(contract.id, { ...action.patch, status: 'edited' });
-        db.appendTraceEvent({
-          runId: action.runId,
-          attemptId: attempt?.id ?? null,
-          type: 'verifier_result',
-          source: 'user',
-          summary: 'Verifier contract edited by user.',
-          payload: {
-            contractId: updated.id,
-            status: updated.status,
-            editedFields: Object.keys(action.patch),
-            note: redactForModelText(action.note ?? '')
-          },
-          vmContextId: attempt?.vmContextId ?? null,
-          modelVisible: false
-        });
-        break;
-      }
-      case 'review_verifier_contract': {
-        const contract = requireVerifierContract(db.getRunDetail(action.runId), action.verifierContractId);
-        const updated = db.updateVerifierContract(contract.id, { status: action.decision });
-        db.appendTraceEvent({
-          runId: action.runId,
-          attemptId: attempt?.id ?? null,
-          type: 'verifier_result',
-          source: 'user',
-          summary: `Verifier contract ${action.decision} by user.`,
-          payload: {
-            contractId: updated.id,
-            decision: action.decision,
-            note: redactForModelText(action.note ?? '')
-          },
-          vmContextId: attempt?.vmContextId ?? null,
-          modelVisible: false
-        });
-        break;
-      }
       case 'export_artifact_bundle': {
-        this.exportArtifactBundle(action.runId, action.memoryNodeId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
+        this.exportArtifactBundle(action.runId, action.memoryNodeId ?? null, action.note ?? '', attempt?.id ?? null);
         break;
       }
       case 'export_research_bundle': {
-        this.exportDisclosureArtifact('research_bundle', action.runId, action.memoryNodeId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
+        this.exportDisclosureArtifact('research_bundle', action.runId, action.memoryNodeId ?? null, action.note ?? '', attempt?.id ?? null);
         break;
       }
       case 'export_redacted_trace': {
-        this.exportDisclosureArtifact('redacted_trace', action.runId, action.memoryNodeId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
+        this.exportDisclosureArtifact('redacted_trace', action.runId, action.memoryNodeId ?? null, action.note ?? '', attempt?.id ?? null);
         break;
       }
       case 'generate_report_draft': {
-        this.exportDisclosureArtifact('report_draft', action.runId, action.memoryNodeId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
+        this.exportDisclosureArtifact('report_draft', action.runId, action.memoryNodeId ?? null, action.note ?? '', attempt?.id ?? null);
         break;
       }
       case 'review_export': {
@@ -2842,59 +2724,6 @@ export class WorkspaceService {
             note: redactForModelText(action.note ?? ''),
             userReviewRequired: action.decision !== 'approved'
           },
-          vmContextId: attempt?.vmContextId ?? null,
-          modelVisible: false
-        });
-        break;
-      }
-      case 'preserve_vm': {
-        const detail = db.getRunDetail(action.runId);
-        const vmContext = selectVmContext(detail, attempt, action.vmContextId);
-        const reason = redactForModelText(action.reason ?? 'User requested host process execution record preservation.');
-        db.updateVmContext(vmContext.id, {
-          state: vmContext.state === 'destroyed' ? 'destroyed' : 'preserved',
-          metadata: {
-            preserveReason: reason,
-            preservedByUser: vmContext.state !== 'destroyed',
-            previousState: vmContext.state,
-            providerRemoved: true,
-            executionPosture: 'host_process'
-          }
-        });
-        db.appendTraceEvent({
-          runId: action.runId,
-          attemptId: attempt?.id ?? null,
-          type: 'vm_event',
-          source: 'user',
-          summary: vmContext.state === 'destroyed' ? 'Host execution preserve request recorded for already-ended context.' : 'Host execution record preserved by explicit request.',
-          payload: { vmContextId: vmContext.id, reason, previousState: vmContext.state },
-          vmContextId: vmContext.id,
-          modelVisible: false
-        });
-        break;
-      }
-      case 'destroy_vm': {
-        const detail = db.getRunDetail(action.runId);
-        const vmContext = selectVmContext(detail, attempt, action.vmContextId);
-        const reason = redactForModelText(action.reason ?? 'User requested host process execution record closure.');
-        db.updateVmContext(vmContext.id, {
-          state: 'destroyed',
-          metadata: {
-            destroyReason: reason,
-            destroyedByUser: true,
-            previousState: vmContext.state,
-            providerRemoved: true,
-            executionPosture: 'host_process'
-          }
-        });
-        db.appendTraceEvent({
-          runId: action.runId,
-          attemptId: attempt?.id ?? null,
-          type: 'vm_event',
-          source: 'user',
-          summary: 'Host execution record closed.',
-          payload: { vmContextId: vmContext.id, reason, previousState: vmContext.state },
-          vmContextId: vmContext.id,
           modelVisible: false
         });
         break;
@@ -2923,7 +2752,6 @@ export class WorkspaceService {
             scopedApproval: true
           },
           approvalId: approval.id,
-          vmContextId: attempt?.vmContextId ?? null,
           modelVisible: false
         });
         break;
@@ -3163,7 +2991,6 @@ export class WorkspaceService {
         openedAt,
         lastRecovery: recovery,
         db: sessionDatabase,
-        fixtureEngine: null,
         researchProfile,
         honeycrispEngine: new HoneycrispRunEngine(
           sessionDatabase,
@@ -3229,7 +3056,6 @@ export class WorkspaceService {
       openedAt: this.openedAt,
       lastRecovery: this.lastRecovery,
       db: this.db,
-      fixtureEngine: this.fixtureEngine,
       honeycrispEngine: this.honeycrispEngine,
       researchProfile: this.researchProfile
     };
@@ -3247,7 +3073,6 @@ export class WorkspaceService {
     this.openedAt = runtime.openedAt;
     this.lastRecovery = runtime.lastRecovery;
     this.db = runtime.db;
-    this.fixtureEngine = runtime.fixtureEngine;
     this.honeycrispEngine = runtime.honeycrispEngine;
     this.researchProfile = runtime.researchProfile;
   }
@@ -3258,7 +3083,6 @@ export class WorkspaceService {
     this.openedAt = null;
     this.lastRecovery = null;
     this.db = null;
-    this.fixtureEngine = null;
     this.honeycrispEngine = null;
     this.researchProfile = null;
     return runtime;
@@ -3289,7 +3113,6 @@ export class WorkspaceService {
 
   private disposeRuntime(runtime: WorkspaceRuntime): void {
     this.disposedRuntimeDatabases.add(runtime.db);
-    runtime.fixtureEngine?.dispose();
     runtime.honeycrispEngine.dispose();
     runtime.db.close();
   }
@@ -3358,10 +3181,6 @@ export class WorkspaceService {
     return this.agentPluginRegistry;
   }
 
-  private getVmPreferenceForSnapshot(): VmPreference {
-    return DEFAULT_VM_PREFERENCE;
-  }
-
   private syncWorkspaceRegistry(): void {
     if (!this.workspaceRegistry) return;
     const foreground = this.getForegroundRuntime();
@@ -3391,14 +3210,6 @@ export class WorkspaceService {
     return this.db;
   }
 
-  private requireFixtureEngine(): FixtureRunEngine {
-    if (!this.fixtureEngine) {
-      const workspacePath = this.workspacePath;
-      if (!workspacePath) throw new Error('No Beale workspace is open');
-      this.fixtureEngine = new FixtureRunEngine(this.requireDb(), () => this.emitRuntimeChange(workspacePath));
-    }
-    return this.fixtureEngine;
-  }
 
   private requireHoneycrispEngine(): HoneycrispRunEngine {
     if (!this.honeycrispEngine) {
@@ -3422,13 +3233,10 @@ export class WorkspaceService {
       workspace: this.profileMainTiming('snapshot.workspaceSummary', detail, () => this.getWorkspaceSummary(runtime)),
       openAi: this.profileMainTiming('snapshot.openAiStatus', detail, () => this.openAiAuth.getStatus()),
       executor: this.profileMainTiming('snapshot.executorStatus', detail, () => hostExecutionStatus()),
-      vmPreference: this.profileMainTiming('snapshot.vmPreference', detail, () => this.getVmPreferenceForSnapshot()),
       activeScope,
       researchSubject: this.profileMainTiming('snapshot.researchSubject', detail, () => runtime.db.getResearchSubject()),
       researchProfile: runtime.researchProfile,
       honeycrispMemory: this.profileMainTiming('snapshot.honeycrispMemory', detail, () => this.memorySummaryForRuntime(runtime, activeScope)),
-      projectGraph: inactiveProjectGraphSummary(activeScope.id),
-      projectSemantic: inactiveProjectSemanticSummary(activeScope.id),
       recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),
       policyReview: this.profileMainTiming('snapshot.policyReview', detail, () => buildPolicyReview(activeScope)),
       runs: this.profileMainTiming('snapshot.runs', detail, () => runtime.db.listRunRows()),
@@ -3645,11 +3453,11 @@ export class WorkspaceService {
     }
   }
 
-  private exportArtifactBundle(runId: string, memoryNodeId: string | null, note: string, attemptId: string | null, vmContextId: string | null): void {
-    this.exportDisclosureArtifact('artifact_bundle', runId, memoryNodeId, note, attemptId, vmContextId);
+  private exportArtifactBundle(runId: string, memoryNodeId: string | null, note: string, attemptId: string | null): void {
+    this.exportDisclosureArtifact('artifact_bundle', runId, memoryNodeId, note, attemptId);
   }
 
-  private exportDisclosureArtifact(kind: DisclosureExportKind, runId: string, memoryNodeId: string | null, note: string, attemptId: string | null, vmContextId: string | null): void {
+  private exportDisclosureArtifact(kind: DisclosureExportKind, runId: string, memoryNodeId: string | null, note: string, attemptId: string | null): void {
     const db = this.requireDb();
     if (!this.workspacePath) throw new Error('No Beale workspace is open');
     const runtime = this.getForegroundRuntime();
@@ -3709,7 +3517,6 @@ export class WorkspaceService {
         note: redactForModelText(note)
       },
       artifactId: artifact.id,
-      vmContextId,
       modelVisible: false
     });
     db.setArtifactProvenance(artifact.id, event.id);
@@ -3764,10 +3571,6 @@ export class WorkspaceService {
       rmSync(stageRoot, { recursive: true, force: true });
     }
   }
-}
-
-export function startRunForTest(service: WorkspaceService, input: StartRunInput): WorkspaceSnapshot {
-  return service.startRun(input, 'complete');
 }
 
 function attachHoneycrispMemory<T extends RunDetail | RunDetailUpdate>(detail: T, memory: HoneycrispMemorySummary): T {
@@ -3909,24 +3712,10 @@ function nullableNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function requireVerifierContract(detail: RunDetail, verifierContractId: string): VerifierContractRecord {
-  const contract = detail.verifierContracts.find((item) => item.id === verifierContractId);
-  if (!contract) throw new Error(`Verifier contract not found: ${verifierContractId}`);
-  return contract;
-}
-
 function requireExport(detail: RunDetail, exportId: string) {
   const exportRecord = detail.exports.find((item) => item.id === exportId);
   if (!exportRecord) throw new Error(`Export not found: ${exportId}`);
   return exportRecord;
-}
-
-function selectVmContext(detail: RunDetail, attempt: AttemptRecord | null, vmContextId: string | undefined): VmContextRecord {
-  const selectedId = vmContextId ?? attempt?.vmContextId ?? null;
-  const selected = selectedId ? detail.vmContexts.find((item) => item.id === selectedId) : null;
-  const vmContext = selected ?? detail.vmContexts[0] ?? null;
-  if (!vmContext) throw new Error(`No execution context found for run: ${detail.run.id}`);
-  return vmContext;
 }
 
 function redactObject(value: Record<string, unknown>): Record<string, unknown> {
@@ -4057,53 +3846,7 @@ function emptyRecoveryReport(openedAt: string | null): WorkspaceRecoveryReport {
     interruptedModelSessions: 0,
     interruptedToolCalls: 0,
     interruptedVerifierRuns: 0,
-    interruptedVmContexts: 0,
     notes: ['No interrupted authoritative state found.']
-  };
-}
-
-function inactiveProjectGraphSummary(scopeVersionId: string): ProjectGraphSummary {
-  return {
-    scopeVersionId,
-    status: 'disabled',
-    nodeCount: 0,
-    edgeCount: 0,
-    structuralEdgeCount: 0,
-    unresolvedEdgeCount: 0,
-    expectedNodeCount: 0,
-    staleReasons: [],
-    rebuildReason: null,
-    buildCount: 0,
-    nodeFamilyCounts: {},
-    edgeFamilyCounts: {},
-    extractionFamilyCounts: {},
-    indexedAt: null
-  };
-}
-
-function inactiveProjectSemanticSummary(scopeVersionId: string): ProjectSemanticSummary {
-  return {
-    scopeVersionId,
-    enabled: false,
-    status: 'disabled',
-    provider: 'none',
-    model: 'none',
-    remoteEmbeddingEnabled: false,
-    chunkCount: 0,
-    embeddedChunkCount: 0,
-    sourceDocumentCount: 0,
-    indexedSourceDocumentCount: 0,
-    indexSizeBytes: 0,
-    lastRefreshDurationMs: null,
-    namespaceCounts: {},
-    indexedAt: null,
-    queuedAt: null,
-    startedAt: null,
-    finishedAt: null,
-    jobReason: null,
-    lastError: null,
-    progressProcessed: null,
-    progressTotal: null
   };
 }
 
@@ -5969,20 +5712,6 @@ function toolNumber(record: Record<string, unknown>, key: string, fallback: numb
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
-function fixtureScenarioFromBudget(budget: Record<string, unknown>): FixtureScenario {
-  const value = budget.fixtureScenario;
-  if (
-    value === 'multi_branch_trace' ||
-    value === 'source_review' ||
-    value === 'crash_artifact' ||
-    value === 'scope_block' ||
-    value === 'verifier_pass'
-  ) {
-    return value;
-  }
-  return 'multi_branch_trace';
-}
-
 function isShellSafetyMode(value: unknown): value is StartRunInput['shellSafetyMode'] {
   return value === 'manual_approval' || value === 'auto_review' || value === 'danger';
 }
@@ -6011,13 +5740,4 @@ function requireCollaborationPolicyAcknowledgements(
         ? 'xAI policy-use risk'
         : 'Z.ai policy-use risk');
   throw new Error(`Breakout-room collaboration requires acknowledgement for ${labels.join(', ')}. Accept it in Settings > Providers before continuing.`);
-}
-
-function requireFixtureRunEngineEnabled(): void {
-  if (isFixtureRunEngineEnabled()) return;
-  throw new Error('The deterministic fixture run engine is disabled in product mode. Set BEALE_ENABLE_FIXTURE_ENGINE=1 for development fixtures.');
-}
-
-function isFixtureRunEngineEnabled(): boolean {
-  return process.env.BEALE_ENABLE_FIXTURE_ENGINE === '1' || process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST_WORKER_ID);
 }

@@ -19,6 +19,7 @@ import {
   testResearchProfile,
   testResearchProfileCatalogEnvelope
 } from './researchProfileFixture';
+import { startRunForTest } from './workspaceTestSupport';
 
 const directories: string[] = [];
 
@@ -332,7 +333,7 @@ describe('research profile host integration', () => {
         profileHash: currentProfile.hash
       });
 
-      const fixture = service.startRun({ ...runInput('analysis-pass'), runEngine: 'fixture' }, 'complete');
+      const fixture = startRunForTest(service, runInput('analysis-pass'));
       const fixtureRun = fixture.runs.find((row) => row.run.id !== firstRunId && row.run.id !== secondRunId)?.run;
       expect(fixtureRun?.researchProfileSnapshotId).toBe(secondRun.researchProfileSnapshotId);
 
@@ -754,7 +755,7 @@ describe('research profile host integration', () => {
 
     try {
       service.createWorkspace(workspace);
-      service.startRun({ ...runInput('literature-synthesis'), runEngine: 'fixture' }, 'complete');
+      startRunForTest(service, runInput('literature-synthesis'));
 
       // Any accidental recommendation-path memory read now fails on the deliberately incompatible table.
       const memoryDatabase = new DatabaseSync(databasePath);

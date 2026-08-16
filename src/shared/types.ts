@@ -78,14 +78,12 @@ export type TraceEventType =
   | 'tool_call'
   | 'tool_result'
   | 'artifact_created'
-  | 'vm_event'
   | 'approval_event'
   | 'research_event'
   | 'verifier_result'
   | 'network_event';
 
-export type FixtureScenario = 'multi_branch_trace' | 'source_review' | 'crash_artifact' | 'scope_block' | 'verifier_pass';
-
+/** Read compatibility for sessions created by the removed fixture engine. */
 export type RunEngineKind = 'honeycrisp' | 'fixture';
 
 export type ShellSafetyMode = 'manual_approval' | 'auto_review' | 'danger';
@@ -108,24 +106,6 @@ export interface OpenAiOnboardingStep {
 
 export type ExecutorProviderKind = 'host';
 
-export type ExecutorBackendKind = never;
-
-export interface VmPreference {
-  enabled: boolean;
-  backendKind: ExecutorBackendKind | null;
-  updatedAt: string | null;
-}
-
-export interface ExecutorBackendStatus {
-  kind: ExecutorBackendKind;
-  label: string;
-  platform: 'linux' | 'win32' | 'darwin' | 'any';
-  configured: boolean;
-  available: boolean;
-  recommended: boolean;
-  reason: string | null;
-}
-
 export interface ExecutorStatus {
   provider: ExecutorProviderKind;
   configured: boolean;
@@ -143,7 +123,6 @@ export interface ExecutorStatus {
     python: boolean;
     debugger: boolean;
   };
-  backends: ExecutorBackendStatus[];
 }
 
 export interface ScopeAssetInput {
@@ -378,139 +357,6 @@ export interface ProjectStructureSummary {
   routeCount: number;
   importCount: number;
   indexedAt: string | null;
-}
-
-export interface ProjectGraphSummary {
-  scopeVersionId: string;
-  status: string;
-  nodeCount: number;
-  edgeCount: number;
-  structuralEdgeCount: number;
-  unresolvedEdgeCount: number;
-  expectedNodeCount: number;
-  staleReasons: string[];
-  rebuildReason: string | null;
-  buildCount: number;
-  nodeFamilyCounts: Record<string, number>;
-  edgeFamilyCounts: Record<string, number>;
-  extractionFamilyCounts: Record<string, number>;
-  indexedAt: string | null;
-}
-
-export interface WorkspaceGraphVisualizationNode {
-  id: string;
-  nodeKind: string;
-  entityType: string;
-  entityId: string;
-  label: string;
-  sourcePath: string | null;
-  degree: number;
-  indexedAt: string;
-}
-
-export interface WorkspaceGraphVisualizationEdge {
-  id: string;
-  sourceNodeId: string;
-  targetNodeId: string;
-  edgeKind: string;
-  targetLabel: string;
-  indexedAt: string;
-}
-
-export interface WorkspaceGraphVisualization {
-  scopeVersionId: string;
-  status: string;
-  nodeCount: number;
-  edgeCount: number;
-  sampledNodeCount: number;
-  sampledEdgeCount: number;
-  truncated: boolean;
-  nodes: WorkspaceGraphVisualizationNode[];
-  edges: WorkspaceGraphVisualizationEdge[];
-  generatedAt: string;
-}
-
-export interface WorkspaceGraphProjectionNode extends WorkspaceGraphVisualizationNode {
-  clusterIds: string[];
-  qualityFlags: string[];
-  pathLabel: string;
-  repositoryLabel: string | null;
-  sourceGroupLabel: string | null;
-}
-
-export interface WorkspaceGraphProjectionEdge {
-  id: string;
-  sourceNodeId: string;
-  targetNodeId: string | null;
-  edgeKind: string;
-  targetEntityType: string;
-  targetEntityId: string | null;
-  targetLabel: string;
-  clusterIds: string[];
-  qualityFlags: string[];
-  indexedAt: string;
-}
-
-export interface WorkspaceGraphProjectionCluster {
-  id: string;
-  kind: 'repository' | 'source_group' | 'entity_family' | 'relationship_family' | 'repeated_label' | 'quality';
-  label: string;
-  nodeCount: number;
-  edgeCount: number;
-  qualityFlags: string[];
-  parentId: string | null;
-}
-
-export interface WorkspaceGraphProjectionDiagnostics {
-  nodeCount: number;
-  edgeCount: number;
-  resolvedEdgeCount: number;
-  unresolvedEdgeCount: number;
-  selfEdgeCount: number;
-  genericLabelNodeCount: number;
-  repeatedLabelNodeCount: number;
-  testOrDocNodeCount: number;
-  nodeFamilyCounts: Record<string, number>;
-  edgeFamilyCounts: Record<string, number>;
-  repositoryCounts: Record<string, number>;
-  sourceGroupCounts: Record<string, number>;
-  genericLabelCounts: Record<string, number>;
-  repeatedLabelCounts: Record<string, number>;
-  qualityFlagCounts: Record<string, number>;
-}
-
-export interface WorkspaceGraphProjection {
-  scopeVersionId: string;
-  status: string;
-  nodes: WorkspaceGraphProjectionNode[];
-  edges: WorkspaceGraphProjectionEdge[];
-  clusters: WorkspaceGraphProjectionCluster[];
-  diagnostics: WorkspaceGraphProjectionDiagnostics;
-  generatedAt: string;
-}
-
-export interface ProjectSemanticSummary {
-  scopeVersionId: string;
-  enabled: boolean;
-  status: 'disabled' | 'empty' | 'queued' | 'indexing' | 'ready' | 'stale' | 'error' | 'canceled';
-  provider: string;
-  model: string;
-  remoteEmbeddingEnabled: boolean;
-  chunkCount: number;
-  embeddedChunkCount: number;
-  sourceDocumentCount: number;
-  indexedSourceDocumentCount: number;
-  indexSizeBytes: number;
-  lastRefreshDurationMs: number | null;
-  namespaceCounts: Record<string, number>;
-  indexedAt: string | null;
-  queuedAt: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-  jobReason: string | null;
-  lastError: string | null;
-  progressProcessed: number | null;
-  progressTotal: number | null;
 }
 
 export type HoneycrispMemoryStatus = 'missing' | 'empty' | 'ready' | 'error';
@@ -897,7 +743,6 @@ export interface ProjectSearchResult {
 
 export interface WorkspaceRegistryState {
   registryPath: string;
-  vmPreference: VmPreference;
   workspaces: WorkspaceRegistryEntry[];
   researchSessions: ResearchSessionSummary[];
 }
@@ -1098,7 +943,6 @@ export interface WorkspaceRecoveryReport {
   interruptedModelSessions: number;
   interruptedToolCalls: number;
   interruptedVerifierRuns: number;
-  interruptedVmContexts: number;
   notes: string[];
 }
 
@@ -1250,7 +1094,6 @@ export interface StartRunInput {
     maxCostUsd: number;
     repeatSchedule?: RepeatSchedule;
   };
-  fixtureScenario?: FixtureScenario;
 }
 
 export type RepeatSchedule =
@@ -1356,7 +1199,6 @@ export interface AttemptRecord {
   shortState: string;
   seed: string;
   strategyRole: string;
-  vmContextId: string | null;
   cost: Record<string, unknown>;
   tokenUsage: Record<string, unknown>;
   startedAt: string;
@@ -1375,7 +1217,6 @@ export interface TraceEventRecord {
   sensitivity: string;
   modelVisible: boolean;
   createdAt: string;
-  vmContextId: string | null;
   artifactId: string | null;
   toolCallId: string | null;
   approvalId: string | null;
@@ -1521,7 +1362,6 @@ export interface VerifierRunRecord {
   contractId: string;
   runId: string;
   attemptId: string | null;
-  vmContextId: string | null;
   status: string;
   blockedIssue: string;
   behaviorPreserved: string;
@@ -1530,18 +1370,6 @@ export interface VerifierRunRecord {
   result: Record<string, unknown>;
   startedAt: string;
   endedAt: string | null;
-}
-
-export interface VmContextRecord {
-  id: string;
-  backend: string;
-  imageId: string;
-  snapshotId: string;
-  state: string;
-  scopeVersionId: string;
-  createdAt: string;
-  destroyedAt: string | null;
-  metadata: Record<string, unknown>;
 }
 
 export interface ModelSessionRecord {
@@ -1658,7 +1486,6 @@ export interface RunDetail {
   artifacts: ArtifactRecord[];
   verifierContracts: VerifierContractRecord[];
   verifierRuns: VerifierRunRecord[];
-  vmContexts: VmContextRecord[];
   modelSessions: ModelSessionRecord[];
   contextCompactions: ContextCompactionRecord[];
   policyEvents: ApprovalRecord[];
@@ -1692,7 +1519,6 @@ export interface RunDetailUpdate {
   artifacts: ArtifactRecord[];
   verifierContracts: VerifierContractRecord[];
   verifierRuns: VerifierRunRecord[];
-  vmContexts: VmContextRecord[];
   modelSessions: ModelSessionRecord[];
   contextCompactions: ContextCompactionRecord[];
   policyEvents: ApprovalRecord[];
@@ -1704,13 +1530,10 @@ export interface WorkspaceSnapshot {
   workspace: WorkspaceSummary;
   openAi: OpenAiAccountStatus;
   executor: ExecutorStatus;
-  vmPreference: VmPreference;
   activeScope: WorkspaceScopeVersion;
   researchSubject: ResearchSubject;
   researchProfile: ResearchProfileSnapshot;
   honeycrispMemory: HoneycrispMemorySummary;
-  projectGraph: ProjectGraphSummary;
-  projectSemantic: ProjectSemanticSummary;
   recovery: WorkspaceRecoveryReport;
   policyReview: WorkspacePolicyReview;
   runs: RunRow[];
@@ -1740,20 +1563,14 @@ export type SteeringAction =
       note?: string;
     }
   | { type: 'fork'; runId: string; instruction: string }
-  | { type: 'restart_from_snapshot'; runId: string; snapshotRef?: string; note?: string }
   | { type: 'update_run_budget'; runId: string; budgetPatch: Partial<StartRunInput['budget']>; note?: string }
-  | { type: 'rerun_verifier'; runId: string; verifierContractId: string; note?: string }
-  | { type: 'edit_verifier_contract'; runId: string; verifierContractId: string; patch: VerifierContractEditInput; note?: string }
-  | { type: 'review_verifier_contract'; runId: string; verifierContractId: string; decision: VerifierContractReviewDecision; note?: string }
   | { type: 'mark_artifact_sensitive'; runId: string; artifactId: string; note?: string }
   | { type: 'export_artifact_bundle'; runId: string; memoryNodeId?: string; note?: string }
   | { type: 'export_research_bundle'; runId: string; memoryNodeId?: string; note?: string }
   | { type: 'export_redacted_trace'; runId: string; memoryNodeId?: string; note?: string }
   | { type: 'generate_report_draft'; runId: string; memoryNodeId?: string; note?: string }
   | { type: 'review_export'; runId: string; exportId: string; decision: ExportReviewDecision; note?: string }
-  | { type: 'review_policy_request'; runId: string; requestKind: PolicyReviewRequestKind; decision: PolicyReviewDecision; requestedAction: Record<string, unknown>; note?: string }
-  | { type: 'preserve_vm'; runId: string; vmContextId?: string; reason?: string }
-  | { type: 'destroy_vm'; runId: string; vmContextId?: string; reason?: string };
+  | { type: 'review_policy_request'; runId: string; requestKind: PolicyReviewRequestKind; decision: PolicyReviewDecision; requestedAction: Record<string, unknown>; note?: string };
 
 export interface BealeApi {
   selectWorkspace(mode: WorkspacePickerMode): Promise<WorkspacePickerResult>;

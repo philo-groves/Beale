@@ -46,11 +46,7 @@ describe('Honeycrisp session persistence boundary', () => {
       reasoningEffort: 'high',
       attemptStrategy: 'iterative_research',
       sandboxProfile: 'host',
-      budget: { runEngine: 'honeycrisp' },
-      vmBackend: 'host',
-      vmImageId: 'host-machine',
-      vmSnapshotId: 'none',
-      vmState: 'host_active'
+      budget: { runEngine: 'honeycrisp' }
     });
 
     expect(rawDatabase.getRun(context.run.id)).toBeNull();
@@ -123,7 +119,6 @@ describe('Honeycrisp session persistence boundary', () => {
         reasoningEffort: 'high',
         sandboxProfile: 'host',
         budget: { maxMinutes: 30, maxAttempts: 1, maxCostUsd: 0 },
-        fixtureScenario: 'verifier_pass'
       });
       const runId = started.runs[0]?.run.id;
       expect(runId).toBeTruthy();

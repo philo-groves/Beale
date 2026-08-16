@@ -6,8 +6,6 @@ import type {
   HoneycrispMemorySummary,
   MemoryDreamingProgressPhase,
   MemoryDreamingProgressUpdate,
-  ProjectGraphSummary,
-  ProjectSemanticSummary,
   ResearchProfile,
   RunRow,
   ScopeAsset,
@@ -47,8 +45,6 @@ export function WorkspaceUnderstandingView({
   memoryDreamingProgress?: MemoryDreamingProgressUpdate | null;
   honeycrispMemory: HoneycrispMemorySummary | null;
   activeScope?: WorkspaceScopeVersion | null;
-  projectGraph?: ProjectGraphSummary | null;
-  projectSemantic?: ProjectSemanticSummary | null;
   researchProfile?: ResearchProfile | null;
   workspaceName: string;
   runs: RunRow[];

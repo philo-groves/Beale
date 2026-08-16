@@ -62,7 +62,6 @@ export function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate
     artifacts: update.artifacts,
     verifierContracts: update.verifierContracts,
     verifierRuns: update.verifierRuns,
-    vmContexts: update.vmContexts,
     modelSessions: update.modelSessions,
     contextCompactions: update.contextCompactions,
     policyEvents: update.policyEvents,

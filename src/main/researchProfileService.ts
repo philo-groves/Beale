@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, win32 } from 'node:path';
 import {
   RESEARCH_PROFILE_MIN_SCHEMA_VERSION,
   decodeResolvedResearchProfile,
@@ -73,7 +73,7 @@ export class ResearchProfileService {
     invocation: HoneycrispInvocation;
     args: string[];
   } {
-    const resolvedWorkspaceRoot = resolve(workspaceRoot);
+    const resolvedWorkspaceRoot = win32.isAbsolute(workspaceRoot) ? win32.normalize(workspaceRoot) : resolve(workspaceRoot);
     const invocation = (this.options.resolveInvocation ?? resolveHoneycrispProfileInvocation)();
     return {
       key: `${resolvedWorkspaceRoot}\0${profileId}`,

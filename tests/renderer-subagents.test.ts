@@ -472,7 +472,7 @@ describe('subagent trace view models', () => {
         attemptId: 'attempt_interrupted',
         sequence: 2,
         source: 'system',
-        type: 'vm_event',
+        type: 'research_event',
         summary: 'Workspace recovery paused interrupted run after app restart.',
         payload: {}
       }),
@@ -502,7 +502,7 @@ describe('subagent trace view models', () => {
         attemptId: 'attempt_interrupted',
         sequence: 1,
         source: 'system',
-        type: 'vm_event',
+        type: 'research_event',
         summary: 'Workspace recovery paused interrupted run after app restart.',
         payload: { interruptedByRecovery: true }
       }),
@@ -762,7 +762,6 @@ function traceEvent(input: Partial<TraceEventRecord>): TraceEventRecord {
     sensitivity: 'internal',
     modelVisible: true,
     createdAt: '2026-07-20T10:00:00.000Z',
-    vmContextId: null,
     artifactId: null,
     toolCallId: null,
     approvalId: null,

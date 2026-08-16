@@ -102,7 +102,7 @@ export function buildTraceTimelineEntries<TEvent extends TraceEventRecord>(event
     if (!traceEventVisibleInTimeline(event, category, visibleCategories, pendingToolRequestEventIds.has(event.id))) continue;
 
     group.visibleCount += 1;
-    if (category === 'tools' || category === 'code_navigation' || category === 'vm_execution' || category === 'verifier') {
+    if (category === 'tools' || category === 'code_navigation' || category === 'execution' || category === 'verifier') {
       group.toolCount += 1;
     }
     if (category === 'agent_output' || category === 'reasoning') {
@@ -394,7 +394,6 @@ function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: 
     sensitivity: 'internal',
     modelVisible: true,
     createdAt: message.createdAt,
-    vmContextId: linkedTraceEvent?.vmContextId ?? null,
     artifactId: null,
     toolCallId: null,
     approvalId: null,

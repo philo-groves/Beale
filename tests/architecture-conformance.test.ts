@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase } from '../src/main/database';
 import { boundedOpenAiPromptCacheKey, OpenAiResponsesAdapter } from '../src/main/openaiAdapter';
 import { OpenAiAuthService } from '../src/main/openaiAuth';
-import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
+import { WorkspaceService } from '../src/main/workspaceService';
 import { IPC_CHANNELS } from '../src/shared/ipc';
 import type { ScopeAssetKind, StartRunInput } from '../src/shared/types';
 import { resolvedTestResearchProfile } from './researchProfileFixture';
+import { startRunForTest } from './workspaceTestSupport';
+import type { FixtureStartRunInput } from './fixtureRunEngine';
 
 const ROOT = process.cwd();
 const createdDirs: string[] = [];
@@ -57,7 +59,6 @@ describe('architecture conformance', () => {
     const persistenceFiles = new Set([
       'src/main/database.ts',
       'src/main/databaseMigrations.ts',
-      'src/main/legacyMemoryDreamingSchema.ts',
       'src/main/workspaceRegistry.ts'
     ]);
     const files = filesUnder('src').filter(isSourceFile).filter((path) => !persistenceFiles.has(normalizePath(path)));
@@ -66,14 +67,13 @@ describe('architecture conformance', () => {
     expect(findPatternHits(files, forbiddenSql)).toEqual([]);
   });
 
-  it('keeps host subprocess use limited to auth, host tools, source setup, and Honeycrisp host-agent boundaries', () => {
+  it('keeps host subprocess use limited to auth and Honeycrisp host-agent boundaries', () => {
     const files = filesUnder('src/main').filter(isSourceFile);
     const hits = findPatternHits(files, [/node:child_process|spawnSync\(|\bspawn\(|\bexecFile\(|\bfork\(/]).filter(
       (hit) =>
         ![
           'src/main/openaiAuth.ts',
           'src/main/researchProviderAuth.ts',
-          'src/main/hostToolExecutor.ts',
           'src/main/honeycrispRunEngine.ts',
           'src/main/honeycrispCliClient.ts',
           'src/main/honeycrispInvocation.ts',
@@ -157,6 +157,24 @@ describe('architecture conformance', () => {
     expect(files).not.toContain('src/main/openaiContext.ts');
     expect(files).not.toContain('src/main/openaiTools.ts');
     expect(files).not.toContain('src/main/fakeRunEngine.ts');
+    expect(files).not.toContain('src/main/fixtureRunEngine.ts');
+    expect(files).not.toContain('src/main/hostToolExecutor.ts');
+    expect(files).not.toContain('src/main/verifierRunner.ts');
+    expect(files).not.toContain('src/main/legacyMemoryDreamingSchema.ts');
+  });
+
+  it('keeps retired graph, semantic indexing, VM state, and duplicate protocol code out of Beale surfaces', () => {
+    const sourceFiles = filesUnder('src').filter(isSourceFile);
+    expect(findPatternHits(sourceFiles, [
+      /ProjectGraphSummary|WorkspaceGraphProjection|project_graph_(?:nodes|edges|status)/,
+      /ProjectSemanticSummary|project_semantic_chunks|semantic-index/,
+      /\b(?:restart_from_snapshot|preserve_vm|destroy_vm)\b/,
+      /VmPreference|VmContext|vm_context|vm-backend|vm_event|vm_execution/,
+      /BEALE_HONEYCRISP_TRANSPORT|HONEYCRISP_EVENT_PREFIX|parseHoneycrispLiveEvent|--event-stream|--control-stream/
+    ])).toEqual([]);
+    const webSocketClient = readFileSync(join(ROOT, 'src/main/honeycrispWebSocketClient.ts'), 'utf8');
+    expect(webSocketClient).toMatch(/import \{ HONEYCRISP_PROTOCOL_VERSION, HONEYCRISP_PROTOCOL_WEBSOCKET_PATH \}/);
+    expect(webSocketClient).not.toMatch(/PROTOCOL_VERSION\s*=\s*1|['"]\/v1\/session['"]/);
   });
 
   it('keeps the OpenAI adapter aligned with product defaults and host-only credential state', () => {
@@ -243,7 +261,7 @@ describe('architecture conformance', () => {
     expect(body.prompt_cache_key).toBe(headers.get('session_id'));
   });
 
-  it('creates shared SQLite state and host execution records without exposing secrets', () => {
+  it('creates shared SQLite session state without synthetic execution contexts', () => {
     const dir = tempDir('beale-architecture-db-');
     const artifactRoot = join(dir, '.beale', 'artifacts');
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
@@ -265,9 +283,8 @@ describe('architecture conformance', () => {
 
     expect(db.getDatabasePath()).toBe(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
     expect(db.getArtifactRoot()).toBe(artifactRoot);
-    expect(context.vmContext.backend).toBe('host');
-    expect(context.vmContext.metadata).toMatchObject({ executor: 'host', targetExecution: true, executionPosture: 'host_process' });
-    expect(JSON.stringify(context.vmContext.metadata)).not.toMatch(/beale\.sqlite|OPENAI|api[_-]?key|access[_-]?token|credential/i);
+    expect(context).toMatchObject({ run: { status: 'active' }, attempt: { status: 'active' } });
+    expect(JSON.stringify(context)).not.toMatch(/beale\.sqlite|OPENAI|api[_-]?key|access[_-]?token|credential/i);
     db.close();
   });
 
@@ -370,7 +387,7 @@ function asset(direction: 'in_scope' | 'out_of_scope', kind: ScopeAssetKind, val
   };
 }
 
-function runInput(): StartRunInput {
+function runInput(): FixtureStartRunInput {
   return {
     runEngine: 'fixture',
     shellSafetyMode: 'auto_review',
