@@ -103,6 +103,35 @@ describe('Beale workbench skeleton', () => {
     expect(env.HONEYCRISP_PROVIDER_AUTH_PREFERENCES).not.toContain('OPENAI_API_KEY');
   });
 
+  it('does not initialize managed provider credentials while opening a workspace', () => {
+    delete process.env.OPENAI_API_KEY;
+    const directory = tempWorkspace();
+    const credentialPath = join(directory, 'provider-credentials.json');
+    writeFileSync(credentialPath, JSON.stringify({
+      version: 1,
+      apiKeys: { 'openai-codex': Buffer.from('managed-openai-key', 'utf8').toString('base64') }
+    }));
+    let availabilityChecks = 0;
+    const providerCredentialStore = new ProviderCredentialStore(credentialPath, {
+      available: () => {
+        availabilityChecks += 1;
+        return true;
+      },
+      encrypt: (value: string) => Buffer.from(value, 'utf8'),
+      decrypt: (value: Buffer) => value.toString('utf8')
+    }, { deferLoad: true });
+    const service = new WorkspaceService(() => undefined, { providerCredentialStore });
+
+    service.createWorkspace(tempWorkspace());
+    expect(availabilityChecks).toBe(0);
+    expect(process.env.OPENAI_API_KEY).toBeUndefined();
+
+    expect(service.getOpenAiStatus().apiKeyConfigured).toBe(true);
+    expect(availabilityChecks).toBe(1);
+    expect(process.env.OPENAI_API_KEY).toBe('managed-openai-key');
+    service.close();
+  });
+
   it('initializes and reopens the global SQLite database for a workspace', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();

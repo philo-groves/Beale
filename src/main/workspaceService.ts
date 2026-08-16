@@ -1708,7 +1708,7 @@ export class WorkspaceService {
   }
 
   public getOpenAiStatus(): OpenAiAccountStatus {
-    this.providerCredentials.initialize();
+    this.initializeProviderCredentials();
     return this.openAiAuth.getStatus();
   }
 
@@ -1723,6 +1723,7 @@ export class WorkspaceService {
   }
 
   public getResearchProviderStatuses(): Promise<ResearchProviderStatus[]> {
+    this.initializeProviderCredentials();
     return this.researchProviderAuth.getStatuses();
   }
 
@@ -1793,6 +1794,7 @@ export class WorkspaceService {
       fallbackEffort: ResearchModelEffortLevel;
     }
   ): Promise<ProfileModelRoute> {
+    this.initializeProviderCredentials();
     const providerSettings = this.getWorkspaceRegistry().getProviderSettings();
     const provider = options.provider ?? await this.resolveConfiguredLeadProvider(providerSettings);
     const defaults = providerSettings.modelDefaults[provider];
@@ -2376,6 +2378,7 @@ export class WorkspaceService {
   }
 
   private beginRun(input: StartRunInput): HoneycrispRunHandle {
+    this.initializeProviderCredentials();
     const requestedShellSafetyMode = (input as { shellSafetyMode?: unknown }).shellSafetyMode;
     if (requestedShellSafetyMode !== undefined && !isShellSafetyMode(requestedShellSafetyMode)) {
       throw new Error(`Unsupported shell safety mode: ${String(requestedShellSafetyMode)}`);
@@ -2755,6 +2758,9 @@ export class WorkspaceService {
     action: SteeringAction,
     waitForContinuationTransport: boolean
   ): WorkspaceSnapshot | Promise<WorkspaceSnapshot> {
+    if (action.type === 'steer' || action.type === 'fork') {
+      this.initializeProviderCredentials();
+    }
     const foregroundRuntime = this.getForegroundRuntime();
     if (!foregroundRuntime) throw new Error('No Beale workspace is open');
     if (action.type === 'review_shell_command') {
@@ -3283,7 +3289,6 @@ export class WorkspaceService {
   }
 
   private open(path: string, create: boolean, emitChange = true, requestedProfileId?: ResearchProfileId): WorkspaceSnapshot {
-    this.providerCredentials.initialize();
     const workspacePath = resolve(path);
     if (create) {
       mkdirSync(workspacePath, { recursive: true });
@@ -3329,6 +3334,12 @@ export class WorkspaceService {
     this.syncWorkspaceRegistry();
     if (emitChange) this.emitChange({ preserveSnapshotCache: true });
     return this.requireSnapshot();
+  }
+
+  private initializeProviderCredentials(): void {
+    if (this.providerCredentials.initialize()) {
+      this.openAiAuth.clearCachedCredential();
+    }
   }
 
   private createRuntime(workspacePath: string, bealeDir: string, artifactRoot: string, requestedProfileId?: ResearchProfileId): WorkspaceRuntime {

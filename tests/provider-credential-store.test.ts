@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -75,6 +75,63 @@ describe('provider credential store', () => {
     expect(store.isApiKeyConfigured('xai')).toBe(true);
     expect(decryptions).toBe(1);
     expect(process.env.XAI_API_KEY).toBe('deferred-key');
+  });
+
+  it('does not initialize secure storage when no managed credential file exists', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-provider-credentials-'));
+    directories.push(directory);
+    let availabilityChecks = 0;
+    const store = new ProviderCredentialStore(join(directory, 'missing.json'), {
+      available: () => {
+        availabilityChecks += 1;
+        return true;
+      },
+      encrypt: (value: string) => Buffer.from(value, 'utf8'),
+      decrypt: (value: Buffer) => value.toString('utf8')
+    }, { deferLoad: true });
+
+    store.initialize();
+
+    expect(availabilityChecks).toBe(0);
+  });
+
+  it('does not initialize secure storage for an empty managed credential file', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-provider-credentials-'));
+    directories.push(directory);
+    const path = join(directory, 'credentials.json');
+    writeFileSync(path, JSON.stringify({ version: 1, apiKeys: {} }));
+    let availabilityChecks = 0;
+    const store = new ProviderCredentialStore(path, {
+      available: () => {
+        availabilityChecks += 1;
+        return true;
+      },
+      encrypt: (value: string) => Buffer.from(value, 'utf8'),
+      decrypt: (value: Buffer) => value.toString('utf8')
+    }, { deferLoad: true });
+
+    store.initialize();
+
+    expect(availabilityChecks).toBe(0);
+  });
+
+  it('removes the credential file after the final managed API key is removed', () => {
+    delete process.env.XAI_API_KEY;
+    const directory = mkdtempSync(join(tmpdir(), 'beale-provider-credentials-'));
+    directories.push(directory);
+    const path = join(directory, 'credentials.json');
+    const encryption = {
+      available: () => true,
+      encrypt: (value: string) => Buffer.from(value, 'utf8'),
+      decrypt: (value: Buffer) => value.toString('utf8')
+    };
+    const store = new ProviderCredentialStore(path, encryption, { deferLoad: true });
+    store.setApiKey('xai', 'managed-key');
+    expect(existsSync(path)).toBe(true);
+
+    store.removeApiKey('xai');
+
+    expect(existsSync(path)).toBe(false);
   });
 
   it('removes only Beale-managed keys and preserves host-environment ownership', () => {

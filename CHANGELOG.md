@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Workspace and session navigation no longer initializes macOS Keychain access for provider API-key storage; Beale now touches Safe Storage only when managed credentials are actually needed and removes empty credential files.
+
 - Workspace dashboards now reuse versioned snapshots across open and registry-sync paths, avoid the redundant registered-workspace follow-up broadcast, ignore duplicate renderer deliveries, apply new dashboard state as an interruptible transition, defer the filesystem-backed Dejunk scan until after first paint with a loading state, and index timeline/resource relations instead of repeatedly rescanning the full workspace dataset.
 - Tab-completion steering suggestions now remove dangling conjunctions and prepositions, strip additional result-summary lead-ins, and clip long context at a coherent clause boundary instead of producing fragments such as `and.`.
 - Completed Honeycrisp sessions now retain the root agent's final response when a subagent already emitted its own final transcript, instead of suppressing the root response and leaving Commentary without a visible conclusion.

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ResearchModelProviderId } from '@shared/types';
 
@@ -63,8 +63,8 @@ export class ProviderCredentialStore {
     }
   }
 
-  public initialize(): void {
-    this.ensureLoaded();
+  public initialize(): boolean {
+    return this.ensureLoaded();
   }
 
   public isApiKeyConfigured(providerId: ResearchModelProviderId): boolean {
@@ -101,13 +101,16 @@ export class ProviderCredentialStore {
   }
 
   private load(): void {
-    if (!this.path || !this.encryption?.available()) return;
+    if (!this.path || !existsSync(this.path)) return;
     try {
       const parsed = JSON.parse(readFileSync(this.path, 'utf8')) as EncryptedCredentialFile;
       if (parsed.version !== 1 || !parsed.apiKeys || typeof parsed.apiKeys !== 'object') return;
-      for (const providerId of providerIds()) {
-        const encrypted = parsed.apiKeys[providerId];
-        if (typeof encrypted !== 'string' || !encrypted) continue;
+      const encryptedApiKeys = providerIds()
+        .map((providerId) => [providerId, parsed.apiKeys[providerId]] as const)
+        .filter((entry): entry is readonly [ResearchModelProviderId, string] =>
+          typeof entry[1] === 'string' && entry[1].length > 0);
+      if (encryptedApiKeys.length === 0 || !this.encryption?.available()) return;
+      for (const [providerId, encrypted] of encryptedApiKeys) {
         const apiKey = this.encryption.decrypt(Buffer.from(encrypted, 'base64')).trim();
         if (!apiKey) continue;
         this.managedApiKeys.set(providerId, apiKey);
@@ -120,14 +123,20 @@ export class ProviderCredentialStore {
     }
   }
 
-  private ensureLoaded(): void {
-    if (this.loaded) return;
+  private ensureLoaded(): boolean {
+    if (this.loaded) return false;
     this.loaded = true;
     this.load();
+    return true;
   }
 
   private persist(): void {
-    if (!this.path || !this.encryption) return;
+    if (!this.path) return;
+    if (this.managedApiKeys.size === 0) {
+      if (existsSync(this.path)) unlinkSync(this.path);
+      return;
+    }
+    if (!this.encryption) return;
     const apiKeys: Partial<Record<ResearchModelProviderId, string>> = {};
     for (const [providerId, apiKey] of this.managedApiKeys) {
       apiKeys[providerId] = this.encryption.encrypt(apiKey).toString('base64');
