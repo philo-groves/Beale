@@ -26,6 +26,7 @@ import { OpenAiAuthService } from './openaiAuth';
 import { ResearchProviderAuthService } from './researchProviderAuth';
 import { ProviderCredentialStore } from './providerCredentialStore';
 import { HoneycrispRunEngine, invokeHoneycrispToolsConfig, invokeHoneycrispToolsList } from './honeycrispRunEngine';
+import { createHoneycrispSessionBoundary } from './honeycrispSessionBoundary';
 import { completeProviderText, type ProviderTextCompleter } from './providerTextCompletion';
 import { ResearchProfileService } from './researchProfileService';
 import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
@@ -2440,13 +2441,14 @@ export class WorkspaceService {
         const firstWorkspace = entries[0];
         if (!firstWorkspace) continue;
         const resolvedPath = resolve(firstWorkspace.workspacePath);
-        db = new WorkspaceDatabase(
+        const rawDatabase = new WorkspaceDatabase(
           this.globalHoneycrispDatabasePath(profileId),
           join(resolvedPath, '.beale', 'artifacts'), {
           workspacePath: resolvedPath,
           workspaceId: firstWorkspace.workspaceId
         });
-        db.initialize();
+        rawDatabase.initialize();
+        db = createHoneycrispSessionBoundary(rawDatabase);
         closeDatabase = true;
       }
       try {
@@ -3144,16 +3146,18 @@ export class WorkspaceService {
     const openedAt = new Date().toISOString();
     try {
       const researchProfile = db.activateResearchProfileSnapshot(this.resolveResearchProfile(workspacePath, profileId));
+      const recovery = db.recoverInterruptedState('workspace_open');
+      const sessionDatabase = createHoneycrispSessionBoundary(db);
       return {
         workspacePath,
         profileId,
         openedAt,
-        lastRecovery: db.recoverInterruptedState('workspace_open'),
-        db,
+        lastRecovery: recovery,
+        db: sessionDatabase,
         fixtureEngine: null,
         researchProfile,
         honeycrispEngine: new HoneycrispRunEngine(
-          db,
+          sessionDatabase,
           workspacePath,
           (change) => this.emitRuntimeChange(workspacePath, change),
           this.getWorkspaceRegistry().getShellOptionsPath(),

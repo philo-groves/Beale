@@ -77,6 +77,7 @@ describe('architecture conformance', () => {
           'src/main/sourceMaterializer.ts',
           'src/main/honeycrispRunEngine.ts',
           'src/main/honeycrispCliClient.ts',
+          'src/main/honeycrispInvocation.ts',
           'src/main/providerTextCompletion.ts',
           'src/main/researchProfileService.ts',
           'src/main/honeycrispMemorySummary.ts'
@@ -89,7 +90,9 @@ describe('architecture conformance', () => {
   it('forbids new Beale access to Honeycrisp memory.sqlite outside the versioned CLI boundary', () => {
     const cliBoundaryFiles = new Set([
       'src/main/honeycrispCliClient.ts',
+      'src/main/honeycrispInvocation.ts',
       'src/main/honeycrispRunEngine.ts',
+      'src/main/honeycrispSessionBoundary.ts',
       'src/main/researchProfileService.ts'
     ]);
     // These files are the bounded migration debt that subsequent feature moves
@@ -125,6 +128,7 @@ describe('architecture conformance', () => {
       const content = readFileSync(join(ROOT, path), 'utf8');
       expect(content).not.toMatch(/node:sqlite|new\s+DatabaseSync\s*\(/);
     }
+    expect(findPatternHits(filesUnder('src/main').filter(isSourceFile), [/\bhoneycrisp_sessions\b/])).toEqual([]);
   });
 
   it('keeps removed Beale agent runtime layers out of the main source tree', () => {

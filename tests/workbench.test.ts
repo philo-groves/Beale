@@ -16,6 +16,7 @@ const createdDirs: string[] = [];
 
 beforeEach(() => {
   process.env.BEALE_WORKSPACE_REGISTRY_DIR = tempWorkspace();
+  process.env.BEALE_HONEYCRISP_SESSION_OWNERSHIP = 'legacy';
   const profileResolver = join(tempWorkspace(), 'profile-resolver.mjs');
   writeFileSync(profileResolver, "process.stdout.write(process.argv[2] ?? '');\n");
   process.env.BEALE_HONEYCRISP_PROFILE_COMMAND = process.execPath;
@@ -51,6 +52,7 @@ afterEach(() => {
   delete process.env.BEALE_HONEYCRISP_PROFILE_SIDE_EFFECT_CEILING_JSON;
   delete process.env.BEALE_HONEYCRISP_ROOT;
   delete process.env.BEALE_HONEYCRISP_RUNTIME_ARGS_JSON;
+  delete process.env.BEALE_HONEYCRISP_SESSION_OWNERSHIP;
   delete process.env.BEALE_HONEYCRISP_TOOL_MAX_BYTES;
   delete process.env.BEALE_HONEYCRISP_CONTROL_ACK_TIMEOUT_MS;
   delete process.env.BEALE_HONEYCRISP_TRANSPORT;

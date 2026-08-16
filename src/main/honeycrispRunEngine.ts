@@ -47,18 +47,14 @@ import {
   HONEYCRISP_TRANSPORT_PREFIX,
   parseHoneycrispTransportBootstrap
 } from './honeycrispWebSocketClient';
+import { resolveHoneycrispInvocation, type HoneycrispInvocation } from './honeycrispInvocation';
+import { isHoneycrispSessionBoundary } from './honeycrispSessionBoundary';
+export { resolveHoneycrispInvocation } from './honeycrispInvocation';
+export type { HoneycrispInvocation } from './honeycrispInvocation';
 
 export interface HoneycrispRunHandle {
   context: CreatedRunContext;
   completion: Promise<void>;
-}
-
-export interface HoneycrispInvocation {
-  command: string;
-  prefixArgs: string[];
-  cwd: string;
-  configuredBy: 'env_command' | 'env_root' | 'sibling_root';
-  usesNodeRuntime: boolean;
 }
 
 interface HoneycrispWorkspaceContextFile {
@@ -566,6 +562,7 @@ export class HoneycrispRunEngine {
         capturePath,
         workspaceContextPath,
         context.run.id,
+        isHoneycrispSessionBoundary(this.db) ? context.attempt.id : undefined,
         this.shellOptionsPath,
         !continuation,
         resume?.resumeCapturePath,
@@ -2105,6 +2102,16 @@ export class HoneycrispRunEngine {
       return;
     }
 
+    if (isHoneycrispSessionBoundary(this.db)) {
+      const canonical = this.db.getRun(context.run.id);
+      if (!canonical || canonical.status === 'active') {
+        this.failRun(context, 'Honeycrisp exited without committing its canonical session capture.', processPayload);
+        return;
+      }
+      this.onChange();
+      return;
+    }
+
     try {
       const captureText = readTextFile(capturePath);
       const capture = parseHoneycrispCapture(captureText);
@@ -2598,6 +2605,7 @@ function honeycrispRunArgs(
   capturePath: string,
   workspaceContextPath: string,
   sessionId: string,
+  attemptId: string | undefined,
   shellOptionsPath?: string,
   generateTitle = false,
   resumeCapturePath?: string,
@@ -2623,6 +2631,7 @@ function honeycrispRunArgs(
     '--control-stream',
     '--session-id',
     sessionId,
+    ...(attemptId ? ['--attempt-id', attemptId] : []),
     '-p',
     input.promptMarkdown
   ];
@@ -2925,38 +2934,6 @@ function signalHoneycrispProcess(child: ChildProcessWithoutNullStreams, signal: 
   return child.kill(signal);
 }
 
-export function resolveHoneycrispInvocation(): HoneycrispInvocation {
-  const command = process.env.BEALE_HONEYCRISP_COMMAND?.trim();
-  if (command) {
-    return {
-      command,
-      prefixArgs: parseEnvArgs('BEALE_HONEYCRISP_ARGS_JSON'),
-      cwd: process.env.BEALE_HONEYCRISP_CWD?.trim() || process.cwd(),
-      configuredBy: 'env_command',
-      usesNodeRuntime: isPlainNodeExecutable(command)
-    };
-  }
-
-  const root = process.env.BEALE_HONEYCRISP_ROOT?.trim() || resolve(process.cwd(), '..', 'honeycrisp');
-  const cliPath = join(root, 'packages', 'cli', 'dist', 'cli.js');
-  if (existsSync(cliPath)) {
-    return {
-      command: resolveHoneycrispNodeCommand(),
-      prefixArgs: [cliPath],
-      cwd: root,
-      configuredBy: process.env.BEALE_HONEYCRISP_ROOT ? 'env_root' : 'sibling_root',
-      usesNodeRuntime: true
-    };
-  }
-  return {
-    command: process.env.BEALE_HONEYCRISP_PNPM_COMMAND?.trim() || 'pnpm',
-    prefixArgs: ['--dir', root, 'start'],
-    cwd: root,
-    configuredBy: process.env.BEALE_HONEYCRISP_ROOT ? 'env_root' : 'sibling_root',
-    usesNodeRuntime: false
-  };
-}
-
 export function invokeHoneycrispToolsList(
   workspacePath: string,
   shellOptionsPath?: string,
@@ -3009,38 +2986,6 @@ export function invokeHoneycrispToolsConfig(workspacePath: string, args: readonl
     throw new Error(`Honeycrisp tooling configuration failed: ${detail}`);
   }
   return parseHoneycrispJsonCommandOutput(result.stdout, 'Honeycrisp tooling configuration');
-}
-
-function resolveHoneycrispNodeCommand(): string {
-  const candidates = [
-    process.env.BEALE_HONEYCRISP_NODE_COMMAND?.trim(),
-    process.env.BEALE_NODE_COMMAND?.trim(),
-    process.env.npm_node_execpath?.trim(),
-    process.env.NODE?.trim(),
-    'node',
-    isPlainNodeExecutable(process.execPath) ? process.execPath : ''
-  ];
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    if (!candidate || seen.has(candidate)) continue;
-    seen.add(candidate);
-    if (nodeCommandAvailable(candidate)) return candidate;
-  }
-  return 'node';
-}
-
-function nodeCommandAvailable(command: string): boolean {
-  const result = spawnSync(command, ['--version'], {
-    encoding: 'utf8',
-    timeout: 3000,
-    windowsHide: true
-  });
-  return result.status === 0 && /^v\d+\.\d+\.\d+/.test(result.stdout.trim());
-}
-
-function isPlainNodeExecutable(path: string): boolean {
-  const name = path.split(/[\\/]+/).at(-1)?.toLowerCase() ?? '';
-  return name === 'node' || name === 'node.exe';
 }
 
 function writeHoneycrispResearchProfile(profile: ResearchProfile, targetPath: string): void {

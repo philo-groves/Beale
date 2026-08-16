@@ -1,7 +1,64 @@
 import { spawnSync } from 'node:child_process';
-import { resolveHoneycrispInvocation } from './honeycrispRunEngine';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { resolveHoneycrispInvocation } from './honeycrispInvocation';
 
 export const HONEYCRISP_PROTOCOL_VERSION = 1 as const;
+
+export type HoneycrispSessionStatus = 'active' | 'paused' | 'blocked' | 'completed' | 'failed' | 'stopped';
+
+export interface HoneycrispSessionEvent {
+  id: string;
+  kind: string;
+  timestamp: string;
+  summary: string;
+  payload: unknown;
+  agentId?: string;
+  agentPath?: string;
+  parentAgentId?: string;
+}
+
+export interface HoneycrispSessionAttempt {
+  id: string;
+  parentAttemptId: string | null;
+  status: HoneycrispSessionStatus;
+  summary: string;
+  startedAt: string;
+  endedAt: string | null;
+  capture: Record<string, unknown> | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface HoneycrispSessionRecord {
+  schemaVersion: 1;
+  id: string;
+  workspaceId: string;
+  status: HoneycrispSessionStatus;
+  title: string;
+  prompt: string;
+  summary: string;
+  provider: string | null;
+  model: string;
+  reasoningEffort: string;
+  workflowId: string | null;
+  profile: Record<string, unknown> | null;
+  metadata: Record<string, unknown>;
+  finalDisposition: Record<string, unknown> | null;
+  finalResponse: string | null;
+  attempts: HoneycrispSessionAttempt[];
+  events: HoneycrispSessionEvent[];
+  createdAt: string;
+  startedAt: string;
+  endedAt: string | null;
+  updatedAt: string;
+  revision: number;
+}
+
+export interface HoneycrispSessionStorage {
+  databasePath: string;
+  artifactDirectoryPath: string;
+}
 
 export interface HoneycrispProtocolDescriptor {
   protocol: 'honeycrisp';
@@ -43,6 +100,102 @@ export function getHoneycrispProtocolDescriptor(): HoneycrispProtocolDescriptor 
     ['protocol', 'describe', '--json']
   );
   return envelope.result;
+}
+
+export function honeycrispOwnsSessions(): boolean {
+  try {
+    const descriptor = getHoneycrispProtocolDescriptor();
+    return [
+      'session.create',
+      'session.begin_attempt',
+      'session.append_event',
+      'session.transition',
+      'session.import_capture',
+      'session.get',
+      'session.list'
+    ].every((operation) => descriptor.operations.includes(operation));
+  } catch {
+    return false;
+  }
+}
+
+export function createHoneycrispSession(
+  input: Record<string, unknown>,
+  storage: HoneycrispSessionStorage
+): HoneycrispSessionRecord {
+  return invokeWithJsonInput<HoneycrispSessionRecord>('session.create', ['session', 'create'], input, storage).result;
+}
+
+export function beginHoneycrispSessionAttempt(
+  sessionId: string,
+  input: Record<string, unknown>,
+  storage: HoneycrispSessionStorage
+): HoneycrispSessionRecord {
+  return invokeWithJsonInput<HoneycrispSessionRecord>(
+    'session.begin_attempt',
+    ['session', 'begin-attempt', '--session-id', sessionId],
+    input,
+    storage
+  ).result;
+}
+
+export function appendHoneycrispSessionEvent(
+  sessionId: string,
+  input: HoneycrispSessionEvent,
+  storage: HoneycrispSessionStorage
+): HoneycrispSessionRecord {
+  return invokeWithJsonInput<HoneycrispSessionRecord>(
+    'session.append_event',
+    ['session', 'append-event', '--session-id', sessionId],
+    input,
+    storage
+  ).result;
+}
+
+export function transitionHoneycrispSession(
+  sessionId: string,
+  input: Record<string, unknown>,
+  storage: HoneycrispSessionStorage
+): HoneycrispSessionRecord {
+  return invokeWithJsonInput<HoneycrispSessionRecord>(
+    'session.transition',
+    ['session', 'transition', '--session-id', sessionId],
+    input,
+    storage
+  ).result;
+}
+
+export function importHoneycrispSessionCapture(
+  sessionId: string,
+  attemptId: string,
+  capturePath: string,
+  storage: HoneycrispSessionStorage
+): HoneycrispSessionRecord {
+  return invokeHoneycrispCliProtocol<HoneycrispSessionRecord>(
+    'session.import_capture',
+    ['session', 'import-capture', '--session-id', sessionId, '--attempt-id', attemptId, '--capture', capturePath, '--json'],
+    { env: storageEnvironment(storage), timeoutMs: 30_000 }
+  ).result;
+}
+
+export function getHoneycrispSession(sessionId: string, storage: HoneycrispSessionStorage): HoneycrispSessionRecord {
+  return invokeHoneycrispCliProtocol<HoneycrispSessionRecord>(
+    'session.get',
+    ['session', 'get', '--session-id', sessionId, '--json'],
+    { env: storageEnvironment(storage) }
+  ).result;
+}
+
+export function listHoneycrispSessions(
+  workspaceId: string,
+  storage: HoneycrispSessionStorage,
+  limit = 100
+): HoneycrispSessionRecord[] {
+  return invokeHoneycrispCliProtocol<HoneycrispSessionRecord[]>(
+    'session.list',
+    ['session', 'list', '--workspace-id', workspaceId, '--limit', String(limit), '--json'],
+    { env: storageEnvironment(storage) }
+  ).result;
 }
 
 export function invokeHoneycrispCliProtocol<T>(
@@ -105,4 +258,29 @@ export function decodeHoneycrispProtocolEnvelope<T>(json: string): HoneycrispPro
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function invokeWithJsonInput<T>(
+  operation: string,
+  args: readonly string[],
+  input: unknown,
+  storage: HoneycrispSessionStorage
+): HoneycrispProtocolSuccess<T> {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-protocol-'));
+  const inputPath = join(directory, 'input.json');
+  try {
+    writeFileSync(inputPath, `${JSON.stringify(input)}\n`, { encoding: 'utf8', mode: 0o600 });
+    return invokeHoneycrispCliProtocol<T>(operation, [...args, '--input', inputPath, '--json'], {
+      env: storageEnvironment(storage)
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function storageEnvironment(storage: HoneycrispSessionStorage): NodeJS.ProcessEnv {
+  return {
+    HONEYCRISP_DATABASE_PATH: storage.databasePath,
+    HONEYCRISP_ARTIFACT_DIRECTORY: storage.artifactDirectoryPath
+  };
 }
