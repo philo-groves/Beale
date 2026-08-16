@@ -145,6 +145,10 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
   if (!payload) return '';
   const toolName = honeycrispToolName(event);
   const inputs = tracePayloadRecord(payload, 'normalizedInputs');
+  if (toolName === 'shell.run') {
+    const result = tracePayloadRecord(payload, 'result');
+    return shellCommandPreview(inputs) || shellCommandPreview(result);
+  }
   if (!inputs) return '';
   if (toolName === 'memory.search') return stringRecordValue(inputs, 'query') ?? '';
   if (toolName === 'memory.save') {
@@ -185,16 +189,6 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
     return [title ?? id, status ? traceLabel(status) : null, revision ? `Update ${revision}` : null].filter((value): value is string => Boolean(value)).join(' · ');
   }
   if (toolName === 'file.read') return honeycrispToolEventKind(event) === 'tool.requested' ? stringRecordValue(inputs, 'path') ?? '' : '';
-  if (toolName === 'shell.run') {
-    const command = stringRecordValue(inputs, 'command');
-    if (command) return oneLineShellCommand(command);
-    const utility = stringRecordValue(inputs, 'utility');
-    if (!utility) return '';
-    const args = tracePayloadArray(inputs, 'args')?.filter((value): value is string => typeof value === 'string') ?? [];
-    const sshCommand = sshRemoteCommand(utility, args);
-    if (sshCommand !== null) return oneLineShellCommand(sshCommand);
-    return oneLineShellCommand([utility, ...args.map(shellArgumentPreview)].join(' '));
-  }
   if (toolName === 'spawn_agent') {
     const result = tracePayloadRecord(payload, 'result');
     const taskName = (result ? stringRecordValue(result, 'task_name') : null) ?? stringRecordValue(inputs, 'task_name');
@@ -364,6 +358,26 @@ function shellOutputPreview(value: unknown, sourceTruncated: boolean, maxLines: 
     sourceTruncated,
     truncated: sourceTruncated || visibleLines.length < lines.length
   };
+}
+
+function shellCommandPreview(record: Record<string, unknown> | null): string {
+  if (!record) return '';
+  const command = stringRecordValue(record, 'command');
+  if (command) return oneLineShellCommand(command);
+  const utility = stringRecordValue(record, 'utility');
+  if (!utility) return '';
+  const args = tracePayloadArray(record, 'args')?.filter((value): value is string => typeof value === 'string') ?? [];
+  const wrappedCommand = shellWrappedCommand(utility, args);
+  if (wrappedCommand !== null) return oneLineShellCommand(wrappedCommand);
+  const sshCommand = sshRemoteCommand(utility, args);
+  if (sshCommand !== null) return oneLineShellCommand(sshCommand);
+  return oneLineShellCommand([utility, ...args.map(shellArgumentPreview)].join(' '));
+}
+
+function shellWrappedCommand(utility: string, args: string[]): string | null {
+  if (!['sh', 'bash', 'dash', 'ksh', 'zsh'].includes(executableName(utility))) return null;
+  const commandFlagIndex = args.findIndex((argument) => argument === '-c' || /^-[^-]*c[^-]*$/u.test(argument));
+  return commandFlagIndex >= 0 ? args[commandFlagIndex + 1]?.trim() ?? '' : null;
 }
 
 function sshRemoteCommand(utility: string, args: string[]): string | null {

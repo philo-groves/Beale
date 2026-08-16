@@ -138,6 +138,27 @@ describe('run detail commentary projection', () => {
       normalizedInputs: { command: `${command.slice(0, 255)}…` }
     });
   });
+
+  it('retains only the executed shell identity needed to label null-utility requests', () => {
+    const projected = projectCommentaryTraceEvent(toolEvent('shell-result', 'tool.observed', {
+      toolActionId: 'shell_action',
+      toolName: 'shell.run',
+      normalizedInputs: { utility: null, args: [], secret: 'not rendered' },
+      result: {
+        utility: '/bin/sh',
+        args: ['-lc', 'tools/rr ping'],
+        stdout: 'large output is deferred',
+        stderr: ''
+      }
+    }));
+
+    expect(projected.payload.payload).toEqual({
+      toolActionId: 'shell_action',
+      toolName: 'shell.run',
+      normalizedInputs: { args: [] },
+      result: { utility: '/bin/sh', args: ['-lc', 'tools/rr ping'] }
+    });
+  });
 });
 
 function toolEvent(id: string, kind: 'tool.requested' | 'tool.observed', payload: Record<string, unknown>): TraceEventRecord {

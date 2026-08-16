@@ -182,6 +182,25 @@ describe('renderer commentary projection', () => {
       .toBe('npm test -- --runInBand');
   });
 
+  it('unwraps the executed shell result when the requested utility is null', () => {
+    const messages = commentaryMessagesForSession(runDetail('Run the local helper.'), [
+      toolEvent('shell-null-request', 'tool.requested', 'shell.run', 'shell-null', {
+        utility: null,
+        args: []
+      }),
+      toolEvent('shell-null-result', 'tool.observed', 'shell.run', 'shell-null', {
+        utility: null,
+        args: []
+      }, {
+        utility: '/bin/sh',
+        args: ['-lc', 'tools/rr ping']
+      })
+    ]);
+
+    expect(messages.find((message) => message.toolName === 'shell.run')?.toolCalls?.[0]?.label)
+      .toBe('tools/rr ping');
+  });
+
   it('auto-expands a tool summary only while it is the latest chat item', () => {
     const trailingToolMessages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
       toolEvent('read-request', 'tool.requested', 'file.read', 'read', { path: 'src/parser.ts' })

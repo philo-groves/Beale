@@ -128,6 +128,7 @@ function toolLabelResultKeys(toolName: string): readonly string[] {
     case 'memory.save': return ['type', 'status'];
     case 'runbook.create':
     case 'runbook.append': return ['title', 'status', 'revision'];
+    case 'shell.run': return ['command', 'utility', 'args'];
     case 'list_agents': return [];
     default: return [];
   }
