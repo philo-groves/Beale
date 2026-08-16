@@ -606,14 +606,14 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.exportWorkspaceBackup, (_event, note?: string) => workspaceService.exportWorkspaceBackup(note));
   ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) =>
-    timedMainIpc('getRunDetail', { run: shortMetricId(runId) }, () => workspaceService.getRunDetail(runId))
+    timedMainIpcAsync('getRunDetail', { run: shortMetricId(runId) }, () => workspaceService.getRunDetailForClient(runId))
   );
   ipcMain.handle(IPC_CHANNELS.getRunDetailVersion, (_event, runId: string) =>
-    timedMainIpc('getRunDetailVersion', { run: shortMetricId(runId) }, () => workspaceService.getRunDetailVersion(runId))
+    timedMainIpcAsync('getRunDetailVersion', { run: shortMetricId(runId) }, () => workspaceService.getRunDetailVersionForClient(runId))
   );
   ipcMain.handle(IPC_CHANNELS.getRunDetailUpdate, (_event, runId: string, cursor: RunDetailUpdateCursor) =>
-    timedMainIpc('getRunDetailUpdate', { run: shortMetricId(runId), afterTrace: cursor.afterTraceSequence, afterTranscript: cursor.afterTranscriptCount }, () =>
-      workspaceService.getRunDetailUpdate(runId, cursor)
+    timedMainIpcAsync('getRunDetailUpdate', { run: shortMetricId(runId), afterTrace: cursor.afterTraceSequence, afterTranscript: cursor.afterTranscriptCount }, () =>
+      workspaceService.getRunDetailUpdateForClient(runId, cursor)
     )
   );
   ipcMain.handle(IPC_CHANNELS.searchSessionTranscripts, (_event, input: SessionTranscriptSearchInput) =>

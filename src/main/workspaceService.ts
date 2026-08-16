@@ -25,18 +25,26 @@ import { OpenAiAuthService } from './openaiAuth';
 import { ResearchProviderAuthService } from './researchProviderAuth';
 import { ProviderCredentialStore } from './providerCredentialStore';
 import { HoneycrispRunEngine, invokeHoneycrispToolsConfig, invokeHoneycrispToolsList } from './honeycrispRunEngine';
-import { createHoneycrispSessionBoundary } from './honeycrispSessionBoundary';
+import {
+  createHoneycrispSessionBoundary,
+  getHoneycrispRunDetailForClient,
+  getHoneycrispRunDetailUpdateForClient,
+  getHoneycrispRunDetailVersionForClient,
+  usesHoneycrispSessionOwnership
+} from './honeycrispSessionBoundary';
 import { completeProviderText, type ProviderTextCompleter } from './providerTextCompletion';
 import { ResearchProfileService } from './researchProfileService';
 import {
   applyHoneycrispMemoryDreaming,
   getHoneycrispMemorySummary,
+  getHoneycrispMemorySummaryAsync,
   getHoneycrispProviderSemantics,
   getHoneycrispReportDocument,
   getHoneycrispRunbookDocument,
   parseHoneycrispMemoryDreamingPlan,
   prepareHoneycrispMemoryDreaming,
   recordHoneycrispMemoryDreamingFailure,
+  recoverInterruptedHoneycrispSessions,
   resolveHoneycrispArtifact,
   resolveHoneycrispAuxiliaryModelRoute,
   resolveHoneycrispStoragePaths,
@@ -572,6 +580,10 @@ export class WorkspaceService {
   private readonly researchPromptControllers = new Map<string, AbortController>();
   private readonly researchGoalSuggestionContexts = new Map<string, ResearchGoalSuggestionPreparedContext>();
   private readonly honeycrispMemorySummaryCache = new Map<string, { fingerprint: string; summary: HoneycrispMemorySummary }>();
+  private readonly honeycrispMemorySummaryRequests = new Map<string, {
+    fingerprint: string;
+    promise: Promise<HoneycrispMemorySummary>;
+  }>();
   private readonly disposedRuntimeDatabases = new WeakSet<WorkspaceDatabase>();
   private readonly onboardingRepositoryJobs = new Map<string, WorkspaceOnboardingRepositoryJob>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
@@ -2371,8 +2383,31 @@ export class WorkspaceService {
       : detail;
   }
 
+  public async getRunDetailForClient(runId: string): Promise<RunDetail> {
+    const database = this.requireDb();
+    const detail = await getHoneycrispRunDetailForClient(database, runId) ?? database.getRunDetail(runId);
+    const runtime = this.getForegroundRuntime();
+    return runtime
+      ? attachHoneycrispMemory(
+          detail,
+          await this.memorySummaryForRuntimeAsync(
+            runtime,
+            runtime.db.getActiveScope(),
+            runId,
+            detail.researchProfile ?? null
+          )
+        )
+      : detail;
+  }
+
   public getRunDetailVersion(runId: string): RunDetailVersion {
     return this.requireDb().getRunDetailVersion(runId);
+  }
+
+  public async getRunDetailVersionForClient(runId: string): Promise<RunDetailVersion> {
+    const database = this.requireDb();
+    return await getHoneycrispRunDetailVersionForClient(database, runId)
+      ?? database.getRunDetailVersion(runId);
   }
 
   public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {
@@ -2382,6 +2417,27 @@ export class WorkspaceService {
       ? attachHoneycrispMemory(
           update,
           this.memorySummaryForRuntime(runtime, runtime.db.getActiveScope(), runId, update.researchProfile ?? null)
+        )
+      : update;
+  }
+
+  public async getRunDetailUpdateForClient(
+    runId: string,
+    cursor: RunDetailUpdateCursor
+  ): Promise<RunDetailUpdate> {
+    const database = this.requireDb();
+    const update = await getHoneycrispRunDetailUpdateForClient(database, runId, cursor)
+      ?? database.getRunDetailUpdate(runId, cursor);
+    const runtime = this.getForegroundRuntime();
+    return runtime
+      ? attachHoneycrispMemory(
+          update,
+          await this.memorySummaryForRuntimeAsync(
+            runtime,
+            runtime.db.getActiveScope(),
+            runId,
+            update.researchProfile ?? null
+          )
         )
       : update;
   }
@@ -2983,8 +3039,24 @@ export class WorkspaceService {
     const openedAt = new Date().toISOString();
     try {
       const researchProfile = db.activateResearchProfileSnapshot(this.resolveResearchProfile(workspacePath, profileId));
-      const recovery = db.recoverInterruptedState('workspace_open');
-      const sessionDatabase = createHoneycrispSessionBoundary(db);
+      const recoveredAt = new Date().toISOString();
+      const honeycrispOwnership = usesHoneycrispSessionOwnership();
+      const honeycrispRecovery = honeycrispOwnership
+        ? recoverInterruptedHoneycrispSessions(
+            db.getWorkspaceId(),
+            { reason: 'workspace_open', at: recoveredAt },
+            {
+              databasePath,
+              artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(profileId)
+            }
+          )
+        : { interruptedSessions: 0, interruptedAttempts: 0 };
+      const recovery = mergeRecoveryReports(
+        db.recoverInterruptedState('workspace_open'),
+        honeycrispRecovery.interruptedSessions,
+        honeycrispRecovery.interruptedAttempts
+      );
+      const sessionDatabase = createHoneycrispSessionBoundary(db, honeycrispOwnership);
       return {
         workspacePath,
         profileId,
@@ -3098,6 +3170,7 @@ export class WorkspaceService {
   }
 
   private hasActiveRuntimeWork(runtime: WorkspaceRuntime): boolean {
+    if (runtime.honeycrispEngine.hasActiveRuns()) return true;
     return runtime.db.listRunRows().some((row) => isLiveResearchRunStatus(row.run.status));
   }
 
@@ -3315,6 +3388,49 @@ export class WorkspaceService {
     if (this.honeycrispMemorySummaryCache.size >= 64) this.honeycrispMemorySummaryCache.clear();
     this.honeycrispMemorySummaryCache.set(cacheKey, { fingerprint: honeycrispStorageFingerprint(storage), summary });
     return summary;
+  }
+
+  private async memorySummaryForRuntimeAsync(
+    runtime: WorkspaceRuntime,
+    scope = runtime.db.getActiveScope(),
+    sessionId?: string,
+    researchProfile: ResearchProfileSnapshot | null = runtime.researchProfile
+  ): Promise<HoneycrispMemorySummary> {
+    const storage = this.honeycrispStorage(runtime);
+    const cacheKey = [
+      storage.databasePath,
+      storage.artifactDirectoryPath,
+      runtime.db.getWorkspaceId(),
+      runtime.db.getResearchSubject().id,
+      sessionId ?? '',
+      researchProfile?.profileHash ?? ''
+    ].join('\0');
+    const fingerprint = honeycrispStorageFingerprint(storage);
+    const cached = this.honeycrispMemorySummaryCache.get(cacheKey);
+    if (cached?.fingerprint === fingerprint) return cached.summary;
+    const activeRequest = this.honeycrispMemorySummaryRequests.get(cacheKey);
+    if (activeRequest?.fingerprint === fingerprint) return await activeRequest.promise;
+    const promise = getHoneycrispMemorySummaryAsync({
+      ...(sessionId ? { sessionId } : {}),
+      workspaceId: runtime.db.getWorkspaceId(),
+      subjectId: runtime.db.getResearchSubject().id,
+      researchProfile
+    }, storage).then((summary) => {
+      if (this.honeycrispMemorySummaryCache.size >= 64) this.honeycrispMemorySummaryCache.clear();
+      this.honeycrispMemorySummaryCache.set(cacheKey, {
+        fingerprint: honeycrispStorageFingerprint(storage),
+        summary
+      });
+      return summary;
+    });
+    this.honeycrispMemorySummaryRequests.set(cacheKey, { fingerprint, promise });
+    try {
+      return await promise;
+    } finally {
+      if (this.honeycrispMemorySummaryRequests.get(cacheKey)?.promise === promise) {
+        this.honeycrispMemorySummaryRequests.delete(cacheKey);
+      }
+    }
   }
 
   private honeycrispStorage(runtime: WorkspaceRuntime): { databasePath: string; artifactDirectoryPath: string } {
@@ -3847,6 +3963,23 @@ function emptyRecoveryReport(openedAt: string | null): WorkspaceRecoveryReport {
     interruptedToolCalls: 0,
     interruptedVerifierRuns: 0,
     notes: ['No interrupted authoritative state found.']
+  };
+}
+
+function mergeRecoveryReports(
+  legacy: WorkspaceRecoveryReport,
+  interruptedSessions: number,
+  interruptedAttempts: number
+): WorkspaceRecoveryReport {
+  if (interruptedSessions === 0 && interruptedAttempts === 0) return legacy;
+  return {
+    ...legacy,
+    interruptedRuns: legacy.interruptedRuns + interruptedSessions,
+    interruptedAttempts: legacy.interruptedAttempts + interruptedAttempts,
+    notes: [
+      ...legacy.notes.filter((note) => note !== 'No interrupted authoritative state found.'),
+      `${interruptedSessions} Honeycrisp-owned session${interruptedSessions === 1 ? '' : 's'} paused after interrupted process recovery.`
+    ]
   };
 }
 

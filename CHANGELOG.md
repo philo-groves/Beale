@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Honeycrisp async protocol responses are no longer corrupted by retaining only their final two million characters; complete envelopes are assembled from UTF-8 byte chunks up to an explicit 64 MiB limit, after which the client reports a bounded response-size error instead of attempting to parse truncated JSON.
+- Live Honeycrisp events no longer spawn full `session list` queries merely to determine whether a runtime is active; actual list refreshes use compact summaries, and malformed CLI responses report exit, signal, and buffer failures instead of presenting SQLite's experimental warning as the cause.
+- App restart now atomically recovers Honeycrisp-owned active sessions and attempts as interrupted pauses, including recovery evidence and the existing unexpected-error presentation, instead of rediscovering them as still active.
+- Switching sessions no longer runs Honeycrisp session and memory queries synchronously on Electron's main thread; initial detail loads avoid the redundant version query, duplicate memory-summary requests are coalesced, and active Honeycrisp writers no longer cause UI hangs followed by `database is locked` errors.
 - Tab-completed session suggestions now replace vague status-only prompts with concise context from the latest user steering or the current research objective.
 - Beale now allows only one desktop app instance; repeated launches restore and focus the existing window, while runtime and package identity consistently use the Beale name.
 - Restart recovery now marks interrupted subagents and collaboration members as interrupted even when stale same-attempt events arrive late, and interrupted sessions receive an error final message reading `Unexpected error`.

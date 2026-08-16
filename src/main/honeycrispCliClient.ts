@@ -83,9 +83,25 @@ export interface HoneycrispSessionRecord {
   revision: number;
 }
 
+export type HoneycrispSessionSummary = Omit<
+  HoneycrispSessionRecord,
+  'attempts' | 'events' | 'finalResponse'
+> & {
+  attempts: Array<Omit<HoneycrispSessionAttempt, 'capture'>>;
+};
+
 export interface HoneycrispSessionStorage {
   databasePath: string;
   artifactDirectoryPath: string;
+}
+
+export interface HoneycrispSessionRecoveryReport {
+  workspaceId: string;
+  recoveredAt: string;
+  reason: string;
+  interruptedSessions: number;
+  interruptedAttempts: number;
+  sessionIds: string[];
 }
 
 export function resolveHoneycrispStoragePaths(
@@ -190,6 +206,8 @@ export interface HoneycrispProviderSemantics {
 }
 
 let providerSemanticsCache: HoneycrispProviderSemantics | null = null;
+const HONEYCRISP_PROTOCOL_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
+const HONEYCRISP_PROTOCOL_MAX_STDERR_CHARS = 2_000_000;
 
 export interface HoneycrispSourceRepositoryCandidate {
   url: string;
@@ -243,9 +261,11 @@ export function honeycrispOwnsSessions(): boolean {
       'session.begin_attempt',
       'session.append_event',
       'session.transition',
+      'session.recover_interrupted',
       'session.import_capture',
       'session.get',
-      'session.list'
+      'session.list',
+      'session.list_summaries'
     ].every((operation) => descriptor.operations.includes(operation));
   } catch {
     return false;
@@ -298,6 +318,19 @@ export function transitionHoneycrispSession(
   ).result;
 }
 
+export function recoverInterruptedHoneycrispSessions(
+  workspaceId: string,
+  input: { reason?: string; at?: string },
+  storage: HoneycrispSessionStorage
+): HoneycrispSessionRecoveryReport {
+  return invokeWithJsonInput<HoneycrispSessionRecoveryReport>(
+    'session.recover_interrupted',
+    ['session', 'recover-interrupted', '--workspace-id', workspaceId],
+    input,
+    storage
+  ).result;
+}
+
 export function importHoneycrispSessionCapture(
   sessionId: string,
   attemptId: string,
@@ -319,6 +352,18 @@ export function getHoneycrispSession(sessionId: string, storage: HoneycrispSessi
   ).result;
 }
 
+export async function getHoneycrispSessionAsync(
+  sessionId: string,
+  storage: HoneycrispSessionStorage,
+  signal?: AbortSignal
+): Promise<HoneycrispSessionRecord> {
+  return (await invokeHoneycrispCliProtocolAsync<HoneycrispSessionRecord>(
+    'session.get',
+    ['session', 'get', '--session-id', sessionId, '--json'],
+    { env: storageEnvironment(storage), timeoutMs: 10_000, ...(signal ? { signal } : {}) }
+  )).result;
+}
+
 export function listHoneycrispSessions(
   workspaceId: string,
   storage: HoneycrispSessionStorage,
@@ -327,6 +372,18 @@ export function listHoneycrispSessions(
   return invokeHoneycrispCliProtocol<HoneycrispSessionRecord[]>(
     'session.list',
     ['session', 'list', '--workspace-id', workspaceId, '--limit', String(limit), '--json'],
+    { env: storageEnvironment(storage) }
+  ).result;
+}
+
+export function listHoneycrispSessionSummaries(
+  workspaceId: string,
+  storage: HoneycrispSessionStorage,
+  limit = 100
+): HoneycrispSessionSummary[] {
+  return invokeHoneycrispCliProtocol<HoneycrispSessionSummary[]>(
+    'session.list_summaries',
+    ['session', 'list-summaries', '--workspace-id', workspaceId, '--limit', String(limit), '--json'],
     { env: storageEnvironment(storage) }
   ).result;
 }
@@ -342,6 +399,27 @@ export function getHoneycrispMemorySummary(
   storage: HoneycrispSessionStorage
 ): HoneycrispMemorySummary {
   return invokeWithJsonInput<HoneycrispMemorySummary>('memory.summary', ['knowledge', 'summary'], input, storage).result;
+}
+
+export async function getHoneycrispMemorySummaryAsync(
+  input: {
+    workspaceId: string;
+    subjectId: string | null;
+    sessionId?: string;
+    researchProfile?: ResearchProfileSnapshot | null;
+    includeForeignCatalogs?: boolean;
+  },
+  storage: HoneycrispSessionStorage,
+  signal?: AbortSignal
+): Promise<HoneycrispMemorySummary> {
+  return (await invokeWithJsonInputAsync<HoneycrispMemorySummary>(
+    'memory.summary',
+    ['knowledge', 'summary'],
+    input,
+    storage,
+    signal,
+    10_000
+  )).result;
 }
 
 export function prepareHoneycrispMemoryDreaming(
@@ -564,16 +642,17 @@ export function invokeHoneycrispCliProtocol<T>(
   const result = spawnSync(invocation.command, [...invocation.prefixArgs, ...args, '--request-id', requestId], {
     cwd: invocation.cwd,
     encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1', ...options.env },
+    env: protocolEnvironment(options.env),
     timeout: options.timeoutMs ?? 30_000,
+    maxBuffer: HONEYCRISP_PROTOCOL_MAX_STDOUT_BYTES,
     windowsHide: true
   });
   let envelope: HoneycrispProtocolEnvelope<T>;
   try {
     envelope = decodeHoneycrispProtocolEnvelope<T>(String(result.stdout ?? '').trim());
   } catch (error) {
-    const detail = safeProtocolDetail(result.stderr || result.stdout || 'Honeycrisp returned no protocol envelope.');
-    throw new Error(`Honeycrisp ${operation} protocol failure: ${detail}`, { cause: error });
+    const detail = protocolProcessDetail(result);
+    throw new Error(`Honeycrisp ${operation} returned an invalid protocol envelope${detail ? ` (${detail})` : ''}.`, { cause: error });
   }
   if (envelope.operation !== operation) {
     throw new Error(`Honeycrisp protocol operation mismatch: expected ${operation}, received ${envelope.operation}.`);
@@ -613,7 +692,8 @@ async function invokeWithJsonInputAsync<T>(
   args: readonly string[],
   input: unknown,
   storage: HoneycrispSessionStorage | null,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeoutMs?: number
 ): Promise<HoneycrispProtocolSuccess<T>> {
   const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-protocol-'));
   const inputPath = join(directory, 'input.json');
@@ -621,7 +701,8 @@ async function invokeWithJsonInputAsync<T>(
     writeFileSync(inputPath, `${JSON.stringify(input)}\n`, { encoding: 'utf8', mode: 0o600 });
     return await invokeHoneycrispCliProtocolAsync<T>(operation, [...args, '--input', inputPath, '--json'], {
       ...(storage ? { env: storageEnvironment(storage) } : {}),
-      ...(signal ? { signal } : {})
+      ...(signal ? { signal } : {}),
+      ...(timeoutMs ? { timeoutMs } : {})
     });
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -637,16 +718,16 @@ export function invokeHoneycrispCliProtocolAsync<T>(
   const requestId = `beale-${randomUUID()}`;
   const child = spawn(invocation.command, [...invocation.prefixArgs, ...args, '--request-id', requestId], {
     cwd: invocation.cwd,
-    env: { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1', ...options.env },
+    env: protocolEnvironment(options.env),
     windowsHide: true
   });
   child.stdin.on('error', () => undefined);
   child.stdin.end(options.stdin ?? '');
   return new Promise((resolvePromise, reject) => {
-    let stdout = '';
+    const stdoutChunks: Buffer[] = [];
+    let stdoutBytes = 0;
     let stderr = '';
     let settled = false;
-    const append = (current: string, chunk: Buffer): string => (current + chunk.toString('utf8')).slice(-2_000_000);
     const finish = (callback: () => void): void => {
       if (settled) return;
       settled = true;
@@ -668,10 +749,24 @@ export function invokeHoneycrispCliProtocolAsync<T>(
       return;
     }
     options.signal?.addEventListener('abort', abort, { once: true });
-    child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (settled) return;
+      stdoutBytes += chunk.byteLength;
+      if (stdoutBytes > HONEYCRISP_PROTOCOL_MAX_STDOUT_BYTES) {
+        child.kill('SIGTERM');
+        finish(() => reject(new Error(
+          `Honeycrisp ${operation} exceeded the ${HONEYCRISP_PROTOCOL_MAX_STDOUT_BYTES}-byte protocol response limit.`
+        )));
+        return;
+      }
+      stdoutChunks.push(chunk);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString('utf8')).slice(-HONEYCRISP_PROTOCOL_MAX_STDERR_CHARS);
+    });
     child.once('error', (error) => finish(() => reject(error)));
     child.once('close', (code) => finish(() => {
+      const stdout = Buffer.concat(stdoutChunks, stdoutBytes).toString('utf8');
       try {
         const envelope = decodeHoneycrispProtocolEnvelope<T>(stdout.trim());
         if (envelope.operation !== operation) throw new Error(`Honeycrisp protocol operation mismatch: expected ${operation}, received ${envelope.operation}.`);
@@ -680,7 +775,7 @@ export function invokeHoneycrispCliProtocolAsync<T>(
         if (code !== 0) throw new Error(`Honeycrisp ${operation} returned success with exit status ${String(code)}.`);
         resolvePromise(envelope);
       } catch (error) {
-        const detail = safeProtocolDetail(stderr || stdout || `Honeycrisp ${operation} returned no envelope.`);
+        const detail = asyncProtocolProcessDetail(code, stdout, stderr);
         reject(error instanceof Error ? new Error(`${error.message}${detail ? ` ${detail}` : ''}`, { cause: error }) : new Error(detail));
       }
     }));
@@ -694,6 +789,37 @@ function safeProtocolDetail(value: unknown): string {
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/giu, 'Bearer ...redacted')
     .trim()
     .slice(-2_000);
+}
+
+function protocolEnvironment(overrides?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    NO_COLOR: process.env.NO_COLOR ?? '1',
+    NODE_NO_WARNINGS: '1',
+    ...overrides
+  };
+}
+
+function protocolProcessDetail(result: ReturnType<typeof spawnSync>): string {
+  const details: string[] = [];
+  if (result.error) details.push(`process error: ${result.error.message}`);
+  if (result.signal) details.push(`signal: ${result.signal}`);
+  if (result.status !== null && result.status !== 0) details.push(`exit status: ${result.status}`);
+  const stderr = safeProtocolDetail(result.stderr);
+  if (stderr) details.push(`stderr: ${stderr}`);
+  const stdoutBytes = Buffer.byteLength(String(result.stdout ?? ''), 'utf8');
+  if (stdoutBytes > 0) details.push(`invalid stdout bytes: ${stdoutBytes}`);
+  return details.join('; ');
+}
+
+function asyncProtocolProcessDetail(code: number | null, stdout: string, stderr: string): string {
+  const details: string[] = [];
+  if (code !== null && code !== 0) details.push(`exit status: ${code}`);
+  const safeStderr = safeProtocolDetail(stderr);
+  if (safeStderr) details.push(`stderr: ${safeStderr}`);
+  const stdoutBytes = Buffer.byteLength(stdout, 'utf8');
+  if (stdoutBytes > 0) details.push(`invalid stdout bytes: ${stdoutBytes}`);
+  return details.length > 0 ? `(${details.join('; ')})` : '';
 }
 
 function storageEnvironment(storage: HoneycrispSessionStorage): NodeJS.ProcessEnv {

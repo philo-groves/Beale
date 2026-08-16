@@ -55,35 +55,36 @@ export function useRunDetailPolling({
     const refreshRunDetail = (): void => {
       if (inFlight) return;
       inFlight = true;
-      devInstrumentation
-        .timeAsync('ipc.getRunDetailVersion', () => window.beale.getRunDetailVersion(selectedRunId), { run: shortMetricId(selectedRunId) })
-        .then(async (version) => {
-          devInstrumentation.recordEvent('ipc.getRunDetailVersion.payload', {
-            run: shortMetricId(version.runId),
-            databaseMs: version.databaseMs,
-            version: shortMetricId(version.version)
-          });
-          if (!disposed && requestSeq === requestSeqRef.current && version.version === versionRef.current) {
-            return null;
-          }
-          const currentDetail = detailRef.current;
-          if (currentDetail?.run.id === selectedRunId && versionRef.current) {
-            const update = await devInstrumentation.timeAsync(
-              'ipc.getRunDetailUpdate',
-              () => window.beale.getRunDetailUpdate(selectedRunId, runDetailUpdateCursor(currentDetail)),
-              { run: shortMetricId(selectedRunId) }
-            );
-            const updateMetricDetail = runDetailUpdateMetricDetail(update);
-            const detail = devInstrumentation.time('trace.mergeRunDetailUpdate', () => mergeRunDetailUpdate(currentDetail, update), {
-              ...updateMetricDetail,
-              currentTraceEvents: currentDetail.traceEvents.length,
-              currentTranscripts: currentDetail.transcriptMessages.length
+      const currentDetail = detailRef.current;
+      const request = currentDetail?.run.id !== selectedRunId
+        ? devInstrumentation
+            .timeAsync('ipc.getRunDetail', () => window.beale.getRunDetail(selectedRunId), { run: shortMetricId(selectedRunId) })
+            .then((detail) => ({ detail, version: `initial:${requestSeq}`, update: null }))
+        : devInstrumentation
+            .timeAsync('ipc.getRunDetailVersion', () => window.beale.getRunDetailVersion(selectedRunId), { run: shortMetricId(selectedRunId) })
+            .then(async (version) => {
+              devInstrumentation.recordEvent('ipc.getRunDetailVersion.payload', {
+                run: shortMetricId(version.runId),
+                databaseMs: version.databaseMs,
+                version: shortMetricId(version.version)
+              });
+              if (!disposed && requestSeq === requestSeqRef.current && version.version === versionRef.current) {
+                return null;
+              }
+              const update = await devInstrumentation.timeAsync(
+                'ipc.getRunDetailUpdate',
+                () => window.beale.getRunDetailUpdate(selectedRunId, runDetailUpdateCursor(currentDetail)),
+                { run: shortMetricId(selectedRunId) }
+              );
+              const updateMetricDetail = runDetailUpdateMetricDetail(update);
+              const detail = devInstrumentation.time('trace.mergeRunDetailUpdate', () => mergeRunDetailUpdate(currentDetail, update), {
+                ...updateMetricDetail,
+                currentTraceEvents: currentDetail.traceEvents.length,
+                currentTranscripts: currentDetail.transcriptMessages.length
+              });
+              return { detail, version: update.version.version, update };
             });
-            return { detail, version: update.version.version, update };
-          }
-          const detail = await devInstrumentation.timeAsync('ipc.getRunDetail', () => window.beale.getRunDetail(selectedRunId), { run: shortMetricId(selectedRunId) });
-          return { detail, version: version.version, update: null };
-        })
+      request
         .then((result) => {
           if (!result) return;
           const { detail, version, update } = result;

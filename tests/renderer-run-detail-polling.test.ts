@@ -9,6 +9,10 @@ describe('renderer run-detail polling', () => {
     );
 
     expect(source).not.toContain('startTransition');
+    expect(source).toContain('currentDetail?.run.id !== selectedRunId');
+    expect(source.indexOf("timeAsync('ipc.getRunDetail'")).toBeLessThan(
+      source.indexOf("timeAsync('ipc.getRunDetailVersion'")
+    );
     expect(source).toContain('detailRef.current = detail;');
     expect(source).toContain('setRunDetail(detail);');
   });

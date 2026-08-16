@@ -85,6 +85,14 @@ describe('architecture conformance', () => {
     expect(hits).toEqual([]);
   });
 
+  it('keeps renderer session-detail queries off the Electron main-thread blocking path', () => {
+    const main = readFileSync(join(ROOT, 'src/main/index.ts'), 'utf8');
+    expect(main).toMatch(/timedMainIpcAsync\('getRunDetail'/);
+    expect(main).toMatch(/timedMainIpcAsync\('getRunDetailVersion'/);
+    expect(main).toMatch(/timedMainIpcAsync\('getRunDetailUpdate'/);
+    expect(main).toMatch(/getRunDetailForClient|getRunDetailVersionForClient|getRunDetailUpdateForClient/);
+  });
+
   it('forbids new Beale access to Honeycrisp memory.sqlite outside the versioned CLI boundary', () => {
     const cliBoundaryFiles = new Set([
       'src/main/honeycrispCliClient.ts',
