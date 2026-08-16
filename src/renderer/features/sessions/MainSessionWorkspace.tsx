@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import type { CSSProperties, JSX } from 'react';
 import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, ScopeAssetInput, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceHousekeepingPanel, WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
@@ -139,9 +139,22 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   } = useResizableResearchSidePanel(selectedRunId !== null || honeycrispMemory !== null);
   const viewSpace = selectedRunId ? 'session' : 'workspace';
   const researchSidePanelKey = selectedRunId ?? `workspace:${honeycrispMemory?.contextWorkspaceId ?? 'current'}`;
+  const previousRunRef = useRef<{ id: string; status: RunDetail['run']['status'] } | null>(null);
+  const currentRun = detail ? { id: detail.run.id, status: detail.run.status } : null;
+  const autoGenerateNextSteps = shouldAutoGenerateSessionNextSteps(previousRunRef.current, currentRun);
+  useEffect(() => {
+    previousRunRef.current = currentRun;
+  }, [currentRun?.id, currentRun?.status]);
 
   const postSessionContent = detail && isEndedResearchRunStatus(detail.run.status)
-    ? <SessionNextSteps detail={detail} onSelect={onSelectNextStep} />
+    ? (
+        <SessionNextSteps
+          key={detail.run.id}
+          detail={detail}
+          autoGenerate={autoGenerateNextSteps}
+          onSelect={onSelectNextStep}
+        />
+      )
     : null;
 
   return (
@@ -286,3 +299,16 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     </div>
   );
 });
+
+export function shouldAutoGenerateSessionNextSteps(
+  previous: { id: string; status: RunDetail['run']['status'] } | null,
+  current: { id: string; status: RunDetail['run']['status'] } | null
+): boolean {
+  return Boolean(
+    previous
+    && current
+    && previous.id === current.id
+    && !isEndedResearchRunStatus(previous.status)
+    && isEndedResearchRunStatus(current.status)
+  );
+}

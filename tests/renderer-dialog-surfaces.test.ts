@@ -7,6 +7,7 @@ import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePanel';
 import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
 import { SessionSummaryModal } from '../src/renderer/features/sessions/SessionSummaryModal';
+import { shouldAutoGenerateSessionNextSteps } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
 import { SessionNextSteps, SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
 import { WorkspaceOnboardingModal } from '../src/renderer/features/workspaces/WorkspaceOnboardingModal';
@@ -260,7 +261,7 @@ describe('renderer dialog surfaces', () => {
         loading,
         suggestions,
         error: null,
-        onRetry: () => undefined,
+        onRefresh: () => undefined,
         onSelect: () => undefined
       })
     );
@@ -273,6 +274,8 @@ describe('renderer dialog surfaces', () => {
 
     expect(loadingHtml).toContain('class="session-next-steps"');
     expect(loadingHtml).toContain('<header class="session-next-steps-header"><h3>Suggestions</h3>');
+    expect(loadingHtml).toContain('aria-label="Regenerate suggestions"');
+    expect(loadingHtml).toContain('<span>Refresh</span>');
     expect(loadingHtml.match(/class="session-next-step-skeleton"/g)).toHaveLength(3);
     expect(loadedHtml).toContain('class="session-next-steps"');
     expect(loadedHtml.match(/class="session-next-step-button"/g)).toHaveLength(3);
@@ -308,6 +311,55 @@ describe('renderer dialog surfaces', () => {
     expect(buttonHoverStyles).toContain('border-bottom-color: var(--text)');
     expect(buttonHoverStyles).toContain('background: transparent');
     expect(buttonHoverStyles).toContain('color: var(--text)');
+  });
+
+  it('shows a quiet empty suggestion state and regenerates only after a viewed session ends', () => {
+    const emptyHtml = renderToStaticMarkup(createElement(SessionNextStepsWidget, {
+      loading: false,
+      suggestions: [],
+      error: null,
+      onRefresh: () => undefined,
+      onSelect: () => undefined
+    }));
+
+    expect(emptyHtml).toContain('No suggestions to show.');
+    expect(emptyHtml).toContain('aria-label="Regenerate suggestions"');
+    expect(shouldAutoGenerateSessionNextSteps(null, { id: 'run_complete', status: 'completed' })).toBe(false);
+    expect(shouldAutoGenerateSessionNextSteps(
+      { id: 'run_active', status: 'active' },
+      { id: 'run_active', status: 'completed' }
+    )).toBe(true);
+    expect(shouldAutoGenerateSessionNextSteps(
+      { id: 'run_other', status: 'active' },
+      { id: 'run_complete', status: 'completed' }
+    )).toBe(false);
+
+    const detail = {
+      run: {
+        id: 'run_complete',
+        status: 'completed',
+        endedAt: '2026-08-12T12:00:00.000Z',
+        summary: 'Completed bounded research.',
+        finalDisposition: null,
+        budget: { researchWorkflowId: 'discovery' }
+      },
+      nextStepSuggestions: null
+    } as unknown as RunDetail;
+    const revisitHtml = renderToStaticMarkup(createElement(SessionNextSteps, {
+      detail,
+      onSelect: () => undefined
+    }));
+    const justEndedHtml = renderToStaticMarkup(createElement(SessionNextSteps, {
+      detail,
+      autoGenerate: true,
+      onSelect: () => undefined
+    }));
+
+    expect(revisitHtml).toContain('aria-busy="false"');
+    expect(revisitHtml).toContain('No suggestions to show.');
+    expect(revisitHtml).not.toContain('session-next-step-skeleton');
+    expect(justEndedHtml).toContain('aria-busy="true"');
+    expect(justEndedHtml.match(/session-next-step-skeleton/g)).toHaveLength(3);
   });
 
   it('renders persisted session next steps immediately without a loading state', () => {

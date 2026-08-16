@@ -4705,7 +4705,8 @@ button.session-summary-item:hover:not(:disabled),
   animation: session-next-step-loading 1.25s ease-in-out infinite;
 }
 
-.session-next-steps-error {
+.session-next-steps-error,
+.session-next-steps-empty {
   grid-row: 1 / -1;
   min-width: 0;
   padding: 12px;
@@ -4718,7 +4719,7 @@ button.session-summary-item:hover:not(:disabled),
   overflow: auto;
 }
 
-.session-next-steps-retry {
+.session-next-steps-refresh {
   padding: 3px 7px;
   border: 0;
   border-radius: 7px;
@@ -4731,9 +4732,14 @@ button.session-summary-item:hover:not(:disabled),
   cursor: pointer;
 }
 
-.session-next-steps-retry:hover {
+.session-next-steps-refresh:hover:not(:disabled) {
   color: var(--text);
   background: var(--chrome-soft);
+}
+
+.session-next-steps-refresh:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 @keyframes session-next-step-loading {

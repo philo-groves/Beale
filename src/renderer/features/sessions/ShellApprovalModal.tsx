@@ -4,6 +4,7 @@ import type { ApprovalRecord, PolicyReviewDecision, RunDetail } from '@shared/ty
 import { Modal } from '../../app/Modal';
 
 export function pendingShellApproval(detail: RunDetail | null): ApprovalRecord | null {
+  if (detail?.run.status !== 'active') return null;
   return detail?.policyEvents.find(
     (approval) => approval.requestKind === 'shell_command' && approval.decision === 'pending' && approval.decidedAt === null
   ) ?? null;

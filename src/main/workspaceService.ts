@@ -3466,14 +3466,16 @@ export class WorkspaceService {
 
   private pendingShellApprovalsForRuntime(runtime: WorkspaceRuntime): ApprovalRecord[] {
     const workspaceName = runtime.db.getActiveScope().workspaceName;
-    return runtime.db.listPendingShellApprovals().map((approval) => ({
-      ...approval,
-      requestedAction: {
-        ...approval.requestedAction,
-        workspaceName,
-        workspacePath: runtime.workspacePath
-      }
-    }));
+    return runtime.db.listPendingShellApprovals()
+      .filter((approval) => runtime.honeycrispEngine.hasRun(approval.runId))
+      .map((approval) => ({
+        ...approval,
+        requestedAction: {
+          ...approval.requestedAction,
+          workspaceName,
+          workspacePath: runtime.workspacePath
+        }
+      }));
   }
 
   private getWorkspaceSummary(runtime = this.getForegroundRuntime()): WorkspaceSummary {

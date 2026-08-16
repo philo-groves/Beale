@@ -39,7 +39,11 @@ import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { WorkspaceStartupView } from './features/workspaces/WorkspaceStartupView';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import type { ResearchGoalSeed } from './features/sessions/SessionNextSteps';
-import { isAutoReviewOverrideApproval, pendingShellApproval, ShellApprovalModal } from './features/sessions/ShellApprovalModal';
+import {
+  isAutoReviewOverrideApproval,
+  pendingShellApproval,
+  ShellApprovalModal
+} from './features/sessions/ShellApprovalModal';
 import { subagentSummaries, traceEventsForSubagent } from './view-models/subagents';
 import { SettingsSidebar, SettingsView, settingsSectionLabel, type SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
@@ -827,7 +831,7 @@ export function App(): JSX.Element {
   const selectedShellApproval = useMemo(() => {
     if (!snapshot) return pendingShellApproval(activeRunDetail);
     return snapshot.pendingShellApprovals.find((approval) => approval.runId === selectedRunId) ?? null;
-  }, [activeRunDetail?.policyEvents, selectedRunId, snapshot?.pendingShellApprovals]);
+  }, [activeRunDetail?.policyEvents, selectedRunId, snapshot]);
   const autoReviewOverrideApproval = isAutoReviewOverrideApproval(selectedShellApproval)
     ? selectedShellApproval
     : null;

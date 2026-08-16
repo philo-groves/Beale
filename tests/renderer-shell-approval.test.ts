@@ -1,9 +1,10 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { ApprovalRecord } from '@shared/types';
+import type { ApprovalRecord, RunDetail } from '@shared/types';
 import {
   isAutoReviewOverrideApproval,
+  pendingShellApproval,
   ShellApprovalModal,
   ShellApprovalQuestion
 } from '../src/renderer/features/sessions/ShellApprovalModal';
@@ -48,6 +49,20 @@ describe('renderer shell approval modal', () => {
     expect(html).toContain('>Keep Blocked</button>');
     expect(html).toContain('class="primary-button">Approve Once</button>');
     expect(html).not.toContain('class="modal-overlay"');
+  });
+
+  it('surfaces pending approvals only while their session is active', () => {
+    const approval = approvalRecord();
+    const detail = {
+      run: { id: approval.runId, status: 'active' },
+      policyEvents: [approval]
+    } as RunDetail;
+
+    expect(pendingShellApproval(detail)?.id).toBe(approval.id);
+    expect(pendingShellApproval({
+      ...detail,
+      run: { ...detail.run, status: 'completed' }
+    })).toBeNull();
   });
 });
 

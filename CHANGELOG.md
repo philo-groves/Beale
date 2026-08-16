@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Shell approval surfaces now appear only for actively running sessions; terminal-session suggestions generate automatically only when the currently viewed session ends, while revisits show an explicit empty state and user-triggered Refresh action.
 - Selected New Research suggestions now disappear immediately, remain removed from Honeycrisp's durable cache, and inform subsequent generation through workspace-scoped selection history and semantic duplicate filtering.
 - Beale introspection no longer exposes workspace creation, accepts only registered workspace selectors, or changes the foreground workspace while viewing and editing resources; expired HTTP tool requests are canceled before dispatch.
 - Live Honeycrisp trace mirrors are now serialized into bounded asynchronous batches instead of synchronously spawning a growing session rewrite for every WebSocket event on Electron's main thread.
