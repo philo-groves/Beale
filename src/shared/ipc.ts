@@ -54,6 +54,7 @@ export const IPC_CHANNELS = {
   getHoneycrispToolingSummary: 'beale:get-honeycrisp-tooling-summary',
   updateHoneycrispToolingConfig: 'beale:update-honeycrisp-tooling-config',
   generateResearchGoalSuggestions: 'beale:generate-research-goal-suggestions',
+  selectResearchGoalSuggestion: 'beale:select-research-goal-suggestion',
   generateResearchPrompt: 'beale:generate-research-prompt',
   cancelResearchPromptGeneration: 'beale:cancel-research-prompt-generation',
   researchPromptGenerationUpdated: 'beale:research-prompt-generation-updated',

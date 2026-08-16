@@ -90,6 +90,7 @@ export function AppModals({
   onWorkspaceTemplate,
   onFlushProfilingReport,
   onLoadResearchGoalSuggestions,
+  onSelectResearchGoalSuggestion,
   onRetryResearchGoalSuggestions,
   onStartedNewResearch,
   onCancelRepeatAutomation,
@@ -157,6 +158,7 @@ export function AppModals({
   onWorkspaceTemplate: (templateKind: WorkspaceTemplateKind) => void;
   onFlushProfilingReport: () => void;
   onLoadResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
+  onSelectResearchGoalSuggestion: (phase: ResearchGoalPhase, suggestion: string) => void;
   onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStartedNewResearch: (runId: string) => void;
   onCancelRepeatAutomation: (runId: string) => void;
@@ -201,6 +203,7 @@ export function AppModals({
           runAction={runAction}
           onCancel={onCancelNewResearch}
           onLoadResearchGoalSuggestions={onLoadResearchGoalSuggestions}
+          onSelectResearchGoalSuggestion={onSelectResearchGoalSuggestion}
           onRetryResearchGoalSuggestions={onRetryResearchGoalSuggestions}
           onStarted={onStartedNewResearch}
         />

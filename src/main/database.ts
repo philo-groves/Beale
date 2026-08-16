@@ -644,6 +644,18 @@ export interface ResearchGoalSuggestionCacheRecord {
   updatedAt: string;
 }
 
+export interface ResearchGoalSuggestionHistoryRecord {
+  scopeId: string;
+  profileHash: string;
+  phase: string;
+  suggestion: string;
+  firstGeneratedAt: string;
+  lastGeneratedAt: string;
+  selectedAt: string | null;
+  generationCount: number;
+  selectionCount: number;
+}
+
 function parseStoredSessionNextStepSuggestions(value: SqlPrimitive | undefined): GeneratedResearchGoalSuggestions | null {
   const parsed = parseJson(value);
   const phase = typeof parsed.phase === 'string' ? parsed.phase.trim() : '';
@@ -672,6 +684,28 @@ function parseResearchGoalSuggestionCacheRow(row: SqlRow | undefined): ResearchG
     generatedAt: text(row, 'generated_at'),
     updatedAt: text(row, 'updated_at')
   };
+}
+
+function parseResearchGoalSuggestionHistoryRow(row: SqlRow): ResearchGoalSuggestionHistoryRecord {
+  return {
+    scopeId: text(row, 'scope_version_id'),
+    profileHash: text(row, 'profile_hash'),
+    phase: text(row, 'phase'),
+    suggestion: text(row, 'suggestion_text'),
+    firstGeneratedAt: text(row, 'first_generated_at'),
+    lastGeneratedAt: text(row, 'last_generated_at'),
+    selectedAt: nullableText(row, 'selected_at'),
+    generationCount: Math.max(0, Math.floor(nullableNumber(row, 'generation_count') ?? 0)),
+    selectionCount: Math.max(0, Math.floor(nullableNumber(row, 'selection_count') ?? 0))
+  };
+}
+
+function normalizeResearchGoalSuggestion(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function researchGoalSuggestionKey(value: string): string {
+  return normalizeResearchGoalSuggestion(value).toLocaleLowerCase();
 }
 
 function transcriptMessagePhase(metadata: Record<string, unknown>): TranscriptMessagePhase | null {
@@ -3936,31 +3970,146 @@ export class WorkspaceDatabase {
     }
     const generatedAt = input.generatedAt?.trim() || nowIso();
     const updatedAt = nowIso();
-    this.db
-      .prepare(
-        `INSERT INTO research_goal_suggestion_cache(
-           workspace_id, scope_version_id, profile_hash, phase, context_revision,
-           suggestions_json, generated_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(workspace_id, scope_version_id, profile_hash, phase) DO UPDATE SET
-           context_revision = excluded.context_revision,
-           suggestions_json = excluded.suggestions_json,
-           generated_at = excluded.generated_at,
-           updated_at = excluded.updated_at`
-      )
-      .run(
+    return this.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO research_goal_suggestion_cache(
+             workspace_id, scope_version_id, profile_hash, phase, context_revision,
+             suggestions_json, generated_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(workspace_id, scope_version_id, profile_hash, phase) DO UPDATE SET
+             context_revision = excluded.context_revision,
+             suggestions_json = excluded.suggestions_json,
+             generated_at = excluded.generated_at,
+             updated_at = excluded.updated_at`
+        )
+        .run(
+          this.workspaceId,
+          input.scopeId,
+          profileHash,
+          phase,
+          contextRevision,
+          JSON.stringify(suggestions),
+          generatedAt,
+          updatedAt
+        );
+      this.recordResearchGoalSuggestionHistory({
+        scopeId: input.scopeId,
+        profileHash,
+        phase,
+        suggestions,
+        generatedAt
+      });
+      const stored = this.getResearchGoalSuggestionCache(input.scopeId, profileHash, phase);
+      if (!stored) throw new Error('Workspace research goal suggestions were not persisted.');
+      return stored;
+    });
+  }
+
+  public listResearchGoalSuggestionHistory(
+    scopeId: string,
+    profileHash: string,
+    phase: string,
+    limit = 64
+  ): ResearchGoalSuggestionHistoryRecord[] {
+    const boundedLimit = Math.max(1, Math.min(256, Math.floor(limit)));
+    return rows(this.db.prepare(
+      `SELECT scope_version_id, profile_hash, phase, suggestion_text,
+              first_generated_at, last_generated_at, selected_at,
+              generation_count, selection_count
+       FROM research_goal_suggestion_history
+       WHERE workspace_id = ? AND scope_version_id = ? AND profile_hash = ? AND phase = ?
+       ORDER BY COALESCE(selected_at, last_generated_at) DESC, suggestion_key ASC
+       LIMIT ?`
+    ).all(this.workspaceId, scopeId, profileHash.trim(), phase.trim(), boundedLimit))
+      .map(parseResearchGoalSuggestionHistoryRow);
+  }
+
+  public selectResearchGoalSuggestion(input: {
+    scopeId: string;
+    profileHash: string;
+    phase: string;
+    suggestion: string;
+    selectedAt?: string;
+  }): void {
+    const profileHash = input.profileHash.trim();
+    const phase = input.phase.trim();
+    const suggestion = normalizeResearchGoalSuggestion(input.suggestion);
+    if (!profileHash || !phase || !suggestion) {
+      throw new Error('Selecting a research goal suggestion requires a workflow, profile, and suggestion.');
+    }
+    const selectedAt = input.selectedAt?.trim() || nowIso();
+    const suggestionKey = researchGoalSuggestionKey(suggestion);
+    this.transaction(() => {
+      this.db.prepare(
+        `INSERT INTO research_goal_suggestion_history(
+           workspace_id, scope_version_id, profile_hash, phase, suggestion_key, suggestion_text,
+           first_generated_at, last_generated_at, selected_at, generation_count, selection_count
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)
+         ON CONFLICT(workspace_id, scope_version_id, profile_hash, phase, suggestion_key) DO UPDATE SET
+           suggestion_text = excluded.suggestion_text,
+           selected_at = excluded.selected_at,
+           selection_count = research_goal_suggestion_history.selection_count + 1`
+      ).run(
         this.workspaceId,
         input.scopeId,
         profileHash,
         phase,
-        contextRevision,
-        JSON.stringify(suggestions),
-        generatedAt,
-        updatedAt
+        suggestionKey,
+        suggestion,
+        selectedAt,
+        selectedAt,
+        selectedAt
       );
-    const stored = this.getResearchGoalSuggestionCache(input.scopeId, profileHash, phase);
-    if (!stored) throw new Error('Workspace research goal suggestions were not persisted.');
-    return stored;
+      const cached = this.getResearchGoalSuggestionCache(input.scopeId, profileHash, phase);
+      if (!cached) return;
+      const remaining = cached.suggestions.filter((candidate) => researchGoalSuggestionKey(candidate) !== suggestionKey);
+      if (remaining.length === 0) {
+        this.db.prepare(
+          `DELETE FROM research_goal_suggestion_cache
+           WHERE workspace_id = ? AND scope_version_id = ? AND profile_hash = ? AND phase = ?`
+        ).run(this.workspaceId, input.scopeId, profileHash, phase);
+        return;
+      }
+      this.db.prepare(
+        `UPDATE research_goal_suggestion_cache
+         SET suggestions_json = ?, updated_at = ?
+         WHERE workspace_id = ? AND scope_version_id = ? AND profile_hash = ? AND phase = ?`
+      ).run(JSON.stringify(remaining), selectedAt, this.workspaceId, input.scopeId, profileHash, phase);
+    });
+  }
+
+  private recordResearchGoalSuggestionHistory(input: {
+    scopeId: string;
+    profileHash: string;
+    phase: string;
+    suggestions: readonly string[];
+    generatedAt: string;
+  }): void {
+    const statement = this.db.prepare(
+      `INSERT INTO research_goal_suggestion_history(
+         workspace_id, scope_version_id, profile_hash, phase, suggestion_key, suggestion_text,
+         first_generated_at, last_generated_at, selected_at, generation_count, selection_count
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, 0)
+       ON CONFLICT(workspace_id, scope_version_id, profile_hash, phase, suggestion_key) DO UPDATE SET
+         suggestion_text = excluded.suggestion_text,
+         last_generated_at = excluded.last_generated_at,
+         generation_count = research_goal_suggestion_history.generation_count + 1`
+    );
+    for (const candidate of input.suggestions) {
+      const suggestion = normalizeResearchGoalSuggestion(candidate);
+      if (!suggestion) continue;
+      statement.run(
+        this.workspaceId,
+        input.scopeId,
+        input.profileHash,
+        input.phase,
+        researchGoalSuggestionKey(suggestion),
+        suggestion,
+        input.generatedAt,
+        input.generatedAt
+      );
+    }
   }
 
   public updateRunTitle(runId: string, title: string): RunRecord {
@@ -6153,6 +6302,24 @@ export class WorkspaceDatabase {
         up: (database) => {
           database.exec(RESEARCH_GOAL_SUGGESTION_CACHE_SCHEMA_SQL);
         }
+      },
+      {
+        version: 24,
+        name: 'research_goal_suggestion_history',
+        up: (database) => {
+          database.exec(RESEARCH_GOAL_SUGGESTION_HISTORY_SCHEMA_SQL);
+          database.exec(`
+            INSERT OR IGNORE INTO research_goal_suggestion_history(
+              workspace_id, scope_version_id, profile_hash, phase, suggestion_key, suggestion_text,
+              first_generated_at, last_generated_at, selected_at, generation_count, selection_count
+            )
+            SELECT cache.workspace_id, cache.scope_version_id, cache.profile_hash, cache.phase,
+                   lower(trim(CAST(suggestion.value AS TEXT))), trim(CAST(suggestion.value AS TEXT)),
+                   cache.generated_at, cache.generated_at, NULL, 1, 0
+            FROM research_goal_suggestion_cache cache, json_each(cache.suggestions_json) suggestion
+            WHERE typeof(suggestion.value) = 'text' AND trim(CAST(suggestion.value AS TEXT)) <> '';
+          `);
+        }
       }
     ]);
   }
@@ -7746,6 +7913,25 @@ CREATE INDEX IF NOT EXISTS idx_research_goal_suggestion_cache_revision
 ON research_goal_suggestion_cache(workspace_id, scope_version_id, context_revision);
 `;
 
+const RESEARCH_GOAL_SUGGESTION_HISTORY_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS research_goal_suggestion_history (
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
+  profile_hash TEXT NOT NULL,
+  phase TEXT NOT NULL,
+  suggestion_key TEXT NOT NULL,
+  suggestion_text TEXT NOT NULL,
+  first_generated_at TEXT NOT NULL,
+  last_generated_at TEXT NOT NULL,
+  selected_at TEXT,
+  generation_count INTEGER NOT NULL DEFAULT 1 CHECK (generation_count >= 0),
+  selection_count INTEGER NOT NULL DEFAULT 0 CHECK (selection_count >= 0),
+  PRIMARY KEY (workspace_id, scope_version_id, profile_hash, phase, suggestion_key)
+);
+CREATE INDEX IF NOT EXISTS idx_research_goal_suggestion_history_recent
+ON research_goal_suggestion_history(workspace_id, scope_version_id, profile_hash, phase, last_generated_at DESC);
+`;
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workspaces (
   id TEXT PRIMARY KEY,
@@ -7853,6 +8039,7 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 
 ${RESEARCH_GOAL_SUGGESTION_CACHE_SCHEMA_SQL}
+${RESEARCH_GOAL_SUGGESTION_HISTORY_SCHEMA_SQL}
 
 CREATE TABLE IF NOT EXISTS session_activity_intervals (
   id TEXT PRIMARY KEY,

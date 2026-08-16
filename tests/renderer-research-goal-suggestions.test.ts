@@ -145,6 +145,29 @@ describe('renderer research goal suggestion cache', () => {
 
     expect(cache.read(key)).toEqual({ status: 'ready', result: stale });
   });
+
+  it('removes consumed suggestions immediately and keeps them hidden across refreshes', async () => {
+    const cache = new ResearchGoalSuggestionCache();
+    const key = requiredKey(snapshot('workspace_one', 'scope_one'));
+    const original = suggestions('original');
+    await cache.load(key, async () => original);
+
+    expect(cache.consume(key, original.suggestions[1]!)).toBe(3);
+    expect(cache.read(key)).toEqual({
+      status: 'ready',
+      result: { ...original, suggestions: [original.suggestions[0]!, ...original.suggestions.slice(2)] }
+    });
+
+    const repeated = {
+      ...suggestions('replacement'),
+      suggestions: [original.suggestions[1]!, ...suggestions('replacement').suggestions.slice(1)]
+    };
+    await cache.load(key, async () => repeated, { force: true });
+    expect(cache.read(key)).toEqual({
+      status: 'ready',
+      result: { ...repeated, suggestions: repeated.suggestions.slice(1) }
+    });
+  });
 });
 
 function snapshot(workspaceId: string, scopeId: string): WorkspaceSnapshot {

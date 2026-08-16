@@ -287,6 +287,15 @@ describe('Beale workbench skeleton', () => {
     expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 21").get()).toEqual({
       name: 'run_detail_revisions'
     });
+    expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 23").get()).toEqual({
+      name: 'durable_research_goal_suggestions'
+    });
+    expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 24").get()).toEqual({
+      name: 'research_goal_suggestion_history'
+    });
+    expect(verifiedWorkbench.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'research_goal_suggestion_history'").get()).toEqual({
+      name: 'research_goal_suggestion_history'
+    });
     verifiedWorkbench.close();
 
     const verifiedRegistry = new DatabaseSync(registryPath);
@@ -2782,12 +2791,16 @@ describe('Beale workbench skeleton', () => {
       'Examine package signature parsing for trust and algorithm-confusion vulnerabilities.',
       'Research decoder state transitions for memory-safety and lifecycle vulnerabilities.'
     ];
-    let modelCalls = 0;
+    const modelRequests: Record<string, unknown>[] = [];
     const service = new WorkspaceService(() => undefined, {
       openAiFetch: async (_url, init) => {
-        modelCalls += 1;
         const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
-        return modelGoalSuggestionResponse(request, modelCalls === 1 ? initial : refreshed, `resp_durable_goals_${modelCalls}`);
+        modelRequests.push(request);
+        return modelGoalSuggestionResponse(
+          request,
+          modelRequests.length === 1 ? initial : refreshed,
+          `resp_durable_goals_${modelRequests.length}`
+        );
       }
     });
     service.createWorkspace(workspace);
@@ -2796,17 +2809,41 @@ describe('Beale workbench skeleton', () => {
       .resolves.toEqual({ phase: 'discovery', suggestions: initial });
     await expect(service.generateResearchGoalSuggestions({ phase: 'discovery' }))
       .resolves.toEqual({ phase: 'discovery', suggestions: initial });
-    expect(modelCalls).toBe(1);
+    expect(modelRequests).toHaveLength(1);
+
+    const suggestionContext = service.getSnapshot();
+    if (!suggestionContext) throw new Error('Expected a workspace suggestion context.');
+    service.selectResearchGoalSuggestion({
+      workspaceId: suggestionContext.workspace.workspaceId,
+      scopeId: suggestionContext.activeScope.id,
+      profileHash: suggestionContext.researchProfile.profileHash,
+      phase: 'discovery',
+      suggestion: initial[0]!
+    });
+    await expect(service.generateResearchGoalSuggestions({ phase: 'discovery' }))
+      .resolves.toEqual({ phase: 'discovery', suggestions: initial.slice(1) });
+    expect(modelRequests).toHaveLength(1);
 
     startRunForTest(service, runInput('source_review'));
     await expect(service.generateResearchGoalSuggestions({ phase: 'discovery' }))
-      .resolves.toEqual({ phase: 'discovery', suggestions: initial, cacheStatus: 'stale' });
-    expect(modelCalls).toBe(1);
+      .resolves.toEqual({ phase: 'discovery', suggestions: initial.slice(1), cacheStatus: 'stale' });
+    expect(modelRequests).toHaveLength(1);
 
     await expect(service.generateResearchGoalSuggestions({ phase: 'discovery', refresh: true }))
       .resolves.toEqual({ phase: 'discovery', suggestions: refreshed });
-    expect(modelCalls).toBe(2);
+    expect(modelRequests).toHaveLength(2);
+    const refreshPayload = modelRequestPayload(modelRequests[1]!);
+    expect(refreshPayload.priorSuggestions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ suggestion: initial[0], selectionCount: 1 })
+    ]));
+    expect(modelRequests[1]?.instructions).toContain('previously selected by the researcher');
     service.close();
+
+    const persisted = new DatabaseSync(globalDatabasePath());
+    expect(persisted.prepare(
+      'SELECT suggestion_text, selection_count FROM research_goal_suggestion_history WHERE suggestion_text = ?'
+    ).get(initial[0]!)).toEqual({ suggestion_text: initial[0], selection_count: 1 });
+    persisted.close();
 
     const reopened = new WorkspaceService(() => undefined, {
       openAiFetch: async () => { throw new Error('A fresh durable suggestion cache must avoid provider calls.'); }

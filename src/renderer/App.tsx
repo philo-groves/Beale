@@ -1311,6 +1311,7 @@ export function App(): JSX.Element {
         onWorkspaceTemplate={applyOnboardingTemplate}
         onFlushProfilingReport={flushProfilingReport}
         onLoadResearchGoalSuggestions={researchGoalSuggestionState.load}
+        onSelectResearchGoalSuggestion={researchGoalSuggestionState.consume}
         onRetryResearchGoalSuggestions={researchGoalSuggestionState.retry}
         onStartedNewResearch={handleResearchStarted}
         onCancelRepeatAutomation={cancelRepeatAutomation}

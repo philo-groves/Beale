@@ -32,6 +32,7 @@ import type {
   ResearchPromptGenerationInput,
   ResearchPromptGenerationUpdate,
   ResearchGoalSuggestionInput,
+  ResearchGoalSuggestionSelectionInput,
   ResearchProviderId,
   ResearchModelProviderId,
   ResearchProviderModelCatalog,
@@ -240,6 +241,9 @@ const api: BealeApi = {
   },
   generateResearchGoalSuggestions(input: ResearchGoalSuggestionInput): Promise<GeneratedResearchGoalSuggestions> {
     return ipcRenderer.invoke(IPC_CHANNELS.generateResearchGoalSuggestions, input);
+  },
+  selectResearchGoalSuggestion(input: ResearchGoalSuggestionSelectionInput): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.selectResearchGoalSuggestion, input);
   },
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt> {
     return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt, input);

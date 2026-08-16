@@ -89,6 +89,48 @@ describe('research goal candidate selection', () => {
     }
   });
 
+  it('excludes prior suggestions before ranking the next candidate set', () => {
+    const candidates = [
+      candidate('Map parser allocation boundaries for integer overflow and memory corruption.', 'parser-memory'),
+      candidate('Audit archive path normalization for traversal across extraction boundaries.', 'archive-paths'),
+      candidate('Trace workspace ownership checks for confused-deputy authorization failures.', 'workspace-ownership'),
+      candidate('Explore metadata decoder object lifetimes for use-after-free conditions.', 'metadata-lifetime'),
+      candidate('Review package signature transitions for trust-confusion vulnerabilities.', 'package-trust'),
+      candidate('Assess update manifest parsing for canonicalization and trust-boundary weaknesses.', 'update-trust')
+    ];
+    const selection = parseAndSelectResearchGoalCandidates(JSON.stringify({ candidates }), {
+      workflow: WORKFLOW,
+      suggestionCount: 3,
+      candidateCount: 6,
+      allowedGroundingRefs: new Set(['workspace:scope']),
+      previousResearchTexts: [],
+      priorSuggestionTexts: [candidates[0]!.goal],
+      relevanceTexts: []
+    });
+
+    expect(selection.rejectedPriorSuggestions).toBe(1);
+    expect(selection.candidates).toHaveLength(5);
+    expect(selection.result.suggestions).not.toContain(candidates[0]!.goal);
+  });
+
+  it('rejects a response that leaves too few candidates after prior-suggestion filtering', () => {
+    const candidates = [
+      candidate('Map parser allocation boundaries for integer overflow and memory corruption.', 'parser-memory'),
+      candidate('Audit archive path normalization for traversal across extraction boundaries.', 'archive-paths'),
+      candidate('Trace workspace ownership checks for confused-deputy authorization failures.', 'workspace-ownership')
+    ];
+
+    expect(() => parseAndSelectResearchGoalCandidates(JSON.stringify({ candidates }), {
+      workflow: WORKFLOW,
+      suggestionCount: 3,
+      candidateCount: 3,
+      allowedGroundingRefs: new Set(['workspace:scope']),
+      previousResearchTexts: [],
+      priorSuggestionTexts: [candidates[0]!.goal],
+      relevanceTexts: []
+    })).toThrow(/repeated prior suggestions/i);
+  });
+
   it('discards invalid surplus candidates without weakening selected-candidate grounding', () => {
     const candidates = [
       candidate('Map parser allocation boundaries for integer overflow and memory corruption.', 'parser-memory'),

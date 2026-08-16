@@ -23,6 +23,7 @@ export interface ResearchGoalCandidateSelectionInput {
   allowedGroundingRefs: ReadonlySet<string>;
   requiredGroundingRefs?: ReadonlySet<string>;
   previousResearchTexts: readonly string[];
+  priorSuggestionTexts?: readonly string[];
   relevanceTexts: readonly string[];
 }
 
@@ -32,6 +33,7 @@ export interface ResearchGoalCandidateSelection {
   selected: ResearchGoalCandidate[];
   rejectedInvalidCandidates: number;
   rejectedSemanticDuplicates: number;
+  rejectedPriorSuggestions: number;
 }
 
 export function researchGoalCandidateCount(suggestionCount: number): number {
@@ -92,14 +94,27 @@ export function parseAndSelectResearchGoalCandidates(
   }
   const candidates: ResearchGoalCandidate[] = [];
   const invalidCandidateErrors: Error[] = [];
+  let rejectedPriorSuggestions = 0;
   rawCandidates.forEach((value, index) => {
     try {
-      candidates.push(parseCandidate(value, index, input));
+      const candidate = parseCandidate(value, index, input);
+      const priorSimilarity = (input.priorSuggestionTexts ?? []).reduce(
+        (maximum, prior) => Math.max(maximum, semanticGoalSimilarity(candidate.goal, prior)),
+        0
+      );
+      if (priorSimilarity >= SEMANTIC_DUPLICATE_THRESHOLD) {
+        rejectedPriorSuggestions += 1;
+      } else {
+        candidates.push(candidate);
+      }
     } catch (error) {
       invalidCandidateErrors.push(error instanceof Error ? error : new Error(String(error)));
     }
   });
   if (candidates.length < input.suggestionCount) {
+    if (rejectedPriorSuggestions > 0) {
+      throw new Error(`${input.workflow.name} research goal recommendations repeated prior suggestions.`);
+    }
     throw invalidCandidateErrors[0]
       ?? new Error(`${input.workflow.name} research goal recommendations did not contain enough valid candidates.`);
   }
@@ -133,7 +148,8 @@ export function parseAndSelectResearchGoalCandidates(
     candidates,
     selected,
     rejectedInvalidCandidates: invalidCandidateErrors.length,
-    rejectedSemanticDuplicates
+    rejectedSemanticDuplicates,
+    rejectedPriorSuggestions
   };
 }
 

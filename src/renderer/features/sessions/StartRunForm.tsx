@@ -123,6 +123,7 @@ export function StartRunForm({
   runAction,
   onCancel,
   onLoadResearchGoalSuggestions = () => undefined,
+  onSelectResearchGoalSuggestion = () => undefined,
   onRetryResearchGoalSuggestions,
   onStarted
 }: {
@@ -141,6 +142,7 @@ export function StartRunForm({
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
   onCancel: () => void;
   onLoadResearchGoalSuggestions?: (phase: ResearchGoalPhase) => void;
+  onSelectResearchGoalSuggestion?: (phase: ResearchGoalPhase, suggestion: string) => void;
   onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStarted: (runId: string) => void;
 }): JSX.Element {
@@ -299,6 +301,7 @@ export function StartRunForm({
   };
 
   const selectGoalSentence = (sentence: string, phase: ResearchGoalPhase): void => {
+    onSelectResearchGoalSuggestion(phase, sentence);
     cancelPromptGeneration();
     setEditorStage('goal');
     setGenerationError(null);

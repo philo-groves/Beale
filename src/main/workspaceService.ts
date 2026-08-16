@@ -124,6 +124,7 @@ import type {
   WorkspaceScopeVersion,
   ResearchGoalPhase,
   ResearchGoalSuggestionInput,
+  ResearchGoalSuggestionSelectionInput,
   ResearchPromptGenerationInput,
   RunDetail,
   RunDetailUpdate,
@@ -338,7 +339,9 @@ function researchGoalSuggestionInstructions(
   workflow: ResearchProfileWorkflow,
   suggestionCount: number,
   candidateCount: number,
-  sourceRunId: string | null = null
+  sourceRunId: string | null = null,
+  priorSuggestionCount = 0,
+  selectedPriorSuggestionCount = 0
 ): string {
   const profile = profileSnapshot.profile;
   const groundingSources = [
@@ -357,6 +360,11 @@ function researchGoalSuggestionInstructions(
     ...boundedProfileInstructionList(workflow.goalSuggestionInstructions),
     ...(sourceRunId
       ? [`Focus every suggestion on a concrete next step that follows from the completed source session ${boundedProfileText(sourceRunId, 240)}. Use that session's prompt, outcome, summary, evidence, and unresolved threads as the primary grounding; use other workspace context only to sharpen those next steps.`]
+      : []),
+    ...(priorSuggestionCount > 0
+      ? [
+          `The payload includes ${priorSuggestionCount} prior suggestion${priorSuggestionCount === 1 ? '' : 's'}, including ${selectedPriorSuggestionCount} previously selected by the researcher. Do not repeat or closely paraphrase any prior suggestion. Use selected suggestions as evidence of researcher direction and advance into materially different, complementary next work.`
+        ]
       : []),
     ...workflow.outputRequirements.slice(0, 16).map((requirement) => `The resulting session must satisfy: ${boundedProfileText(requirement, 1_000)}`),
     `Generate exactly ${candidateCount} candidates so the host can select the strongest ${suggestionCount}.`,
@@ -1801,6 +1809,29 @@ export class WorkspaceService {
     return result;
   }
 
+  public selectResearchGoalSuggestion(input: ResearchGoalSuggestionSelectionInput): void {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) throw new Error('No Beale workspace is open');
+    const workspaceId = input.workspaceId.trim();
+    const scopeId = input.scopeId.trim();
+    const profileHash = input.profileHash.trim();
+    const phase = input.phase.trim();
+    const suggestion = input.suggestion.replace(/\s+/g, ' ').trim();
+    if (!workspaceId || !scopeId || !profileHash || !phase || !suggestion) {
+      throw new Error('Research goal suggestion selection is incomplete.');
+    }
+    const scope = runtime.db.getActiveScope();
+    if (runtime.db.getWorkspaceId() !== workspaceId || scope.id !== scopeId) {
+      throw new Error('Research goal suggestion selection no longer matches the active workspace context.');
+    }
+    runtime.db.selectResearchGoalSuggestion({
+      scopeId,
+      profileHash,
+      phase,
+      suggestion
+    });
+  }
+
   public async generateResearchGoalSuggestions(
     input: ResearchGoalSuggestionInput
   ): Promise<GeneratedResearchGoalSuggestions> {
@@ -1839,6 +1870,9 @@ export class WorkspaceService {
         };
       }
     }
+    const priorSuggestionHistory = sourceRunId
+      ? []
+      : db.listResearchGoalSuggestionHistory(scope.id, profileSnapshot.profileHash, workflow.id, 64);
     const sourceProvider = sourceRun && isResearchModelProviderId(sourceRun.budget.modelProvider)
       ? sourceRun.budget.modelProvider
       : null;
@@ -1908,9 +1942,26 @@ export class WorkspaceService {
       sourceRunId,
       researchPhase: workflow.id,
       suggestionCount,
-      candidateCount
+      candidateCount,
+      priorSuggestions: priorSuggestionHistory.map((entry) => ({
+        suggestion: entry.suggestion,
+        generatedAt: entry.lastGeneratedAt,
+        selectedAt: entry.selectedAt,
+        generationCount: entry.generationCount,
+        selectionCount: entry.selectionCount
+      }))
     });
-    const promptCacheKey = researchGoalPromptCacheKey(db.getWorkspaceId(), scope.id, profileSnapshot.profileHash, contextRevision, workflow.id);
+    const suggestionHistoryRevision = priorSuggestionHistory
+      .map((entry) => `${entry.lastGeneratedAt}:${entry.selectedAt ?? ''}:${entry.generationCount}:${entry.selectionCount}`)
+      .join('|');
+    const promptCacheKey = researchGoalPromptCacheKey(
+      db.getWorkspaceId(),
+      scope.id,
+      profileSnapshot.profileHash,
+      contextRevision,
+      workflow.id,
+      suggestionHistoryRevision
+    );
     this.recordProfilingMainTiming('goalSuggestions.input', 0, {
       phase,
       provider: route.provider,
@@ -1930,7 +1981,9 @@ export class WorkspaceService {
           workflow,
           suggestionCount,
           candidateCount,
-          sourceRunId
+          sourceRunId,
+          priorSuggestionHistory.length,
+          priorSuggestionHistory.filter((entry) => entry.selectedAt).length
         );
         const instructions = attempt === 0
           ? phaseInstructions
@@ -1994,6 +2047,7 @@ export class WorkspaceService {
             allowedGroundingRefs: grounding.allowedRefs,
             requiredGroundingRefs: grounding.requiredRefs,
             previousResearchTexts: grounding.previousResearchTexts,
+            priorSuggestionTexts: priorSuggestionHistory.map((entry) => entry.suggestion),
             relevanceTexts: grounding.relevanceTexts
           });
           generated = selection.result;
@@ -2003,7 +2057,8 @@ export class WorkspaceService {
             candidates: selection.candidates.length,
             selected: selection.selected.length,
             invalidCandidates: selection.rejectedInvalidCandidates,
-            semanticDuplicates: selection.rejectedSemanticDuplicates
+            semanticDuplicates: selection.rejectedSemanticDuplicates,
+            priorSuggestionDuplicates: selection.rejectedPriorSuggestions
           });
         } catch (error) {
           validationFeedback = errorMessage(error);
@@ -5135,10 +5190,11 @@ function researchGoalPromptCacheKey(
   scopeId: string,
   profileHash: string,
   contextRevision: string,
-  workflowId: string
+  workflowId: string,
+  suggestionHistoryRevision = ''
 ): string {
   const digest = createHash('sha256')
-    .update([workspaceId, scopeId, profileHash, contextRevision, workflowId].join('\0'))
+    .update([workspaceId, scopeId, profileHash, contextRevision, workflowId, suggestionHistoryRevision].join('\0'))
     .digest('hex')
     .slice(0, 24);
   return `goal-suggestions-${digest}`;

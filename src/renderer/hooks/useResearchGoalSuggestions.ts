@@ -35,6 +35,7 @@ export interface ResearchGoalSuggestionsState {
   errors: ResearchGoalSuggestionStateByPhase<string | null>;
   load: (phase: ResearchGoalPhase) => void;
   retry: (phase: ResearchGoalPhase) => void;
+  consume: (phase: ResearchGoalPhase, suggestion: string) => void;
 }
 
 export function useResearchGoalSuggestions(
@@ -145,6 +146,27 @@ export function useResearchGoalSuggestions(
   }, [cancelRequest]);
 
   const retry = useCallback((phase: ResearchGoalPhase) => loadSuggestions(phase, true), [loadSuggestions]);
+  const consume = useCallback((phase: ResearchGoalPhase, suggestion: string): void => {
+    const key = phaseCacheKey(suggestionContextKey, phase);
+    if (!key) return;
+    const remaining = cache.consume(key, suggestion);
+    setRequestStates((current) => ({ ...current }));
+    if (!snapshot) return;
+    const selection = window.beale.selectResearchGoalSuggestion({
+      workspaceId: snapshot.workspace.workspaceId,
+      scopeId: snapshot.activeScope.id,
+      profileHash: snapshot.researchProfile.profileHash,
+      phase,
+      suggestion
+    });
+    if (remaining === 0) {
+      void selection
+        .then(() => loadSuggestionsRef.current(phase, true))
+        .catch(() => undefined);
+      return;
+    }
+    void selection.catch(() => undefined);
+  }, [cache, snapshot, suggestionContextKey]);
   const suggestions: ResearchGoalSuggestionsByPhase = {};
   const loading: ResearchGoalSuggestionStateByPhase<boolean> = {};
   const errors: ResearchGoalSuggestionStateByPhase<string | null> = {};
@@ -159,7 +181,7 @@ export function useResearchGoalSuggestions(
     errors[phase] = stateMatchesKey ? requestState.error : null;
   }
 
-  return { suggestions, loading, errors, load: loadSuggestions, retry };
+  return { suggestions, loading, errors, load: loadSuggestions, retry, consume };
 }
 
 function phaseCacheKey(activeKey: string | null, phase: ResearchGoalPhase): string | null {

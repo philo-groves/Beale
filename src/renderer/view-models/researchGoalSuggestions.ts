@@ -73,6 +73,7 @@ export function researchGoalSuggestionRevision(
 
 export class ResearchGoalSuggestionCache {
   private readonly entries = new Map<string, CacheEntry>();
+  private readonly hiddenSuggestions = new Map<string, Set<string>>();
 
   public read(key: string | null): ResearchGoalSuggestionCacheState {
     if (!key) return IDLE_STATE;
@@ -107,10 +108,11 @@ export class ResearchGoalSuggestionCache {
         : { status: 'loading' as const }),
       promise: Promise.resolve(loaded).then(
         (result) => {
+          const visibleResult = this.visibleResult(key, result);
           if (this.entries.get(key) === pending) {
-            this.entries.set(key, { status: 'ready', promise: pending.promise, result });
+            this.entries.set(key, { status: 'ready', promise: pending.promise, result: visibleResult });
           }
-          return result;
+          return visibleResult;
         },
         (error: unknown) => {
           if (this.entries.get(key) === pending) {
@@ -135,7 +137,33 @@ export class ResearchGoalSuggestionCache {
     this.entries.delete(key);
   }
 
+  public consume(key: string, suggestion: string): number | null {
+    const identity = suggestionIdentity(suggestion);
+    if (!identity) return null;
+    const hidden = this.hiddenSuggestions.get(key) ?? new Set<string>();
+    hidden.add(identity);
+    this.hiddenSuggestions.set(key, hidden);
+    const entry = this.entries.get(key);
+    if (!entry || entry.status === 'loading') return null;
+    const result = this.visibleResult(key, entry.result);
+    entry.result = result;
+    if (entry.status === 'ready') entry.promise = Promise.resolve(result);
+    return result.suggestions.length;
+  }
+
   public clear(): void {
     this.entries.clear();
+    this.hiddenSuggestions.clear();
   }
+
+  private visibleResult(key: string, result: GeneratedResearchGoalSuggestions): GeneratedResearchGoalSuggestions {
+    const hidden = this.hiddenSuggestions.get(key);
+    if (!hidden?.size) return result;
+    const suggestions = result.suggestions.filter((suggestion) => !hidden.has(suggestionIdentity(suggestion)));
+    return suggestions.length === result.suggestions.length ? result : { ...result, suggestions };
+  }
+}
+
+function suggestionIdentity(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
 }

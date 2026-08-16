@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Selected New Research suggestions now disappear immediately, remain removed from Honeycrisp's durable cache, and inform subsequent generation through workspace-scoped selection history and semantic duplicate filtering.
 - Beale introspection no longer exposes workspace creation, accepts only registered workspace selectors, or changes the foreground workspace while viewing and editing resources; expired HTTP tool requests are canceled before dispatch.
 - Live Honeycrisp trace mirrors are now serialized into bounded asynchronous batches instead of synchronously spawning a growing session rewrite for every WebSocket event on Electron's main thread.
 - A transient `session.get_update` timeout no longer replaces an already loaded session with a global renderer error; live detail refreshes retain the current view and retry with bounded backoff.

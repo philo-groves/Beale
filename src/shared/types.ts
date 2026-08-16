@@ -1146,6 +1146,14 @@ export interface ResearchGoalSuggestionInput {
   refresh?: boolean;
 }
 
+export interface ResearchGoalSuggestionSelectionInput {
+  workspaceId: string;
+  scopeId: string;
+  profileHash: string;
+  phase: ResearchGoalPhase;
+  suggestion: string;
+}
+
 export interface ResearchPromptGenerationUpdate {
   requestId: string;
   promptMarkdown: string;
@@ -1629,6 +1637,7 @@ export interface BealeApi {
   getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;
   updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate): Promise<HoneycrispToolingSummary>;
   generateResearchGoalSuggestions(input: ResearchGoalSuggestionInput): Promise<GeneratedResearchGoalSuggestions>;
+  selectResearchGoalSuggestion(input: ResearchGoalSuggestionSelectionInput): Promise<void>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;

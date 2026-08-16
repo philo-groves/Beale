@@ -14,6 +14,7 @@ import type {
   WorkspaceOnboardingSkipInput,
   WorkspaceScopeDraft,
   ResearchGoalSuggestionInput,
+  ResearchGoalSuggestionSelectionInput,
   ResearchPromptGenerationInput,
   ResearchProviderId,
   ResearchModelProviderId,
@@ -592,6 +593,9 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.generateResearchGoalSuggestions, (_event, input: ResearchGoalSuggestionInput) =>
     timedMainIpcAsync('generateResearchGoalSuggestions', {}, () => workspaceService.generateResearchGoalSuggestions(input))
+  );
+  ipcMain.handle(IPC_CHANNELS.selectResearchGoalSuggestion, (_event, input: ResearchGoalSuggestionSelectionInput) =>
+    timedMainIpc('selectResearchGoalSuggestion', {}, () => workspaceService.selectResearchGoalSuggestion(input))
   );
   ipcMain.handle(IPC_CHANNELS.generateResearchPrompt, (event, input?: ResearchPromptGenerationInput) =>
     timedMainIpcAsync('generateResearchPrompt', { hasInput: Boolean(input) }, () =>
