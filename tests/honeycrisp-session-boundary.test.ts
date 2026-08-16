@@ -8,7 +8,8 @@ import { importHoneycrispSessionCapture } from '../src/main/honeycrispCliClient'
 import {
   createHoneycrispSessionBoundary,
   flushHoneycrispSessionWrites,
-  getHoneycrispRunDetailForClient
+  getHoneycrispRunDetailForClient,
+  getHoneycrispRunDetailUpdateForClient
 } from '../src/main/honeycrispSessionBoundary';
 import { WorkspaceService } from '../src/main/workspaceService';
 import { resolvedTestResearchProfile } from './researchProfileFixture';
@@ -112,6 +113,87 @@ describe('Honeycrisp session persistence boundary', () => {
       expect(traceBatches[0]?.payload?.records).toHaveLength(3);
     } finally {
       inspection.close();
+      database.close();
+    }
+  }, 15_000);
+
+  it('does not replay a prior attempt final response while a continuation is active', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-active-continuation-'));
+    createdDirectories.push(directory);
+    const databasePath = join(directory, 'memory.sqlite');
+    const artifactRoot = join(directory, '.beale', 'artifacts');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    configureRealHoneycrisp();
+
+    const rawDatabase = new WorkspaceDatabase(databasePath, artifactRoot, {
+      workspacePath: directory,
+      workspaceId: 'workspace_active_continuation'
+    });
+    rawDatabase.initialize();
+    const database = createHoneycrispSessionBoundary(rawDatabase);
+    const context = database.createRun({
+      scopeVersionId: database.getActiveScope().id,
+      title: 'Interrupted Honeycrisp session',
+      promptMarkdown: 'Inspect the parser.',
+      shellSafetyMode: 'auto_review',
+      mode: 'open_discovery',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      attemptStrategy: 'iterative_research',
+      sandboxProfile: 'host',
+      budget: { runEngine: 'honeycrisp' }
+    });
+
+    try {
+      const capturePath = join(directory, 'aborted-capture.json');
+      writeFileSync(capturePath, JSON.stringify({
+        schemaVersion: 5,
+        capturedAt: '2026-08-16T21:00:00.000Z',
+        request: { prompt: 'Inspect the parser.' },
+        agent: {
+          id: 'agent_aborted',
+          status: 'error',
+          executorName: 'fixture',
+          startedAt: '2026-08-16T20:59:00.000Z',
+          completedAt: '2026-08-16T21:00:00.000Z',
+          outputText: 'Request was aborted'
+        },
+        eventTimeline: []
+      }));
+      importHoneycrispSessionCapture(context.run.id, context.attempt.id, capturePath, {
+        databasePath,
+        artifactDirectoryPath: join(dirname(databasePath), 'artifacts')
+      });
+      const failedDetail = database.getRunDetail(context.run.id);
+      expect(failedDetail.run.status).toBe('failed');
+      expect(failedDetail.transcriptMessages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ phase: 'final_answer', contentMarkdown: 'Request was aborted' })
+      ]));
+
+      database.createAttempt({
+        runId: context.run.id,
+        parentAttemptId: context.attempt.id,
+        status: 'active',
+        shortState: 'Continue after interruption.',
+        strategyRole: 'session_continuation'
+      });
+      const activeDetail = database.getRunDetail(context.run.id);
+      expect(activeDetail.run.status).toBe('active');
+      expect(activeDetail.transcriptMessages.some((message) =>
+        message.phase === 'final_answer' && message.contentMarkdown === 'Request was aborted'
+      )).toBe(false);
+
+      const latestTrace = activeDetail.traceEvents.at(-1);
+      const update = await getHoneycrispRunDetailUpdateForClient(database, context.run.id, {
+        afterTraceSequence: latestTrace?.sequence ?? -1,
+        afterTranscriptCount: activeDetail.transcriptMessages.length,
+        afterTraceEventId: typeof latestTrace?.payload.honeycrispSessionEventId === 'string'
+          ? latestTrace.payload.honeycrispSessionEventId
+          : latestTrace?.id ?? null
+      });
+      expect(update?.run.status).toBe('active');
+      expect(update?.transcriptMessages).toEqual([]);
+    } finally {
       database.close();
     }
   }, 15_000);
@@ -456,6 +538,50 @@ describe('Honeycrisp session persistence boundary', () => {
     expect(unchanged.recovery.interruptedRuns).toBe(0);
     expect(unchanged.runs.find(({ run }) => run.id === interrupted.run.id)?.run.status).toBe('paused');
     reopenedAgain.close();
+  }, 20_000);
+
+  it('reconciles stale active sidebar sessions on startup without opening their workspace', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-registry-recovery-workspace-'));
+    const registry = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-registry-recovery-registry-'));
+    createdDirectories.push(workspace, registry);
+    configureRealHoneycrisp();
+
+    const initial = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: registry,
+      researchProfileResolver: () => resolvedTestResearchProfile()
+    });
+    initial.createWorkspace(workspace);
+    const database = (initial as unknown as { db: WorkspaceDatabase }).db;
+    const interrupted = database.createRun({
+      scopeVersionId: database.getActiveScope().id,
+      title: 'Cached active session',
+      promptMarkdown: 'Recover this session before rendering the startup sidebar.',
+      shellSafetyMode: 'auto_review',
+      mode: 'open_discovery',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      attemptStrategy: 'iterative_research',
+      sandboxProfile: 'host',
+      budget: { runEngine: 'honeycrisp' }
+    });
+    expect(initial.getWorkspaceRegistryState().researchSessions).toContainEqual(
+      expect.objectContaining({ runId: interrupted.run.id, status: 'active' })
+    );
+    initial.close();
+
+    const restarted = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: registry,
+      researchProfileResolver: () => resolvedTestResearchProfile()
+    });
+    const startupRegistry = await restarted.getWorkspaceRegistryStateForClient();
+    expect(restarted.getSnapshot()).toBeNull();
+    expect(startupRegistry.researchSessions).toContainEqual(
+      expect.objectContaining({ runId: interrupted.run.id, status: 'paused' })
+    );
+
+    const opened = restarted.openWorkspace(workspace);
+    expect(opened.runs.find(({ run }) => run.id === interrupted.run.id)?.run.status).toBe('paused');
+    restarted.close();
   }, 20_000);
 });
 

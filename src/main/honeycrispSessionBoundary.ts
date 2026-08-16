@@ -670,6 +670,31 @@ export function isHoneycrispSessionBoundary(database: WorkspaceDatabase): boolea
   return BOUNDARIES.has(database);
 }
 
+export function markHoneycrispSessionInterrupted(
+  database: WorkspaceDatabase,
+  runId: string,
+  attemptId: string,
+  reason = 'app_shutdown'
+): boolean {
+  const context = BOUNDARY_CONTEXTS.get(database);
+  if (!context?.ownedRunIds.has(runId)) return false;
+  const recoveredAt = new Date().toISOString();
+  transitionHoneycrispSession(runId, {
+    status: 'paused',
+    summary: 'Paused after Beale closed the active Honeycrisp process.',
+    attemptId,
+    at: recoveredAt,
+    metadata: {
+      interruptedByRecovery: true,
+      recoveryReason: reason,
+      recoveredAt,
+      previousStatus: 'active',
+      recoveredAttemptIds: [attemptId]
+    }
+  }, context.storage);
+  return true;
+}
+
 export async function flushHoneycrispSessionWrites(database: WorkspaceDatabase, runId?: string): Promise<void> {
   await BOUNDARY_CONTEXTS.get(database)?.traceWrites.flush(runId);
 }
@@ -834,7 +859,11 @@ function sessionDetail(
       createdAt: recovery.recoveredAt
     });
   }
-  if (session.finalResponse && !transcripts.some((message) => message.role === 'assistant' && message.phase === 'final_answer')) {
+  if (
+    session.status !== 'active' &&
+    session.finalResponse &&
+    !transcripts.some((message) => message.role === 'assistant' && message.phase === 'final_answer')
+  ) {
     transcripts.push({
       id: `transcript_final_${session.id}_${session.revision}`,
       runId: session.id,

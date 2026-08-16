@@ -47,10 +47,12 @@ import {
   getHoneycrispProviderSemantics,
   getHoneycrispReportDocument,
   getHoneycrispRunbookDocument,
+  listHoneycrispSessionSummariesAsync,
   parseHoneycrispMemoryDreamingPlan,
   prepareHoneycrispMemoryDreaming,
   recordHoneycrispMemoryDreamingFailure,
   recoverInterruptedHoneycrispSessions,
+  recoverInterruptedHoneycrispSessionsAsync,
   resolveHoneycrispArtifact,
   resolveHoneycrispAuxiliaryModelRoute,
   resolveHoneycrispStoragePaths,
@@ -611,6 +613,7 @@ export class WorkspaceService {
   private readonly onboardingRepositoryJobs = new Map<string, WorkspaceOnboardingRepositoryJob>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
   private readonly githubOrganizationRepositoryCache = new Map<string, GitHubRepositorySummary[]>();
+  private registryLifecycleReconciliation: Promise<void> | null = null;
 
   public constructor(
     private readonly onChange: (change: WorkspaceChange) => void = () => undefined,
@@ -647,6 +650,16 @@ export class WorkspaceService {
   public getWorkspaceRegistryState(): WorkspaceRegistryState {
     const registry = this.getWorkspaceRegistry();
     this.syncWorkspaceRegistry();
+    return registry.getState();
+  }
+
+  public async getWorkspaceRegistryStateForClient(): Promise<WorkspaceRegistryState> {
+    const registry = this.getWorkspaceRegistry();
+    this.syncWorkspaceRegistry();
+    if (!this.registryLifecycleReconciliation) {
+      this.registryLifecycleReconciliation = this.reconcileCachedActiveSessions(registry);
+    }
+    await this.registryLifecycleReconciliation;
     return registry.getState();
   }
 
@@ -2709,6 +2722,17 @@ export class WorkspaceService {
   }
 
   public steerRun(action: SteeringAction): WorkspaceSnapshot {
+    return this.applySteeringAction(action, false) as WorkspaceSnapshot;
+  }
+
+  public async steerRunForClient(action: SteeringAction): Promise<WorkspaceSnapshot> {
+    return await this.applySteeringAction(action, true);
+  }
+
+  private applySteeringAction(
+    action: SteeringAction,
+    waitForContinuationTransport: boolean
+  ): WorkspaceSnapshot | Promise<WorkspaceSnapshot> {
     const foregroundRuntime = this.getForegroundRuntime();
     if (!foregroundRuntime) throw new Error('No Beale workspace is open');
     if (action.type === 'review_shell_command') {
@@ -2730,6 +2754,7 @@ export class WorkspaceService {
     }
     const attempt = db.getRunDetail(action.runId).attempts.at(-1) ?? null;
     const runEngine = stringFromRecord(run.budget, 'runEngine');
+    let continuationTransportReady: Promise<boolean> | null = null;
 
     switch (action.type) {
       case 'pause': {
@@ -2815,7 +2840,9 @@ export class WorkspaceService {
           ? this.honeycrispEngine?.steer(action.runId, instruction, action.modelSelection) ?? null
           : null;
         if (runEngine === 'honeycrisp' && !honeycrispDispatch) {
-          this.requireHoneycrispEngine().extendRun(action.runId, instruction);
+          continuationTransportReady = this.requireHoneycrispEngine()
+            .extendRun(action.runId, instruction)
+            .transportReady;
           break;
         }
         const steeringTrace = db.appendTraceEvent({
@@ -3028,8 +3055,63 @@ export class WorkspaceService {
       }
     }
 
+    if (waitForContinuationTransport && continuationTransportReady) {
+      return continuationTransportReady.then(() => {
+        this.emitChangeNow();
+        return this.requireSnapshot();
+      });
+    }
     this.emitChange();
     return this.requireSnapshot();
+  }
+
+  private async reconcileCachedActiveSessions(registry: WorkspaceRegistry): Promise<void> {
+    const state = registry.getState();
+    const activeSessions = state.researchSessions.filter(
+      (session) => session.runEngine === 'honeycrisp' && session.status === 'active'
+    );
+    const groups = new Map<string, { profileId: ResearchProfileId; workspaceId: string; runIds: string[] }>();
+    for (const session of activeSessions) {
+      const workspace = state.workspaces.find((candidate) => candidate.id === session.registryWorkspaceId);
+      if (!workspace) continue;
+      const runtime = this.runtimeForWorkspacePath(workspace.workspacePath);
+      if (runtime?.honeycrispEngine.hasActiveRuns()) continue;
+      const key = `${workspace.researchProfileId}\0${session.workspaceId}`;
+      const group = groups.get(key) ?? {
+        profileId: workspace.researchProfileId,
+        workspaceId: session.workspaceId,
+        runIds: []
+      };
+      group.runIds.push(session.runId);
+      groups.set(key, group);
+    }
+
+    await Promise.all([...groups.values()].map(async ({ profileId, workspaceId, runIds }) => {
+      const storage = {
+        databasePath: this.globalHoneycrispDatabasePath(profileId),
+        artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(profileId)
+      };
+      try {
+        await recoverInterruptedHoneycrispSessionsAsync(
+          workspaceId,
+          { reason: 'app_startup', at: new Date().toISOString() },
+          storage
+        );
+        const sessions = await listHoneycrispSessionSummariesAsync(workspaceId, storage);
+        registry.reconcileHoneycrispSessions(profileId, workspaceId, sessions);
+        const canonicalIds = new Set(sessions.map((session) => session.id));
+        registry.markHoneycrispSessionsInterrupted(
+          profileId,
+          workspaceId,
+          runIds.filter((runId) => !canonicalIds.has(runId))
+        );
+      } catch {
+        // A fresh Beale process cannot own these cached active sessions. Keep the
+        // sidebar conservative even if Honeycrisp is temporarily unavailable;
+        // opening the workspace performs canonical recovery again.
+        registry.markHoneycrispSessionsInterrupted(profileId, workspaceId, runIds);
+      }
+    }));
   }
 
   public async removeProvider(providerId: ResearchModelProviderId): Promise<ProviderSettings> {

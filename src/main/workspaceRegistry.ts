@@ -24,6 +24,7 @@ import type {
   RunStatus,
   WorkspaceSnapshot
 } from '@shared/types';
+import type { HoneycrispSessionSummary } from './honeycrispCliClient';
 import type { ResearchProfileId } from '@shared/types';
 import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, isResearchProfileId, MEMORY_NODE_TYPES } from '../shared/types';
 import { isOptionalProviderModel, isOptionalProviderModelEnabled } from '../shared/optionalProviderModels';
@@ -324,6 +325,78 @@ export class WorkspaceRegistry {
         row,
         sessionUpdatedAt(row)
       );
+    }
+  }
+
+  public reconcileHoneycrispSessions(
+    researchProfileId: ResearchProfileId,
+    workspaceId: string,
+    sessions: readonly HoneycrispSessionSummary[]
+  ): void {
+    const update = this.db.prepare(`
+      UPDATE research_sessions SET
+        title = ?,
+        status = ?,
+        summary = ?,
+        model = ?,
+        reasoning_effort = ?,
+        started_at = ?,
+        ended_at = ?,
+        updated_at = ?
+      WHERE research_profile_id = ?
+        AND workspace_id = ?
+        AND run_id = ?
+        AND run_engine = 'honeycrisp'
+    `);
+    this.db.exec('BEGIN IMMEDIATE;');
+    try {
+      for (const session of sessions) {
+        update.run(
+          session.title,
+          session.status,
+          session.summary,
+          session.model,
+          session.reasoningEffort,
+          session.startedAt,
+          session.endedAt,
+          session.updatedAt,
+          researchProfileId,
+          workspaceId,
+          session.id
+        );
+      }
+      this.db.exec('COMMIT;');
+    } catch (error) {
+      this.db.exec('ROLLBACK;');
+      throw error;
+    }
+  }
+
+  public markHoneycrispSessionsInterrupted(
+    researchProfileId: ResearchProfileId,
+    workspaceId: string,
+    runIds: readonly string[],
+    updatedAt = nowIso()
+  ): void {
+    const update = this.db.prepare(`
+      UPDATE research_sessions SET
+        status = 'paused',
+        summary = 'Paused because no active Beale runtime owns this session.',
+        ended_at = NULL,
+        updated_at = ?
+      WHERE research_profile_id = ?
+        AND workspace_id = ?
+        AND run_id = ?
+        AND run_engine = 'honeycrisp'
+        AND status = 'active'
+    `);
+    this.db.exec('BEGIN IMMEDIATE;');
+    try {
+      for (const runId of runIds) update.run(updatedAt, researchProfileId, workspaceId, runId);
+      this.db.exec('COMMIT;');
+    } catch (error) {
+      this.db.exec('ROLLBACK;');
+      throw error;
     }
   }
 

@@ -475,7 +475,9 @@ function registerIpc(): void {
         }
       : workspaceService.inspectWorkspaceDirectory(path);
   });
-  ipcMain.handle(IPC_CHANNELS.getWorkspaceRegistry, () => timedMainIpc('getWorkspaceRegistry', {}, () => workspaceService.getWorkspaceRegistryState()));
+  ipcMain.handle(IPC_CHANNELS.getWorkspaceRegistry, () =>
+    timedMainIpcAsync('getWorkspaceRegistry', {}, () => workspaceService.getWorkspaceRegistryStateForClient())
+  );
   ipcMain.handle(IPC_CHANNELS.getDeveloperSettings, () => workspaceService.getDeveloperSettings());
   ipcMain.handle(IPC_CHANNELS.setDeveloperModeEnabled, (_event, enabled: boolean) => workspaceService.setDeveloperModeEnabled(enabled));
   ipcMain.handle(IPC_CHANNELS.getProviderSettings, () => workspaceService.getProviderSettings());
@@ -652,7 +654,7 @@ function registerIpc(): void {
     )
   );
   ipcMain.handle(IPC_CHANNELS.steerRun, (_event, action: SteeringAction) =>
-    timedMainIpc('steerRun', { type: action.type, run: shortMetricId(action.runId) }, () => workspaceService.steerRun(action))
+    timedMainIpcAsync('steerRun', { type: action.type, run: shortMetricId(action.runId) }, () => workspaceService.steerRunForClient(action))
   );
   ipcMain.handle(IPC_CHANNELS.openNotification, (_event, notificationId: string) => workspaceService.openNotification(notificationId));
   ipcMain.handle(IPC_CHANNELS.dismissNotification, (_event, notificationId: string) => workspaceService.dismissNotification(notificationId));

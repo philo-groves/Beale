@@ -43,7 +43,7 @@ import {
   parseHoneycrispTransportBootstrap
 } from './honeycrispWebSocketClient';
 import { resolveHoneycrispInvocation, type HoneycrispInvocation } from './honeycrispInvocation';
-import { isHoneycrispSessionBoundary } from './honeycrispSessionBoundary';
+import { isHoneycrispSessionBoundary, markHoneycrispSessionInterrupted } from './honeycrispSessionBoundary';
 export { resolveHoneycrispInvocation } from './honeycrispInvocation';
 export type { HoneycrispInvocation } from './honeycrispInvocation';
 
@@ -848,6 +848,24 @@ export class HoneycrispRunEngine {
       active.webSocketClient = null;
       webSocketClient?.close();
       signalHoneycrispProcess(active.child, 'SIGTERM');
+      const interruptedSummary = 'Paused after Beale closed the active Honeycrisp process.';
+      try {
+        const canonical = markHoneycrispSessionInterrupted(
+          this.db,
+          active.context.run.id,
+          active.context.attempt.id
+        );
+        if (!canonical) {
+          this.db.updateAttemptState(active.context.attempt.id, 'paused', interruptedSummary);
+          this.db.updateRunStatus(active.context.run.id, 'paused', interruptedSummary);
+          this.db.updateModelSessionByRun(active.context.run.id, {
+            status: 'paused',
+            metadata: { interruptedByAppShutdown: true }
+          });
+        }
+      } catch {
+        // Startup recovery owns the fallback when shutdown races a canonical writer.
+      }
     }
     this.activeRuns.clear();
   }

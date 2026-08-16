@@ -994,6 +994,69 @@ describe('Beale workbench skeleton', () => {
     }
   });
 
+  it('establishes a continuation WebSocket before materializing or broadcasting the resumed snapshot', async () => {
+    const workspace = tempWorkspace();
+    let broadcasts = 0;
+    const service = new WorkspaceService(() => { broadcasts += 1; });
+    try {
+      service.createWorkspace(workspace);
+      const database = (service as unknown as { db: WorkspaceDatabase }).db;
+      const context = database.createRun({
+        scopeVersionId: database.getActiveScope().id,
+        title: 'Inactive continuation fixture',
+        promptMarkdown: 'Continue only after the transport handshake.',
+        shellSafetyMode: 'auto_review',
+        mode: 'open_discovery',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+        attemptStrategy: 'iterative_research',
+        sandboxProfile: 'host',
+        budget: { runEngine: 'honeycrisp' }
+      });
+      database.updateAttemptState(context.attempt.id, 'failed', 'Fixture inactive state.');
+      database.updateRunStatus(context.run.id, 'failed', 'Fixture inactive state.');
+
+      const runtime = (service as unknown as {
+        getForegroundRuntime(): {
+          honeycrispEngine: {
+            steer: () => null;
+            extendRun: () => unknown;
+          };
+        } | null;
+      }).getForegroundRuntime();
+      if (!runtime) throw new Error('Expected an open workspace runtime.');
+      let resolveTransportReady!: (connected: boolean) => void;
+      const transportReady = new Promise<boolean>((resolve) => {
+        resolveTransportReady = resolve;
+      });
+      runtime.honeycrispEngine.steer = () => null;
+      runtime.honeycrispEngine.extendRun = () => ({
+        context,
+        completion: Promise.resolve(),
+        transportReady
+      });
+
+      broadcasts = 0;
+      let responseSettled = false;
+      const response = service.steerRunForClient({
+        type: 'steer',
+        runId: context.run.id,
+        instruction: 'Resume after connecting.'
+      }).finally(() => { responseSettled = true; });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(responseSettled).toBe(false);
+      expect(broadcasts).toBe(0);
+
+      resolveTransportReady(true);
+      await expect(response).resolves.toMatchObject({
+        runs: expect.arrayContaining([expect.objectContaining({ run: expect.objectContaining({ id: context.run.id }) })])
+      });
+      expect(broadcasts).toBe(1);
+    } finally {
+      service.close();
+    }
+  });
+
   it('automatically resumes a Honeycrisp session after a terminal WebSocket error', async () => {
     const workspace = tempWorkspace();
     const fakeHoneycrisp = join(workspace, 'fake-honeycrisp-websocket-recovery.mjs');

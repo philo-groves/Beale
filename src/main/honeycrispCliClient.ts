@@ -363,6 +363,21 @@ export function recoverInterruptedHoneycrispSessions(
   ).result;
 }
 
+export async function recoverInterruptedHoneycrispSessionsAsync(
+  workspaceId: string,
+  input: { reason?: string; at?: string },
+  storage: HoneycrispSessionStorage
+): Promise<HoneycrispSessionRecoveryReport> {
+  return (await invokeWithJsonInputAsync<HoneycrispSessionRecoveryReport>(
+    'session.recover_interrupted',
+    ['session', 'recover-interrupted', '--workspace-id', workspaceId],
+    input,
+    storage,
+    undefined,
+    30_000
+  )).result;
+}
+
 export function importHoneycrispSessionCapture(
   sessionId: string,
   attemptId: string,
@@ -438,6 +453,18 @@ export function listHoneycrispSessionSummaries(
     ['session', 'list-summaries', '--workspace-id', workspaceId, '--limit', String(limit), '--json'],
     { env: storageEnvironment(storage) }
   ).result;
+}
+
+export async function listHoneycrispSessionSummariesAsync(
+  workspaceId: string,
+  storage: HoneycrispSessionStorage,
+  limit = 200
+): Promise<HoneycrispSessionSummary[]> {
+  return (await invokeHoneycrispCliProtocolAsync<HoneycrispSessionSummary[]>(
+    'session.list_summaries',
+    ['session', 'list-summaries', '--workspace-id', workspaceId, '--limit', String(limit), '--json'],
+    { env: storageEnvironment(storage), timeoutMs: 30_000 }
+  )).result;
 }
 
 export function getHoneycrispMemorySummary(
