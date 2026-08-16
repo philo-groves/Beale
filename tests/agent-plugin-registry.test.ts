@@ -197,6 +197,7 @@ describe('AgentPluginRegistry', () => {
       'run_dejunk',
       'run_dreaming'
     ]));
+    expect(tools.map((tool) => tool.name)).not.toContain('create_workspace');
   });
 });
 

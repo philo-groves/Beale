@@ -1503,6 +1503,7 @@ export interface RunDetailVersion {
 export interface RunDetailUpdateCursor {
   afterTraceSequence: number;
   afterTranscriptCount: number;
+  afterTraceEventId?: string | null;
 }
 
 export interface RunDetailUpdate {
@@ -1637,6 +1638,7 @@ export interface BealeApi {
   getRunDetail(runId: string): Promise<RunDetail>;
   getRunDetailVersion(runId: string): Promise<RunDetailVersion>;
   getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): Promise<RunDetailUpdate>;
+  cancelRunDetailRequests(): void;
   searchSessionTranscripts(input: SessionTranscriptSearchInput): Promise<SessionTranscriptSearchResponse>;
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
   openNotification(notificationId: string): Promise<WorkspaceSnapshot>;

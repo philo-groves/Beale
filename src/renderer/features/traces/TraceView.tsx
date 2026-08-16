@@ -115,7 +115,6 @@ export const TraceView = memo(function TraceView({
   );
   const tracePresentationKey = `${selectedRunId ?? 'none'}:${traceScopeKey}:${traceFilterKey}`;
   const timelineEntryIds = useMemo(() => timelineEntries.map((entry) => entry.event.id), [timelineEntries]);
-  const timelineEntryKey = useMemo(() => timelineEntryIds.join('|'), [timelineEntryIds]);
   const [revealedTraceEntryIds, setRevealedTraceEntryIds] = useState<Set<string>>(() => new Set(timelineEntryIds));
   const [enteringTraceEntryIds, setEnteringTraceEntryIds] = useState<Set<string>>(() => new Set());
   const [traceRevealQueueVersion, setTraceRevealQueueVersion] = useState(0);
@@ -154,8 +153,9 @@ export const TraceView = memo(function TraceView({
   const tracePresentationKeyRef = useRef(tracePresentationKey);
   const traceRevealQueueRef = useRef<string[]>([]);
   const latestRenderedEvent = renderedEntries.at(-1)?.event;
-  const latestRenderedPayloadLength = latestRenderedEvent ? (JSON.stringify(latestRenderedEvent.payload)?.length ?? 0) : 0;
-  const latestRenderedEventVersion = latestRenderedEvent ? `${latestRenderedEvent.id}:${latestRenderedEvent.summary.length}:${latestRenderedPayloadLength}` : '';
+  const latestRenderedEventVersion = latestRenderedEvent
+    ? `${latestRenderedEvent.id}:${latestRenderedEvent.sequence}:${latestRenderedEvent.summary.length}:${tracePayloadVersion(latestRenderedEvent.payload)}`
+    : '';
   useDevRenderProbe('trace.list', () => ({
     events: events.length,
     visible: timelineEntries.length,
@@ -275,7 +275,7 @@ export const TraceView = memo(function TraceView({
       queueAfter: traceRevealQueueRef.current.length
     });
     startTransition(() => setTraceRevealQueueVersion((version) => version + 1));
-  }, [revealedTraceEntryIds.size, selectedRunId, timelineEntryIds, timelineEntryKey, tracePresentationKey]);
+  }, [revealedTraceEntryIds.size, selectedRunId, timelineEntries, tracePresentationKey]);
 
   useEffect(() => {
     const queueLength = traceRevealQueueRef.current.length;
@@ -882,6 +882,16 @@ function captureTraceScrollAnchor(list: HTMLDivElement, options: TraceScrollAnch
   }
 
   return options.prefer === 'last' ? candidates.at(-1) ?? null : candidates[0] ?? null;
+}
+
+function tracePayloadVersion(payload: Record<string, unknown>): string {
+  let stringBytes = 0;
+  let arrayItems = 0;
+  for (const value of Object.values(payload)) {
+    if (typeof value === 'string') stringBytes += value.length;
+    else if (Array.isArray(value)) arrayItems += value.length;
+  }
+  return `${Object.keys(payload).length}:${stringBytes}:${arrayItems}`;
 }
 
 function traceRevealBatchSize(queueLength: number): number {

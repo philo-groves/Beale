@@ -143,6 +143,21 @@ describe('renderer trace display view models', () => {
     expect(traceDisplayEventContainsId(coalesced[0].event, 'reasoning_two')).toBe(true);
   });
 
+  it('coalesces long streamed reasoning runs without repeatedly rebuilding prior text', () => {
+    const events = Array.from({ length: 2_000 }, (_, index) => traceEvent({
+      id: `reasoning_${index}`,
+      sequence: index + 1,
+      payload: { turn: 1, transcriptSource: 'openai_reasoning_summary', text: `chunk ${index}` }
+    }));
+    const entries = buildTraceTimelineEntries(events, ALL_CATEGORIES);
+
+    const coalesced = coalesceConsecutiveReasoningEntries(entries);
+
+    expect(coalesced).toHaveLength(1);
+    expect(coalesced[0].event.payload.reasoningSummaryTexts).toHaveLength(2_000);
+    expect((coalesced[0].event.payload.coalescedTraceEventIds as string[]).at(-1)).toBe('reasoning_1999');
+  });
+
   it('groups rendered consecutive entries by shared timeline group', () => {
     const entries = buildTraceTimelineEntries(
       [

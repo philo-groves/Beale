@@ -286,6 +286,13 @@ const MAX_AUTOMATIC_WEBSOCKET_CONTINUATIONS = 2;
 const RESEARCH_PROFILE_LAUNCH_MAX_BYTES = 1024 * 1024;
 const AUTOMATIC_WEBSOCKET_CONTINUATION_INSTRUCTION =
   'Continue the active research goal from the latest checkpoint. The previous provider WebSocket disconnected unexpectedly; resume without repeating completed work.';
+
+export interface HoneycrispRunEngineChange {
+  workspaceRegistryChanged?: boolean;
+  forceSnapshot?: boolean;
+  sessionLifecycleChanged?: boolean;
+}
+
 export class HoneycrispRunEngine {
   private readonly activeRuns = new Map<string, ActiveHoneycrispRun>();
   private readonly completions = new Map<string, Promise<void>>();
@@ -294,7 +301,7 @@ export class HoneycrispRunEngine {
   public constructor(
     private readonly db: WorkspaceDatabase,
     private readonly workspacePath: string,
-    private readonly onChange: (change?: { workspaceRegistryChanged?: boolean; forceSnapshot?: boolean }) => void = () => undefined,
+    private readonly onChange: (change?: HoneycrispRunEngineChange) => void = () => undefined,
     private readonly shellOptionsPath?: string,
     private readonly getMemoryTypeDescriptions?: () => MemoryTypeDescriptions,
     private readonly getResearchSubject?: () => ResearchSubjectInput | null,
@@ -1999,7 +2006,7 @@ export class HoneycrispRunEngine {
       this.db.updateAttemptState(context.attempt.id, 'stopped', stoppedSummary);
       this.db.updateRunStatus(context.run.id, 'stopped', stoppedSummary);
       this.db.updateModelSessionByRun(context.run.id, { status: 'stopped', metadata: processPayload });
-      this.onChange();
+      this.notifySessionLifecycleChanged();
       return;
     }
 
@@ -2014,7 +2021,7 @@ export class HoneycrispRunEngine {
         this.failRun(context, 'Honeycrisp exited without committing its canonical session capture.', processPayload);
         return;
       }
-      this.onChange();
+      this.notifySessionLifecycleChanged();
       return;
     }
 
@@ -2087,7 +2094,7 @@ export class HoneycrispRunEngine {
             modelVisible: false
           });
           this.db.updateRunStatus(context.run.id, 'failed', failureSummary);
-          this.onChange();
+          this.notifySessionLifecycleChanged();
         }
         return;
       }
@@ -2117,7 +2124,7 @@ export class HoneycrispRunEngine {
       });
       return;
     }
-    this.onChange();
+    this.notifySessionLifecycleChanged();
   }
 
   private importCapture(
@@ -2320,7 +2327,11 @@ export class HoneycrispRunEngine {
     this.db.updateRunStatus(context.run.id, 'failed', summary);
     this.db.updateModelSessionByRun(context.run.id, { status: 'failed', metadata: payload });
     this.activeRuns.delete(context.run.id);
-    this.onChange();
+    this.notifySessionLifecycleChanged();
+  }
+
+  private notifySessionLifecycleChanged(): void {
+    this.onChange({ sessionLifecycleChanged: true });
   }
 }
 

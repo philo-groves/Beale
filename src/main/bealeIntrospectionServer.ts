@@ -8,8 +8,12 @@ export interface BealeIntrospectionEndpoint {
 
 export type BealeIntrospectionToolHandler = (
   tool: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  signal: AbortSignal
 ) => Promise<unknown> | unknown;
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
+const MAX_REQUEST_TIMEOUT_MS = 30_000;
 
 export class BealeIntrospectionServer {
   private server: Server | null = null;
@@ -47,6 +51,15 @@ export class BealeIntrospectionServer {
   }
 
   private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const controller = new AbortController();
+    const deadline = requestDeadline(request);
+    const deadlineTimer = setTimeout(() => controller.abort(), Math.max(0, deadline - Date.now()));
+    deadlineTimer.unref();
+    const abort = (): void => controller.abort();
+    request.once('aborted', abort);
+    response.once('close', () => {
+      if (!response.writableEnded) abort();
+    });
     try {
       if (request.method !== 'POST' || request.url !== '/tool') {
         writeJson(response, 404, { ok: false, error: 'Unknown Beale introspection route.' });
@@ -69,15 +82,36 @@ export class BealeIntrospectionServer {
         writeJson(response, 400, { ok: false, error: 'Request body must include a tool name.' });
         return;
       }
-      const result = await this.handleTool(tool, args);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      if (controller.signal.aborted || Date.now() >= deadline) {
+        writeJson(response, 408, { ok: false, error: 'Beale introspection request expired before execution.' });
+        return;
+      }
+      const result = await this.handleTool(tool, args, controller.signal);
+      controller.signal.throwIfAborted();
       writeJson(response, 200, { ok: true, result });
     } catch (error) {
+      if (controller.signal.aborted) {
+        writeJson(response, 408, { ok: false, error: 'Beale introspection request was canceled.' });
+        return;
+      }
       writeJson(response, 500, {
         ok: false,
         error: error instanceof Error ? error.message : String(error)
       });
+    } finally {
+      clearTimeout(deadlineTimer);
+      request.off('aborted', abort);
     }
   }
+}
+
+function requestDeadline(request: IncomingMessage): number {
+  const now = Date.now();
+  const raw = request.headers['x-beale-introspection-deadline'];
+  const requested = typeof raw === 'string' ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(requested)) return now + DEFAULT_REQUEST_TIMEOUT_MS;
+  return Math.min(requested, now + MAX_REQUEST_TIMEOUT_MS);
 }
 
 function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown> | null> {
@@ -110,6 +144,7 @@ function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>
 }
 
 function writeJson(response: ServerResponse, statusCode: number, payload: Record<string, unknown>): void {
+  if (response.destroyed || response.writableEnded) return;
   const body = `${JSON.stringify(payload)}\n`;
   response.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',

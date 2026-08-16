@@ -136,7 +136,9 @@ export function pendingHoneycrispToolRequestEventIds(events: readonly TraceEvent
     const pairingKey = honeycrispToolPairingKey(event);
     if (!kind || !pairingKey) continue;
     if (kind === 'tool.requested') {
-      pendingByKey.set(pairingKey, [...(pendingByKey.get(pairingKey) ?? []), event.id]);
+      const pending = pendingByKey.get(pairingKey);
+      if (pending) pending.push(event.id);
+      else pendingByKey.set(pairingKey, [event.id]);
       continue;
     }
     const pending = pendingByKey.get(pairingKey);
@@ -150,21 +152,39 @@ export function pendingHoneycrispToolRequestEventIds(events: readonly TraceEvent
 
 export function coalesceConsecutiveReasoningEntries<TEvent extends TraceEventRecord>(entries: TraceTimelineEntry<TEvent>[]): TraceTimelineEntry<TEvent>[] {
   const coalesced: TraceTimelineEntry<TEvent>[] = [];
+  let reasoningRun: TraceTimelineEntry<TEvent>[] = [];
+
+  const flushReasoningRun = (): void => {
+    const first = reasoningRun[0];
+    if (!first) return;
+    coalesced.push({
+      ...first,
+      event: reasoningRun.length === 1
+        ? first.event
+        : mergeReasoningEventRun(reasoningRun.map((entry) => entry.event))
+    });
+    reasoningRun = [];
+  };
 
   for (const entry of entries) {
-    const previous = coalesced.at(-1);
-    if (
-      previous &&
-      previous.group === entry.group &&
-      previous.event.modelVisible === entry.event.modelVisible &&
-      traceCategoryForEvent(previous.event) === 'reasoning' &&
-      traceCategoryForEvent(entry.event) === 'reasoning'
-    ) {
-      previous.event = mergeReasoningEvents(previous.event, entry.event);
+    const previousReasoning = reasoningRun.at(-1);
+    if (traceCategoryForEvent(entry.event) === 'reasoning') {
+      if (
+        previousReasoning
+        && previousReasoning.group === entry.group
+        && previousReasoning.event.modelVisible === entry.event.modelVisible
+      ) {
+        reasoningRun.push(entry);
+      } else {
+        flushReasoningRun();
+        reasoningRun = [entry];
+      }
       continue;
     }
+    flushReasoningRun();
     coalesced.push({ ...entry });
   }
+  flushReasoningRun();
 
   return coalesced;
 }
@@ -178,32 +198,29 @@ export function traceDisplayEventContainsId(event: TraceEventRecord, eventId: st
   return Boolean(eventId && traceDisplayEventIds(event).includes(eventId));
 }
 
-function mergeReasoningEvents<TEvent extends TraceEventRecord>(previous: TEvent, next: TEvent): TEvent {
-  const reasoningSummaryTexts = [...reasoningSummaryTextsForMerge(previous), ...reasoningSummaryTextsForMerge(next)];
-  const transcriptMessageIds = uniqueStrings([
-    ...stringArrayPayload(previous.payload, 'transcriptMessageIds'),
-    previous.payload.transcriptMessageId,
-    ...stringArrayPayload(next.payload, 'transcriptMessageIds'),
-    next.payload.transcriptMessageId
-  ]);
-  const linkedTraceEventIds = uniqueStrings([
-    ...stringArrayPayload(previous.payload, 'linkedTraceEventIds'),
-    previous.payload.linkedTraceEventId,
-    ...stringArrayPayload(next.payload, 'linkedTraceEventIds'),
-    next.payload.linkedTraceEventId
-  ]);
+function mergeReasoningEventRun<TEvent extends TraceEventRecord>(events: TEvent[]): TEvent {
+  const first = events[0]!;
+  const reasoningSummaryTexts = events.flatMap(reasoningSummaryTextsForMerge);
+  const transcriptMessageIds = uniqueStrings(events.flatMap((event) => [
+    ...stringArrayPayload(event.payload, 'transcriptMessageIds'),
+    event.payload.transcriptMessageId
+  ]));
+  const linkedTraceEventIds = uniqueStrings(events.flatMap((event) => [
+    ...stringArrayPayload(event.payload, 'linkedTraceEventIds'),
+    event.payload.linkedTraceEventId
+  ]));
 
   return {
-    ...previous,
+    ...first,
     payload: {
-      ...previous.payload,
+      ...first.payload,
       text: reasoningSummaryTexts.join('\n\n'),
       reasoningSummaryTexts,
-      coalescedTraceEventIds: uniqueStrings([...traceDisplayEventIds(previous), ...traceDisplayEventIds(next)]),
+      coalescedTraceEventIds: uniqueStrings(events.flatMap(traceDisplayEventIds)),
       ...(transcriptMessageIds.length > 0 ? { transcriptMessageIds } : {}),
       ...(linkedTraceEventIds.length > 0 ? { linkedTraceEventIds } : {})
     },
-    modelVisible: previous.modelVisible && next.modelVisible
+    modelVisible: events.every((event) => event.modelVisible)
   } as TEvent;
 }
 

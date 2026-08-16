@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import type { RunDetail, RunStatus } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming } from '../devInstrumentation';
 import { errorMessage } from '../lib/errors';
@@ -11,6 +11,8 @@ import {
 } from '../view-models/runDetailUpdates';
 
 const ACTIVE_RUN_DETAIL_POLL_MS = 750;
+const LARGE_RUN_DETAIL_POLL_MS = 1_250;
+const VERY_LARGE_RUN_DETAIL_POLL_MS = 2_000;
 
 export function useRunDetailPolling({
   selectedRunId,
@@ -48,10 +50,23 @@ export function useRunDetailPolling({
       return undefined;
     }
 
-    versionRef.current = null;
-    detailRef.current = null;
+    if (detailRef.current?.run.id !== selectedRunId) {
+      versionRef.current = null;
+      detailRef.current = null;
+      setRunDetail(null);
+    }
     let disposed = false;
     let inFlight = false;
+    let consecutiveFailures = 0;
+    let pollTimer: number | null = null;
+    const scheduleNextPoll = (): void => {
+      if (disposed || selectedRunState !== 'active') return;
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(
+        refreshRunDetail,
+        activeRunDetailPollMs(detailRef.current, consecutiveFailures)
+      );
+    };
     const refreshRunDetail = (): void => {
       if (inFlight) return;
       inFlight = true;
@@ -61,21 +76,15 @@ export function useRunDetailPolling({
             .timeAsync('ipc.getRunDetail', () => window.beale.getRunDetail(selectedRunId), { run: shortMetricId(selectedRunId) })
             .then((detail) => ({ detail, version: `initial:${requestSeq}`, update: null }))
         : devInstrumentation
-            .timeAsync('ipc.getRunDetailVersion', () => window.beale.getRunDetailVersion(selectedRunId), { run: shortMetricId(selectedRunId) })
-            .then(async (version) => {
-              devInstrumentation.recordEvent('ipc.getRunDetailVersion.payload', {
-                run: shortMetricId(version.runId),
-                databaseMs: version.databaseMs,
-                version: shortMetricId(version.version)
-              });
-              if (!disposed && requestSeq === requestSeqRef.current && version.version === versionRef.current) {
+            .timeAsync(
+              'ipc.getRunDetailUpdate',
+              () => window.beale.getRunDetailUpdate(selectedRunId, runDetailUpdateCursor(currentDetail)),
+              { run: shortMetricId(selectedRunId) }
+            )
+            .then((update) => {
+              if (!disposed && requestSeq === requestSeqRef.current && update.version.version === versionRef.current) {
                 return null;
               }
-              const update = await devInstrumentation.timeAsync(
-                'ipc.getRunDetailUpdate',
-                () => window.beale.getRunDetailUpdate(selectedRunId, runDetailUpdateCursor(currentDetail)),
-                { run: shortMetricId(selectedRunId) }
-              );
               const updateMetricDetail = runDetailUpdateMetricDetail(update);
               const detail = devInstrumentation.time('trace.mergeRunDetailUpdate', () => mergeRunDetailUpdate(currentDetail, update), {
                 ...updateMetricDetail,
@@ -86,6 +95,7 @@ export function useRunDetailPolling({
             });
       request
         .then((result) => {
+          consecutiveFailures = 0;
           if (!result) return;
           const { detail, version, update } = result;
           if (update) {
@@ -99,12 +109,16 @@ export function useRunDetailPolling({
               const applyDetail = runDetailApplyMetricDetail(detail, update);
               versionRef.current = version;
               detailRef.current = detail;
-              // Live detail is also the source of session usage telemetry. Deferring
-              // every poll lets continuous snapshot/stream updates starve the pending
-              // transition while the incremental cursor keeps advancing in detailRef.
-              // Commit the merged detail normally so usage and chat state cannot remain
-              // visually stuck behind an indefinitely interrupted transition.
-              setRunDetail(detail);
+              if (update) {
+                // Live detail is also the source of session usage telemetry. Keep
+                // incremental commits urgent so a continuous event stream cannot
+                // starve usage and chat state behind interrupted transitions.
+                setRunDetail(detail);
+              } else {
+                // Full session materialization can be large. A transition keeps
+                // navigation responsive and allows a newer selection to supersede it.
+                startTransition(() => setRunDetail(detail));
+              }
               devInstrumentation.recordEvent(update ? 'trace.runDetail.incrementalApply' : 'trace.runDetail.fullApply', applyDetail);
               recordNextFrameTiming('trace.runDetail.apply.nextFrameLatency', applyStartedAt, applyDetail);
             } else {
@@ -116,29 +130,48 @@ export function useRunDetailPolling({
         })
         .catch((caught: unknown) => {
           if (!disposed && requestSeq === requestSeqRef.current) {
-            onError(errorMessage(caught));
+            const message = errorMessage(caught);
+            if (!shouldReportRunDetailError(detailRef.current, selectedRunId)) {
+              consecutiveFailures += 1;
+              devInstrumentation.recordEvent('ipc.getRunDetailUpdate.retry', {
+                run: shortMetricId(selectedRunId),
+                consecutiveFailures,
+                message
+              });
+            } else {
+              onError(message);
+            }
           }
         })
         .finally(() => {
           inFlight = false;
+          scheduleNextPoll();
         });
     };
 
     refreshRunDetail();
-    if (selectedRunState !== 'active') {
-      return () => {
-        disposed = true;
-      };
-    }
-
-    const interval = window.setInterval(refreshRunDetail, ACTIVE_RUN_DETAIL_POLL_MS);
     return () => {
       disposed = true;
-      window.clearInterval(interval);
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+      window.beale.cancelRunDetailRequests();
     };
   }, [clearRunDetail, onError, refreshKey, selectedRunId, selectedRunState]);
 
   return { runDetail, clearRunDetail };
+}
+
+export function activeRunDetailPollMs(detail: RunDetail | null, consecutiveFailures = 0): number {
+  const recordCount = (detail?.traceEvents.length ?? 0) + (detail?.transcriptMessages.length ?? 0);
+  const baseDelay = recordCount >= 20_000
+    ? VERY_LARGE_RUN_DETAIL_POLL_MS
+    : recordCount >= 5_000
+      ? LARGE_RUN_DETAIL_POLL_MS
+      : ACTIVE_RUN_DETAIL_POLL_MS;
+  return Math.min(10_000, baseDelay * (2 ** Math.min(4, Math.max(0, consecutiveFailures))));
+}
+
+export function shouldReportRunDetailError(detail: RunDetail | null, selectedRunId: string): boolean {
+  return detail?.run.id !== selectedRunId;
 }
 
 function runDetailApplyMetricDetail(detail: RunDetail, update: { traceEvents: unknown[]; transcriptMessages: unknown[] } | null): Record<string, string | number | boolean> {

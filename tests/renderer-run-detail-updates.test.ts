@@ -28,7 +28,13 @@ describe('renderer run detail update view model', () => {
       transcriptMessages: [transcriptMessage({ id: 'message_new' })]
     });
 
-    expect(runDetailUpdateCursor(detail)).toEqual({ afterTraceSequence: 7, afterTranscriptCount: 1 });
+    expect(runDetailUpdateCursor(detail)).toEqual({
+      afterTraceSequence: 7,
+      afterTranscriptCount: 1,
+      afterTraceEventId: 'trace_old'
+    });
+    detail.traceEvents[0].payload.honeycrispSessionEventId = 'trace_batch_1';
+    expect(runDetailUpdateCursor(detail).afterTraceEventId).toBe('trace_batch_1');
     expect(runDetailMetricDetail(detail)).toMatchObject({ run: 'run_test', traceEvents: 1, transcripts: 1 });
     expect(runDetailUpdateMetricDetail(update)).toMatchObject({ run: 'run_test', traceEvents: 1, transcripts: 1, versionDatabaseMs: 4.5 });
     expect(snapshotMetricDetail(snapshot(['run_one']))).toMatchObject({ active: true, runs: 1 });
@@ -74,6 +80,20 @@ describe('renderer run detail update view model', () => {
 
     expect(merged.traceEvents).toEqual([traceOld, traceNew]);
     expect(merged.transcriptMessages).toEqual([messageOld, messageNew]);
+  });
+
+  it('retains prior aggregate records when a cursor update contains only changed records', () => {
+    const current = runDetail();
+    current.artifacts = [{ id: 'artifact_old' }] as RunDetail['artifacts'];
+    current.policyEvents = [{ id: 'approval_old' }] as RunDetail['policyEvents'];
+    const update = runDetailUpdate();
+    update.artifacts = [{ id: 'artifact_new' }] as RunDetailUpdate['artifacts'];
+    update.policyEvents = [];
+
+    const merged = mergeRunDetailUpdate(current, update);
+
+    expect(merged.artifacts.map(({ id }) => id)).toEqual(['artifact_old', 'artifact_new']);
+    expect(merged.policyEvents.map(({ id }) => id)).toEqual(['approval_old']);
   });
 });
 

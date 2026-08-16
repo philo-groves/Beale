@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Beale introspection no longer exposes workspace creation, accepts only registered workspace selectors, or changes the foreground workspace while viewing and editing resources; expired HTTP tool requests are canceled before dispatch.
+- Live Honeycrisp trace mirrors are now serialized into bounded asynchronous batches instead of synchronously spawning a growing session rewrite for every WebSocket event on Electron's main thread.
+- A transient `session.get_update` timeout no longer replaces an already loaded session with a global renderer error; live detail refreshes retain the current view and retry with bounded backoff.
+- Session navigation and live tool activity no longer stack stale full-session reads: renderer updates are cancelable, cursor-bounded, frame-coalesced, adapt to large histories, retry transient refresh failures, and avoid quadratic reasoning/payload work.
+- Refresh session navigation after a Honeycrisp session reaches a terminal state, even when another session in the workspace remains active.
 - Honeycrisp async protocol responses are no longer corrupted by retaining only their final two million characters; complete envelopes are assembled from UTF-8 byte chunks up to an explicit 64 MiB limit, after which the client reports a bounded response-size error instead of attempting to parse truncated JSON.
 - Live Honeycrisp events no longer spawn full `session list` queries merely to determine whether a runtime is active; actual list refreshes use compact summaries, and malformed CLI responses report exit, signal, and buffer failures instead of presenting SQLite's experimental warning as the cause.
 - App restart now atomically recovers Honeycrisp-owned active sessions and attempts as interrupted pauses, including recovery evidence and the existing unexpected-error presentation, instead of rediscovering them as still active.

@@ -23,10 +23,12 @@ import type {
 import { createId, type CreatedRunContext, type WorkspaceDatabase } from './database';
 import {
   appendHoneycrispSessionEvent,
+  appendHoneycrispSessionEventAsync,
   beginHoneycrispSessionAttempt,
   createHoneycrispSession,
   getHoneycrispSession,
   getHoneycrispSessionAsync,
+  getHoneycrispSessionUpdateAsync,
   honeycrispOwnsSessions,
   listHoneycrispSessionSummaries,
   listHoneycrispSessions,
@@ -42,7 +44,98 @@ const BOUNDARY_CONTEXTS = new WeakMap<WorkspaceDatabase, {
   database: WorkspaceDatabase;
   ownedRunIds: ReadonlySet<string>;
   storage: HoneycrispSessionStorage;
+  traceWrites: HoneycrispTraceWriteQueue;
 }>();
+
+const TRACE_WRITE_BATCH_DELAY_MS = 40;
+const TRACE_WRITE_BATCH_SIZE = 256;
+const TRACE_WRITE_MAX_PENDING = 4_096;
+const TRACE_WRITE_RETRY_MAX_MS = 2_000;
+
+class HoneycrispTraceWriteQueue {
+  private readonly pending = new Map<string, TraceEventRecord[]>();
+  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly inFlight = new Map<string, Promise<void>>();
+  private readonly retryDelay = new Map<string, number>();
+
+  public constructor(private readonly storage: HoneycrispSessionStorage) {}
+
+  public enqueue(runId: string, record: TraceEventRecord): void {
+    const queued = this.pending.get(runId) ?? [];
+    queued.push(record);
+    if (queued.length > TRACE_WRITE_MAX_PENDING) {
+      queued.splice(0, queued.length - TRACE_WRITE_MAX_PENDING);
+    }
+    this.pending.set(runId, queued);
+    if (queued.length >= TRACE_WRITE_BATCH_SIZE) {
+      this.schedule(runId, 0);
+    } else if (!this.timers.has(runId) && !this.inFlight.has(runId)) {
+      this.schedule(runId, TRACE_WRITE_BATCH_DELAY_MS);
+    }
+  }
+
+  public async flush(runId?: string): Promise<void> {
+    const runIds = runId
+      ? [runId]
+      : [...new Set([...this.pending.keys(), ...this.inFlight.keys()])];
+    await Promise.all(runIds.map(async (candidate) => {
+      this.clearTimer(candidate);
+      this.start(candidate);
+      while (this.inFlight.has(candidate)) {
+        await this.inFlight.get(candidate);
+        this.clearTimer(candidate);
+        this.start(candidate);
+      }
+    }));
+  }
+
+  private schedule(runId: string, delayMs: number): void {
+    this.clearTimer(runId);
+    const timer = setTimeout(() => {
+      this.timers.delete(runId);
+      this.start(runId);
+    }, delayMs);
+    timer.unref?.();
+    this.timers.set(runId, timer);
+  }
+
+  private start(runId: string): void {
+    if (this.inFlight.has(runId)) return;
+    const queued = this.pending.get(runId);
+    if (!queued?.length) return;
+    const records = queued.splice(0, TRACE_WRITE_BATCH_SIZE);
+    if (queued.length === 0) this.pending.delete(runId);
+    const eventId = createId('trace_batch');
+    const write = appendHoneycrispSessionEventAsync(runId, {
+      id: eventId,
+      kind: 'beale.trace_batch',
+      timestamp: records[0]?.createdAt ?? new Date().toISOString(),
+      summary: `Beale persisted ${records.length} trace event${records.length === 1 ? '' : 's'}.`,
+      payload: { records }
+    }, this.storage).then(() => {
+      this.retryDelay.delete(runId);
+    }).catch(() => {
+      const current = this.pending.get(runId) ?? [];
+      this.pending.set(runId, [...records, ...current].slice(-TRACE_WRITE_MAX_PENDING));
+      const delay = Math.min((this.retryDelay.get(runId) ?? TRACE_WRITE_BATCH_DELAY_MS) * 2, TRACE_WRITE_RETRY_MAX_MS);
+      this.retryDelay.set(runId, delay);
+      this.schedule(runId, delay);
+    }).finally(() => {
+      this.inFlight.delete(runId);
+      if ((this.pending.get(runId)?.length ?? 0) > 0 && !this.timers.has(runId)) {
+        this.schedule(runId, this.retryDelay.get(runId) ?? 0);
+      }
+    });
+    this.inFlight.set(runId, write);
+  }
+
+  private clearTimer(runId: string): void {
+    const timer = this.timers.get(runId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.timers.delete(runId);
+  }
+}
 
 export function createHoneycrispSessionBoundary(
   database: WorkspaceDatabase,
@@ -54,7 +147,10 @@ export function createHoneycrispSessionBoundary(
     artifactDirectoryPath: join(dirname(database.getDatabasePath()), 'artifacts')
   };
   const workspaceId = database.getWorkspaceId();
-  const ownedRunIds = new Set(listHoneycrispSessionSummaries(workspaceId, storage).map((session) => session.id));
+  const sessionSummaries = listHoneycrispSessionSummaries(workspaceId, storage);
+  const ownedRunIds = new Set(sessionSummaries.map((session) => session.id));
+  const nextTraceSequence = new Map(sessionSummaries.map((session) => [session.id, session.revision]));
+  const traceWrites = new HoneycrispTraceWriteQueue(storage);
   let boundary!: WorkspaceDatabase;
 
   const getSession = (runId: string): HoneycrispSessionRecord | null => {
@@ -131,6 +227,7 @@ export function createHoneycrispSessionBoundary(
         createdAt
       }, storage);
       ownedRunIds.add(runId);
+      nextTraceSequence.set(runId, 1);
       return { run, attempt };
     }) as WorkspaceDatabase['createRun'],
 
@@ -221,7 +318,7 @@ export function createHoneycrispSessionBoundary(
         id: createId('trace'),
         runId: input.runId,
         attemptId: input.attemptId ?? null,
-        sequence: getHoneycrispSession(input.runId, storage).events.length + 1,
+        sequence: (nextTraceSequence.get(input.runId) ?? 0) + 1,
         type: input.type,
         source: input.source,
         summary: input.summary,
@@ -233,7 +330,8 @@ export function createHoneycrispSessionBoundary(
         toolCallId: input.toolCallId ?? null,
         approvalId: input.approvalId ?? null
       };
-      appendRecordEvent(input.runId, 'beale.trace', record as unknown as Record<string, unknown>);
+      nextTraceSequence.set(input.runId, record.sequence);
+      traceWrites.enqueue(input.runId, record);
       return record;
     }) as WorkspaceDatabase['appendTraceEvent'],
 
@@ -561,12 +659,16 @@ export function createHoneycrispSessionBoundary(
     }
   });
   BOUNDARIES.add(boundary);
-  BOUNDARY_CONTEXTS.set(boundary, { database, ownedRunIds, storage });
+  BOUNDARY_CONTEXTS.set(boundary, { database, ownedRunIds, storage, traceWrites });
   return boundary;
 }
 
 export function isHoneycrispSessionBoundary(database: WorkspaceDatabase): boolean {
   return BOUNDARIES.has(database);
+}
+
+export async function flushHoneycrispSessionWrites(database: WorkspaceDatabase, runId?: string): Promise<void> {
+  await BOUNDARY_CONTEXTS.get(database)?.traceWrites.flush(runId);
 }
 
 export async function getHoneycrispRunDetailForClient(
@@ -604,12 +706,51 @@ export async function getHoneycrispRunDetailUpdateForClient(
 ): Promise<RunDetailUpdate | null> {
   const context = BOUNDARY_CONTEXTS.get(database);
   if (!context?.ownedRunIds.has(runId)) return null;
-  const session = await getHoneycrispSessionAsync(runId, context.storage, signal);
+  const update = await getHoneycrispSessionUpdateAsync(
+    runId,
+    _cursor.afterTraceEventId ?? null,
+    context.storage,
+    signal
+  );
+  if (update.session.status !== 'active') {
+    const session = await getHoneycrispSessionAsync(runId, context.storage, signal);
+    return runDetailUpdateFromSession(session, context.database, _cursor);
+  }
+  const session: HoneycrispSessionRecord = {
+    ...update.session,
+    finalResponse: update.finalResponse,
+    attempts: update.session.attempts.map((attempt) => ({ ...attempt, capture: null })),
+    events: update.events
+  };
+  const detail = sessionDetail(session, context.database, update.eventOffset);
+  return runDetailUpdateFromDetail(detail, update.session.revision);
+}
+
+function runDetailUpdateFromSession(
+  session: HoneycrispSessionRecord,
+  database: WorkspaceDatabase,
+  cursor: RunDetailUpdateCursor
+): RunDetailUpdate {
+  const detail = sessionDetail(session, database);
+  const afterTraceSequence = Number.isFinite(cursor.afterTraceSequence)
+    ? Math.max(-1, cursor.afterTraceSequence)
+    : -1;
+  const afterTranscriptCount = Number.isFinite(cursor.afterTranscriptCount)
+    ? Math.max(0, Math.floor(cursor.afterTranscriptCount))
+    : 0;
+  return runDetailUpdateFromDetail({
+    ...detail,
+    traceEvents: detail.traceEvents.filter((event) => event.sequence > afterTraceSequence),
+    transcriptMessages: detail.transcriptMessages.slice(afterTranscriptCount)
+  }, session.revision);
+}
+
+function runDetailUpdateFromDetail(detail: RunDetail, revision: number): RunDetailUpdate {
   return {
-    ...sessionDetail(session, context.database),
+    ...detail,
     version: {
-      runId,
-      version: `honeycrisp:${session.revision}`,
+      runId: detail.run.id,
+      version: `honeycrisp:${revision}`,
       generatedAt: new Date().toISOString(),
       databaseMs: 0
     }
@@ -653,10 +794,18 @@ function sessionRun(session: HoneycrispSessionRecord | HoneycrispSessionSummary)
   };
 }
 
-function sessionDetail(session: HoneycrispSessionRecord, database: WorkspaceDatabase): RunDetail {
+function sessionDetail(
+  session: HoneycrispSessionRecord,
+  database: WorkspaceDatabase,
+  eventSequenceOffset = 0
+): RunDetail {
   const run = sessionRun(session);
   const events = session.events;
-  const traceEvents = events.map((event, index) => traceFromSessionEvent(session.id, event, index + 1));
+  const traceEvents = events.flatMap((event, index) => traceFromSessionEvent(
+    session.id,
+    event,
+    eventSequenceOffset + index + 1
+  ));
   const transcripts = latestRecords(events.flatMap((event) => event.kind === 'beale.transcript'
     ? recordArrayValue<TranscriptMessageRecord>(event.payload)
     : []));
@@ -759,11 +908,20 @@ function sessionDetail(session: HoneycrispSessionRecord, database: WorkspaceData
   };
 }
 
-function traceFromSessionEvent(runId: string, event: HoneycrispSessionEvent, sequence: number): TraceEventRecord {
+function traceFromSessionEvent(runId: string, event: HoneycrispSessionEvent, sequence: number): TraceEventRecord[] {
+  if (event.kind === 'beale.trace_batch') {
+    const records = recordValue(event.payload)?.records;
+    if (!Array.isArray(records)) return [];
+    const count = records.length;
+    return records.flatMap((candidate, index) => {
+      const stored = recordValue(candidate);
+      return stored ? [storedTraceEvent(stored, event.id, sequence + ((index + 1) / (count + 1)))] : [];
+    });
+  }
   const stored = event.kind === 'beale.trace' ? recordValue(recordValue(event.payload)?.record) : null;
-  if (stored) return stored as unknown as TraceEventRecord;
+  if (stored) return [storedTraceEvent(stored, event.id)];
   const eventPayload = recordValue(event.payload);
-  return {
+  return [{
     id: event.id,
     runId,
     attemptId: stringValue(eventPayload?.attemptId),
@@ -787,6 +945,22 @@ function traceFromSessionEvent(runId: string, event: HoneycrispSessionEvent, seq
     artifactId: null,
     toolCallId: null,
     approvalId: null
+  }];
+}
+
+function storedTraceEvent(
+  stored: Record<string, unknown>,
+  sessionEventId: string,
+  fallbackSequence?: number
+): TraceEventRecord {
+  const trace = stored as unknown as TraceEventRecord;
+  return {
+    ...trace,
+    sequence: fallbackSequence ?? (typeof trace.sequence === 'number' ? trace.sequence : 0),
+    payload: {
+      ...(recordValue(trace.payload) ?? {}),
+      honeycrispSessionEventId: sessionEventId
+    }
   };
 }
 

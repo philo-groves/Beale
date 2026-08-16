@@ -90,6 +90,20 @@ export type HoneycrispSessionSummary = Omit<
   attempts: Array<Omit<HoneycrispSessionAttempt, 'capture'>>;
 };
 
+export interface HoneycrispSessionUpdate {
+  session: HoneycrispSessionSummary;
+  finalResponse: string | null;
+  events: HoneycrispSessionEvent[];
+  eventOffset: number;
+}
+
+export interface HoneycrispSessionMutationReceipt {
+  sessionId: string;
+  status: HoneycrispSessionStatus;
+  revision: number;
+  updatedAt: string;
+}
+
 export interface HoneycrispSessionStorage {
   databasePath: string;
   artifactDirectoryPath: string;
@@ -260,10 +274,12 @@ export function honeycrispOwnsSessions(): boolean {
       'session.create',
       'session.begin_attempt',
       'session.append_event',
+      'session.append_event_receipt',
       'session.transition',
       'session.recover_interrupted',
       'session.import_capture',
       'session.get',
+      'session.get_update',
       'session.list',
       'session.list_summaries'
     ].every((operation) => descriptor.operations.includes(operation));
@@ -296,13 +312,29 @@ export function appendHoneycrispSessionEvent(
   sessionId: string,
   input: HoneycrispSessionEvent,
   storage: HoneycrispSessionStorage
-): HoneycrispSessionRecord {
-  return invokeWithJsonInput<HoneycrispSessionRecord>(
-    'session.append_event',
-    ['session', 'append-event', '--session-id', sessionId],
+): HoneycrispSessionMutationReceipt {
+  return invokeWithJsonInput<HoneycrispSessionMutationReceipt>(
+    'session.append_event_receipt',
+    ['session', 'append-event-receipt', '--session-id', sessionId],
     input,
     storage
   ).result;
+}
+
+export async function appendHoneycrispSessionEventAsync(
+  sessionId: string,
+  input: HoneycrispSessionEvent,
+  storage: HoneycrispSessionStorage,
+  signal?: AbortSignal
+): Promise<HoneycrispSessionMutationReceipt> {
+  return (await invokeWithJsonInputAsync<HoneycrispSessionMutationReceipt>(
+    'session.append_event_receipt',
+    ['session', 'append-event-receipt', '--session-id', sessionId],
+    input,
+    storage,
+    signal,
+    30_000
+  )).result;
 }
 
 export function transitionHoneycrispSession(
@@ -360,7 +392,27 @@ export async function getHoneycrispSessionAsync(
   return (await invokeHoneycrispCliProtocolAsync<HoneycrispSessionRecord>(
     'session.get',
     ['session', 'get', '--session-id', sessionId, '--json'],
-    { env: storageEnvironment(storage), timeoutMs: 10_000, ...(signal ? { signal } : {}) }
+    { env: storageEnvironment(storage), timeoutMs: 30_000, ...(signal ? { signal } : {}) }
+  )).result;
+}
+
+export async function getHoneycrispSessionUpdateAsync(
+  sessionId: string,
+  afterEventId: string | null,
+  storage: HoneycrispSessionStorage,
+  signal?: AbortSignal
+): Promise<HoneycrispSessionUpdate> {
+  return (await invokeHoneycrispCliProtocolAsync<HoneycrispSessionUpdate>(
+    'session.get_update',
+    [
+      'session',
+      'get-update',
+      '--session-id',
+      sessionId,
+      ...(afterEventId ? ['--after-event-id', afterEventId] : []),
+      '--json'
+    ],
+    { env: storageEnvironment(storage), timeoutMs: 30_000, ...(signal ? { signal } : {}) }
   )).result;
 }
 

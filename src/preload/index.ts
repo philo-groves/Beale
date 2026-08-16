@@ -37,6 +37,8 @@ import type {
   ResearchProviderModelCatalog,
   ResearchProviderOAuthStartResult,
   ResearchProviderStatus,
+  RunDetail,
+  RunDetailUpdate,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   StartRunInput,
@@ -52,6 +54,14 @@ function zoomState(): ZoomState {
     level: webFrame.getZoomLevel(),
     percent: Math.round(webFrame.getZoomFactor() * 100)
   };
+}
+
+async function invokeRunDetail<T>(channel: string, ...args: unknown[]): Promise<T> {
+  const result = await ipcRenderer.invoke(channel, ...args) as
+    | { canceled: true }
+    | { canceled: false; value: T };
+  if (result.canceled) throw new Error('Beale session detail request was canceled.');
+  return result.value;
 }
 
 const api: BealeApi = {
@@ -252,13 +262,16 @@ const api: BealeApi = {
     return ipcRenderer.invoke(IPC_CHANNELS.exportWorkspaceBackup, note);
   },
   getRunDetail(runId: string) {
-    return ipcRenderer.invoke(IPC_CHANNELS.getRunDetail, runId);
+    return invokeRunDetail<RunDetail>(IPC_CHANNELS.getRunDetail, runId);
   },
   getRunDetailVersion(runId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.getRunDetailVersion, runId);
   },
   getRunDetailUpdate(runId: string, cursor) {
-    return ipcRenderer.invoke(IPC_CHANNELS.getRunDetailUpdate, runId, cursor);
+    return invokeRunDetail<RunDetailUpdate>(IPC_CHANNELS.getRunDetailUpdate, runId, cursor);
+  },
+  cancelRunDetailRequests() {
+    ipcRenderer.send(IPC_CHANNELS.cancelRunDetailRequests);
   },
   searchSessionTranscripts(input: SessionTranscriptSearchInput): Promise<SessionTranscriptSearchResponse> {
     return ipcRenderer.invoke(IPC_CHANNELS.searchSessionTranscripts, input);

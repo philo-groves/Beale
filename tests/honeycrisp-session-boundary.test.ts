@@ -7,6 +7,7 @@ import { WorkspaceDatabase } from '../src/main/database';
 import { importHoneycrispSessionCapture } from '../src/main/honeycrispCliClient';
 import {
   createHoneycrispSessionBoundary,
+  flushHoneycrispSessionWrites,
   getHoneycrispRunDetailForClient
 } from '../src/main/honeycrispSessionBoundary';
 import { WorkspaceService } from '../src/main/workspaceService';
@@ -25,7 +26,7 @@ afterEach(() => {
 });
 
 describe('Honeycrisp session persistence boundary', () => {
-  it('uses Honeycrisp as the only writer for session creation, capture import, lifecycle, and queries', () => {
+  it('uses Honeycrisp as the only writer and batches live trace mirrors off the caller path', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-session-boundary-'));
     createdDirectories.push(directory);
     const databasePath = join(directory, 'memory.sqlite');
@@ -54,6 +55,18 @@ describe('Honeycrisp session persistence boundary', () => {
 
     expect(rawDatabase.getRun(context.run.id)).toBeNull();
     expect(database.getRun(context.run.id)).toMatchObject({ id: context.run.id, status: 'active' });
+
+    for (const summary of ['First live trace', 'Second live trace', 'Third live trace']) {
+      database.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'research_event',
+        source: 'executor',
+        summary,
+        payload: {}
+      });
+    }
+    await flushHoneycrispSessionWrites(database, context.run.id);
 
     const capturePath = join(directory, 'capture.json');
     writeFileSync(capturePath, JSON.stringify({
@@ -90,6 +103,13 @@ describe('Honeycrisp session persistence boundary', () => {
     try {
       expect(inspection.prepare('SELECT COUNT(*) AS count FROM honeycrisp_sessions').get()).toMatchObject({ count: 1 });
       expect(inspection.prepare('SELECT COUNT(*) AS count FROM runs').get()).toMatchObject({ count: 0 });
+      const row = inspection.prepare('SELECT document_json FROM honeycrisp_sessions WHERE id = ?').get(context.run.id) as {
+        document_json: string;
+      };
+      const stored = JSON.parse(row.document_json) as { events: Array<{ kind: string; payload?: { records?: unknown[] } }> };
+      const traceBatches = stored.events.filter((event) => event.kind === 'beale.trace_batch');
+      expect(traceBatches).toHaveLength(1);
+      expect(traceBatches[0]?.payload?.records).toHaveLength(3);
     } finally {
       inspection.close();
       database.close();
@@ -103,12 +123,25 @@ describe('Honeycrisp session persistence boundary', () => {
     configureRealHoneycrisp();
     setEnvironment('BEALE_HONEYCRISP_MOCK', '1');
 
-    const service = new WorkspaceService(() => undefined, {
+    const broadcastStatuses: string[] = [];
+    let service!: WorkspaceService;
+    service = new WorkspaceService(() => {
+      const currentRun = service.getSnapshot()?.runs.find(
+        ({ run }) => run.promptMarkdown === 'Inspect the canonical session boundary.'
+      );
+      if (currentRun) broadcastStatuses.push(currentRun.run.status);
+    }, {
       workspaceRegistryDirectory: registry,
       researchProfileResolver: () => resolvedTestResearchProfile()
     });
     try {
       service.createWorkspace(workspace);
+      const databasePath = join(registry, 'honeycrisp', 'profiles', 'security-research', 'memory.sqlite');
+      const runtime = (service as unknown as {
+        getForegroundRuntime(): { honeycrispEngine: { hasActiveRuns(): boolean } } | null;
+      }).getForegroundRuntime();
+      expect(runtime).not.toBeNull();
+      runtime!.honeycrispEngine.hasActiveRuns = () => true;
       const started = service.startRun({
         runEngine: 'honeycrisp',
         provider: 'openai-codex',
@@ -123,19 +156,37 @@ describe('Honeycrisp session persistence boundary', () => {
         sandboxProfile: 'host',
         budget: { maxMinutes: 30, maxAttempts: 1, maxCostUsd: 0 },
       });
-      const runId = started.runs[0]?.run.id;
-      expect(runId).toBeTruthy();
-      await waitFor(() => service.getRunDetail(runId!).run.status !== 'active');
-      expect(service.getRunDetail(runId!)).toMatchObject({
+      const runId = started.runs.find(
+        ({ run }) => run.promptMarkdown === 'Inspect the canonical session boundary.'
+      )?.run.id;
+      if (!runId) throw new Error('Expected the canonical Honeycrisp session to start.');
+      await waitFor(() => service.getRunDetail(runId).run.status !== 'active');
+      try {
+        await waitFor(() => broadcastStatuses.includes('completed'));
+      } catch {
+        const detail = service.getRunDetail(runId);
+        throw new Error(
+          `Terminal session broadcast was not observed: ${JSON.stringify(broadcastStatuses)}; ${detail.run.status}: ${detail.run.summary}`
+        );
+      }
+      expect(service.getRunDetail(runId)).toMatchObject({
         run: { status: 'completed' },
         transcriptMessages: [{ role: 'assistant' }]
       });
-      await expect(service.getRunDetailForClient(runId!)).resolves.toMatchObject({
+      const completeDetail = service.getRunDetail(runId);
+      const incremental = await service.getRunDetailUpdateForClient(runId, {
+        afterTraceSequence: completeDetail.traceEvents.at(-2)?.sequence ?? -1,
+        afterTranscriptCount: Math.max(0, completeDetail.transcriptMessages.length - 1)
+      });
+      expect(incremental.traceEvents).toEqual(
+        completeDetail.traceEvents.filter((event) => event.sequence > (completeDetail.traceEvents.at(-2)?.sequence ?? -1))
+      );
+      expect(incremental.transcriptMessages).toEqual(completeDetail.transcriptMessages.slice(-1));
+      await expect(service.getRunDetailForClient(runId)).resolves.toMatchObject({
         run: { status: 'completed' },
         transcriptMessages: [{ role: 'assistant' }]
       });
 
-      const databasePath = join(registry, 'honeycrisp', 'profiles', 'security-research', 'memory.sqlite');
       const inspection = new DatabaseSync(databasePath, { readOnly: true });
       try {
         expect(inspection.prepare('SELECT COUNT(*) AS count FROM honeycrisp_sessions WHERE id = ?').get(runId)).toMatchObject({ count: 1 });

@@ -24,7 +24,12 @@ import {
 import { OpenAiAuthService } from './openaiAuth';
 import { ResearchProviderAuthService } from './researchProviderAuth';
 import { ProviderCredentialStore } from './providerCredentialStore';
-import { HoneycrispRunEngine, invokeHoneycrispToolsConfig, invokeHoneycrispToolsList } from './honeycrispRunEngine';
+import {
+  HoneycrispRunEngine,
+  invokeHoneycrispToolsConfig,
+  invokeHoneycrispToolsList,
+  type HoneycrispRunEngineChange
+} from './honeycrispRunEngine';
 import {
   createHoneycrispSessionBoundary,
   getHoneycrispRunDetailForClient,
@@ -380,6 +385,7 @@ const SECURITY_OBJECTIVE_BRIEF_MAX_CHARS = 4_000;
 const WORKSPACE_AGENT_INSTRUCTIONS_MAX_BYTES = 32 * 1024;
 const WORKSPACE_AGENT_INSTRUCTION_FILES = ['AGENTS.override.md', 'AGENTS.md'] as const;
 const CHANGE_BROADCAST_DELAY_MS = 150;
+const ACTIVE_RUN_DETAIL_MEMORY_REFRESH_MS = 5_000;
 
 class MemoryDreamingPlanError extends Error {
   public constructor(message: string, public readonly phase: 'output' | 'validation') {
@@ -567,7 +573,7 @@ export class WorkspaceService {
   private readonly providerCredentials: ProviderCredentialStore;
   private readonly profiling = new ProfilingService();
   private readonly bealeIntrospectionServer = new BealeIntrospectionServer(
-    (tool, args) => this.invokeBealeIntrospectionTool(tool, args)
+    (tool, args, signal) => this.invokeBealeIntrospectionTool(tool, args, signal)
   );
   private workspaceRegistry: WorkspaceRegistry | null = null;
   private agentPluginRegistry: AgentPluginRegistry | null = null;
@@ -584,6 +590,7 @@ export class WorkspaceService {
     fingerprint: string;
     promise: Promise<HoneycrispMemorySummary>;
   }>();
+  private readonly runDetailMemoryRefreshedAt = new Map<string, number>();
   private readonly disposedRuntimeDatabases = new WeakSet<WorkspaceDatabase>();
   private readonly onboardingRepositoryJobs = new Map<string, WorkspaceOnboardingRepositoryJob>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
@@ -716,17 +723,18 @@ export class WorkspaceService {
     return this.getAgentPluginRegistry().remove(pluginId);
   }
 
-  private async invokeBealeIntrospectionTool(tool: string, args: Record<string, unknown>): Promise<unknown> {
+  private async invokeBealeIntrospectionTool(
+    tool: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal
+  ): Promise<unknown> {
+    signal?.throwIfAborted();
     switch (tool) {
       case 'list_workspaces':
         return {
           activeWorkspacePath: this.workspacePath,
           ...this.getWorkspaceRegistryState()
         };
-      case 'create_workspace': {
-        const workspacePath = requiredToolString(args, 'workspacePath');
-        return this.createWorkspace(workspacePath);
-      }
       case 'list_sessions':
         return this.listIntrospectionSessions(args);
       case 'list_resources':
@@ -738,21 +746,25 @@ export class WorkspaceService {
       case 'remove_resource':
         return this.removeIntrospectionResource(args);
       case 'launch_session': {
-        this.openIntrospectionWorkspace(args);
+        this.requireForegroundIntrospectionWorkspace(args);
+        signal?.throwIfAborted();
         const snapshot = await this.startRunWithSourcePreparation(this.introspectionStartRunInput(args));
+        signal?.throwIfAborted();
         return {
           workspace: snapshot.workspace,
           runs: snapshot.runs
         };
       }
       case 'stop_session': {
-        this.openIntrospectionWorkspace(args);
+        this.requireForegroundIntrospectionWorkspace(args);
+        signal?.throwIfAborted();
         const runId = requiredToolString(args, 'runId');
         const note = optionalToolString(args, 'note') ?? 'Stopped by Beale Introspection plugin.';
         return this.steerRun({ type: 'stop', runId, note });
       }
       case 'run_dejunk': {
-        this.requireIntrospectionWorkspace(args);
+        this.requireForegroundIntrospectionWorkspace(args);
+        signal?.throwIfAborted();
         const snapshot = this.runWorkspaceDejunk();
         return {
           workspace: snapshot.workspace,
@@ -760,8 +772,10 @@ export class WorkspaceService {
         };
       }
       case 'run_dreaming': {
-        this.requireIntrospectionWorkspace(args);
+        this.requireForegroundIntrospectionWorkspace(args);
+        signal?.throwIfAborted();
         const snapshot = await this.runMemoryDreaming();
+        signal?.throwIfAborted();
         return {
           workspace: snapshot.workspace,
           dreaming: snapshot.honeycrispMemory.dreaming
@@ -786,22 +800,57 @@ export class WorkspaceService {
     return { sessions };
   }
 
-  private openIntrospectionWorkspace(args: Record<string, unknown>): WorkspaceSnapshot | null {
+  private requireIntrospectionRuntime(args: Record<string, unknown>): WorkspaceRuntime {
     const registryWorkspaceId = optionalToolString(args, 'registryWorkspaceId');
-    if (registryWorkspaceId) return this.openRegisteredWorkspace(registryWorkspaceId);
     const workspacePath = optionalToolString(args, 'workspacePath');
-    if (workspacePath) return this.openWorkspace(workspacePath);
-    return this.getSnapshot();
+    if (!registryWorkspaceId && !workspacePath) {
+      const foreground = this.getForegroundRuntime();
+      if (!foreground) throw new Error('No Beale workspace is open.');
+      return foreground;
+    }
+
+    const registry = this.getWorkspaceRegistry();
+    const byId = registryWorkspaceId ? registry.getWorkspace(registryWorkspaceId) : null;
+    const byPath = workspacePath ? registry.getWorkspaceByPath(workspacePath) : null;
+    if (registryWorkspaceId && !byId) {
+      throw new Error(`Introspection can only access registered Beale workspaces: ${registryWorkspaceId}`);
+    }
+    if (workspacePath && !byPath) {
+      throw new Error(`Introspection can only access registered Beale workspaces: ${resolve(workspacePath)}`);
+    }
+    if (byId && byPath && byId.id !== byPath.id) {
+      throw new Error('Introspection workspace ID and path refer to different registered workspaces.');
+    }
+    const workspace = byId ?? byPath;
+    if (!workspace) throw new Error('No registered Beale workspace matched the introspection request.');
+    if (!isExistingWorkspace(workspace.workspacePath)) {
+      throw new Error(`Registered Beale workspace directory is unavailable: ${workspace.workspacePath}`);
+    }
+
+    const existing = this.runtimeForWorkspacePath(workspace.workspacePath);
+    if (existing) return existing;
+    const bealeDir = join(workspace.workspacePath, '.beale');
+    const artifactRoot = join(bealeDir, 'artifacts');
+    if (!existsSync(bealeDir)) {
+      throw new Error(`Registered Beale workspace metadata is unavailable: ${bealeDir}`);
+    }
+    const runtime = this.createRuntime(workspace.workspacePath, bealeDir, artifactRoot, workspace.researchProfileId);
+    this.backgroundRuntimes.set(runtime.workspacePath, runtime);
+    this.syncWorkspaceRegistryForRuntime(runtime, false);
+    this.pruneBackgroundRuntimeCache();
+    return runtime;
   }
 
-  private requireIntrospectionWorkspace(args: Record<string, unknown>): WorkspaceSnapshot {
-    const snapshot = this.openIntrospectionWorkspace(args);
-    if (!snapshot) throw new Error('No Beale workspace is open.');
-    return snapshot;
+  private requireForegroundIntrospectionWorkspace(args: Record<string, unknown>): WorkspaceSnapshot {
+    const runtime = this.requireIntrospectionRuntime(args);
+    if (runtime.workspacePath !== this.workspacePath) {
+      throw new Error('Open the registered workspace in Beale before running stateful introspection tools.');
+    }
+    return this.snapshotForRuntime(runtime);
   }
 
   private listIntrospectionResources(args: Record<string, unknown>): unknown {
-    const snapshot = this.requireIntrospectionWorkspace(args);
+    const snapshot = this.snapshotForRuntime(this.requireIntrospectionRuntime(args));
     const kind = optionalToolString(args, 'kind');
     const direction = optionalToolString(args, 'direction');
     if (kind && !isScopeAssetKind(kind)) throw new Error(`Unsupported resource kind: ${kind}`);
@@ -819,16 +868,18 @@ export class WorkspaceService {
   }
 
   private addIntrospectionResource(args: Record<string, unknown>): unknown {
-    const snapshot = this.requireIntrospectionWorkspace(args);
+    const runtime = this.requireIntrospectionRuntime(args);
+    const snapshot = this.snapshotForRuntime(runtime);
     const resource = introspectionResourceInput(args);
-    return this.saveIntrospectionResources(snapshot.activeScope, [
+    return this.saveIntrospectionResources(runtime, snapshot.activeScope, [
       ...snapshot.activeScope.assets.map(scopeAssetInput),
       resource
     ]);
   }
 
   private editIntrospectionResource(args: Record<string, unknown>): unknown {
-    const snapshot = this.requireIntrospectionWorkspace(args);
+    const runtime = this.requireIntrospectionRuntime(args);
+    const snapshot = this.snapshotForRuntime(runtime);
     const resourceId = requiredToolString(args, 'resourceId');
     const existing = snapshot.activeScope.assets.find((resource) => resource.id === resourceId);
     if (!existing) throw new Error(`Resource not found in the active workspace scope: ${resourceId}`);
@@ -836,11 +887,12 @@ export class WorkspaceService {
     const resources = snapshot.activeScope.assets.map((resource) => (
       resource.id === resourceId ? replacement : scopeAssetInput(resource)
     ));
-    return this.saveIntrospectionResources(snapshot.activeScope, resources);
+    return this.saveIntrospectionResources(runtime, snapshot.activeScope, resources);
   }
 
   private removeIntrospectionResource(args: Record<string, unknown>): unknown {
-    const snapshot = this.requireIntrospectionWorkspace(args);
+    const runtime = this.requireIntrospectionRuntime(args);
+    const snapshot = this.snapshotForRuntime(runtime);
     const resourceId = requiredToolString(args, 'resourceId');
     if (!snapshot.activeScope.assets.some((resource) => resource.id === resourceId)) {
       throw new Error(`Resource not found in the active workspace scope: ${resourceId}`);
@@ -848,11 +900,15 @@ export class WorkspaceService {
     const resources = snapshot.activeScope.assets
       .filter((resource) => resource.id !== resourceId)
       .map(scopeAssetInput);
-    return this.saveIntrospectionResources(snapshot.activeScope, resources);
+    return this.saveIntrospectionResources(runtime, snapshot.activeScope, resources);
   }
 
-  private saveIntrospectionResources(scope: WorkspaceScopeVersion, resources: ScopeAssetInput[]): unknown {
-    const snapshot = this.saveScope({
+  private saveIntrospectionResources(
+    runtime: WorkspaceRuntime,
+    scope: WorkspaceScopeVersion,
+    resources: ScopeAssetInput[]
+  ): unknown {
+    runtime.db.saveScope({
       workspaceName: scope.workspaceName,
       scopeOwner: scope.scopeOwner,
       descriptionMarkdown: scope.descriptionMarkdown,
@@ -860,6 +916,9 @@ export class WorkspaceService {
       expiresAt: scope.expiresAt,
       assets: resources
     });
+    const snapshot = this.snapshotForRuntime(runtime);
+    this.syncWorkspaceRegistryForRuntime(runtime, false);
+    this.onChange({ workspaceRegistryChanged: true });
     return {
       workspace: snapshot.workspace,
       scopeVersion: snapshot.activeScope.version,
@@ -2383,21 +2442,23 @@ export class WorkspaceService {
       : detail;
   }
 
-  public async getRunDetailForClient(runId: string): Promise<RunDetail> {
+  public async getRunDetailForClient(runId: string, signal?: AbortSignal): Promise<RunDetail> {
     const database = this.requireDb();
-    const detail = await getHoneycrispRunDetailForClient(database, runId) ?? database.getRunDetail(runId);
+    const detail = await getHoneycrispRunDetailForClient(database, runId, signal) ?? database.getRunDetail(runId);
+    signal?.throwIfAborted();
     const runtime = this.getForegroundRuntime();
-    return runtime
-      ? attachHoneycrispMemory(
-          detail,
-          await this.memorySummaryForRuntimeAsync(
-            runtime,
-            runtime.db.getActiveScope(),
-            runId,
-            detail.researchProfile ?? null
-          )
-        )
-      : detail;
+    if (!runtime) return detail;
+    const withMemory = attachHoneycrispMemory(
+      detail,
+      await this.memorySummaryForRuntimeAsync(
+        runtime,
+        runtime.db.getActiveScope(),
+        runId,
+        detail.researchProfile ?? null
+      )
+    );
+    this.runDetailMemoryRefreshedAt.set(runId, Date.now());
+    return withMemory;
   }
 
   public getRunDetailVersion(runId: string): RunDetailVersion {
@@ -2423,23 +2484,31 @@ export class WorkspaceService {
 
   public async getRunDetailUpdateForClient(
     runId: string,
-    cursor: RunDetailUpdateCursor
+    cursor: RunDetailUpdateCursor,
+    signal?: AbortSignal
   ): Promise<RunDetailUpdate> {
     const database = this.requireDb();
-    const update = await getHoneycrispRunDetailUpdateForClient(database, runId, cursor)
+    const update = await getHoneycrispRunDetailUpdateForClient(database, runId, cursor, signal)
       ?? database.getRunDetailUpdate(runId, cursor);
+    signal?.throwIfAborted();
     const runtime = this.getForegroundRuntime();
-    return runtime
-      ? attachHoneycrispMemory(
-          update,
-          await this.memorySummaryForRuntimeAsync(
-            runtime,
-            runtime.db.getActiveScope(),
-            runId,
-            update.researchProfile ?? null
-          )
-        )
-      : update;
+    if (!runtime || !this.runDetailMemoryRefreshDue(runId, update.run.status)) return update;
+    const withMemory = attachHoneycrispMemory(
+      update,
+      await this.memorySummaryForRuntimeAsync(
+        runtime,
+        runtime.db.getActiveScope(),
+        runId,
+        update.researchProfile ?? null
+      )
+    );
+    this.runDetailMemoryRefreshedAt.set(runId, Date.now());
+    return withMemory;
+  }
+
+  private runDetailMemoryRefreshDue(runId: string, status: RunStatus): boolean {
+    if (status !== 'active') return true;
+    return Date.now() - (this.runDetailMemoryRefreshedAt.get(runId) ?? 0) >= ACTIVE_RUN_DETAIL_MEMORY_REFRESH_MS;
   }
 
   public searchSessionTranscripts(input: SessionTranscriptSearchInput): SessionTranscriptSearchResponse {
@@ -3192,8 +3261,12 @@ export class WorkspaceService {
 
   private emitRuntimeChange(
     workspacePath: string,
-    change: { workspaceRegistryChanged?: boolean; forceSnapshot?: boolean } = {}
+    change: HoneycrispRunEngineChange = {}
   ): void {
+    if (change.sessionLifecycleChanged) {
+      this.emitChange({ syncWorkspaceRegistry: true, workspaceRegistryChanged: true });
+      return;
+    }
     if (this.workspacePath === workspacePath) {
       const runtime = this.getForegroundRuntime();
       if (runtime && change.workspaceRegistryChanged) {

@@ -1,4 +1,4 @@
-import type { RunDetail, RunDetailUpdate, TraceEventRecord, TranscriptMessageRecord, WorkspaceSnapshot } from '@shared/types';
+import type { RunDetail, RunDetailUpdate, RunDetailUpdateCursor, TraceEventRecord, TranscriptMessageRecord, WorkspaceSnapshot } from '@shared/types';
 import type { DevMetricDetail } from '../devInstrumentation';
 
 export function selectRunId(current: string | null, snapshot: WorkspaceSnapshot | null): string | null {
@@ -39,10 +39,15 @@ export function runDetailUpdateMetricDetail(update: RunDetailUpdate): DevMetricD
   };
 }
 
-export function runDetailUpdateCursor(detail: RunDetail): { afterTraceSequence: number; afterTranscriptCount: number } {
+export function runDetailUpdateCursor(detail: RunDetail): RunDetailUpdateCursor {
+  const latestTrace = detail.traceEvents.at(-1);
+  const sessionEventId = typeof latestTrace?.payload.honeycrispSessionEventId === 'string'
+    ? latestTrace.payload.honeycrispSessionEventId
+    : latestTrace?.id ?? null;
   return {
-    afterTraceSequence: detail.traceEvents.at(-1)?.sequence ?? -1,
-    afterTranscriptCount: detail.transcriptMessages.length
+    afterTraceSequence: latestTrace?.sequence ?? -1,
+    afterTranscriptCount: detail.transcriptMessages.length,
+    afterTraceEventId: sessionEventId
   };
 }
 
@@ -56,18 +61,26 @@ export function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate
     attempts: update.attempts,
     traceEvents: mergeTraceEvents(current.traceEvents, update.traceEvents),
     transcriptMessages: mergeTranscriptMessages(current.transcriptMessages, update.transcriptMessages),
-    breakoutRooms: update.breakoutRooms ?? current.breakoutRooms ?? [],
-    breakoutRoomMembers: update.breakoutRoomMembers ?? current.breakoutRoomMembers ?? [],
-    breakoutRoomMessages: update.breakoutRoomMessages ?? current.breakoutRoomMessages ?? [],
-    artifacts: update.artifacts,
-    verifierContracts: update.verifierContracts,
-    verifierRuns: update.verifierRuns,
-    modelSessions: update.modelSessions,
-    contextCompactions: update.contextCompactions,
-    policyEvents: update.policyEvents,
-    exports: update.exports,
+    breakoutRooms: mergeRecordsById(current.breakoutRooms ?? [], update.breakoutRooms ?? []),
+    breakoutRoomMembers: mergeRecordsById(current.breakoutRoomMembers ?? [], update.breakoutRoomMembers ?? []),
+    breakoutRoomMessages: mergeRecordsById(current.breakoutRoomMessages ?? [], update.breakoutRoomMessages ?? []),
+    artifacts: mergeRecordsById(current.artifacts, update.artifacts),
+    verifierContracts: mergeRecordsById(current.verifierContracts, update.verifierContracts),
+    verifierRuns: mergeRecordsById(current.verifierRuns, update.verifierRuns),
+    modelSessions: mergeRecordsById(current.modelSessions, update.modelSessions),
+    contextCompactions: mergeRecordsById(current.contextCompactions, update.contextCompactions),
+    policyEvents: mergeRecordsById(current.policyEvents, update.policyEvents),
+    exports: mergeRecordsById(current.exports, update.exports),
     honeycrispMemory: update.honeycrispMemory ?? current.honeycrispMemory
   };
+}
+
+function mergeRecordsById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
+  if (incoming.length === 0) return current;
+  if (current.length === 0) return incoming;
+  const byId = new Map(current.map((record) => [record.id, record]));
+  for (const record of incoming) byId.set(record.id, record);
+  return [...byId.values()];
 }
 
 export function shortMetricId(id: string): string {

@@ -36,6 +36,7 @@ import { restoreAndFocusWindow } from './windowLifecycle';
 const APP_NAME = 'Beale';
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
+const runDetailRequestControllers = new Map<number, AbortController>();
 const smokeTestMode = process.argv.includes('--smoke-test');
 const NATIVE_WINDOW_SHAPE_RADIUS_PX = 8;
 
@@ -605,17 +606,22 @@ function registerIpc(): void {
     )
   );
   ipcMain.handle(IPC_CHANNELS.exportWorkspaceBackup, (_event, note?: string) => workspaceService.exportWorkspaceBackup(note));
-  ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) =>
-    timedMainIpcAsync('getRunDetail', { run: shortMetricId(runId) }, () => workspaceService.getRunDetailForClient(runId))
+  ipcMain.handle(IPC_CHANNELS.getRunDetail, (event, runId: string) =>
+    withLatestRunDetailRequest(event, (signal) =>
+      timedMainIpcAsync('getRunDetail', { run: shortMetricId(runId) }, () => workspaceService.getRunDetailForClient(runId, signal))
+    )
   );
   ipcMain.handle(IPC_CHANNELS.getRunDetailVersion, (_event, runId: string) =>
     timedMainIpcAsync('getRunDetailVersion', { run: shortMetricId(runId) }, () => workspaceService.getRunDetailVersionForClient(runId))
   );
-  ipcMain.handle(IPC_CHANNELS.getRunDetailUpdate, (_event, runId: string, cursor: RunDetailUpdateCursor) =>
-    timedMainIpcAsync('getRunDetailUpdate', { run: shortMetricId(runId), afterTrace: cursor.afterTraceSequence, afterTranscript: cursor.afterTranscriptCount }, () =>
-      workspaceService.getRunDetailUpdateForClient(runId, cursor)
+  ipcMain.handle(IPC_CHANNELS.getRunDetailUpdate, (event, runId: string, cursor: RunDetailUpdateCursor) =>
+    withLatestRunDetailRequest(event, (signal) =>
+      timedMainIpcAsync('getRunDetailUpdate', { run: shortMetricId(runId), afterTrace: cursor.afterTraceSequence, afterTranscript: cursor.afterTranscriptCount }, () =>
+        workspaceService.getRunDetailUpdateForClient(runId, cursor, signal)
+      )
     )
   );
+  ipcMain.on(IPC_CHANNELS.cancelRunDetailRequests, (event) => cancelRunDetailRequest(event.sender.id));
   ipcMain.handle(IPC_CHANNELS.searchSessionTranscripts, (_event, input: SessionTranscriptSearchInput) =>
     timedMainIpc('searchSessionTranscripts', { chars: input.query.length, limit: input.limit ?? 24, currentWorkspaceOnly: input.currentWorkspaceOnly !== false }, () =>
       workspaceService.searchSessionTranscripts(input)
@@ -642,6 +648,33 @@ function registerIpc(): void {
     windowForEvent(event)?.close();
   });
   ipcMain.handle(IPC_CHANNELS.getWindowChromeState, (event) => windowChromeState(windowForEvent(event)));
+}
+
+async function withLatestRunDetailRequest<T>(
+  event: IpcMainInvokeEvent,
+  operation: (signal: AbortSignal) => Promise<T>
+): Promise<{ canceled: true } | { canceled: false; value: T }> {
+  const senderId = event.sender.id;
+  cancelRunDetailRequest(senderId);
+  const controller = new AbortController();
+  runDetailRequestControllers.set(senderId, controller);
+  try {
+    return { canceled: false, value: await operation(controller.signal) };
+  } catch (error) {
+    if (controller.signal.aborted) return { canceled: true };
+    throw error;
+  } finally {
+    if (runDetailRequestControllers.get(senderId) === controller) {
+      runDetailRequestControllers.delete(senderId);
+    }
+  }
+}
+
+function cancelRunDetailRequest(senderId: number): void {
+  const controller = runDetailRequestControllers.get(senderId);
+  if (!controller) return;
+  runDetailRequestControllers.delete(senderId);
+  controller.abort();
 }
 
 if (!hasSingleInstanceLock) {

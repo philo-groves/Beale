@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useState } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type {
   HostEnvironment,
@@ -34,6 +34,10 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
   const [windowChromeState, setWindowChromeState] = useState<WindowChromeState>({ isMaximized: false, isFullScreen: false });
   const [openAiStatus, setOpenAiStatus] = useState<OpenAiAccountStatus | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const pendingSnapshotRef = useRef<WorkspaceSnapshot | null | undefined>(undefined);
+  const pendingWorkspaceRegistryRef = useRef<WorkspaceRegistryState | null>(null);
+  const snapshotFrameRef = useRef<number | null>(null);
+  const workspaceRegistryFrameRef = useRef<number | null>(null);
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot | null) => {
     devInstrumentation.recordPayload('ipc.snapshot.apply', next, snapshotMetricDetail(next));
@@ -90,21 +94,45 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
       const applyStartedAt = performance.now();
       const detail = snapshotMetricDetail(next);
       devInstrumentation.recordPayload('ipc.snapshot.event', next, detail);
-      startTransition(() => applySnapshot(next));
-      recordNextFrameTiming('ipc.snapshot.event.apply.nextFrameLatency', applyStartedAt, detail);
+      pendingSnapshotRef.current = next;
+      if (snapshotFrameRef.current === null) {
+        snapshotFrameRef.current = window.requestAnimationFrame(() => {
+          snapshotFrameRef.current = null;
+          const latest = pendingSnapshotRef.current;
+          pendingSnapshotRef.current = undefined;
+          if (latest === undefined) return;
+          startTransition(() => applySnapshot(latest));
+          recordNextFrameTiming('ipc.snapshot.event.apply.nextFrameLatency', applyStartedAt, snapshotMetricDetail(latest));
+        });
+      }
     });
     const unsubscribeWorkspaceRegistry = window.beale.onWorkspaceRegistry((next) => {
       const applyStartedAt = performance.now();
       const detail = workspaceRegistryMetricDetail(next);
       devInstrumentation.recordPayload('ipc.workspaceRegistry.event', next, detail);
-      startTransition(() => setWorkspaceRegistry(next));
-      recordNextFrameTiming('ipc.workspaceRegistry.event.apply.nextFrameLatency', applyStartedAt, detail);
+      pendingWorkspaceRegistryRef.current = next;
+      if (workspaceRegistryFrameRef.current === null) {
+        workspaceRegistryFrameRef.current = window.requestAnimationFrame(() => {
+          workspaceRegistryFrameRef.current = null;
+          const latest = pendingWorkspaceRegistryRef.current;
+          pendingWorkspaceRegistryRef.current = null;
+          if (!latest) return;
+          startTransition(() => setWorkspaceRegistry(latest));
+          recordNextFrameTiming('ipc.workspaceRegistry.event.apply.nextFrameLatency', applyStartedAt, workspaceRegistryMetricDetail(latest));
+        });
+      }
     });
     const unsubscribeWindowChromeState = window.beale.onWindowChromeState(setWindowChromeState);
     return () => {
       unsubscribeSnapshot();
       unsubscribeWorkspaceRegistry();
       unsubscribeWindowChromeState();
+      if (snapshotFrameRef.current !== null) window.cancelAnimationFrame(snapshotFrameRef.current);
+      if (workspaceRegistryFrameRef.current !== null) window.cancelAnimationFrame(workspaceRegistryFrameRef.current);
+      snapshotFrameRef.current = null;
+      workspaceRegistryFrameRef.current = null;
+      pendingSnapshotRef.current = undefined;
+      pendingWorkspaceRegistryRef.current = null;
     };
   }, [applySnapshot, onError]);
 

@@ -9,18 +9,6 @@ const TOOLS = [
     }
   },
   {
-    name: 'create_workspace',
-    description: 'Create and open a Beale workspace at a local filesystem path.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        workspacePath: { type: 'string', description: 'Absolute or host-resolvable workspace directory path.' }
-      },
-      required: ['workspacePath'],
-      additionalProperties: false
-    }
-  },
-  {
     name: 'list_resources',
     description: 'List resources in the active scope of the current or selected Beale workspace.',
     inputSchema: {
@@ -268,14 +256,25 @@ async function callBeale(tool, args) {
   const baseUrl = process.env.BEALE_INTROSPECTION_URL;
   const token = process.env.BEALE_INTROSPECTION_TOKEN;
   if (!baseUrl || !token) throw new Error('Beale introspection endpoint is not available.');
-  const response = await fetch(`${baseUrl}/tool`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${token}`,
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({ tool, args })
-  });
+  const controller = new AbortController();
+  const deadline = Date.now() + 25_000;
+  const timeout = setTimeout(() => controller.abort(), 25_000);
+  timeout.unref?.();
+  let response;
+  try {
+    response = await fetch(`${baseUrl}/tool`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        'x-beale-introspection-deadline': String(deadline)
+      },
+      body: JSON.stringify({ tool, args }),
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
   const payload = await response.json();
   if (!response.ok || payload?.ok !== true) {
     throw new Error(typeof payload?.error === 'string' ? payload.error : `Beale introspection request failed: ${response.status}`);
