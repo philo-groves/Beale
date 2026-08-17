@@ -219,6 +219,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedSubagentPath,
   selectedRunbookId,
   selectedReportId = null,
+  selectedMemoryNodeId,
   selectedTraceEventId,
   searchHighlightQuery,
   visibleTraceCategories,
@@ -228,6 +229,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   onSelectSubagent,
   onBackToRunbooks,
   onBackToReports = () => undefined,
+  onBackToMemory,
   onBackToRooms = () => undefined,
   onBackToSubagents,
   onSelectTraceEvent,
@@ -256,6 +258,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedSubagentPath: string | null;
   selectedRunbookId: string | null;
   selectedReportId?: string | null;
+  selectedMemoryNodeId?: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
   visibleTraceCategories: TraceCategoryId[];
@@ -265,6 +268,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   onSelectSubagent: (path: string) => void;
   onBackToRunbooks: () => void;
   onBackToReports?: () => void;
+  onBackToMemory?: () => void;
   onBackToRooms?: () => void;
   onBackToSubagents: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
@@ -296,6 +300,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [type, setType] = useState('all');
   const [expandedMemoryGroups, setExpandedMemoryGroups] = useState<ReadonlySet<MemoryStatusGroup>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const visibleSelectedNodeId = selectedMemoryNodeId === undefined ? selectedNodeId : selectedMemoryNodeId;
   const restrictedNavigation = restrictResearchSideNavigation(navigation, enabledViews);
   const visibleNavigation = researchSideNavigationForSelectedDetail(
     restrictedNavigation,
@@ -306,7 +311,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     enabledViews
   );
   const detailsOpen = expanded ?? visibleNavigation.openViews.length > 0;
-  const activeView = visibleNavigation.activeView;
+  const activeView = visibleSelectedNodeId && enabledViews.includes('memory') ? 'memory' : visibleNavigation.activeView;
   const nodes = memory?.nodes ?? [];
   const runbooks = memory?.runbooks ?? [];
   const reports = memory?.reports ?? [];
@@ -472,7 +477,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     [filteredBreakoutRooms]
   );
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
-  const selectedNode = featureAvailability.memory && selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
+  const selectedNode = featureAvailability.memory && visibleSelectedNodeId ? nodeById.get(visibleSelectedNodeId) ?? null : null;
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
   const updateKey = memoryCatalogUpdateKey(filteredNodes);
   const runbookUpdateKey = filteredRunbooks.map((runbook) => `${runbook.id}:${runbook.updatedAt}`).join('|');
@@ -713,7 +718,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
         ) : visibleSelectedReportId ? (
           <ResearchSideNestedHeader label={reportLabel} name={selectedReportName} onBack={onBackToReports} />
         ) : selectedNode ? (
-          <ResearchSideNestedHeader label={memoriesLabel} name={selectedNode.title} onBack={() => setSelectedNodeId(null)} />
+          <ResearchSideNestedHeader
+            label={memoriesLabel}
+            name={selectedNode.title}
+            onBack={() => selectedMemoryNodeId === undefined ? setSelectedNodeId(null) : onBackToMemory?.()}
+          />
         ) : (
           <ResearchSideViewTabs
             activeView={activeView}
@@ -895,7 +904,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                     memoryLabel={memoryLabel}
                     memoryTypes={memoryTypes}
                     nodes={statusSection.nodes}
-                    selectedNodeId={selectedNodeId}
+                    selectedNodeId={visibleSelectedNodeId}
                     onExpand={() => setExpandedMemoryGroups((current) => new Set(current).add(statusSection.id))}
                     onOpen={(nodeId) => setSelectedNodeId(nodeId)}
                   />
@@ -1641,7 +1650,7 @@ function SubagentProviderIcon({
   );
 }
 
-function MemoryCatalogItem({
+export function MemoryCatalogItem({
   node,
   memoryTypes,
   selected,

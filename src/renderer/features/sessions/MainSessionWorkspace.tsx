@@ -1,7 +1,7 @@
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
 import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, ScopeAssetInput, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
-import { WorkspaceHousekeepingPanel, WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
+import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
@@ -140,13 +140,15 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
+  const [selectedWorkspaceMemoryId, setSelectedWorkspaceMemoryId] = useState<string | null>(null);
+  const showResearchSidePanel = selectedRunId !== null || researchDetailsOpen;
   const {
     containerRef,
     panelWidth,
     maximumPanelWidth,
     beginResize,
     handleResizeKeyDown
-  } = useResizableResearchSidePanel(selectedRunId !== null || honeycrispMemory !== null);
+  } = useResizableResearchSidePanel(showResearchSidePanel);
   const viewSpace = selectedRunId ? 'session' : 'workspace';
   const researchSidePanelKey = selectedRunId ?? `workspace:${honeycrispMemory?.contextWorkspaceId ?? 'current'}`;
   const previousRunRef = useRef<{ id: string; status: RunDetail['run']['status'] } | null>(null);
@@ -155,6 +157,32 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   useEffect(() => {
     previousRunRef.current = currentRun;
   }, [currentRun?.id, currentRun?.status]);
+  useEffect(() => {
+    setSelectedWorkspaceMemoryId(null);
+  }, [honeycrispMemory?.contextWorkspaceId, selectedRunId]);
+
+  const openWorkspaceMemory = (nodeId: string): void => {
+    onBackToRunbooks();
+    setSelectedWorkspaceMemoryId(nodeId);
+    onResearchDetailsOpenChange(true);
+  };
+  const openWorkspaceRunbook = (runbookId: string): void => {
+    setSelectedWorkspaceMemoryId(null);
+    onOpenHoneycrispRunbook(runbookId);
+    onResearchDetailsOpenChange(true);
+  };
+  const closeWorkspaceMemory = (): void => {
+    setSelectedWorkspaceMemoryId(null);
+    onResearchDetailsOpenChange(false);
+  };
+  const closeWorkspaceRunbook = (): void => {
+    onBackToRunbooks();
+    onResearchDetailsOpenChange(false);
+  };
+  const changeResearchDetailsOpen = (expanded: boolean): void => {
+    if (!expanded && !selectedRunId) setSelectedWorkspaceMemoryId(null);
+    onResearchDetailsOpenChange(expanded);
+  };
 
   const postSessionContent = detail && isEndedResearchRunStatus(detail.run.status)
     ? (
@@ -170,7 +198,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   return (
     <div
       ref={containerRef}
-      className={`main-session-grid ${researchDetailsOpen ? 'research-details-open' : ''}`}
+      className={`main-session-grid${researchDetailsOpen ? ' research-details-open' : ''}${showResearchSidePanel ? '' : ' workspace-main-only'}`}
       style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
     >
       {!selectedRunId ? (
@@ -193,6 +221,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onChangeResource={onChangeWorkspaceResource}
           onSaveConfiguration={onSaveWorkspaceConfiguration}
           onOpenSession={onOpenSession}
+          onOpenMemory={openWorkspaceMemory}
+          onOpenRunbook={openWorkspaceRunbook}
         />
       ) : chatView === 'commentary' ? (
         <CommentaryView
@@ -238,20 +268,22 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onSteerInstruction={onSteerInstruction}
         />
       )}
-      <div
-        className="research-side-resize-handle"
-        role="separator"
-        aria-label={selectedRunId ? 'Resize Runbooks, Reports, Subagents, and Memories sidebar' : 'Resize Runbooks, Reports, and Memories sidebar'}
-        aria-orientation="vertical"
-        aria-valuemin={MIN_RESEARCH_SIDE_PANEL_WIDTH}
-        aria-valuemax={maximumPanelWidth}
-        aria-valuenow={panelWidth}
-        aria-hidden={researchDetailsOpen}
-        tabIndex={researchDetailsOpen ? -1 : 0}
-        onKeyDown={researchDetailsOpen ? undefined : handleResizeKeyDown}
-        onPointerDown={researchDetailsOpen ? undefined : beginResize}
-      />
-      <div className={`research-side-column ${!selectedRunId && !researchDetailsOpen ? 'workspace-side-stack' : ''}`.trim()}>
+      {showResearchSidePanel ? (
+        <div
+          className="research-side-resize-handle"
+          role="separator"
+          aria-label={selectedRunId ? 'Resize Runbooks, Reports, Subagents, and Memories sidebar' : 'Resize workspace detail sidebar'}
+          aria-orientation="vertical"
+          aria-valuemin={MIN_RESEARCH_SIDE_PANEL_WIDTH}
+          aria-valuemax={maximumPanelWidth}
+          aria-valuenow={panelWidth}
+          aria-hidden={researchDetailsOpen}
+          tabIndex={researchDetailsOpen ? -1 : 0}
+          onKeyDown={researchDetailsOpen ? undefined : handleResizeKeyDown}
+          onPointerDown={researchDetailsOpen ? undefined : beginResize}
+        />
+      ) : null}
+      {showResearchSidePanel ? <div className="research-side-column">
         <ResearchSidePanel
           chatView={chatView}
           detail={detail}
@@ -266,6 +298,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           selectedRunbook={selectedRunbook}
           selectedRunbookDocument={selectedRunbookDocument}
           selectedRunbookId={selectedRunbookId}
+          selectedMemoryNodeId={!selectedRunId ? selectedWorkspaceMemoryId : undefined}
           runbookLoading={runbookLoading}
           runbookError={runbookError}
           selectedReport={selectedReport}
@@ -279,32 +312,19 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           searchHighlightQuery={searchHighlightQuery}
           visibleTraceCategories={visibleTraceCategories}
           onSelectSubagent={onSelectSubagent}
-          onOpenRunbook={onOpenHoneycrispRunbook}
-          onBackToRunbooks={onBackToRunbooks}
+          onOpenRunbook={selectedRunId ? onOpenHoneycrispRunbook : openWorkspaceRunbook}
+          onBackToRunbooks={selectedRunId ? onBackToRunbooks : closeWorkspaceRunbook}
+          onBackToMemory={!selectedRunId ? closeWorkspaceMemory : undefined}
           onOpenReport={onOpenHoneycrispReport}
           onBackToReports={onBackToReports}
           onOpenBreakoutRoom={onOpenBreakoutRoom}
           onBackToRooms={onBackToRooms}
           onBackToSubagents={onBackToSubagents}
           onSelectTraceEvent={onSelectTraceEvent}
-          onExpandedChange={onResearchDetailsOpenChange}
+          onExpandedChange={changeResearchDetailsOpen}
           viewSpace={viewSpace}
         />
-        {!selectedRunId && !researchDetailsOpen ? (
-          <WorkspaceHousekeepingPanel
-            busy={busy}
-            honeycrispMemory={honeycrispMemory}
-            memoryDreamingInProgress={memoryDreamingInProgress}
-            memoryDreamingProgress={memoryDreamingProgress}
-            researchProfile={researchProfile}
-            runs={runs}
-            workspaceDejunk={workspaceDejunk}
-            workspaceDejunkInProgress={workspaceDejunkInProgress}
-            onRunMemoryDreaming={onRunMemoryDreaming}
-            onRunWorkspaceDejunk={onRunWorkspaceDejunk}
-          />
-        ) : null}
-      </div>
+      </div> : null}
     </div>
   );
 });

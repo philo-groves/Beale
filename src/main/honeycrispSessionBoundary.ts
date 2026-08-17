@@ -364,6 +364,7 @@ export function createHoneycrispSessionBoundary(
         return {
           run: sessionRun(session),
           engine: 'honeycrisp',
+          tokenUsage: session.tokenUsage ?? { totalTokens: 0 },
           sessionRuns: [{
             id: `session_run_${session.id}`,
             runId: session.id,

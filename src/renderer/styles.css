@@ -1816,6 +1816,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   --research-side-panel-active-width: calc((100% - 6px) / 2);
 }
 
+.main-session-grid.workspace-main-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .research-side-resize-handle {
   width: 6px;
   height: 100%;
@@ -1888,19 +1892,34 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-overview-form {
-  width: min(860px, 100%);
+  width: 100%;
+  max-width: var(--session-content-max-width);
+  margin-inline: auto;
 }
 
-.workspace-overview-form label {
-  color: var(--muted-strong);
-  font-size: 0.84rem;
-  font-weight: 400;
+.workspace-overview-control-row {
+  cursor: text;
 }
 
 .workspace-overview-form :is(input, textarea) {
   border: 0;
-  background: var(--panel-column);
+  border-radius: 6px;
+  background: var(--panel-strong);
   color: var(--text);
+  font: inherit;
+  font-weight: 400;
+}
+
+.workspace-overview-input {
+  width: 220px;
+  max-width: min(220px, 42vw);
+  min-height: 32px;
+}
+
+.workspace-overview-directory-input {
+  width: 320px;
+  max-width: min(320px, 42vw);
+  text-overflow: ellipsis;
 }
 
 .workspace-overview-form :is(input, textarea):disabled {
@@ -1911,32 +1930,164 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-overview-form textarea {
+  width: 100%;
+  min-height: 150px;
   resize: vertical;
 }
 
-.workspace-overview-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 2px;
+.workspace-overview-form .workspace-overview-textarea-row {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
 }
 
-.workspace-overview-actions button {
-  min-height: 34px;
-  border-radius: 7px;
-  padding: 0 12px;
+.workspace-overview-error,
+.workspace-overview-saving {
+  margin: 0;
+  padding: 2px var(--settings-form-inline-padding) 0;
+  font-size: 0.78rem;
 }
 
 .workspace-overview-error {
-  margin: 0;
   color: #ef8d8d;
-  font-size: 0.78rem;
+}
+
+.workspace-overview-saving {
+  color: var(--muted);
+}
+
+.workspace-catalog-view {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  overflow: hidden;
+}
+
+.workspace-cleaning-view {
+  overflow: auto;
+}
+
+.workspace-cleaning-form {
+  width: 100%;
+  max-width: var(--session-content-max-width);
+  margin-inline: auto;
+}
+
+.workspace-catalog-view > .workspace-catalog-list {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  gap: 0;
+  border-top: 1px solid var(--panel-border);
+  border-bottom: 1px solid var(--panel-border);
+  padding: 0;
+}
+
+.workspace-catalog-view > .workspace-catalog-list .workspace-catalog-empty {
+  margin: 0;
+  padding: 12px var(--settings-form-inline-padding);
+  color: var(--muted);
+  font-size: inherit;
+}
+
+.workspace-catalog-view > .workspace-catalog-list :is(.memory-catalog-toggle, .runbook-catalog-item) {
+  padding: 10px var(--settings-form-inline-padding);
+}
+
+.workspace-cleaning-form .settings-form-control-list > * + * {
+  border-top: 1px solid var(--line);
+}
+
+.workspace-cleaning-row {
+  cursor: default;
+}
+
+.workspace-cleaning-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: inherit;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.workspace-cleaning-action {
+  min-width: 96px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 0 11px;
+  font: inherit;
+  font-weight: 400;
+}
+
+.workspace-cleaning-action:hover:not(:disabled),
+.workspace-cleaning-action:focus-visible {
+  background: var(--control-hover);
 }
 
 .workspace-timeline-card {
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
-  gap: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
   overflow: hidden;
+}
+
+.workspace-activity-form {
+  width: 100%;
+  max-width: var(--session-content-max-width);
+  min-width: 0;
+  margin-inline: auto;
+}
+
+.workspace-activity-grid-scroll {
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0 var(--settings-form-inline-padding) var(--settings-form-inline-padding);
+  scrollbar-width: thin;
+}
+
+.workspace-activity-grid {
+  width: max-content;
+  display: grid;
+  grid-template-rows: repeat(7, 9px);
+  grid-auto-flow: column;
+  grid-auto-columns: 9px;
+  gap: 3px;
+}
+
+.workspace-activity-cell {
+  width: 9px;
+  height: 9px;
+  display: block;
+  box-sizing: border-box;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.workspace-activity-cell.heat-1 {
+  background: color-mix(in srgb, var(--green) 24%, var(--panel-strong));
+}
+
+.workspace-activity-cell.heat-2 {
+  background: color-mix(in srgb, var(--green) 42%, var(--panel-strong));
+}
+
+.workspace-activity-cell.heat-3 {
+  background: color-mix(in srgb, var(--green) 66%, var(--panel-strong));
+}
+
+.workspace-activity-cell.heat-4 {
+  background: color-mix(in srgb, var(--green) 90%, white 4%);
+}
+
+.workspace-activity-cell.is-empty {
+  visibility: hidden;
 }
 
 .workspace-timeline-legend {
@@ -2295,7 +2446,7 @@ body.is-resizing-research-side .main-session-grid {
 
 .workspace-surface-area {
   display: grid;
-  grid-template-rows: 40px minmax(0, 1fr);
+  grid-template-rows: auto 40px minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
 }

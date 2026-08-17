@@ -1527,6 +1527,7 @@ export interface RunRow {
   run: RunRecord;
   engine: RunEngineKind;
   sessionRuns: SessionRunActivity[];
+  tokenUsage?: { totalTokens: number };
   breakoutRooms?: BreakoutRoomSummary[];
 }
 

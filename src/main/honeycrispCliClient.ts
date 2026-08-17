@@ -88,6 +88,7 @@ export type HoneycrispSessionSummary = Omit<
   'attempts' | 'events' | 'finalResponse'
 > & {
   attempts: Array<Omit<HoneycrispSessionAttempt, 'capture'>>;
+  tokenUsage?: { totalTokens: number };
 };
 
 export interface HoneycrispSessionUpdate {

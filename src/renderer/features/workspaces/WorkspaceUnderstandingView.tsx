@@ -17,6 +17,7 @@ import type {
 } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { memoryTypeClassName, memoryTypeLabel } from '../research/MemoryTypeLabel';
+import { MemoryCatalogItem, RunbookCatalogItem } from '../research/MemorySidePanel';
 import {
   buildWorkspaceTimeline,
   formatWorkspaceTimelineDuration
@@ -27,7 +28,9 @@ import { errorMessage } from '../../lib/errors';
 
 const TIMELINE_WINDOW_HOURS = 4;
 const TIMELINE_TICK_HOURS = [0, 1, 2, 3, 4] as const;
-const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources'] as const;
+const WORKSPACE_ACTIVITY_DAY_COUNT = 365;
+const DAY_DURATION_MS = 24 * 60 * 60 * 1_000;
+const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources', 'memory', 'runbooks', 'clean'] as const;
 
 type WorkspaceDashboardView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
 
@@ -35,6 +38,64 @@ export interface WorkspaceConfigurationInput {
   workspaceName: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
+}
+
+export interface WorkspaceTokenActivityDay {
+  dateKey: string;
+  timestamp: number;
+  totalTokens: number;
+  heatLevel: 0 | 1 | 2 | 3 | 4;
+}
+
+export interface WorkspaceTokenActivity {
+  days: WorkspaceTokenActivityDay[];
+  leadingEmptyDays: number;
+  totalTokens: number;
+}
+
+export function workspaceTokenActivity(runs: readonly RunRow[], nowMs: number): WorkspaceTokenActivity {
+  const end = startOfUtcDay(nowMs);
+  const start = end - ((WORKSPACE_ACTIVITY_DAY_COUNT - 1) * DAY_DURATION_MS);
+  const totalsByDate = new Map<string, number>();
+  for (const { run, tokenUsage } of runs) {
+    const totalTokens = tokenUsage?.totalTokens ?? 0;
+    if (totalTokens <= 0) continue;
+    const activityAt = Date.parse(run.endedAt ?? run.startedAt ?? run.createdAt);
+    if (!Number.isFinite(activityAt) || activityAt < start || activityAt >= end + DAY_DURATION_MS) continue;
+    const dateKey = utcDateKey(activityAt);
+    totalsByDate.set(dateKey, (totalsByDate.get(dateKey) ?? 0) + totalTokens);
+  }
+  const maximum = Math.max(0, ...totalsByDate.values());
+  const days = Array.from({ length: WORKSPACE_ACTIVITY_DAY_COUNT }, (_, index): WorkspaceTokenActivityDay => {
+    const timestamp = start + (index * DAY_DURATION_MS);
+    const dateKey = utcDateKey(timestamp);
+    const totalTokens = totalsByDate.get(dateKey) ?? 0;
+    return {
+      dateKey,
+      timestamp,
+      totalTokens,
+      heatLevel: workspaceTokenHeatLevel(totalTokens, maximum)
+    };
+  });
+  return {
+    days,
+    leadingEmptyDays: new Date(start).getUTCDay(),
+    totalTokens: days.reduce((total, day) => total + day.totalTokens, 0)
+  };
+}
+
+function workspaceTokenHeatLevel(totalTokens: number, maximum: number): 0 | 1 | 2 | 3 | 4 {
+  if (totalTokens <= 0 || maximum <= 0) return 0;
+  return Math.max(1, Math.min(4, Math.ceil((Math.log1p(totalTokens) / Math.log1p(maximum)) * 4))) as 1 | 2 | 3 | 4;
+}
+
+function startOfUtcDay(timestamp: number): number {
+  const date = new Date(timestamp);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function utcDateKey(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 10);
 }
 
 export function workspaceScopeDraftForConfigurationUpdate(
@@ -66,10 +127,18 @@ export function WorkspaceUnderstandingView({
   workspacePath = '',
   workspaceName,
   runs,
+  workspaceDejunk = null,
+  workspaceDejunkInProgress = false,
+  memoryDreamingInProgress,
+  memoryDreamingProgress = null,
   onAddResource = async () => undefined,
   onChangeResource = async () => undefined,
   onSaveConfiguration = async () => undefined,
   onOpenSession = () => undefined,
+  onOpenMemory = () => undefined,
+  onOpenRunbook = () => undefined,
+  onRunWorkspaceDejunk = () => undefined,
+  onRunMemoryDreaming,
   nowMs
 }: {
   busy: boolean;
@@ -90,6 +159,8 @@ export function WorkspaceUnderstandingView({
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onSaveConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onOpenSession?: (runId: string) => void;
+  onOpenMemory?: (nodeId: string) => void;
+  onOpenRunbook?: (runbookId: string) => void;
   nowMs?: number;
 }): JSX.Element {
   const [activeView, setActiveView] = useState<WorkspaceDashboardView>('overview');
@@ -130,6 +201,19 @@ export function WorkspaceUnderstandingView({
     [honeycrispMemory?.nodes, honeycrispMemory?.reports, honeycrispMemory?.runbooks, memoryTypes, runs, timelineNowMs]
   );
   const timelineRows = timeline.rows;
+  const workspaceId = honeycrispMemory?.contextWorkspaceId ?? null;
+  const workspaceMemoryNodes = useMemo(
+    () => (honeycrispMemory?.nodes ?? [])
+      .filter((node) => workspaceId !== null && node.workspaces.some((workspace) => workspace.id === workspaceId))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+    [honeycrispMemory?.nodes, workspaceId]
+  );
+  const workspaceRunbooks = useMemo(
+    () => (honeycrispMemory?.runbooks ?? [])
+      .filter((runbook) => workspaceId !== null && runbook.workspaceId === workspaceId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+    [honeycrispMemory?.runbooks, workspaceId]
+  );
   const axisWindowDurationMs = timeline.windowDurationMs || TIMELINE_WINDOW_HOURS * 60 * 60 * 1_000;
   const timelineAriaLabel = `${workspaceName.trim() || 'Workspace'} — most recent 4 hours of session activity`;
 
@@ -167,13 +251,19 @@ export function WorkspaceUnderstandingView({
       />
 
       <section
-        aria-label={timelineAriaLabel}
+        aria-label={`${workspaceName.trim() || 'Workspace'} activity`}
         className="workspace-dashboard-panel workspace-timeline-card"
         hidden={activeView !== 'activity'}
         id="workspace-dashboard-activity-panel"
         role="tabpanel"
       >
-        <div className="workspace-timeline-chart">
+        <WorkspaceActivityForm
+          nowMs={timelineNowMs}
+          runs={runs}
+          viewLabel="Activity"
+          workspaceName={activeScope?.workspaceName || workspaceName}
+        />
+        <div aria-label={timelineAriaLabel} className="workspace-timeline-chart">
           <div className="workspace-timeline-axis">
             <div className="workspace-timeline-heading">
               <span>Activity</span>
@@ -285,6 +375,42 @@ export function WorkspaceUnderstandingView({
         runs={runs}
         onAddResource={onAddResource}
         onChangeResource={onChangeResource}
+        workspaceName={activeScope?.workspaceName || workspaceName}
+      />
+
+      <WorkspaceMemoryPanel
+        hidden={activeView !== 'memory'}
+        loading={honeycrispMemory === null || honeycrispMemory.loading === true}
+        memoryTypes={memoryTypes}
+        nowMs={timelineNowMs}
+        nodes={workspaceMemoryNodes}
+        onOpen={onOpenMemory}
+        runs={runs}
+        workspaceName={activeScope?.workspaceName || workspaceName}
+      />
+
+      <WorkspaceRunbooksPanel
+        hidden={activeView !== 'runbooks'}
+        loading={honeycrispMemory === null || honeycrispMemory.loading === true}
+        nowMs={timelineNowMs}
+        runbooks={workspaceRunbooks}
+        onOpen={onOpenRunbook}
+        runs={runs}
+        workspaceName={activeScope?.workspaceName || workspaceName}
+      />
+
+      <WorkspaceCleaningPanel
+        busy={busy}
+        hidden={activeView !== 'clean'}
+        honeycrispMemory={honeycrispMemory}
+        memoryDreamingInProgress={memoryDreamingInProgress}
+        memoryDreamingProgress={memoryDreamingProgress}
+        researchProfile={researchProfile}
+        runs={runs}
+        workspaceDejunk={workspaceDejunk}
+        workspaceDejunkInProgress={workspaceDejunkInProgress}
+        onRunMemoryDreaming={onRunMemoryDreaming}
+        onRunWorkspaceDejunk={onRunWorkspaceDejunk}
       />
     </main>
   );
@@ -321,30 +447,59 @@ function WorkspaceOverviewPanel({
   const [rulesDraft, setRulesDraft] = useState(resolvedRules);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const resolvedConfigurationRef = useRef({
+    workspaceName: resolvedWorkspaceName,
+    descriptionMarkdown: resolvedDescription,
+    rulesMarkdown: resolvedRules
+  });
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingSaveCountRef = useRef(0);
+  const lastQueuedConfigurationRef = useRef<string | null>(null);
   useEffect(() => {
-    setWorkspaceNameDraft(resolvedWorkspaceName);
-    setDescriptionDraft(resolvedDescription);
-    setRulesDraft(resolvedRules);
+    const previous = resolvedConfigurationRef.current;
+    setWorkspaceNameDraft((current) => current === previous.workspaceName ? resolvedWorkspaceName : current);
+    setDescriptionDraft((current) => current === previous.descriptionMarkdown ? resolvedDescription : current);
+    setRulesDraft((current) => current === previous.rulesMarkdown ? resolvedRules : current);
+    resolvedConfigurationRef.current = {
+      workspaceName: resolvedWorkspaceName,
+      descriptionMarkdown: resolvedDescription,
+      rulesMarkdown: resolvedRules
+    };
+    if (lastQueuedConfigurationRef.current === JSON.stringify(resolvedConfigurationRef.current)) {
+      lastQueuedConfigurationRef.current = null;
+    }
     setSaveError(null);
   }, [activeScope?.id, resolvedDescription, resolvedRules, resolvedWorkspaceName]);
-  const dirty = workspaceNameDraft !== resolvedWorkspaceName
-    || descriptionDraft !== resolvedDescription
-    || rulesDraft !== resolvedRules;
-  const submit = async (): Promise<void> => {
-    if (!workspaceNameDraft.trim() || !dirty || saving || busy) return;
+  const saveInPlace = (): void => {
+    const configuration = {
+      workspaceName: workspaceNameDraft,
+      descriptionMarkdown: descriptionDraft,
+      rulesMarkdown: rulesDraft
+    };
+    const configurationKey = JSON.stringify(configuration);
+    const dirty = configuration.workspaceName !== resolvedWorkspaceName
+      || configuration.descriptionMarkdown !== resolvedDescription
+      || configuration.rulesMarkdown !== resolvedRules;
+    if (!configuration.workspaceName.trim()) {
+      setSaveError('Workspace name is required.');
+      return;
+    }
+    if (!dirty || busy || configurationKey === lastQueuedConfigurationRef.current) return;
+    lastQueuedConfigurationRef.current = configurationKey;
+    pendingSaveCountRef.current += 1;
     setSaving(true);
     setSaveError(null);
-    try {
-      await onSave({
-        workspaceName: workspaceNameDraft,
-        descriptionMarkdown: descriptionDraft,
-        rulesMarkdown: rulesDraft
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => undefined)
+      .then(() => onSave(configuration))
+      .catch((caught: unknown) => {
+        lastQueuedConfigurationRef.current = null;
+        setSaveError(errorMessage(caught));
+      })
+      .finally(() => {
+        pendingSaveCountRef.current -= 1;
+        if (pendingSaveCountRef.current === 0) setSaving(false);
       });
-    } catch (caught: unknown) {
-      setSaveError(errorMessage(caught));
-    } finally {
-      setSaving(false);
-    }
   };
   return (
     <section
@@ -354,65 +509,102 @@ function WorkspaceOverviewPanel({
       id="workspace-dashboard-overview-panel"
       role="tabpanel"
     >
-      <form
-        className="workspace-overview-form modal-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
+      <div
+        className="workspace-overview-form settings-form"
       >
-        <label>
-          Workspace directory
-          <input disabled value={workspacePath} />
-        </label>
-        <div className="form-grid">
-          <label>
-            Workspace name
-            <input
-              disabled={busy || saving}
-              required
-              value={workspaceNameDraft}
-              onChange={(event) => setWorkspaceNameDraft(event.target.value)}
-            />
-          </label>
-          <label>
-            Research subject
-            <input disabled value={researchSubjectName} />
-          </label>
+        <header className="settings-form-heading">
+          <h2 id="workspace-overview-heading">{workspaceNameDraft.trim() || resolvedWorkspaceName} Overview</h2>
+          <p>Review the workspace context and authorized research boundary.</p>
+        </header>
+        <div className="settings-form-squircle" aria-labelledby="workspace-overview-heading">
+          <div className="settings-form-control-list">
+            <label className="settings-form-control-row workspace-overview-control-row">
+              <span className="settings-form-control-copy">
+                <strong>Working Directory</strong>
+                <small>The local directory used for this workspace.</small>
+              </span>
+              <input
+                aria-label="Working Directory"
+                className="workspace-overview-input workspace-overview-directory-input"
+                disabled
+                value={workspacePath}
+              />
+            </label>
+            <label className="settings-form-control-row workspace-overview-control-row">
+              <span className="settings-form-control-copy">
+                <strong>Workspace Name</strong>
+                <small>Choose the name shown throughout Beale.</small>
+              </span>
+              <input
+                aria-label="Workspace Name"
+                className="workspace-overview-input"
+                disabled={busy}
+                required
+                value={workspaceNameDraft}
+                onChange={(event) => setWorkspaceNameDraft(event.target.value)}
+                onBlur={saveInPlace}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur();
+                }}
+              />
+            </label>
+            <label className="settings-form-control-row workspace-overview-control-row">
+              <span className="settings-form-control-copy">
+                <strong>Subject</strong>
+                <small>The research subject shared across related workspaces.</small>
+              </span>
+              <input
+                aria-label="Subject"
+                className="workspace-overview-input"
+                disabled
+                value={researchSubjectName}
+              />
+            </label>
+            <label className="settings-form-control-row workspace-overview-control-row">
+              <span className="settings-form-control-copy">
+                <strong>Profile</strong>
+                <small>The research profile that defines this workspace.</small>
+              </span>
+              <input
+                aria-label="Profile"
+                className="workspace-overview-input"
+                disabled
+                value={workspaceResearchProfileLabel(researchProfile)}
+              />
+            </label>
+            <label className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
+              <span className="settings-form-control-copy">
+                <strong>Workspace Description</strong>
+                <small>Describe the workspace's research purpose and intended use.</small>
+              </span>
+              <textarea
+                aria-label="Workspace Description"
+                disabled={busy}
+                rows={5}
+                value={descriptionDraft}
+                onChange={(event) => setDescriptionDraft(event.target.value)}
+                onBlur={saveInPlace}
+              />
+            </label>
+            <label className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
+              <span className="settings-form-control-copy">
+                <strong>Scope &amp; Rules</strong>
+                <small>Record the authorized scope, exclusions, constraints, and operating rules.</small>
+              </span>
+              <textarea
+                aria-label="Scope & Rules"
+                disabled={busy}
+                rows={8}
+                value={rulesDraft}
+                onChange={(event) => setRulesDraft(event.target.value)}
+                onBlur={saveInPlace}
+              />
+            </label>
+          </div>
         </div>
-        <label>
-          Research Profile
-          <input disabled value={workspaceResearchProfileLabel(researchProfile)} />
-        </label>
-        <label>
-          Description
-          <textarea
-            disabled={busy || saving}
-            rows={5}
-            value={descriptionDraft}
-            onChange={(event) => setDescriptionDraft(event.target.value)}
-          />
-        </label>
-        <label>
-          Scope and Rules
-          <textarea
-            disabled={busy || saving}
-            rows={8}
-            value={rulesDraft}
-            onChange={(event) => setRulesDraft(event.target.value)}
-          />
-        </label>
         {saveError ? <p className="workspace-overview-error" role="alert">{saveError}</p> : null}
-        <div className="workspace-overview-actions">
-          <button
-            className="primary-button"
-            disabled={busy || saving || !dirty || !workspaceNameDraft.trim()}
-            type="submit"
-          >
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
-        </div>
-      </form>
+        {saving ? <span className="workspace-overview-saving" role="status">Saving…</span> : null}
+      </div>
     </section>
   );
 }
@@ -422,6 +614,231 @@ function workspaceResearchProfileLabel(profile: ResearchProfile | null): string 
   if (profile.id === 'security-research') return 'Security';
   if (profile.id === 'mathematics') return 'Mathematics';
   return profile.name;
+}
+
+function WorkspaceActivityForm({
+  nowMs,
+  runs,
+  viewLabel,
+  workspaceName
+}: {
+  nowMs: number;
+  runs: readonly RunRow[];
+  viewLabel: string;
+  workspaceName: string;
+}): JSX.Element {
+  const activity = useMemo(() => workspaceTokenActivity(runs, nowMs), [nowMs, runs]);
+  return (
+    <section className="settings-form workspace-activity-form" aria-label={`${workspaceName} ${viewLabel.toLowerCase()} yearly token activity`}>
+      <header className="settings-form-heading">
+        <h2>{workspaceName} {viewLabel}</h2>
+        <p>{activity.totalTokens.toLocaleString()} tokens used over the past year.</p>
+      </header>
+      <div className="workspace-activity-grid-scroll">
+        <div className="workspace-activity-grid" role="grid" aria-label="Daily token usage over the past year">
+          {Array.from({ length: activity.leadingEmptyDays }, (_, index) => (
+            <span aria-hidden="true" className="workspace-activity-cell is-empty" key={`empty-${index}`} />
+          ))}
+          {activity.days.map((day) => {
+            const dateLabel = new Date(day.timestamp).toLocaleDateString(undefined, {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              timeZone: 'UTC'
+            });
+            const label = `${dateLabel}: ${day.totalTokens.toLocaleString()} tokens`;
+            return (
+              <span
+                aria-label={label}
+                className={`workspace-activity-cell heat-${day.heatLevel}`}
+                data-date={day.dateKey}
+                data-token-count={day.totalTokens}
+                key={day.dateKey}
+                role="gridcell"
+                title={label}
+              />
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WorkspaceMemoryPanel({
+  hidden,
+  loading,
+  memoryTypes,
+  nowMs,
+  nodes,
+  onOpen,
+  runs,
+  workspaceName
+}: {
+  hidden: boolean;
+  loading: boolean;
+  memoryTypes: ResearchProfile['memory']['types'];
+  nowMs: number;
+  nodes: HoneycrispMemorySummary['nodes'];
+  onOpen: (nodeId: string) => void;
+  runs: readonly RunRow[];
+  workspaceName: string;
+}): JSX.Element {
+  return (
+    <section
+      aria-label="Workspace memory"
+      className="workspace-dashboard-panel workspace-catalog-view"
+      hidden={hidden}
+      id="workspace-dashboard-memory-panel"
+      role="tabpanel"
+    >
+      <WorkspaceActivityForm nowMs={nowMs} runs={runs} viewLabel="Memory" workspaceName={workspaceName} />
+      <div className="workspace-catalog-list memory-catalog-list">
+        {nodes.map((node) => (
+          <MemoryCatalogItem
+            key={node.id}
+            memoryTypes={memoryTypes}
+            node={node}
+            selected={false}
+            onOpen={() => onOpen(node.id)}
+          />
+        ))}
+        {nodes.length === 0 ? (
+          <p className="workspace-catalog-empty">{loading ? 'Loading memory.' : 'No workspace memory yet.'}</p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function WorkspaceRunbooksPanel({
+  hidden,
+  loading,
+  nowMs,
+  runbooks,
+  onOpen,
+  runs,
+  workspaceName
+}: {
+  hidden: boolean;
+  loading: boolean;
+  nowMs: number;
+  runbooks: HoneycrispMemorySummary['runbooks'];
+  onOpen: (runbookId: string) => void;
+  runs: readonly RunRow[];
+  workspaceName: string;
+}): JSX.Element {
+  return (
+    <section
+      aria-label="Workspace runbooks"
+      className="workspace-dashboard-panel workspace-catalog-view"
+      hidden={hidden}
+      id="workspace-dashboard-runbooks-panel"
+      role="tabpanel"
+    >
+      <WorkspaceActivityForm nowMs={nowMs} runs={runs} viewLabel="Runbooks" workspaceName={workspaceName} />
+      <div className="workspace-catalog-list runbook-catalog-list">
+        {runbooks.map((runbook) => (
+          <RunbookCatalogItem
+            key={runbook.id}
+            runbook={runbook}
+            selected={false}
+            onOpen={() => onOpen(runbook.id)}
+          />
+        ))}
+        {runbooks.length === 0 ? (
+          <p className="workspace-catalog-empty">{loading ? 'Loading runbooks.' : 'No workspace runbooks yet.'}</p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function WorkspaceCleaningPanel({
+  busy,
+  hidden,
+  honeycrispMemory,
+  memoryDreamingInProgress,
+  memoryDreamingProgress,
+  researchProfile,
+  runs,
+  workspaceDejunk,
+  workspaceDejunkInProgress,
+  onRunMemoryDreaming,
+  onRunWorkspaceDejunk
+}: {
+  busy: boolean;
+  hidden: boolean;
+  honeycrispMemory: HoneycrispMemorySummary | null;
+  memoryDreamingInProgress: boolean;
+  memoryDreamingProgress: MemoryDreamingProgressUpdate | null;
+  researchProfile: ResearchProfile | null;
+  runs: RunRow[];
+  workspaceDejunk: WorkspaceDejunkSummary | null;
+  workspaceDejunkInProgress: boolean;
+  onRunMemoryDreaming: () => void;
+  onRunWorkspaceDejunk: () => void;
+}): JSX.Element {
+  const memoryEnabled = researchProfile?.capabilities.memoryEnabled !== false;
+  const memoryLoading = honeycrispMemory?.loading === true;
+  const dreamDisabled = busy || memoryDreamingInProgress || memoryLoading || !memoryEnabled || honeycrispMemory?.dreaming.available === false;
+  const dreamProgressPhase = memoryDreamingProgress?.phase ?? (memoryDreamingInProgress ? 'preparing' : null);
+  const dreamProgressLabel = dreamProgressPhase ? memoryDreamingProgressLabel(dreamProgressPhase) : null;
+  const memoriesSinceDream = memoryCountSinceLastDream(honeycrispMemory);
+  const newFileCount = workspaceDejunk?.newFileCount ?? 0;
+  const activeSession = runs.some(({ run }) => isLiveResearchRunStatus(run.status));
+  const dejunkLoading = workspaceDejunk?.loading === true;
+  const dejunkDisabled = busy || workspaceDejunkInProgress || dejunkLoading || activeSession || workspaceDejunk?.available === false;
+  const dejunkStatus = workspaceDejunkInProgress ? 'Dejunking workspace files…' : dejunkLoading ? 'Checking workspace files…' : null;
+  return (
+    <section
+      aria-label="Workspace cleaning"
+      className="workspace-dashboard-panel workspace-cleaning-view"
+      hidden={hidden}
+      id="workspace-dashboard-clean-panel"
+      role="tabpanel"
+    >
+      <div className="settings-form workspace-cleaning-form">
+        <header className="settings-form-heading">
+          <h2>Clean</h2>
+          <p>Organize loose files and consolidate workspace memory.</p>
+        </header>
+        <div className="settings-form-squircle">
+          <div className="settings-form-control-list">
+            <div className="settings-form-control-row workspace-cleaning-row">
+              <span className="settings-form-control-copy">
+                <strong>Dejunk</strong>
+                {dejunkStatus ? <WorkspaceCleaningStatus label={dejunkStatus} /> : (
+                  <small>{workspaceDejunk?.newFileCountCapped ? `${newFileCount.toLocaleString()}+` : newFileCount.toLocaleString()} New {newFileCount === 1 ? 'File' : 'Files'}</small>
+                )}
+              </span>
+              <button className="workspace-cleaning-action" disabled={dejunkDisabled} onClick={onRunWorkspaceDejunk} type="button">Dejunk Now</button>
+            </div>
+            <div className="settings-form-control-row workspace-cleaning-row">
+              <span className="settings-form-control-copy">
+                <strong>Dream</strong>
+                {dreamProgressLabel || memoryLoading ? (
+                  <WorkspaceCleaningStatus label={dreamProgressLabel ?? 'Loading workspace memory…'} />
+                ) : (
+                  <small>{memoriesSinceDream.toLocaleString()} New {memoriesSinceDream === 1 ? 'Memory' : 'Memories'}</small>
+                )}
+              </span>
+              <button className="workspace-cleaning-action" disabled={dreamDisabled} onClick={onRunMemoryDreaming} type="button">Dream Now</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WorkspaceCleaningStatus({ label }: { label: string }): JSX.Element {
+  return (
+    <span aria-live="polite" className="workspace-cleaning-status" role="status">
+      <span aria-hidden="true" className="provider-settings-loading-indicator" />
+      {label}
+    </span>
+  );
 }
 
 export function WorkspaceHousekeepingPanel({
@@ -648,7 +1065,8 @@ function WorkspaceResearchSurface({
   nowMs,
   runs,
   onAddResource,
-  onChangeResource
+  onChangeResource,
+  workspaceName
 }: {
   activeScope: WorkspaceScopeVersion | null;
   hidden: boolean;
@@ -657,6 +1075,7 @@ function WorkspaceResearchSurface({
   runs: RunRow[];
   onAddResource: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
+  workspaceName: string;
 }): JSX.Element {
   const items = useMemo(
     () => workspaceResearchSurfaceItems(activeScope?.assets ?? [], runs, honeycrispMemory),
@@ -724,6 +1143,7 @@ function WorkspaceResearchSurface({
       id="workspace-dashboard-resources-panel"
       role="tabpanel"
     >
+      <WorkspaceActivityForm nowMs={nowMs} runs={runs} viewLabel="Resources" workspaceName={workspaceName} />
       <div className="workspace-resource-tabs-bar">
         <div className="research-side-view-tabs workspace-resource-tabs" role="tablist" aria-label="Workspace resource types">
           {representedKinds.map((kind) => (

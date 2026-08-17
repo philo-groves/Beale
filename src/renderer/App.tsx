@@ -374,7 +374,6 @@ export function App(): JSX.Element {
   ): Promise<void> => {
     const activeScope = snapshot?.activeScope;
     if (!activeScope) throw new Error('The active workspace scope is unavailable.');
-    setBusy(true);
     setError(null);
     try {
       applySnapshot(await window.beale.saveScope(
@@ -383,8 +382,6 @@ export function App(): JSX.Element {
     } catch (caught) {
       setError(errorMessage(caught));
       throw caught;
-    } finally {
-      setBusy(false);
     }
   }, [applySnapshot, snapshot?.activeScope]);
 

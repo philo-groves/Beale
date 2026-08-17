@@ -13,6 +13,7 @@ import {
   workspaceResearchSurfaceKinds,
   workspaceResearchSurfaceItems,
   workspaceScopeDraftForConfigurationUpdate,
+  workspaceTokenActivity,
   WorkspaceHousekeepingPanel,
   WorkspaceResourceDialog,
   WorkspaceUnderstandingView
@@ -23,7 +24,7 @@ import { testResearchProfile } from './researchProfileFixture';
 const NOW = Date.parse('2026-08-12T12:00:00.000Z');
 
 describe('workspace dashboard', () => {
-  it('lays out tabbed dashboard panels beside the unchanged compact workspace sidenav', () => {
+  it('centers workspace forms in a full-width dashboard with on-demand detail views', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const dashboardStyles = styles.match(/\.workspace-dashboard\s*\{([^}]*)\}/)?.[1] ?? '';
     const tabsStyles = styles.match(/\.workspace-dashboard-tabs\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -39,6 +40,9 @@ describe('workspace dashboard', () => {
     const surfaceAreaStyles = styles.match(/\.workspace-surface-area\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceListStyles = styles.match(/\.workspace-surface-list\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceItemStyles = styles.match(/\.workspace-surface-item\s*\{([^}]*)\}/)?.[1] ?? '';
+    const mainOnlyStyles = styles.match(/\.main-session-grid\.workspace-main-only\s*\{([^}]*)\}/)?.[1] ?? '';
+    const catalogViewStyles = styles.match(/\.workspace-catalog-view\s*\{([^}]*)\}/)?.[1] ?? '';
+    const catalogListStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.workspace-catalog-list\s*\{([^}]*)\}/)?.[1] ?? '';
     const sideStackStyles = styles.match(/\.workspace-side-stack\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamAreaStyles = styles.match(/\.workspace-dream-area\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamContentStyles = styles.match(/\.workspace-dream-content\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -60,8 +64,8 @@ describe('workspace dashboard', () => {
     expect(overviewDisabledStyles).toContain('color: var(--muted)');
     expect(overviewDisabledStyles).toContain('cursor: not-allowed');
     expect(timelinePanelStyles).not.toContain('border-bottom');
-    expect(timelinePanelStyles).toContain('grid-template-rows: minmax(0, 1fr)');
-    expect(timelinePanelStyles).toContain('gap: 0');
+    expect(timelinePanelStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
+    expect(timelinePanelStyles).toContain('gap: 10px');
     expect(timelinePanelStyles).not.toContain('padding');
     expect(chartStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
     expect(axisStyles).toContain('border-bottom: 1px solid var(--panel-border)');
@@ -70,11 +74,16 @@ describe('workspace dashboard', () => {
     expect(timelineRowsStyles).not.toContain('scrollbar-gutter');
     expect(timelineResultStyles).toContain('justify-items: end');
     expect(timelineLegendButtonStyles).toContain('top: -6px');
-    expect(surfaceAreaStyles).toContain('grid-template-rows: 40px minmax(0, 1fr)');
+    expect(surfaceAreaStyles).toContain('grid-template-rows: auto 40px minmax(0, 1fr)');
     expect(surfaceAreaStyles).not.toContain('padding');
     expect(surfaceListStyles).not.toContain('scrollbar-gutter');
     expect(surfaceListStyles).toContain('gap: 10px');
     expect(surfaceItemStyles).toContain('min-height: 86px');
+    expect(mainOnlyStyles).toContain('grid-template-columns: minmax(0, 1fr)');
+    expect(catalogViewStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
+    expect(catalogViewStyles).toContain('overflow: hidden');
+    expect(catalogListStyles).toContain('width: 100%');
+    expect(catalogListStyles).toContain('height: 100%');
     expect(styles).toMatch(/:where\([\s\S]*\.main-commentary-list,[\s\S]*\.workspace-surface-list,[\s\S]*\)\s*\{\s*scrollbar-color: transparent transparent;/u);
     expect(styles).not.toContain('.workspace-housekeeping-header');
     expect(sideStackStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
@@ -153,7 +162,7 @@ describe('workspace dashboard', () => {
     expect(html).toContain('disabled=""');
   });
 
-  it('places housekeeping below the compact workspace research summary', () => {
+  it('shows six workspace views without a default right sidenav', () => {
     const memory = memorySummary();
     const html = renderToStaticMarkup(createElement(MainSessionWorkspace, {
       detail: null,
@@ -195,47 +204,70 @@ describe('workspace dashboard', () => {
       onSteerInstruction: () => undefined
     }));
 
-    expect(html).toContain('class="main-session-grid "');
+    expect(html).toContain('class="main-session-grid workspace-main-only"');
     expect(html).toContain('class="workspace-dashboard"');
-    expect(html.match(/class="workspace-dashboard-panel/g)).toHaveLength(3);
+    expect(html.match(/class="workspace-dashboard-panel/g)).toHaveLength(6);
     expect(html).toContain('aria-label="Workspace dashboard views"');
     expect(html).toContain('<span>Overview</span>');
     expect(html).toContain('<span>Activity</span>');
     expect(html).toContain('<span>Resources</span>');
+    expect(html).toContain('<span>Memory</span>');
+    expect(html).toContain('<span>Runbooks</span>');
+    expect(html).toContain('<span>Clean</span>');
     expect(html).toContain('aria-controls="workspace-dashboard-overview-panel" aria-selected="true"');
     expect(html).toContain('id="workspace-dashboard-activity-panel" role="tabpanel"');
     expect(html).toContain('id="workspace-dashboard-resources-panel" role="tabpanel"');
-    expect(html).toContain('Workspace directory<input disabled="" value="/workspaces/parser"/>');
-    expect(html).toContain('Workspace name<input required="" value="Parser Workspace"/>');
-    expect(html).toContain('Research subject<input disabled="" value="Parser"/>');
-    expect(html).toContain('Research Profile<input disabled="" value="Security"/>');
-    expect(html).toContain('<button class="primary-button" disabled="" type="submit">Save changes</button>');
+    expect(html).toContain('id="workspace-dashboard-memory-panel" role="tabpanel"');
+    expect(html).toContain('id="workspace-dashboard-runbooks-panel" role="tabpanel"');
+    expect(html).toContain('id="workspace-dashboard-clean-panel" role="tabpanel"');
+    expect(html).toContain('<h2 id="workspace-overview-heading">Parser Workspace Overview</h2>');
+    expect(html).toContain('class="settings-form-squircle" aria-labelledby="workspace-overview-heading"');
+    expect(html).toMatch(/aria-label="Working Directory"[^>]*disabled=""[^>]*value="\/workspaces\/parser"/u);
+    expect(html).toMatch(/aria-label="Workspace Name"[^>]*required=""[^>]*value="Parser Workspace"/u);
+    expect(html).toMatch(/aria-label="Subject"[^>]*disabled=""[^>]*value="Parser"/u);
+    expect(html).toMatch(/aria-label="Profile"[^>]*disabled=""[^>]*value="Security"/u);
+    expect(html).toContain('<strong>Workspace Description</strong>');
+    expect(html).toContain('aria-label="Workspace Description"');
+    expect(html).toContain('<strong>Scope &amp; Rules</strong>');
+    expect(html).toContain('aria-label="Scope &amp; Rules"');
+    expect(html).not.toContain('Save changes');
+    expect(html).not.toContain('workspace-overview-actions');
     expect(html).not.toContain('>Surface</span>');
     expect(html).not.toContain('Research Surface');
     expect(html).not.toContain('Workspace inputs and coverage');
     expect(html).not.toContain('workspace-surface-card');
-    expect(html).toContain('class="research-side-column workspace-side-stack"');
+    expect(html).not.toContain('class="research-side-column');
+    expect(html).not.toContain('class="research-side-resize-handle"');
     expect(html).toContain('aria-label="Workspace resource types"');
     expect(html).toContain('aria-label="Add resource type"');
     expect(html).not.toContain('>Housekeeping</span>');
-    expect(html).toContain('>0 New Files</span>');
-    expect(html).toContain('>0 New Memories</span>');
-    expect(html).toContain('workspace-dejunk-card workspace-housekeeping-card');
-    expect(html).toContain('>Dejunk</span>');
-    expect(html.indexOf('>Dejunk</span>')).toBeLessThan(html.indexOf('>Dream</span>'));
-    expect(html.indexOf('>0 New Files</span>')).toBeLessThan(html.indexOf('>0 New Memories</span>'));
+    expect(html).toContain('<small>0 New Files</small>');
+    expect(html).toContain('<small>0 New Memories</small>');
+    expect(html).toContain('>Dejunk Now</button>');
+    expect(html).toContain('>Dream Now</button>');
+    expect(html.indexOf('<strong>Dejunk</strong>')).toBeLessThan(html.indexOf('<strong>Dream</strong>'));
+    expect(html.indexOf('0 New Files')).toBeLessThan(html.indexOf('0 New Memories'));
     expect(html).toContain('No workspace resources recorded.');
-    expect(html).not.toContain('Parser Workspace Activity');
+    expect(html).toContain('<h2>Parser Workspace Activity</h2>');
+    expect(html).toContain('<h2>Parser Workspace Resources</h2>');
+    expect(html).toContain('<h2>Parser Workspace Memory</h2>');
+    expect(html).toContain('<h2>Parser Workspace Runbooks</h2>');
+    expect(html).toContain('tokens used over the past year.');
+    expect(html).toContain('aria-label="Daily token usage over the past year"');
+    expect(html).not.toContain('workspace-activity-squircle');
+    expect(html).not.toContain('workspace-activity-weekdays');
+    expect(html).not.toContain('Token usage heat scale');
+    expect(html.indexOf('<h2>Parser Workspace Resources</h2>')).toBeLessThan(html.indexOf('aria-label="Workspace resource types"'));
+    expect(html.indexOf('<h2>Parser Workspace Memory</h2>')).toBeLessThan(html.indexOf('class="workspace-catalog-list memory-catalog-list"'));
+    expect(html.indexOf('<h2>Parser Workspace Runbooks</h2>')).toBeLessThan(html.indexOf('class="workspace-catalog-list runbook-catalog-list"'));
     expect(html).toContain('aria-label="Parser Workspace — most recent 4 hours of session activity"');
     expect(html).toContain('<span>Activity</span>');
     expect(html).toContain('aria-label="Show activity legend"');
     expect(html).toContain('aria-expanded="false"');
     expect(html.indexOf('workspace-timeline-legend-popover')).toBeLessThan(html.indexOf('workspace-timeline-rows'));
     expect(html).toContain('No session activity recorded.');
-    expect(html).not.toContain('<span>0 Runbooks</span>');
-    expect(html).not.toContain('<span>0 Reports</span>');
-    expect(html).toContain('<span>0 Memories</span>');
-    expect(html).not.toContain('<span>0 Subagents</span>');
+    expect(html).toContain('No workspace memory yet.');
+    expect(html).toContain('No workspace runbooks yet.');
   });
 
   it('preserves non-editable authorization and resource data when saving overview configuration', () => {
@@ -281,6 +313,26 @@ describe('workspace dashboard', () => {
         attributes: { displayName: 'Parser' }
       }]
     });
+  });
+
+  it('aggregates one year of daily session token usage into logarithmic heat levels', () => {
+    const low = runRow('run_low', [['2026-08-10T09:00:00.000Z', '2026-08-10T10:00:00.000Z']]);
+    low.tokenUsage = { totalTokens: 100 };
+    const high = runRow('run_high', [['2026-08-11T09:00:00.000Z', '2026-08-11T10:00:00.000Z']]);
+    high.tokenUsage = { totalTokens: 10_000 };
+    const sameDay = runRow('run_same_day', [['2026-08-11T11:00:00.000Z', '2026-08-11T12:00:00.000Z']]);
+    sameDay.tokenUsage = { totalTokens: 5_000 };
+    const outsideRange = runRow('run_old', [['2025-08-01T09:00:00.000Z', '2025-08-01T10:00:00.000Z']]);
+    outsideRange.tokenUsage = { totalTokens: 50_000 };
+
+    const activity = workspaceTokenActivity([low, high, sameDay, outsideRange], NOW);
+    const lowDay = activity.days.find((day) => day.dateKey === '2026-08-10');
+    const highDay = activity.days.find((day) => day.dateKey === '2026-08-11');
+
+    expect(activity.days).toHaveLength(365);
+    expect(activity.totalTokens).toBe(15_100);
+    expect(lowDay).toMatchObject({ totalTokens: 100, heatLevel: 2 });
+    expect(highDay).toMatchObject({ totalTokens: 15_000, heatLevel: 4 });
   });
 
   it('renders split work intervals and per-memory-type timeline markers', () => {

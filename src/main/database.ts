@@ -4667,7 +4667,7 @@ export class WorkspaceDatabase {
     const attemptRows = rows(
       this.db
         .prepare(
-          `SELECT attempt.id, attempt.run_id, attempt.status, attempt.started_at
+          `SELECT attempt.id, attempt.run_id, attempt.status, attempt.started_at, attempt.token_usage_json
            FROM attempts attempt
            JOIN runs r ON r.id = attempt.run_id
            JOIN scope_versions s ON s.id = r.scope_version_id
@@ -4734,6 +4734,14 @@ export class WorkspaceDatabase {
       else fallbackTerminationCauseByRun.set(runId, 'safeguard');
     }
     const attemptById = new Map(attemptRows.map((row) => [text(row, 'id'), row] as const));
+    const tokenUsageByRunId = new Map<string, number>();
+    for (const attemptRow of attemptRows) {
+      const runId = text(attemptRow, 'run_id');
+      tokenUsageByRunId.set(
+        runId,
+        (tokenUsageByRunId.get(runId) ?? 0) + totalTokensFromUsage(parseJson(attemptRow.token_usage_json))
+      );
+    }
     const intervalsBySessionRun = new Map<string, SessionActivityInterval[]>();
     for (const intervalRow of intervalRows) {
       const interval = this.mapSessionActivityInterval(intervalRow);
@@ -4773,6 +4781,7 @@ export class WorkspaceDatabase {
         run,
         engine: this.runEngineFromBudget(run.budget),
         sessionRuns,
+        tokenUsage: { totalTokens: tokenUsageByRunId.get(run.id) ?? 0 },
         breakoutRooms: this.listBreakoutRoomSummaries(run.id)
       };
     });
@@ -7694,6 +7703,27 @@ export class WorkspaceDatabase {
     if (budget.runEngine === 'honeycrisp') return 'honeycrisp';
     return 'fixture';
   }
+}
+
+function totalTokensFromUsage(usage: Record<string, unknown>): number {
+  const direct = numericUsageValue(usage.totalTokens) ?? numericUsageValue(usage.total_tokens);
+  if (direct !== null) return direct;
+  const input = numericUsageValue(usage.promptTokens)
+    ?? numericUsageValue(usage.prompt_tokens)
+    ?? numericUsageValue(usage.inputTokens)
+    ?? numericUsageValue(usage.input_tokens)
+    ?? 0;
+  const output = numericUsageValue(usage.completionTokens)
+    ?? numericUsageValue(usage.completion_tokens)
+    ?? numericUsageValue(usage.outputTokens)
+    ?? numericUsageValue(usage.output_tokens)
+    ?? 0;
+  return input + output;
+}
+
+function numericUsageValue(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.max(0, value);
 }
 
 export function checkpointDatabaseFile(databasePath: string): void {
