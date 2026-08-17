@@ -12,6 +12,7 @@ import {
   workspaceDejunkHeat,
   workspaceResearchSurfaceKinds,
   workspaceResearchSurfaceItems,
+  workspaceScopeDraftForConfigurationUpdate,
   WorkspaceHousekeepingPanel,
   WorkspaceResourceDialog,
   WorkspaceUnderstandingView
@@ -22,10 +23,13 @@ import { testResearchProfile } from './researchProfileFixture';
 const NOW = Date.parse('2026-08-12T12:00:00.000Z');
 
 describe('workspace dashboard', () => {
-  it('splits the dashboard and compact workspace sidenav into two vertical regions', () => {
+  it('lays out tabbed dashboard panels beside the unchanged compact workspace sidenav', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const dashboardStyles = styles.match(/\.workspace-dashboard\s*\{([^}]*)\}/)?.[1] ?? '';
-    const sharedPanelStyles = styles.match(/\.workspace-dashboard-half\s*\{([^}]*)\}/)?.[1] ?? '';
+    const tabsStyles = styles.match(/\.workspace-dashboard-tabs\s*\{([^}]*)\}/)?.[1] ?? '';
+    const sharedPanelStyles = styles.match(/\.workspace-dashboard-panel\s*\{([^}]*)\}/)?.[1] ?? '';
+    const overviewStyles = styles.match(/\.workspace-overview\s*\{([^}]*)\}/)?.[1] ?? '';
+    const overviewDisabledStyles = styles.match(/\.workspace-overview-form :is\(input, textarea\):disabled\s*\{([^}]*)\}/)?.[1] ?? '';
     const timelinePanelStyles = styles.match(/\.workspace-timeline-card\s*\{([^}]*)\}/)?.[1] ?? '';
     const chartStyles = styles.match(/\.workspace-timeline-chart\s*\{([^}]*)\}/)?.[1] ?? '';
     const axisStyles = styles.match(/\.workspace-timeline-axis\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -45,12 +49,20 @@ describe('workspace dashboard', () => {
         /\.app-shell\.session-heat-medium,\s*\.workspace-dream-card\[data-dream-heat="medium"\],\s*\.workspace-dejunk-card\[data-dejunk-heat="medium"\]\s*\{([^}]*)\}/
       )?.[1] ?? '';
 
-    expect(dashboardStyles).toContain('grid-template-rows: fit-content(50%) minmax(0, 1fr)');
+    expect(dashboardStyles).toContain('grid-template-rows: 42px minmax(0, 1fr)');
+    expect(tabsStyles).toContain('margin: 10px 10px 0');
     expect(sharedPanelStyles).toContain('min-height: 0');
-    expect(sharedPanelStyles).not.toContain('height: 100%');
+    expect(sharedPanelStyles).toContain('height: 100%');
+    expect(sharedPanelStyles).toContain('padding: 10px');
+    expect(overviewStyles).toContain('overflow: auto');
+    expect(overviewStyles).not.toContain('padding');
+    expect(overviewDisabledStyles).toContain('background: var(--panel-strong)');
+    expect(overviewDisabledStyles).toContain('color: var(--muted)');
+    expect(overviewDisabledStyles).toContain('cursor: not-allowed');
     expect(timelinePanelStyles).not.toContain('border-bottom');
     expect(timelinePanelStyles).toContain('grid-template-rows: minmax(0, 1fr)');
     expect(timelinePanelStyles).toContain('gap: 0');
+    expect(timelinePanelStyles).not.toContain('padding');
     expect(chartStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
     expect(axisStyles).toContain('border-bottom: 1px solid var(--panel-border)');
     expect(axisStyles).not.toContain('padding-bottom');
@@ -59,6 +71,7 @@ describe('workspace dashboard', () => {
     expect(timelineResultStyles).toContain('justify-items: end');
     expect(timelineLegendButtonStyles).toContain('top: -6px');
     expect(surfaceAreaStyles).toContain('grid-template-rows: 40px minmax(0, 1fr)');
+    expect(surfaceAreaStyles).not.toContain('padding');
     expect(surfaceListStyles).not.toContain('scrollbar-gutter');
     expect(surfaceListStyles).toContain('gap: 10px');
     expect(surfaceItemStyles).toContain('min-height: 86px');
@@ -150,6 +163,8 @@ describe('workspace dashboard', () => {
       providerModelCatalog: [],
       honeycrispMemory: memory,
       researchProfile: testResearchProfile(),
+      researchSubjectName: 'Parser',
+      workspacePath: '/workspaces/parser',
       workspaceName: 'Parser Workspace',
       runs: [],
       selectedRunId: null,
@@ -182,7 +197,19 @@ describe('workspace dashboard', () => {
 
     expect(html).toContain('class="main-session-grid "');
     expect(html).toContain('class="workspace-dashboard"');
-    expect(html.match(/class="workspace-dashboard-half/g)).toHaveLength(2);
+    expect(html.match(/class="workspace-dashboard-panel/g)).toHaveLength(3);
+    expect(html).toContain('aria-label="Workspace dashboard views"');
+    expect(html).toContain('<span>Overview</span>');
+    expect(html).toContain('<span>Activity</span>');
+    expect(html).toContain('<span>Resources</span>');
+    expect(html).toContain('aria-controls="workspace-dashboard-overview-panel" aria-selected="true"');
+    expect(html).toContain('id="workspace-dashboard-activity-panel" role="tabpanel"');
+    expect(html).toContain('id="workspace-dashboard-resources-panel" role="tabpanel"');
+    expect(html).toContain('Workspace directory<input disabled="" value="/workspaces/parser"/>');
+    expect(html).toContain('Workspace name<input required="" value="Parser Workspace"/>');
+    expect(html).toContain('Research subject<input disabled="" value="Parser"/>');
+    expect(html).toContain('Research Profile<input disabled="" value="Cybersecurity"/>');
+    expect(html).toContain('<button class="primary-button" disabled="" type="submit">Save changes</button>');
     expect(html).not.toContain('>Surface</span>');
     expect(html).not.toContain('Research Surface');
     expect(html).not.toContain('Workspace inputs and coverage');
@@ -209,6 +236,51 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('<span>0 Reports</span>');
     expect(html).toContain('<span>0 Memories</span>');
     expect(html).not.toContain('<span>0 Subagents</span>');
+  });
+
+  it('preserves non-editable authorization and resource data when saving overview configuration', () => {
+    const scope = {
+      id: 'scope_overview',
+      version: 3,
+      status: 'active' as const,
+      workspaceName: 'Parser Workspace',
+      scopeOwner: 'Parser Team',
+      descriptionMarkdown: 'Old description',
+      rulesMarkdown: 'Old rules',
+      activeFrom: '2026-08-12T00:00:00.000Z',
+      expiresAt: '2026-12-31T00:00:00.000Z',
+      createdAt: '2026-08-12T00:00:00.000Z',
+      createdBy: 'local_user',
+      assets: [{
+        id: 'asset_parser',
+        scopeVersionId: 'scope_overview',
+        direction: 'in_scope' as const,
+        kind: 'repo' as const,
+        value: 'https://github.com/example/parser',
+        sensitivity: 'public',
+        attributes: { displayName: 'Parser' },
+        createdAt: '2026-08-12T00:00:00.000Z'
+      }]
+    };
+
+    expect(workspaceScopeDraftForConfigurationUpdate(scope, {
+      workspaceName: 'Parser Lab',
+      descriptionMarkdown: 'New description',
+      rulesMarkdown: 'New rules'
+    })).toEqual({
+      workspaceName: 'Parser Lab',
+      scopeOwner: 'Parser Team',
+      descriptionMarkdown: 'New description',
+      rulesMarkdown: 'New rules',
+      expiresAt: '2026-12-31T00:00:00.000Z',
+      assets: [{
+        direction: 'in_scope',
+        kind: 'repo',
+        value: 'https://github.com/example/parser',
+        sensitivity: 'public',
+        attributes: { displayName: 'Parser' }
+      }]
+    });
   });
 
   it('renders split work intervals and per-memory-type timeline markers', () => {

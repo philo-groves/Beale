@@ -8,7 +8,8 @@ import type {
   ResearchProviderModelCatalog,
   RunDetail,
   ShellSafetyMode,
-  SteeringAction
+  SteeringAction,
+  WorkspaceScopeVersion
 } from '@shared/types';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
 import { renderTraceProseText } from '../traces/traceMarkup';
@@ -16,6 +17,7 @@ import { MainSteerArea, SessionLoadingState } from '../traces/TraceView';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import {
   commentaryMessagesForSession,
+  commentaryRepositoryMetadataForScope,
   hydrateCommentaryToolCall,
   type CommentaryToolCall,
   type CommentaryMessage
@@ -39,11 +41,13 @@ const COMMENTARY_AUTO_FOLLOW_THRESHOLD = COMMENTARY_ESTIMATED_MESSAGE_HEIGHT * 2
 const COMMENTARY_WINDOW_SLIDE_STEP = 15;
 const COMMENTARY_WINDOW_EDGE_BUFFER = COMMENTARY_ESTIMATED_MESSAGE_HEIGHT * 5;
 const returnToolCallWithoutLoading = async (toolCall: CommentaryToolCall): Promise<CommentaryToolCall> => toolCall;
+const INLINE_SINGULAR_TOOL_NAMES = new Set(['file.read', 'shell.run']);
 
 export const CommentaryView = memo(function CommentaryView({
   busy,
   detail,
   events,
+  activeScope = null,
   providerModelCatalog,
   selectedRunId,
   showBackToMain,
@@ -65,6 +69,7 @@ export const CommentaryView = memo(function CommentaryView({
   busy: boolean;
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
+  activeScope?: WorkspaceScopeVersion | null;
   providerModelCatalog: ResearchProviderModelCatalog[];
   selectedRunId: string | null;
   showBackToMain: boolean;
@@ -87,9 +92,13 @@ export const CommentaryView = memo(function CommentaryView({
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
+  const repositoryMetadata = useMemo(() => commentaryRepositoryMetadataForScope(activeScope), [activeScope]);
   const messages = useMemo(
-    () => commentaryMessagesForSession(detail, events, { includeInitialPrompt: !showBackToMain }),
-    [detail, events, showBackToMain]
+    () => commentaryMessagesForSession(detail, events, {
+      includeInitialPrompt: !showBackToMain,
+      repositoryMetadata
+    }),
+    [detail, events, repositoryMetadata, showBackToMain]
   );
   const messageSections = useMemo(
     () => commentaryMessageSections(messages, Boolean(detail && !isRunWorkingStatus(detail.run.status)), !showBackToMain),
@@ -365,7 +374,7 @@ export const CommentaryView = memo(function CommentaryView({
           <span>Back to Main</span>
         </button>
       ) : null}
-      {loading ? <SessionLoadingState label="Loading session." /> : null}
+      {loading ? <SessionLoadingState label="Loading session" /> : null}
       {!detail && onInitialInstruction ? (
         <div className="main-commentary-scroll" aria-label="No report review started yet">
           <div className="main-commentary-list" />
@@ -685,6 +694,61 @@ function CommentaryToolMessageContent({
     previousAutoExpandKeyRef.current = autoExpandKey;
   }, [autoExpandKey]);
 
+  const toggleToolCall = (toolCall: CommentaryToolCall): void => {
+    const expanding = !expandedCallIds.has(toolCall.id);
+    const callLoading = loadingCallIds.has(toolCall.id);
+    setExpandedCallIds((current) => toggledSetValue(current, toolCall.id));
+    if (!expanding || !toolCall.detailsDeferred || resolvedToolCalls.has(toolCall.id) || callLoading) return;
+    setLoadingCallIds((current) => addedSetValue(current, toolCall.id));
+    setCallErrors((current) => mapWithoutKey(current, toolCall.id));
+    void onRequestToolCallDetail(toolCall)
+      .then((resolved) => {
+        setResolvedToolCalls((current) => new Map(current).set(toolCall.id, resolved));
+      })
+      .catch((caught: unknown) => {
+        setCallErrors((current) => new Map(current).set(toolCall.id, errorMessage(caught)));
+      })
+      .finally(() => setLoadingCallIds((current) => setWithoutValue(current, toolCall.id)));
+  };
+
+  if (INLINE_SINGULAR_TOOL_NAMES.has(message.toolName ?? '') && (message.toolCount ?? 1) === 1 && toolCalls.length === 1) {
+    const toolCall = toolCalls[0];
+    const callExpanded = expandedCallIds.has(toolCall.id);
+    const resolvedToolCall = resolvedToolCalls.get(toolCall.id) ?? toolCall;
+    const callLoading = loadingCallIds.has(toolCall.id);
+    const callError = callErrors.get(toolCall.id) ?? null;
+    return (
+      <div className={`main-commentary-tool-call main-commentary-single-tool-disclosure${callExpanded ? ' expanded' : ''}`}>
+        <button
+          aria-expanded={callExpanded}
+          className="main-commentary-tool-call-summary main-commentary-single-tool"
+          onClick={() => toggleToolCall(toolCall)}
+          title={message.contentMarkdown}
+          type="button"
+        >
+          <span className="main-commentary-single-tool-label">
+            {hasSearchHighlight
+              ? renderSearchHighlightedText(message.contentMarkdown, searchHighlightQuery)
+              : message.contentMarkdown}
+          </span>
+          <ChevronRight className="main-commentary-single-tool-chevron" size={14} aria-hidden="true" />
+        </button>
+        {callExpanded ? (
+          <div className="main-commentary-tool-call-details">
+            {callLoading ? <div className="main-commentary-tool-call-loading">Loading details…</div> : null}
+            {callError ? <div className="main-commentary-tool-call-loading">{callError}</div> : null}
+            {!callLoading && !callError ? (
+              <>
+                <ToolCallValue label="Input" value={resolvedToolCall.input} />
+                <ToolCallValue label="Output" value={resolvedToolCall.output} />
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className={`main-commentary-tool-disclosure${expanded ? ' expanded' : ''}`}>
       <button
@@ -713,21 +777,7 @@ function CommentaryToolMessageContent({
                   type="button"
                   className="main-commentary-tool-call-summary"
                   aria-expanded={callExpanded}
-                  onClick={() => {
-                    const expanding = !expandedCallIds.has(toolCall.id);
-                    setExpandedCallIds((current) => toggledSetValue(current, toolCall.id));
-                    if (!expanding || !toolCall.detailsDeferred || resolvedToolCalls.has(toolCall.id) || callLoading) return;
-                    setLoadingCallIds((current) => addedSetValue(current, toolCall.id));
-                    setCallErrors((current) => mapWithoutKey(current, toolCall.id));
-                    void onRequestToolCallDetail(toolCall)
-                      .then((resolved) => {
-                        setResolvedToolCalls((current) => new Map(current).set(toolCall.id, resolved));
-                      })
-                      .catch((caught: unknown) => {
-                        setCallErrors((current) => new Map(current).set(toolCall.id, errorMessage(caught)));
-                      })
-                      .finally(() => setLoadingCallIds((current) => setWithoutValue(current, toolCall.id)));
-                  }}
+                  onClick={() => toggleToolCall(toolCall)}
                 >
                   <code title={toolCall.label}>
                     {hasSearchHighlight
@@ -856,9 +906,24 @@ function commentaryMessagesRenderEqual(left: CommentaryMessage, right: Commentar
       call.requestTraceEventId === candidate.requestTraceEventId &&
       call.observationTraceEventId === candidate.observationTraceEventId &&
       call.detailsDeferred === candidate.detailsDeferred &&
+      repositorySearchDetailsEqual(call.repositorySearch, candidate.repositorySearch) &&
       call.input === candidate.input &&
       call.output === candidate.output;
   });
+}
+
+function repositorySearchDetailsEqual(
+  left: CommentaryToolCall['repositorySearch'],
+  right: CommentaryToolCall['repositorySearch']
+): boolean {
+  if (left === right) return true;
+  return Boolean(
+    left
+    && right
+    && left.query === right.query
+    && stringArraysEqual(left.repositories, right.repositories)
+    && stringArraysEqual(left.repositoryNames, right.repositoryNames)
+  );
 }
 
 function stringArraysEqual(left: readonly string[] | undefined, right: readonly string[] | undefined): boolean {

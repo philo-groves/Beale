@@ -155,6 +155,7 @@ function toolLabelInputKeys(toolName: string): readonly string[] {
     case 'runbook.append': return ['id', 'status', 'expectedRevision'];
     case 'file.read': return ['path'];
     case 'shell.run': return ['command', 'utility', 'args'];
+    case 'repository.search': return ['query', 'root', 'path', 'repositoryPath', 'repository'];
     case 'list_agents': return ['path_prefix'];
     case 'wait_agent': return ['timeout_ms'];
     default: return [];
@@ -167,6 +168,7 @@ function toolLabelResultKeys(toolName: string): readonly string[] {
     case 'runbook.create':
     case 'runbook.append': return ['title', 'status', 'revision'];
     case 'shell.run': return ['command', 'utility', 'args'];
+    case 'repository.search': return ['query', 'roots', 'attemptedRoots'];
     case 'list_agents': return [];
     default: return [];
   }

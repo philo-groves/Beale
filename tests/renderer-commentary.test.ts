@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
-import type { RunDetail, TraceEventRecord } from '@shared/types';
+import type { RunDetail, TraceEventRecord, WorkspaceScopeVersion } from '@shared/types';
 import {
   COMMENTARY_RENDER_WINDOW_SIZE,
   CommentaryView,
@@ -17,7 +17,11 @@ import {
   runWorkingDurationMs,
   shouldAutoExpandToolMessage
 } from '../src/renderer/features/commentary/CommentaryView';
-import { commentaryMessagesForSession, commentaryToolUsageText } from '../src/renderer/view-models/commentary';
+import {
+  commentaryMessagesForSession,
+  commentaryRepositoryMetadataForScope,
+  commentaryToolUsageText
+} from '../src/renderer/view-models/commentary';
 import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
 
 describe('renderer commentary projection', () => {
@@ -41,7 +45,8 @@ describe('renderer commentary projection', () => {
     expect(html).toContain('main-trace-view main-commentary-view is-loading');
     expect(html).toContain('class="main-session-loading"');
     expect(html).toContain('lucide-loader-circle');
-    expect(html).toContain('Loading session.');
+    expect(html).toContain('Loading session');
+    expect(html).not.toContain('Loading session.');
     expect(html).not.toContain('class="main-trace-footer"');
   });
 
@@ -86,9 +91,22 @@ describe('renderer commentary projection', () => {
     expect(commentaryToolUsageText('list_agents', 1)).toBe('Checking subagents');
     expect(commentaryToolUsageText('list_agents', 2)).toBe('Checking subagents 2 times');
     expect(commentaryToolUsageText('file.read', 1)).toBe('Reading a file');
+    expect(commentaryToolUsageText('file.read', 1, 'src/Parser.ts')).toBe('Reading src/Parser.ts');
+    expect(commentaryToolUsageText('file.read', 1, 'C:\\Users\\alice\\repo\\src\\Parser.ts'))
+      .toBe('Reading ~/repo/src/Parser.ts');
+    expect(commentaryToolUsageText('file.read', 1, '/home/alice/repo/src/Parser.ts'))
+      .toBe('Reading ~/repo/src/Parser.ts');
+    expect(commentaryToolUsageText('file.read', 1, '/Users/alice/repo/src/Parser.ts'))
+      .toBe('Reading ~/repo/src/Parser.ts');
+    expect(commentaryToolUsageText('file.read', 1, '/root/repo/src/Parser.ts'))
+      .toBe('Reading ~/repo/src/Parser.ts');
+    expect(commentaryToolUsageText('file.read', 1, 'C:\\Users\\Public\\Parser.ts'))
+      .toBe('Reading C:\\Users\\Public\\Parser.ts');
     expect(commentaryToolUsageText('file.read', 3)).toBe('Reading 3 files');
     expect(commentaryToolUsageText('memory.get', 3)).toBe('Reading 3 memories');
+    expect(commentaryToolUsageText('memory.search', 3)).toBe('Searching memory with 3 queries');
     expect(commentaryToolUsageText('shell.run', 1)).toBe('Running a command');
+    expect(commentaryToolUsageText('shell.run', 1, 'npm run Check')).toBe('Running npm run Check');
     expect(commentaryToolUsageText('shell.run', 4)).toBe('Running 4 commands');
     expect(commentaryToolUsageText('mcp.browser.snapshot', 1)).toBe('Using snapshot');
     expect(commentaryToolUsageText('custom.scan', 2)).toBe('Using custom scan 2 times');
@@ -103,7 +121,7 @@ describe('renderer commentary projection', () => {
       toolEvent('read-two-request', 'tool.requested', 'file.read', 'read-two', { path: 'src/token.ts' }),
       toolEvent('read-two-result', 'tool.observed', 'file.read', 'read-two', { path: 'src/token.ts' }, { text: 'second file' }),
       toolEvent('shell-request', 'tool.requested', 'shell.run', 'shell', { utility: 'npm', args: ['test'] }),
-      toolEvent('repository-result', 'tool.observed', 'repository.search', 'repository-only', { query: 'decodeToken' }, { matches: 2 }),
+      toolEvent('repository-result', 'tool.observed', 'repository.search', 'repository-only', { query: 'decodeToken', path: '/work/parser' }, { matches: 2 }),
       toolEvent('spawn-request', 'tool.requested', 'spawn_agent', 'spawn'),
       displayEvent('spawn', {
         type: 'subagent.activity',
@@ -122,8 +140,8 @@ describe('renderer commentary projection', () => {
       ['user', undefined, undefined, 'Inspect the parser.'],
       ['tool', 'list_agents', 1, 'Checking subagents'],
       ['tool', 'file.read', 2, 'Reading 2 files'],
-      ['tool', 'shell.run', 1, 'Running a command'],
-      ['tool', 'repository.search', 1, 'Searching the repository'],
+      ['tool', 'shell.run', 1, 'Running npm test'],
+      ['tool', 'repository.search', 1, 'Querying parser for "decodeToken"'],
       ['task', undefined, undefined, 'Inspect the parser boundary.']
     ]);
 
@@ -156,8 +174,13 @@ describe('renderer commentary projection', () => {
       {
         id: 'repository-result',
         traceEventId: 'repository-result',
-        label: 'Repository Search',
-        input: { query: 'decodeToken' },
+        label: 'Querying parser for "decodeToken"',
+        repositorySearch: {
+          repositories: ['/work/parser'],
+          repositoryNames: ['parser'],
+          query: 'decodeToken'
+        },
+        input: { query: 'decodeToken', path: '/work/parser' },
         output: { matches: 2 }
       }
     ]);
@@ -180,6 +203,228 @@ describe('renderer commentary projection', () => {
 
     expect(messages.find((message) => message.toolName === 'shell.run')?.toolCalls?.[0]?.label)
       .toBe('npm test -- --runInBand');
+    expect(messages.find((message) => message.toolName === 'shell.run')?.contentMarkdown)
+      .toBe('Running npm test -- --runInBand');
+  });
+
+  it('labels singular and grouped repository searches from repositories and query calls', () => {
+    const detail = runDetail('Search the repositories.');
+    const repositoryMetadata = commentaryRepositoryMetadataForScope({
+      assets: [
+        {
+          id: 'repository-source',
+          direction: 'in_scope',
+          kind: 'repo',
+          value: 'https://github.com/example/parser.git',
+          attributes: {
+            displayName: 'Parser Metadata Name',
+            repositoryUrl: 'https://github.com/example/parser.git'
+          }
+        },
+        {
+          id: 'repository-checkout',
+          direction: 'in_scope',
+          kind: 'repo',
+          value: 'C:\\Users\\alice\\work\\parser.git',
+          attributes: {
+            repositoryUrl: 'https://github.com/example/parser.git',
+            sourceAssetId: 'repository-source'
+          }
+        },
+        {
+          id: 'runtime-checkout',
+          direction: 'in_scope',
+          kind: 'repo',
+          value: 'C:\\Users\\alice\\.honeycrisp\\repositories\\github.com_example_runtime\\default',
+          attributes: {
+            repositoryUrl: 'https://github.com/example/runtime.git'
+          }
+        }
+      ]
+    } as unknown as WorkspaceScopeVersion);
+    const singular = commentaryMessagesForSession(detail, [
+      toolEvent('repo-one-request', 'tool.requested', 'repository.search', 'repo-one', {
+        query: 'decodeToken'
+      }),
+      toolEvent('repo-one-result', 'tool.observed', 'repository.search', 'repo-one', {
+        query: 'decodeToken'
+      }, {
+        roots: ['C:\\Users\\alice\\work\\parser.git'],
+        query: 'decodeToken',
+        matches: []
+      })
+    ], { repositoryMetadata }).find((message) => message.toolName === 'repository.search');
+    expect(singular?.contentMarkdown).toBe('Querying Parser Metadata Name for "decodeToken"');
+    expect(singular?.toolCalls?.[0]?.label).toBe('Querying Parser Metadata Name for "decodeToken"');
+
+    const urlNamed = commentaryMessagesForSession(detail, [
+      toolEvent('repo-url-request', 'tool.requested', 'repository.search', 'repo-url', {
+        query: 'loadConfig'
+      }),
+      toolEvent('repo-url-result', 'tool.observed', 'repository.search', 'repo-url', {
+        query: 'loadConfig'
+      }, {
+        roots: ['C:\\Users\\alice\\.honeycrisp\\repositories\\github.com_example_runtime\\default\\app'],
+        query: 'loadConfig',
+        matches: []
+      })
+    ], { repositoryMetadata }).find((message) => message.toolName === 'repository.search');
+    expect(urlNamed?.contentMarkdown).toBe('Querying runtime for "loadConfig"');
+    expect(urlNamed?.toolCalls?.[0]?.label).toBe('Querying runtime for "loadConfig"');
+
+    const grouped = commentaryMessagesForSession(detail, [
+      toolEvent('repo-parser-one-request', 'tool.requested', 'repository.search', 'repo-parser-one', {
+        query: 'decodeToken'
+      }),
+      toolEvent('repo-parser-one-result', 'tool.observed', 'repository.search', 'repo-parser-one', {
+        query: 'decodeToken'
+      }, { roots: ['/work/parser'], query: 'decodeToken', matches: [] }),
+      toolEvent('repo-parser-two-request', 'tool.requested', 'repository.search', 'repo-parser-two', {
+        query: 'encodeToken'
+      }),
+      toolEvent('repo-parser-two-result', 'tool.observed', 'repository.search', 'repo-parser-two', {
+        query: 'encodeToken'
+      }, { roots: ['/work/parser/'], query: 'encodeToken', matches: [] }),
+      toolEvent('repo-runtime-request', 'tool.requested', 'repository.search', 'repo-runtime', {
+        query: 'token boundary'
+      }),
+      toolEvent('repo-runtime-result', 'tool.observed', 'repository.search', 'repo-runtime', {
+        query: 'token boundary'
+      }, { roots: ['/work/runtime'], query: 'token boundary', matches: [] })
+    ]).find((message) => message.toolName === 'repository.search');
+    expect(grouped).toMatchObject({
+      toolCount: 3,
+      contentMarkdown: 'Searching 2 repositories with 3 queries'
+    });
+    expect(grouped?.toolCalls).toHaveLength(3);
+    expect(grouped?.toolCalls?.map((toolCall) => toolCall.label)).toEqual([
+      'Querying parser for "decodeToken"',
+      'Querying parser for "encodeToken"',
+      'Querying runtime for "token boundary"'
+    ]);
+
+    const sameRepository = commentaryMessagesForSession(detail, [
+      toolEvent('repo-same-one', 'tool.requested', 'repository.search', 'repo-same-one', {
+        path: '/work/parser',
+        query: 'decodeToken'
+      }),
+      toolEvent('repo-same-two', 'tool.requested', 'repository.search', 'repo-same-two', {
+        path: '/work/parser',
+        query: 'encodeToken'
+      })
+    ]).find((message) => message.toolName === 'repository.search');
+    expect(sameRepository?.contentMarkdown).toBe('Searching 1 repository with 2 queries');
+  });
+
+  it('labels singular and grouped memory searches with their queries', () => {
+    const detail = runDetail('Search memory.');
+    const singular = commentaryMessagesForSession(detail, [
+      toolEvent('memory-one', 'tool.requested', 'memory.search', 'memory-one', {
+        query: 'parser boundary'
+      })
+    ]).find((message) => message.toolName === 'memory.search');
+    expect(singular).toMatchObject({
+      toolCount: 1,
+      contentMarkdown: 'Searching memory for "parser boundary"'
+    });
+    expect(singular?.toolCalls?.[0]?.label).toBe('Searching memory for "parser boundary"');
+
+    const grouped = commentaryMessagesForSession(detail, [
+      toolEvent('memory-parser', 'tool.requested', 'memory.search', 'memory-parser', {
+        query: 'parser boundary'
+      }),
+      toolEvent('memory-runtime', 'tool.requested', 'memory.search', 'memory-runtime', {
+        query: 'runtime assumptions'
+      })
+    ]).find((message) => message.toolName === 'memory.search');
+    expect(grouped).toMatchObject({
+      toolCount: 2,
+      contentMarkdown: 'Searching memory with 2 queries'
+    });
+    expect(grouped?.toolCalls?.map((toolCall) => toolCall.label)).toEqual([
+      'Searching memory for "parser boundary"',
+      'Searching memory for "runtime assumptions"'
+    ]);
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const summaryTextStyles = styles.match(/\.main-commentary-tool-summary\s*>\s*span\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(summaryTextStyles).toContain('min-width: 0');
+    expect(summaryTextStyles).toContain('overflow: hidden');
+    expect(summaryTextStyles).toContain('text-overflow: ellipsis');
+    expect(summaryTextStyles).toContain('white-space: nowrap');
+  });
+
+  it('renders singular commands and file reads inline while keeping grouped calls expandable', () => {
+    const detail = runDetail('Run the checks.');
+    const singleHtml = renderToStaticMarkup(createElement(CommentaryView, {
+      busy: false,
+      detail,
+      events: [toolEvent('single-shell', 'tool.requested', 'shell.run', 'single-shell', { command: 'npm test' })],
+      providerModelCatalog: [],
+      selectedRunId: detail.run.id,
+      showBackToMain: true,
+      selectedTraceEventId: null,
+      searchHighlightQuery: '',
+      onBackToMain: () => undefined,
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+    expect(singleHtml).toContain('aria-expanded="false" class="main-commentary-tool-call-summary main-commentary-single-tool"');
+    expect(singleHtml).toContain('<span class="main-commentary-single-tool-label">Running npm test</span>');
+    expect(singleHtml).not.toContain('main-commentary-tool-summary');
+    expect(singleHtml).toContain('lucide-chevron-right main-commentary-single-tool-chevron');
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const singleToolChevronStyles = styles.match(/\.main-commentary-single-tool-chevron\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(singleToolChevronStyles).toContain('opacity: 0');
+    expect(singleToolChevronStyles).toContain('opacity 120ms ease');
+    expect(styles).toContain('.main-commentary-message.kind-tool:hover .main-commentary-single-tool-chevron');
+
+    const fileEvents = [
+      toolEvent('file-one', 'tool.requested', 'file.read', 'file-one', { path: 'C:\\Users\\alice\\repo\\src\\Parser.ts' })
+    ];
+    expect(commentaryMessagesForSession(detail, fileEvents).find((message) => message.toolName === 'file.read'))
+      .toMatchObject({ toolCount: 1, contentMarkdown: 'Reading ~/repo/src/Parser.ts' });
+    const fileHtml = renderToStaticMarkup(createElement(CommentaryView, {
+      busy: false,
+      detail,
+      events: fileEvents,
+      providerModelCatalog: [],
+      selectedRunId: detail.run.id,
+      showBackToMain: true,
+      selectedTraceEventId: null,
+      searchHighlightQuery: '',
+      onBackToMain: () => undefined,
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+    expect(fileHtml).toContain('<span class="main-commentary-single-tool-label">Reading ~/repo/src/Parser.ts</span>');
+    expect(fileHtml).toContain('lucide-chevron-right main-commentary-single-tool-chevron');
+    expect(commentaryMessagesForSession(detail, fileEvents).find((message) => message.toolName === 'file.read')?.toolCalls?.[0]?.input)
+      .toEqual({ path: 'C:\\Users\\alice\\repo\\src\\Parser.ts' });
+
+    const multipleEvents = [
+      toolEvent('shell-one', 'tool.requested', 'shell.run', 'shell-one', { command: 'npm test' }),
+      toolEvent('shell-two', 'tool.requested', 'shell.run', 'shell-two', { command: 'npm run typecheck' })
+    ];
+    const multipleMessages = commentaryMessagesForSession(detail, multipleEvents);
+    const shellMessage = multipleMessages.find((message) => message.toolName === 'shell.run');
+    expect(shellMessage).toMatchObject({ toolCount: 2, contentMarkdown: 'Running 2 commands' });
+    expect(shellMessage?.toolCalls).toHaveLength(2);
+    const multipleHtml = renderToStaticMarkup(createElement(CommentaryView, {
+      busy: false,
+      detail,
+      events: multipleEvents,
+      providerModelCatalog: [],
+      selectedRunId: detail.run.id,
+      showBackToMain: true,
+      selectedTraceEventId: null,
+      searchHighlightQuery: '',
+      onBackToMain: () => undefined,
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+    expect(multipleHtml).toContain('class="main-commentary-tool-summary"');
+    expect(multipleHtml).toContain('<span>Running 2 commands</span>');
+    expect(multipleHtml).toContain('main-commentary-tool-summary-chevron');
   });
 
   it('unwraps the executed shell result when the requested utility is null', () => {

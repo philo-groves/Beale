@@ -502,7 +502,7 @@ export const TraceView = memo(function TraceView({
           <span>Back to Main</span>
         </button>
       ) : null}
-      {loading ? <SessionLoadingState label="Loading session." /> : null}
+      {loading ? <SessionLoadingState label="Loading session" /> : null}
       {!loading && events.length === 0 && !postSessionContent ? <div className="main-trace-empty">No trace events recorded.</div> : null}
       {!loading && events.length > 0 && timelineEntries.length === 0 && !postSessionContent ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
       {!loading && (renderedEntries.length > 0 || postSessionContent) ? (

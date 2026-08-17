@@ -12,6 +12,7 @@ import type {
   ScopeAssetInput,
   ScopeAssetKind,
   WorkspaceDejunkSummary,
+  WorkspaceScopeDraft,
   WorkspaceScopeVersion
 } from '@shared/types';
 import { Modal } from '../../app/Modal';
@@ -26,15 +27,48 @@ import { errorMessage } from '../../lib/errors';
 
 const TIMELINE_WINDOW_HOURS = 4;
 const TIMELINE_TICK_HOURS = [0, 1, 2, 3, 4] as const;
+const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources'] as const;
+
+type WorkspaceDashboardView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
+
+export interface WorkspaceConfigurationInput {
+  workspaceName: string;
+  descriptionMarkdown: string;
+  rulesMarkdown: string;
+}
+
+export function workspaceScopeDraftForConfigurationUpdate(
+  scope: WorkspaceScopeVersion,
+  configuration: WorkspaceConfigurationInput
+): WorkspaceScopeDraft {
+  return {
+    workspaceName: configuration.workspaceName,
+    scopeOwner: scope.scopeOwner,
+    descriptionMarkdown: configuration.descriptionMarkdown,
+    rulesMarkdown: configuration.rulesMarkdown,
+    expiresAt: scope.expiresAt,
+    assets: scope.assets.map((asset) => ({
+      direction: asset.direction,
+      kind: asset.kind,
+      value: asset.value,
+      sensitivity: asset.sensitivity,
+      attributes: asset.attributes
+    }))
+  };
+}
 
 export function WorkspaceUnderstandingView({
+  busy,
   honeycrispMemory,
   activeScope = null,
   researchProfile = null,
+  researchSubjectName = '',
+  workspacePath = '',
   workspaceName,
   runs,
   onAddResource = async () => undefined,
   onChangeResource = async () => undefined,
+  onSaveConfiguration = async () => undefined,
   onOpenSession = () => undefined,
   nowMs
 }: {
@@ -46,15 +80,19 @@ export function WorkspaceUnderstandingView({
   honeycrispMemory: HoneycrispMemorySummary | null;
   activeScope?: WorkspaceScopeVersion | null;
   researchProfile?: ResearchProfile | null;
+  researchSubjectName?: string;
+  workspacePath?: string;
   workspaceName: string;
   runs: RunRow[];
   onRunWorkspaceDejunk?: () => void;
   onRunMemoryDreaming: () => void;
   onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
+  onSaveConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onOpenSession?: (runId: string) => void;
   nowMs?: number;
 }): JSX.Element {
+  const [activeView, setActiveView] = useState<WorkspaceDashboardView>('overview');
   const [clockNowMs, setClockNowMs] = useState(() => Date.now());
   const [timelineLegendOpen, setTimelineLegendOpen] = useState(false);
   const timelineLegendRef = useRef<HTMLDivElement>(null);
@@ -97,7 +135,44 @@ export function WorkspaceUnderstandingView({
 
   return (
     <main className="workspace-dashboard" aria-label="Workspace dashboard">
-      <section className="workspace-dashboard-half workspace-timeline-card" aria-label={timelineAriaLabel}>
+      <div className="workspace-dashboard-tabs research-side-view-tabs" role="tablist" aria-label="Workspace dashboard views">
+        {WORKSPACE_DASHBOARD_VIEWS.map((view) => {
+          const selected = activeView === view;
+          return (
+            <div className={`research-side-view-tab provider-settings-tab workspace-dashboard-tab ${selected ? 'active' : ''}`.trim()} key={view}>
+              <button
+                aria-controls={`workspace-dashboard-${view}-panel`}
+                aria-selected={selected}
+                className="research-side-view-tab-activate"
+                onClick={() => setActiveView(view)}
+                role="tab"
+                type="button"
+              >
+                <span>{workspaceDashboardViewLabel(view)}</span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <WorkspaceOverviewPanel
+        activeScope={activeScope}
+        busy={busy}
+        hidden={activeView !== 'overview'}
+        onSave={onSaveConfiguration}
+        researchProfile={researchProfile}
+        researchSubjectName={researchSubjectName}
+        workspaceName={workspaceName}
+        workspacePath={workspacePath}
+      />
+
+      <section
+        aria-label={timelineAriaLabel}
+        className="workspace-dashboard-panel workspace-timeline-card"
+        hidden={activeView !== 'activity'}
+        id="workspace-dashboard-activity-panel"
+        role="tabpanel"
+      >
         <div className="workspace-timeline-chart">
           <div className="workspace-timeline-axis">
             <div className="workspace-timeline-heading">
@@ -204,6 +279,7 @@ export function WorkspaceUnderstandingView({
 
       <WorkspaceResearchSurface
         activeScope={activeScope}
+        hidden={activeView !== 'resources'}
         honeycrispMemory={honeycrispMemory}
         nowMs={timelineNowMs}
         runs={runs}
@@ -212,6 +288,140 @@ export function WorkspaceUnderstandingView({
       />
     </main>
   );
+}
+
+function workspaceDashboardViewLabel(view: WorkspaceDashboardView): string {
+  return view.charAt(0).toUpperCase() + view.slice(1);
+}
+
+function WorkspaceOverviewPanel({
+  activeScope,
+  busy,
+  hidden,
+  onSave,
+  researchProfile,
+  researchSubjectName,
+  workspaceName,
+  workspacePath
+}: {
+  activeScope: WorkspaceScopeVersion | null;
+  busy: boolean;
+  hidden: boolean;
+  onSave: (configuration: WorkspaceConfigurationInput) => Promise<void>;
+  researchProfile: ResearchProfile | null;
+  researchSubjectName: string;
+  workspaceName: string;
+  workspacePath: string;
+}): JSX.Element {
+  const resolvedWorkspaceName = activeScope?.workspaceName || workspaceName;
+  const resolvedDescription = activeScope?.descriptionMarkdown ?? '';
+  const resolvedRules = activeScope?.rulesMarkdown ?? '';
+  const [workspaceNameDraft, setWorkspaceNameDraft] = useState(resolvedWorkspaceName);
+  const [descriptionDraft, setDescriptionDraft] = useState(resolvedDescription);
+  const [rulesDraft, setRulesDraft] = useState(resolvedRules);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  useEffect(() => {
+    setWorkspaceNameDraft(resolvedWorkspaceName);
+    setDescriptionDraft(resolvedDescription);
+    setRulesDraft(resolvedRules);
+    setSaveError(null);
+  }, [activeScope?.id, resolvedDescription, resolvedRules, resolvedWorkspaceName]);
+  const dirty = workspaceNameDraft !== resolvedWorkspaceName
+    || descriptionDraft !== resolvedDescription
+    || rulesDraft !== resolvedRules;
+  const submit = async (): Promise<void> => {
+    if (!workspaceNameDraft.trim() || !dirty || saving || busy) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSave({
+        workspaceName: workspaceNameDraft,
+        descriptionMarkdown: descriptionDraft,
+        rulesMarkdown: rulesDraft
+      });
+    } catch (caught: unknown) {
+      setSaveError(errorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <section
+      aria-label="Workspace overview"
+      className="workspace-dashboard-panel workspace-overview"
+      hidden={hidden}
+      id="workspace-dashboard-overview-panel"
+      role="tabpanel"
+    >
+      <form
+        className="workspace-overview-form modal-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <label>
+          Workspace directory
+          <input disabled value={workspacePath} />
+        </label>
+        <div className="form-grid">
+          <label>
+            Workspace name
+            <input
+              disabled={busy || saving}
+              required
+              value={workspaceNameDraft}
+              onChange={(event) => setWorkspaceNameDraft(event.target.value)}
+            />
+          </label>
+          <label>
+            Research subject
+            <input disabled value={researchSubjectName} />
+          </label>
+        </div>
+        <label>
+          Research Profile
+          <input disabled value={workspaceResearchProfileLabel(researchProfile)} />
+        </label>
+        <label>
+          Description
+          <textarea
+            disabled={busy || saving}
+            rows={5}
+            value={descriptionDraft}
+            onChange={(event) => setDescriptionDraft(event.target.value)}
+          />
+        </label>
+        <label>
+          Scope and Rules
+          <textarea
+            disabled={busy || saving}
+            rows={8}
+            value={rulesDraft}
+            onChange={(event) => setRulesDraft(event.target.value)}
+          />
+        </label>
+        {saveError ? <p className="workspace-overview-error" role="alert">{saveError}</p> : null}
+        <div className="workspace-overview-actions">
+          <button
+            className="primary-button"
+            disabled={busy || saving || !dirty || !workspaceNameDraft.trim()}
+            type="submit"
+          >
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function workspaceResearchProfileLabel(profile: ResearchProfile | null): string {
+  if (!profile) return '';
+  if (profile.id === 'security-research') return 'Cybersecurity';
+  if (profile.id === 'mathematics') return 'Mathematics';
+  return profile.name;
 }
 
 export function WorkspaceHousekeepingPanel({
@@ -433,6 +643,7 @@ export function workspaceResearchSurfaceKinds(items: readonly WorkspaceResearchS
 
 function WorkspaceResearchSurface({
   activeScope,
+  hidden,
   honeycrispMemory,
   nowMs,
   runs,
@@ -440,6 +651,7 @@ function WorkspaceResearchSurface({
   onChangeResource
 }: {
   activeScope: WorkspaceScopeVersion | null;
+  hidden: boolean;
   honeycrispMemory: HoneycrispMemorySummary | null;
   nowMs: number;
   runs: RunRow[];
@@ -505,7 +717,13 @@ function WorkspaceResearchSurface({
   };
 
   return (
-    <section className="workspace-dashboard-half workspace-surface-area" aria-label="Research surface">
+    <section
+      aria-label="Workspace resources"
+      className="workspace-dashboard-panel workspace-surface-area"
+      hidden={hidden}
+      id="workspace-dashboard-resources-panel"
+      role="tabpanel"
+    >
       <div className="workspace-resource-tabs-bar">
         <div className="research-side-view-tabs workspace-resource-tabs" role="tablist" aria-label="Workspace resource types">
           {representedKinds.map((kind) => (

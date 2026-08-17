@@ -2,6 +2,7 @@ import { memo, useEffect, useRef } from 'react';
 import type { CSSProperties, JSX } from 'react';
 import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, ScopeAssetInput, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceHousekeepingPanel, WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
+import type { WorkspaceConfigurationInput } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { TraceView } from '../traces/TraceView';
@@ -26,6 +27,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   activeScope = null,
   researchProfile,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
+  researchSubjectName = '',
+  workspacePath = '',
   workspaceName,
   runs,
   selectedRunId,
@@ -59,6 +62,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onRunMemoryDreaming,
   onAddWorkspaceResource = async () => undefined,
   onChangeWorkspaceResource = async () => undefined,
+  onSaveWorkspaceConfiguration = async () => undefined,
   onOpenSession = () => undefined,
   onResearchDetailsOpenChange,
   onOpenHoneycrispRunbook,
@@ -84,6 +88,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   activeScope?: WorkspaceScopeVersion | null;
   researchProfile: ResearchProfile | null;
   sessionHeatPreferences?: SessionHeatPreferences;
+  researchSubjectName?: string;
+  workspacePath?: string;
   workspaceName: string;
   runs: RunRow[];
   selectedRunId: string | null;
@@ -117,6 +123,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onRunMemoryDreaming: () => void;
   onAddWorkspaceResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeWorkspaceResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
+  onSaveWorkspaceConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onOpenSession?: (runId: string) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
@@ -176,12 +183,15 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           memoryDreamingProgress={memoryDreamingProgress}
           honeycrispMemory={honeycrispMemory}
           researchProfile={researchProfile}
+          researchSubjectName={researchSubjectName}
+          workspacePath={workspacePath}
           workspaceName={workspaceName}
           runs={runs}
           onRunWorkspaceDejunk={onRunWorkspaceDejunk}
           onRunMemoryDreaming={onRunMemoryDreaming}
           onAddResource={onAddWorkspaceResource}
           onChangeResource={onChangeWorkspaceResource}
+          onSaveConfiguration={onSaveWorkspaceConfiguration}
           onOpenSession={onOpenSession}
         />
       ) : chatView === 'commentary' ? (
@@ -189,6 +199,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           busy={busy}
           detail={detail}
           events={events}
+          activeScope={activeScope}
           providerModelCatalog={providerModelCatalog}
           selectedRunId={selectedRunId}
           showBackToMain={false}

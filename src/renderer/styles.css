@@ -1853,24 +1853,88 @@ body.is-resizing-research-side .main-session-grid {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: fit-content(50%) minmax(0, 1fr);
+  grid-template-rows: 42px minmax(0, 1fr);
   overflow: hidden;
   border-radius: 0 var(--content-surface-radius) var(--content-surface-radius) 0;
   background: var(--panel);
 }
 
-.workspace-dashboard-half {
+.workspace-dashboard-tabs {
+  width: auto;
+  align-self: start;
+  margin: 10px 10px 0;
+}
+
+.workspace-dashboard-tab.provider-settings-tab .research-side-view-tab-activate {
+  padding: 0 9px;
+}
+
+.workspace-dashboard-panel {
   width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   box-sizing: border-box;
+  padding: 10px;
+}
+
+.workspace-dashboard-panel[hidden] {
+  display: none;
+}
+
+.workspace-overview {
+  overflow: auto;
+}
+
+.workspace-overview-form {
+  width: min(860px, 100%);
+}
+
+.workspace-overview-form label {
+  color: var(--muted-strong);
+  font-size: 0.84rem;
+  font-weight: 400;
+}
+
+.workspace-overview-form :is(input, textarea) {
+  border: 0;
+  background: var(--panel-column);
+  color: var(--text);
+}
+
+.workspace-overview-form :is(input, textarea):disabled {
+  background: var(--panel-strong);
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.workspace-overview-form textarea {
+  resize: vertical;
+}
+
+.workspace-overview-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+.workspace-overview-actions button {
+  min-height: 34px;
+  border-radius: 7px;
+  padding: 0 12px;
+}
+
+.workspace-overview-error {
+  margin: 0;
+  color: #ef8d8d;
+  font-size: 0.78rem;
 }
 
 .workspace-timeline-card {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   gap: 0;
-  padding: 18px;
   overflow: hidden;
 }
 
@@ -2232,7 +2296,6 @@ body.is-resizing-research-side .main-session-grid {
   display: grid;
   grid-template-rows: 40px minmax(0, 1fr);
   min-height: 0;
-  padding: 0 18px;
   overflow: hidden;
 }
 
@@ -4230,6 +4293,35 @@ button.session-summary-item:hover:not(:disabled),
   min-width: 0;
 }
 
+.main-commentary-single-tool {
+  color: inherit;
+  padding: 0;
+}
+
+.main-commentary-single-tool-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-commentary-single-tool:hover .main-commentary-single-tool-label,
+.main-commentary-single-tool:focus-visible .main-commentary-single-tool-label {
+  color: var(--text);
+}
+
+.main-commentary-single-tool-chevron {
+  opacity: 0;
+  transition: color 120ms ease, opacity 120ms ease, transform 120ms ease;
+}
+
+.main-commentary-message.kind-tool:hover .main-commentary-single-tool-chevron,
+.main-commentary-single-tool:focus-visible .main-commentary-single-tool-chevron,
+.main-commentary-single-tool-disclosure.expanded > .main-commentary-single-tool .main-commentary-single-tool-chevron {
+  opacity: 1;
+}
+
 .main-commentary-tool-summary,
 .main-commentary-tool-call-summary {
   width: auto;
@@ -4257,6 +4349,13 @@ button.session-summary-item:hover:not(:disabled),
   gap: 4px;
   padding: 0;
   transition: color 120ms ease;
+}
+
+.main-commentary-tool-summary > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .main-commentary-tool-summary-chevron {

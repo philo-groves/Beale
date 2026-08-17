@@ -42,6 +42,8 @@ import { NotificationStack, type WorkspaceAlert } from './features/notifications
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { WorkspaceStartupView } from './features/workspaces/WorkspaceStartupView';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
+import { workspaceScopeDraftForConfigurationUpdate } from './features/workspaces/WorkspaceUnderstandingView';
+import type { WorkspaceConfigurationInput } from './features/workspaces/WorkspaceUnderstandingView';
 import { ReportsIndex, ReportSessionWorkspace } from './features/reports/ReportsWorkspace';
 import { AutomationsWorkspace } from './features/automations/AutomationsWorkspace';
 import { PluginManagerWorkspace } from './features/plugins/PluginManagerWorkspace';
@@ -364,6 +366,25 @@ export function App(): JSX.Element {
     (asset: ScopeAssetInput): Promise<void> => changeWorkspaceResource([], asset),
     [changeWorkspaceResource]
   );
+
+  const saveWorkspaceConfiguration = useCallback(async (
+    configuration: WorkspaceConfigurationInput
+  ): Promise<void> => {
+    const activeScope = snapshot?.activeScope;
+    if (!activeScope) throw new Error('The active workspace scope is unavailable.');
+    setBusy(true);
+    setError(null);
+    try {
+      applySnapshot(await window.beale.saveScope(
+        workspaceScopeDraftForConfigurationUpdate(activeScope, configuration)
+      ));
+    } catch (caught) {
+      setError(errorMessage(caught));
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }, [applySnapshot, snapshot?.activeScope]);
 
   const loadAgentPlugins = useCallback(async (): Promise<void> => {
     setAgentPluginsLoading(true);
@@ -1518,9 +1539,11 @@ export function App(): JSX.Element {
               allEvents={activeTraceEvents}
               providerModelCatalog={enabledResearchProviderModelCatalog}
               honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
-              activeScope={selectedRunId ? null : snapshot?.activeScope ?? null}
+              activeScope={snapshot?.activeScope ?? null}
               researchProfile={selectedRunId ? activeRunDetail?.researchProfile?.profile ?? null : snapshot?.researchProfile.profile ?? null}
+              researchSubjectName={selectedRunId ? '' : snapshot?.researchSubject.name ?? ''}
               sessionHeatPreferences={sessionHeatPreferences}
+              workspacePath={selectedRunId ? '' : snapshot?.workspace.workspacePath ?? ''}
               workspaceName={snapshot?.activeScope.workspaceName ?? 'Workspace'}
               runs={selectedRunId ? [] : workspaceDashboardRuns}
               selectedRunId={selectedRunId}
@@ -1554,6 +1577,7 @@ export function App(): JSX.Element {
               onRunMemoryDreaming={runMemoryDreaming}
               onAddWorkspaceResource={addWorkspaceResource}
               onChangeWorkspaceResource={changeWorkspaceResource}
+              onSaveWorkspaceConfiguration={saveWorkspaceConfiguration}
               onOpenSession={openWorkspaceDashboardSession}
               onResearchDetailsOpenChange={(expanded) => setRightSidenavExpanded(researchDetailsAvailable && expanded)}
               onOpenHoneycrispRunbook={openHoneycrispRunbook}

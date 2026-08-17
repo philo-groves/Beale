@@ -1,4 +1,4 @@
-import type { RunDetail, TraceEventRecord } from '@shared/types';
+import type { RunDetail, TraceEventRecord, WorkspaceScopeVersion } from '@shared/types';
 import {
   chatMessageCorrelationKey,
   nativeCommentaryCorrelationKeys
@@ -35,12 +35,23 @@ export interface CommentaryToolCall {
   requestTraceEventId?: string | null;
   observationTraceEventId?: string | null;
   detailsDeferred?: boolean;
+  repositorySearch?: {
+    repositories: string[];
+    repositoryNames: string[];
+    query: string | null;
+  };
   input: unknown;
   output: unknown;
 }
 
 export interface CommentaryProjectionOptions {
   includeInitialPrompt?: boolean;
+  repositoryMetadata?: readonly CommentaryRepositoryMetadata[];
+}
+
+export interface CommentaryRepositoryMetadata {
+  path: string;
+  name: string;
 }
 
 export function commentaryMessagesForSession(
@@ -52,7 +63,11 @@ export function commentaryMessagesForSession(
   const includeInitialPrompt = options.includeInitialPrompt ?? true;
   const nativeCommentaryKeys = nativeCommentaryCorrelationKeys(events);
   const projectedEvents = coalesceLegacyReasoningSnapshots(events);
-  const toolCallsByPrimaryEventId = projectedHoneycrispToolCalls(projectedEvents, detail);
+  const toolCallsByPrimaryEventId = projectedHoneycrispToolCalls(
+    projectedEvents,
+    detail,
+    options.repositoryMetadata ?? []
+  );
   let messages = projectedEvents.flatMap((event) => {
     const activity = subagentActivityMessage(event);
     if (activity) return [activity];
@@ -150,7 +165,11 @@ function coalesceConsecutiveToolMessages(messages: readonly CommentaryMessage[])
         if (previous.toolCalls) previous.toolCalls.push(...message.toolCalls);
         else previous.toolCalls = [...message.toolCalls];
       }
-      previous.contentMarkdown = commentaryToolUsageText(message.toolName ?? '', toolCount);
+      previous.contentMarkdown = commentaryToolMessageUsageText(
+        message.toolName ?? '',
+        toolCount,
+        previous.toolCalls ?? []
+      );
       previous.createdAt = message.createdAt;
       continue;
     }
@@ -227,7 +246,7 @@ function toolUsageMessage(
     toolName,
     toolCount: 1,
     toolCalls: [toolCall],
-    contentMarkdown: commentaryToolUsageText(toolName, 1),
+    contentMarkdown: commentaryToolMessageUsageText(toolName, 1, [toolCall]),
     createdAt: event.createdAt
   };
 }
@@ -240,7 +259,8 @@ interface MutableToolCallProjection {
 
 function projectedHoneycrispToolCalls(
   events: readonly TraceDisplayEvent[],
-  detail: RunDetail
+  detail: RunDetail,
+  repositoryMetadata: readonly CommentaryRepositoryMetadata[]
 ): Map<string, CommentaryToolCall> {
   const projections: MutableToolCallProjection[] = [];
   const requestedByKey = new Map<string, MutableToolCallProjection[]>();
@@ -277,33 +297,48 @@ function projectedHoneycrispToolCalls(
 
   return new Map(projections.map((projection) => [
     projection.primaryEvent.id,
-    commentaryToolCall(projection, detail)
+    commentaryToolCall(projection, detail, repositoryMetadata)
   ]));
 }
 
-function commentaryToolCall(projection: MutableToolCallProjection, detail: RunDetail): CommentaryToolCall {
+function commentaryToolCall(
+  projection: MutableToolCallProjection,
+  detail: RunDetail,
+  repositoryMetadata: readonly CommentaryRepositoryMetadata[] = []
+): CommentaryToolCall {
   const requestPayload = projection.requestEvent ? honeycrispToolPayload(projection.requestEvent) : null;
   const observationPayload = projection.observationEvent ? honeycrispToolPayload(projection.observationEvent) : null;
   const toolName = honeycrispToolName(projection.primaryEvent) ?? 'tool';
+  const input = recordValue(requestPayload ?? observationPayload, 'normalizedInputs') ?? {};
+  const output = commentaryToolCallOutput(observationPayload);
   const observationLabel = projection.observationEvent
     ? honeycrispToolTraceSubtext(projection.observationEvent, detail)
     : '';
   const requestLabel = projection.requestEvent
     ? honeycrispToolTraceSubtext(projection.requestEvent, detail)
     : '';
+  const repositorySearch = toolName === 'repository.search'
+    ? commentaryRepositorySearchDetails(input, output, repositoryMetadata)
+    : null;
+  const label = repositorySearch
+    ? commentaryRepositorySearchCallLabel(repositorySearch)
+    : toolName === 'memory.search'
+      ? commentaryMemorySearchCallLabel(input)
+    : observationLabel || requestLabel || humanizeToolName(toolName);
   const detailsDeferred = projection.requestEvent?.payload.commentaryDetailDeferred === true ||
     projection.observationEvent?.payload.commentaryDetailDeferred === true;
   return {
     id: projection.requestEvent?.id ?? projection.observationEvent?.id ?? projection.primaryEvent.id,
     traceEventId: projection.observationEvent?.id ?? projection.primaryEvent.id,
-    label: observationLabel || requestLabel || humanizeToolName(toolName),
+    label,
+    ...(repositorySearch ? { repositorySearch } : {}),
     ...(detailsDeferred ? {
       requestTraceEventId: projection.requestEvent?.id ?? null,
       observationTraceEventId: projection.observationEvent?.id ?? null,
       detailsDeferred: true
     } : {}),
-    input: detailsDeferred ? undefined : recordValue(requestPayload ?? observationPayload, 'normalizedInputs') ?? {},
-    output: detailsDeferred ? undefined : commentaryToolCallOutput(observationPayload)
+    input: detailsDeferred ? undefined : input,
+    output: detailsDeferred ? undefined : output
   };
 }
 
@@ -317,10 +352,16 @@ export function hydrateCommentaryToolCall(
   const observationEvent = toolCall.observationTraceEventId ? byId.get(toolCall.observationTraceEventId) ?? null : null;
   const primaryEvent = requestEvent ?? observationEvent;
   if (!primaryEvent) throw new Error('Tool call detail is no longer available.');
+  const hydrated = commentaryToolCall({ primaryEvent, requestEvent, observationEvent }, detail);
+  const repositorySearch = toolCall.repositorySearch ?? hydrated.repositorySearch;
   return {
-    ...commentaryToolCall({ primaryEvent, requestEvent, observationEvent }, detail),
+    ...hydrated,
     id: toolCall.id,
     traceEventId: toolCall.traceEventId,
+    ...(repositorySearch ? {
+      repositorySearch,
+      label: commentaryRepositorySearchCallLabel(repositorySearch)
+    } : {}),
     detailsDeferred: false
   };
 }
@@ -368,7 +409,7 @@ const TOOL_USAGE_COPY: Readonly<Record<string, ToolUsageCopy>> = {
   'memory.get': { singular: 'Reading a Memory', plural: (count) => `Reading ${count} Memories` },
   'memory.link': { singular: 'Linking Memories', plural: (count) => `Linking Memories ${count} Times` },
   'memory.save': { singular: 'Saving a Memory', plural: (count) => `Saving ${count} Memories` },
-  'memory.search': { singular: 'Searching Memory', plural: (count) => `Running ${count} Memory Searches` },
+  'memory.search': { singular: 'Searching Memory', plural: (count) => `Searching Memory with ${count} Queries` },
   'repository.search': { singular: 'Searching the Repository', plural: (count) => `Running ${count} Repository Searches` },
   'runbook.append': { singular: 'Updating a Runbook', plural: (count) => `Updating ${count} Runbooks` },
   'runbook.create': { singular: 'Creating a Runbook', plural: (count) => `Creating ${count} Runbooks` },
@@ -385,8 +426,18 @@ const TOOL_USAGE_COPY: Readonly<Record<string, ToolUsageCopy>> = {
   'wait_agent': { singular: 'Waiting for Subagents', plural: (count) => `Waiting for Subagents ${count} Times` }
 };
 
-export function commentaryToolUsageText(toolName: string, count: number): string {
+export function commentaryToolUsageText(toolName: string, count: number, singularDetail?: string): string {
   const normalizedCount = Math.max(1, Math.floor(count));
+  const detail = singularDetail?.trim() ?? '';
+  const singularDetailVerb = toolName === 'shell.run' ? 'Running' : toolName === 'file.read' ? 'Reading' : null;
+  if (
+    singularDetailVerb
+    && normalizedCount === 1
+    && detail
+    && detail.toLowerCase() !== humanizeToolName(toolName).toLowerCase()
+  ) {
+    return `${singularDetailVerb} ${toolName === 'file.read' ? compactUserPath(detail) : detail}`;
+  }
   const copy = TOOL_USAGE_COPY[toolName];
   const description = copy
     ? normalizedCount === 1 ? copy.singular : copy.plural(normalizedCount)
@@ -394,6 +445,214 @@ export function commentaryToolUsageText(toolName: string, count: number): string
       ? `Using ${humanizeToolName(toolName)}`
       : `Using ${humanizeToolName(toolName)} ${normalizedCount} Times`;
   return sentenceCaseToolDescription(description);
+}
+
+function commentaryToolMessageUsageText(
+  toolName: string,
+  count: number,
+  toolCalls: readonly CommentaryToolCall[]
+): string {
+  if (toolName === 'repository.search') return commentaryRepositorySearchUsageText(count, toolCalls);
+  if (toolName === 'memory.search') return commentaryMemorySearchUsageText(count, toolCalls);
+  return commentaryToolUsageText(toolName, count, count === 1 ? toolCalls[0]?.label : undefined);
+}
+
+function commentaryMemorySearchUsageText(
+  count: number,
+  toolCalls: readonly CommentaryToolCall[]
+): string {
+  const normalizedCount = Math.max(1, Math.floor(count));
+  if (normalizedCount === 1) {
+    return toolCalls[0]?.label ?? commentaryToolUsageText('memory.search', 1);
+  }
+  return `Searching memory with ${normalizedCount} queries`;
+}
+
+function commentaryMemorySearchCallLabel(inputValue: unknown): string {
+  const query = firstStringValue(unknownRecord(inputValue), ['query']);
+  return query ? `Searching memory for "${query}"` : commentaryToolUsageText('memory.search', 1);
+}
+
+function commentaryRepositorySearchUsageText(
+  count: number,
+  toolCalls: readonly CommentaryToolCall[]
+): string {
+  const normalizedCount = Math.max(1, Math.floor(count));
+  const searches = toolCalls.map((toolCall) => toolCall.repositorySearch
+    ?? commentaryRepositorySearchDetails(toolCall.input, toolCall.output));
+  const repositoryPaths = searches.flatMap((search) => search.repositories);
+  if (normalizedCount === 1) {
+    return toolCalls[0]?.label ?? commentaryToolUsageText('repository.search', 1);
+  }
+  const repositoryCount = new Set(repositoryPaths.map(normalizedRepositoryIdentity)).size;
+  const repositoryLabel = repositoryCount > 0
+    ? `${repositoryCount} ${repositoryCount === 1 ? 'repository' : 'repositories'}`
+    : 'repositories';
+  return `Searching ${repositoryLabel} with ${normalizedCount} queries`;
+}
+
+function commentaryRepositorySearchCallLabel(
+  search: { repositoryNames: readonly string[]; query: string | null }
+): string {
+  const { query } = search;
+  const repositoryNames = [...new Set(search.repositoryNames.filter(Boolean))];
+  const repositoryLabel = repositoryNames.length > 0 ? repositoryNames.join(', ') : 'repository';
+  if (query) return `Querying ${repositoryLabel} for "${query}"`;
+  if (repositoryNames.length > 0) return `Querying ${repositoryLabel}`;
+  return commentaryToolUsageText('repository.search', 1);
+}
+
+function commentaryRepositorySearchDetails(
+  inputValue: unknown,
+  outputValue: unknown,
+  repositoryMetadata: readonly CommentaryRepositoryMetadata[] = []
+): { repositories: string[]; repositoryNames: string[]; query: string | null } {
+  const input = unknownRecord(inputValue);
+  const output = unknownRecord(outputValue);
+  const resolvedRoots = firstStringArrayValue(output, ['roots', 'attemptedRoots']);
+  const requestedRoot = firstStringValue(input, ['path', 'repositoryPath', 'repository', 'root']);
+  const repositories = resolvedRoots.length > 0 ? resolvedRoots : requestedRoot ? [requestedRoot] : [];
+  return {
+    repositories,
+    repositoryNames: repositories.map((repository) => configuredRepositoryName(repository, repositoryMetadata)
+      ?? repositoryShortName(repository)
+      ?? 'repository'),
+    query: firstStringValue(output, ['query']) ?? firstStringValue(input, ['query'])
+  };
+}
+
+export function commentaryRepositoryMetadataForScope(
+  scope: WorkspaceScopeVersion | null | undefined
+): CommentaryRepositoryMetadata[] {
+  if (!scope) return [];
+  const displayNamesByAssetId = new Map<string, string>();
+  const displayNamesByRepositoryUrl = new Map<string, string>();
+  for (const asset of scope.assets) {
+    const displayName = stringMetadataValue(asset.attributes?.displayName)
+      ?? stringMetadataValue(asset.attributes?.name)
+      ?? repositoryNameFromUrlMetadata(asset.attributes?.repositoryUrl)
+      ?? repositoryNameFromUrlMetadata(asset.value);
+    if (!displayName) continue;
+    displayNamesByAssetId.set(asset.id, displayName);
+    const repositoryUrl = repositoryUrlForAsset(asset.value, asset.attributes?.repositoryUrl);
+    if (repositoryUrl) displayNamesByRepositoryUrl.set(repositoryUrl, displayName);
+  }
+  return scope.assets.flatMap((asset) => {
+    if (asset.direction !== 'in_scope' || (asset.kind !== 'repo' && asset.kind !== 'path')) return [];
+    if (!looksLikeLocalPath(asset.value)) return [];
+    const repositoryUrl = repositoryUrlForAsset(asset.value, asset.attributes?.repositoryUrl);
+    const sourceAssetId = stringMetadataValue(asset.attributes?.sourceAssetId);
+    const name = stringMetadataValue(asset.attributes?.displayName)
+      ?? stringMetadataValue(asset.attributes?.name)
+      ?? (sourceAssetId ? displayNamesByAssetId.get(sourceAssetId) : null)
+      ?? (repositoryUrl ? displayNamesByRepositoryUrl.get(repositoryUrl) : null)
+      ?? repositoryNameFromUrlMetadata(asset.attributes?.repositoryUrl);
+    return name ? [{ path: asset.value, name }] : [];
+  });
+}
+
+function configuredRepositoryName(
+  repositoryPath: string,
+  repositoryMetadata: readonly CommentaryRepositoryMetadata[]
+): string | null {
+  const normalizedPath = normalizedRepositoryIdentity(repositoryPath);
+  const matching = repositoryMetadata
+    .filter(({ path }) => {
+      const normalizedRoot = normalizedRepositoryIdentity(path);
+      return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
+    })
+    .sort((left, right) => right.path.length - left.path.length)[0];
+  return matching?.name.trim() || null;
+}
+
+function stringMetadataValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function repositoryUrlForAsset(value: string, attributeValue: unknown): string | null {
+  const candidate = stringMetadataValue(attributeValue) ?? value.trim();
+  if (!/^[a-z][a-z0-9+.-]*:\/\//iu.test(candidate)) return null;
+  return candidate.replace(/\.git$/iu, '').replace(/\/+$/u, '').toLowerCase();
+}
+
+function repositoryNameFromUrlMetadata(value: unknown): string | null {
+  const candidate = stringMetadataValue(value);
+  if (!candidate || !/^[a-z][a-z0-9+.-]*:\/\//iu.test(candidate)) return null;
+  const name = candidate.replace(/\.git(?:[?#].*)?$/iu, '').replace(/[?#].*$/u, '').replace(/\/+$/u, '')
+    .split('/')
+    .filter(Boolean)
+    .at(-1);
+  if (!name || /^[a-z][a-z0-9+.-]*:$/iu.test(name)) return null;
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
+function looksLikeLocalPath(value: string): boolean {
+  return /^[a-z]:[\\/]/iu.test(value) || value.startsWith('/') || value.startsWith('\\\\');
+}
+
+function unknownRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function firstStringValue(record: Record<string, unknown>, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function firstStringArrayValue(record: Record<string, unknown>, keys: readonly string[]): string[] {
+  for (const key of keys) {
+    const value = record[key];
+    if (!Array.isArray(value)) continue;
+    const strings = value
+      .filter((entry): entry is string => typeof entry === 'string' && Boolean(entry.trim()))
+      .map((entry) => entry.trim());
+    if (strings.length > 0) return strings;
+  }
+  return [];
+}
+
+function normalizedRepositoryIdentity(value: string): string {
+  return value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+function repositoryShortName(value: string): string | null {
+  const normalized = value.replace(/\\/g, '/').replace(/[?#].*$/, '').replace(/\/+$/, '');
+  const segments = normalized.split('/').filter(Boolean);
+  const materializedSegment = [...segments].reverse().find((segment) => {
+    const parts = segment.split('_').filter(Boolean);
+    return parts.length >= 3 && /^(?:github|gitlab)\.com$/iu.test(parts[0] ?? '');
+  });
+  const materializedName = materializedSegment?.split('_').filter(Boolean).at(-1)?.replace(/\.git$/iu, '') ?? '';
+  const lastSegment = materializedName || segments.at(-1)?.replace(/\.git$/iu, '') || '';
+  if (!lastSegment || lastSegment === '.') return null;
+  try {
+    return decodeURIComponent(lastSegment);
+  } catch {
+    return lastSegment;
+  }
+}
+
+function compactUserPath(value: string): string {
+  const normalized = value.replace(/\\/g, '/');
+  const homePrefixPatterns = [
+    /^[a-z]:\/Users\/(?!Public(?:\/|$)|Default(?: User)?(?:\/|$)|All Users(?:\/|$))[^/]+(?=\/|$)/iu,
+    /^\/Users\/[^/]+(?=\/|$)/u,
+    /^\/home\/[^/]+(?=\/|$)/u,
+    /^\/root(?=\/|$)/u
+  ];
+  const homePrefix = homePrefixPatterns.find((pattern) => pattern.test(normalized));
+  if (!homePrefix) return value;
+  const relativePath = normalized.replace(homePrefix, '').replace(/^\/+/, '');
+  return relativePath ? `~/${relativePath}` : '~/';
 }
 
 function sentenceCaseToolDescription(value: string): string {

@@ -123,6 +123,49 @@ describe('run detail commentary projection', () => {
     });
   });
 
+  it('preserves repository search roots and queries for commentary labels', () => {
+    const traceEvents = [
+      toolEvent('repository-request-one', 'tool.requested', {
+        toolActionId: 'repository-one',
+        toolName: 'repository.search',
+        normalizedInputs: { query: 'decodeToken' }
+      }),
+      toolEvent('repository-observation-one', 'tool.observed', {
+        toolActionId: 'repository-one',
+        toolName: 'repository.search',
+        normalizedInputs: { query: 'decodeToken' },
+        result: { query: 'decodeToken', roots: ['/work/parser'], matches: [] }
+      }),
+      toolEvent('repository-request-two', 'tool.requested', {
+        toolActionId: 'repository-two',
+        toolName: 'repository.search',
+        normalizedInputs: { query: 'token boundary' }
+      }),
+      toolEvent('repository-observation-two', 'tool.observed', {
+        toolActionId: 'repository-two',
+        toolName: 'repository.search',
+        normalizedInputs: { query: 'token boundary' },
+        result: { query: 'token boundary', roots: ['/work/runtime'], matches: [] }
+      })
+    ].map((event, index) => ({ ...event, sequence: index + 1 }));
+    const detail = runDetail({ traceEvents });
+    const projected = projectRunDetailForRenderer(detail, 'commentary');
+    const repositoryMessage = commentaryMessagesForSession(
+      projected,
+      buildTraceDisplayEventsForAgentPath(projected, null)
+    ).find((message) => message.toolName === 'repository.search');
+
+    expect(repositoryMessage).toMatchObject({
+      toolCount: 2,
+      contentMarkdown: 'Searching 2 repositories with 2 queries'
+    });
+    expect(repositoryMessage?.toolCalls?.map((toolCall) => toolCall.label)).toEqual([
+      'Querying parser for "decodeToken"',
+      'Querying runtime for "token boundary"'
+    ]);
+    expect(repositoryMessage?.toolCalls?.every((toolCall) => toolCall.detailsDeferred)).toBe(true);
+  });
+
   it('keeps content-bearing commentary events but strips unrelated payload fields', () => {
     const projected = projectCommentaryTraceEvent(traceEvent('commentary', {
       source: 'model',

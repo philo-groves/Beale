@@ -40,7 +40,8 @@ describe('renderer trace composer', () => {
     expect(html).toContain('main-trace-view is-loading');
     expect(html).toContain('class="main-session-loading"');
     expect(html).toContain('lucide-loader-circle');
-    expect(html).toContain('Loading session.');
+    expect(html).toContain('Loading session');
+    expect(html).not.toContain('Loading session.');
     expect(html).not.toContain('class="main-trace-footer"');
   });
 
