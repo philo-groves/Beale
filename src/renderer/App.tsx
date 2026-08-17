@@ -44,6 +44,7 @@ import { WorkspaceStartupView } from './features/workspaces/WorkspaceStartupView
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { ReportsIndex, ReportSessionWorkspace } from './features/reports/ReportsWorkspace';
 import { AutomationsWorkspace } from './features/automations/AutomationsWorkspace';
+import { PluginManagerWorkspace } from './features/plugins/PluginManagerWorkspace';
 import type { ResearchGoalSeed } from './features/sessions/SessionNextSteps';
 import {
   isAutoReviewOverrideApproval,
@@ -377,9 +378,14 @@ export function App(): JSX.Element {
   }, []);
 
   const openPlugins = useCallback((): void => {
+    clearRunDetail();
+    setSelectedRunId(null);
+    setSelectedBreakoutRoomId(null);
+    setReportsOpen(false);
+    setAutomationsOpen(false);
     setPluginsOpen(true);
     void loadAgentPlugins();
-  }, [loadAgentPlugins]);
+  }, [clearRunDetail, loadAgentPlugins, setSelectedRunId]);
 
   const runAgentPluginAction = useCallback(async (action: () => Promise<AgentPluginRegistryState>): Promise<void> => {
     setAgentPluginsBusy(true);
@@ -524,6 +530,7 @@ export function App(): JSX.Element {
     setError(null);
     setReportingScopeWorkspaceId(snapshot?.workspace.workspaceId ?? null);
     setAutomationsOpen(false);
+    setPluginsOpen(false);
     setReportsOpen(true);
   }, [clearRunDetail, setSelectedRunId, snapshot?.workspace.workspaceId]);
 
@@ -1229,7 +1236,7 @@ export function App(): JSX.Element {
   const currentWorkspaceName = snapshot?.activeScope.workspaceName ?? 'No Workspace Selected';
   const reportingScopeName = reportingScopeWorkspaceId
     ? workspaceRegistry?.workspaces.find((workspace) => workspace.workspaceId === reportingScopeWorkspaceId)?.workspaceName ?? 'Workspace'
-    : 'All Workspaces';
+    : 'All Reports';
   const automationScopeName = automationScopeWorkspaceId
     ? workspaceRegistry?.workspaces.find((workspace) => workspace.workspaceId === automationScopeWorkspaceId)?.workspaceName ?? 'Workspace'
     : 'All Automations';
@@ -1264,6 +1271,7 @@ export function App(): JSX.Element {
     }
     setReportsOpen(false);
     setAutomationsOpen(false);
+    setPluginsOpen(false);
     setNewResearchInitialGoal(null);
     setNewResearchOpen(true);
   }, [clearRunDetail, reportsOpen, setSelectedRunId]);
@@ -1284,6 +1292,7 @@ export function App(): JSX.Element {
     (runId: string): void => {
       setReportsOpen(false);
       setAutomationsOpen(false);
+      setPluginsOpen(false);
       clearRunDetail();
       setSelectedBreakoutRoomId(null);
       setSelectedRunId(runId);
@@ -1299,6 +1308,7 @@ export function App(): JSX.Element {
     setAutomationScopeWorkspaceId(snapshot?.workspace.workspaceId ?? null);
     setAutomationsError(null);
     setReportsOpen(false);
+    setPluginsOpen(false);
     setAutomationsOpen(true);
   }, [clearRunDetail, setSelectedRunId, snapshot?.workspace.workspaceId]);
   const saveAutomation = useCallback(async (input: AutomationUpdateInput): Promise<AutomationSummary> => {
@@ -1313,15 +1323,17 @@ export function App(): JSX.Element {
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
-        rightSidenavAvailable={!settingsOpen && !reportsOpen && !automationsOpen && researchDetailsAvailable}
-        rightSidenavExpanded={!reportsOpen && !automationsOpen && rightSidenavExpanded && researchDetailsAvailable}
-        contextualTitleVisible={!settingsOpen && !reportsOpen && !automationsOpen}
+        rightSidenavAvailable={!settingsOpen && !reportsOpen && !automationsOpen && !pluginsOpen && researchDetailsAvailable}
+        rightSidenavExpanded={!reportsOpen && !automationsOpen && !pluginsOpen && rightSidenavExpanded && researchDetailsAvailable}
+        contextualTitleVisible={!settingsOpen && !reportsOpen && !automationsOpen && !pluginsOpen}
         staticContextTitle={settingsOpen
           ? { primary: 'Agent Settings', secondary: settingsSectionLabel(settingsSection) }
           : reportsOpen
             ? { primary: 'Reporting', secondary: selectedReport?.title ?? reportingScopeName }
             : automationsOpen
               ? { primary: 'Automations', secondary: selectedAutomation?.title ?? automationScopeName }
+              : pluginsOpen
+                ? { primary: 'Plugins', secondary: 'Installed Plugins' }
               : null}
         platform={windowControlPlatform}
         workspaceName={currentWorkspaceName}
@@ -1352,9 +1364,10 @@ export function App(): JSX.Element {
           openRegisteredWorkspaceMenuId={openRegisteredWorkspaceMenuId}
           workspaceRegistry={workspaceRegistry}
           workspaceRegistryLoading={startupPhase === 'shell' || startupPhase === 'registry'}
-          selectedRunId={reportsOpen || automationsOpen ? null : selectedRunId}
+          selectedRunId={reportsOpen || automationsOpen || pluginsOpen ? null : selectedRunId}
           automationsActive={automationsOpen}
           reportsActive={reportsOpen}
+          pluginsActive={pluginsOpen}
           snapshot={snapshot}
           onAddWorkspace={() => {
             addWorkspace();
@@ -1362,11 +1375,13 @@ export function App(): JSX.Element {
           onOpenWorkspace={(workspace) => {
             setReportsOpen(false);
             setAutomationsOpen(false);
+            setPluginsOpen(false);
             openRegisteredWorkspace(workspace);
           }}
           onOpenResearchSession={(workspace, session) => {
             setReportsOpen(false);
             setAutomationsOpen(false);
+            setPluginsOpen(false);
             setSelectedBreakoutRoomId(null);
             openResearchSession(workspace, session);
           }}
@@ -1415,7 +1430,20 @@ export function App(): JSX.Element {
           />
         ) : (
           <div className="workspace-page">
-            {automationsOpen ? (
+            {pluginsOpen ? (
+              <PluginManagerWorkspace
+                state={agentPluginState}
+                loading={agentPluginsLoading}
+                busy={agentPluginsBusy}
+                error={agentPluginsError}
+                repositoryUrl={pluginRepositoryUrl}
+                onRepositoryUrlChange={setPluginRepositoryUrl}
+                onAddFilesystem={addAgentPluginFromFilesystem}
+                onAddRepository={addAgentPluginFromRepository}
+                onSetEnabled={setAgentPluginEnabled}
+                onRemove={removeAgentPlugin}
+              />
+            ) : automationsOpen ? (
               <AutomationsWorkspace
                 automations={automations}
                 workspaces={workspaceRegistry?.workspaces ?? []}
@@ -1562,12 +1590,6 @@ export function App(): JSX.Element {
         busy={busy}
         newResearchOpen={newResearchOpen}
         newResearchInitialGoal={newResearchInitialGoal}
-        pluginsOpen={pluginsOpen}
-        agentPluginState={agentPluginState}
-        agentPluginsLoading={agentPluginsLoading}
-        agentPluginsBusy={agentPluginsBusy}
-        agentPluginsError={agentPluginsError}
-        pluginRepositoryUrl={pluginRepositoryUrl}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
         defaultProviderId={providerSettings?.defaultProviderId}
         providerModelDefaults={providerSettings?.modelDefaults}
@@ -1591,9 +1613,7 @@ export function App(): JSX.Element {
           setNewResearchInitialGoal(null);
           setNewResearchOpen(false);
         }}
-        onClosePlugins={() => setPluginsOpen(false)}
         onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
-        onPluginRepositoryUrlChange={setPluginRepositoryUrl}
         onChangeWorkspaceDraft={setWorkspaceDraft}
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
         onCloseNotification={() => setActiveNotification(null)}
@@ -1612,10 +1632,6 @@ export function App(): JSX.Element {
           setActiveNotification(null);
         }}
         onSubmitWorkspaceOnboarding={submitWorkspaceOnboarding}
-        onAddAgentPluginFromFilesystem={addAgentPluginFromFilesystem}
-        onAddAgentPluginFromRepository={addAgentPluginFromRepository}
-        onSetAgentPluginEnabled={setAgentPluginEnabled}
-        onRemoveAgentPlugin={removeAgentPlugin}
         runAction={runAction}
       />
       {activeManualShellApproval ? (

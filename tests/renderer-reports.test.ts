@@ -163,7 +163,7 @@ describe('reports resource views', () => {
       onOpenReport: () => undefined
     }));
 
-    expect(html).toContain('All Workspaces');
+    expect(html).toContain('All Reports');
     expect(html).toContain('role="tablist"');
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain('>Parser</span>');

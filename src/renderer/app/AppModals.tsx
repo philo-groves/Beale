@@ -1,7 +1,6 @@
 import type { JSX } from 'react';
 import type {
   NotificationRecord,
-  AgentPluginRegistryState,
   OpenAiAccountStatus,
   ResearchModelProviderId,
   ProviderModelDefaults,
@@ -21,7 +20,6 @@ import type { TraceCategoryId } from '../traceClassification';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
 import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
 import { StartRunForm } from '../features/sessions/StartRunForm';
-import { PluginManagerModal } from '../features/plugins/PluginManagerModal';
 import type { ResearchGoalSeed } from '../features/sessions/SessionNextSteps';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
@@ -35,12 +33,6 @@ export function AppModals({
   busy,
   newResearchOpen,
   newResearchInitialGoal,
-  pluginsOpen,
-  agentPluginState,
-  agentPluginsLoading,
-  agentPluginsBusy,
-  agentPluginsError,
-  pluginRepositoryUrl,
   openAiStatus,
   defaultProviderId,
   providerModelDefaults,
@@ -61,9 +53,7 @@ export function AppModals({
   traceFilterOpen,
   visibleTraceCategories,
   onCancelNewResearch,
-  onClosePlugins,
   onCancelWorkspaceOnboarding,
-  onPluginRepositoryUrlChange,
   onChangeWorkspaceDraft,
   onChangeVisibleTraceCategories,
   onCloseNotification,
@@ -79,10 +69,6 @@ export function AppModals({
   onStartedNewResearch,
   onSteerNotification,
   onSubmitWorkspaceOnboarding,
-  onAddAgentPluginFromFilesystem,
-  onAddAgentPluginFromRepository,
-  onSetAgentPluginEnabled,
-  onRemoveAgentPlugin,
   runAction
 }: {
   activeNotification: NotificationRecord | null;
@@ -90,12 +76,6 @@ export function AppModals({
   busy: boolean;
   newResearchOpen: boolean;
   newResearchInitialGoal: ResearchGoalSeed | null;
-  pluginsOpen: boolean;
-  agentPluginState: AgentPluginRegistryState | null;
-  agentPluginsLoading: boolean;
-  agentPluginsBusy: boolean;
-  agentPluginsError: string | null;
-  pluginRepositoryUrl: string;
   openAiStatus: OpenAiAccountStatus | null;
   defaultProviderId: ResearchModelProviderId | null | undefined;
   providerModelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> | undefined;
@@ -116,9 +96,7 @@ export function AppModals({
   traceFilterOpen: boolean;
   visibleTraceCategories: TraceCategoryId[];
   onCancelNewResearch: () => void;
-  onClosePlugins: () => void;
   onCancelWorkspaceOnboarding: () => void;
-  onPluginRepositoryUrlChange: (value: string) => void;
   onChangeWorkspaceDraft: (next: WorkspaceOnboardingFormState) => void;
   onChangeVisibleTraceCategories: (categories: TraceCategoryId[]) => void;
   onCloseNotification: () => void;
@@ -134,10 +112,6 @@ export function AppModals({
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
   onSubmitWorkspaceOnboarding: () => void;
-  onAddAgentPluginFromFilesystem: () => void;
-  onAddAgentPluginFromRepository: () => void;
-  onSetAgentPluginEnabled: (pluginId: string, enabled: boolean) => void;
-  onRemoveAgentPlugin: (pluginId: string) => void;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
   return (
@@ -174,21 +148,6 @@ export function AppModals({
           onSelectResearchGoalSuggestion={onSelectResearchGoalSuggestion}
           onRetryResearchGoalSuggestions={onRetryResearchGoalSuggestions}
           onStarted={onStartedNewResearch}
-        />
-      ) : null}
-      {pluginsOpen ? (
-        <PluginManagerModal
-          state={agentPluginState}
-          loading={agentPluginsLoading}
-          busy={agentPluginsBusy}
-          error={agentPluginsError}
-          repositoryUrl={pluginRepositoryUrl}
-          onRepositoryUrlChange={onPluginRepositoryUrlChange}
-          onAddFilesystem={onAddAgentPluginFromFilesystem}
-          onAddRepository={onAddAgentPluginFromRepository}
-          onSetEnabled={onSetAgentPluginEnabled}
-          onRemove={onRemoveAgentPlugin}
-          onClose={onClosePlugins}
         />
       ) : null}
       {profilingOpen ? (

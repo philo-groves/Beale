@@ -18,6 +18,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   selectedRunId,
   automationsActive = false,
   reportsActive = false,
+  pluginsActive = false,
   snapshot,
   onAddWorkspace,
   onOpenWorkspace,
@@ -39,6 +40,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   selectedRunId: string | null;
   automationsActive?: boolean;
   reportsActive?: boolean;
+  pluginsActive?: boolean;
   snapshot: WorkspaceSnapshot | null;
   onAddWorkspace: () => void;
   onOpenWorkspace: (workspace: WorkspaceRegistryEntry) => void;
@@ -104,7 +106,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           <FileText size={15} />
           <span>Reporting</span>
         </button>
-        <button type="button" className="sidebar-utility-button" title="Plugins" onClick={onOpenPlugins}>
+        <button type="button" className={`sidebar-utility-button${pluginsActive ? ' active' : ''}`} title="Plugins" aria-current={pluginsActive ? 'page' : undefined} onClick={onOpenPlugins}>
           <Plug size={15} />
           <span>Plugins</span>
         </button>
@@ -159,7 +161,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             ) : null}
             {workspaceRows.map(({ workspace, sessions }) => {
               const workspaceLoaded = snapshot?.workspace.workspacePath === workspace.workspacePath;
-              const dashboardActive = workspaceLoaded && selectedRunId === null && !reportsActive;
+              const dashboardActive = workspaceLoaded && selectedRunId === null && !automationsActive && !reportsActive && !pluginsActive;
               const menuOpen = openRegisteredWorkspaceMenuId === workspace.id;
               const sessionsExpanded = expandedWorkspaceIds.has(workspace.id);
               const visibleSessions = filteringSessions ? sessions : sessions.slice(0, SIDEBAR_SESSION_LIMIT);

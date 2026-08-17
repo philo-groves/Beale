@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Reporting's aggregate scope is now labeled All Reports, and Plugins now opens as a main-content catalog with its existing install controls, counted list header, active navigation state, and divider-separated plugin rows instead of a popup dialog.
 - Compact session and workspace summary sidenavs now omit Runbooks, Reports, Rooms, and Subagents rows when their count is zero and use singular labels when exactly one resource is present.
 - Breakout rooms now live in the session right sidenav, with a stacked Rooms summary button, a status-grouped Rooms tab, and the existing room transcript layout in a nested detail view instead of workspace-sidebar rows.
 - Session search now opens as a fixed-height pill in the workspace-list header and filters matching sessions in place across registered workspaces, replacing the Find a Session navigation item and transcript-search dialog.
