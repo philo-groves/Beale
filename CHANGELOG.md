@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Pruned the overlapping 4,300-line workbench catch-all and brittle renderer presentation/source-shape tests. Expensive process, SQLite, filesystem, and loopback-server boundaries now run serially under `npm run test:integration`; `npm run test:all` retains the focused critical suite while the default `npm test` stays fast.
+
 ### Fixed
 
 - Breakout rooms no longer remain active after a subagent interruption or parent-session interruption; room state is reconciled from terminal member and session state across both Honeycrisp-owned and legacy persistence, including existing cached sidebar records.

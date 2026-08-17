@@ -565,7 +565,7 @@ describe('Honeycrisp session persistence boundary', () => {
     } finally {
       service.close();
     }
-  }, 15_000);
+  }, 30_000);
 
   it('stops a newly started canonical session without querying full session aggregates from live events', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-canonical-stop-'));
@@ -606,7 +606,7 @@ describe('Honeycrisp session persistence boundary', () => {
     } finally {
       service.close();
     }
-  }, 15_000);
+  }, 30_000);
 
   it('loads a Honeycrisp session asynchronously while its runtime database writer is active', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-session-read-lock-'));

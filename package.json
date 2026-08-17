@@ -16,7 +16,9 @@
     "prepreview": "npm run brand:electron",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --exclude \"tests/{agent-plugin-registry,beale-introspection-server,beale-introspection-tools,honeycrisp-session-boundary,memory-dreaming-model,research-profile-integration,research-profile-persistence,source-materializer}.test.ts\"",
+    "test:integration": "vitest run --fileParallelism=false --testTimeout=30000 tests/agent-plugin-registry.test.ts tests/beale-introspection-server.test.ts tests/beale-introspection-tools.test.ts tests/honeycrisp-session-boundary.test.ts tests/memory-dreaming-model.test.ts tests/research-profile-integration.test.ts tests/research-profile-persistence.test.ts tests/source-materializer.test.ts",
+    "test:all": "npm run test && npm run test:integration",
     "test:architecture": "vitest run tests/architecture-conformance.test.ts",
     "test:openai:live": "BEALE_LIVE_OPENAI_TEST=1 vitest run tests/openai-live.test.ts",
     "build": "npm run typecheck && electron-vite build"

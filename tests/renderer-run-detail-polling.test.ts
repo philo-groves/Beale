@@ -1,28 +1,8 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { RunDetail } from '@shared/types';
 import { activeRunDetailPollMs, shouldReportRunDetailError } from '../src/renderer/hooks/useRunDetailPolling';
 
 describe('renderer run-detail polling', () => {
-  it('cancels stale loads, uses one incremental request, and keeps live commits urgent', () => {
-    const source = readFileSync(
-      new URL('../src/renderer/hooks/useRunDetailPolling.ts', import.meta.url),
-      'utf8'
-    );
-
-    expect(source).toContain('currentDetail?.run.id !== selectedRunId');
-    expect(source).toContain("if (detailRef.current?.run.id !== selectedRunId) {\n      versionRef.current = null;");
-    expect(source).not.toContain("timeAsync('ipc.getRunDetailVersion'");
-    expect(source).toContain("'ipc.getRunDetailUpdate'");
-    expect(source).toContain('detailRef.current = detail;');
-    expect(source).toContain('if (update) {');
-    expect(source).toContain('setRunDetail(detail);');
-    expect(source).toContain('startTransition(() => setRunDetail(detail));');
-    expect(source).toContain('window.beale.cancelRunDetailRequests();');
-    expect(source).toContain("devInstrumentation.recordEvent('ipc.getRunDetailUpdate.retry'");
-    expect(source).toContain('!shouldReportRunDetailError(detailRef.current, selectedRunId)');
-  });
-
   it('backs off live polling as retained session history grows', () => {
     expect(activeRunDetailPollMs(detailWithRecords(0))).toBe(750);
     expect(activeRunDetailPollMs(detailWithRecords(5_000))).toBe(1_250);
