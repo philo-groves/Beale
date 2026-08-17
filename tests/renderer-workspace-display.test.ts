@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, WorkspaceSnapshot } from '@shared/types';
 import { WorkspaceSidebar } from '../src/renderer/features/workspaces/WorkspaceSidebar';
+import { mainSideScrollHasOverflow } from '../src/renderer/app/MainSideScrollRegion';
 import { INSET_SCROLLBAR_SELECTOR } from '../src/renderer/hooks/useInsetScrollbarActivation';
 import {
   workspaceById,
@@ -90,7 +91,6 @@ describe('renderer workspace display view models', () => {
       } as unknown as WorkspaceSnapshot,
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
-      onOpenWorkspaceInfo: () => undefined,
       onOpenResearchSession: () => undefined,
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
@@ -108,6 +108,7 @@ describe('renderer workspace display view models', () => {
     expect(html).toContain('title="Find a Session"');
     expect(html).toContain('<span>Find a Session</span>');
     expect(html).not.toContain('<span>Search</span>');
+    expect(html).not.toContain('Workspace Information');
     expect(html).not.toContain('Research Workspaces');
   });
 
@@ -135,8 +136,11 @@ describe('renderer workspace display view models', () => {
     expect(styles).toMatch(/\.sidebar-list-scroll-region\.has-top-fade\.has-bottom-fade \.sidebar-list-scroll\s*\{[^}]*mask-image: linear-gradient/u);
     expect(styles).not.toMatch(/\.sidebar-list-scroll-region::(?:before|after)\s*\{[^}]*background:/u);
     expect(styles).toMatch(/\.sidebar-list-scroll \.workspace-item-row,\s*\.sidebar-list-scroll \.workspace-session-item\s*\{[^}]*width: 100%;[^}]*margin-inline: 0;/u);
+    expect(styles).toMatch(/\.sidebar-list-scroll-region\.has-overflow \.sidebar-list-scroll:where\(:hover, :focus, :focus-within, \.scrollbar-active\)/u);
     expect(INSET_SCROLLBAR_SELECTOR).toContain('.sidebar-list-scroll');
     expect(INSET_SCROLLBAR_SELECTOR).not.toContain('.sidebar,');
+    expect(mainSideScrollHasOverflow(300, 200)).toBe(true);
+    expect(mainSideScrollHasOverflow(200, 200)).toBe(false);
   });
 
   it('shows registry loading state instead of an empty workspace list during startup', () => {
@@ -151,7 +155,6 @@ describe('renderer workspace display view models', () => {
       snapshot: null,
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
-      onOpenWorkspaceInfo: () => undefined,
       onOpenResearchSession: () => undefined,
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
@@ -195,7 +198,6 @@ describe('renderer workspace display view models', () => {
       } as unknown as WorkspaceSnapshot,
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
-      onOpenWorkspaceInfo: () => undefined,
       onOpenResearchSession: () => undefined,
       onOpenBreakoutRoom: () => undefined,
       onRemoveWorkspace: () => undefined,
@@ -248,7 +250,6 @@ describe('renderer workspace display view models', () => {
       } as unknown as WorkspaceSnapshot,
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
-      onOpenWorkspaceInfo: () => undefined,
       onOpenResearchSession: () => undefined,
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
@@ -305,7 +306,6 @@ describe('renderer workspace display view models', () => {
       } as unknown as WorkspaceSnapshot,
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
-      onOpenWorkspaceInfo: () => undefined,
       onOpenResearchSession: () => undefined,
       onOpenBreakoutRoom: () => undefined,
       onRemoveWorkspace: () => undefined,
@@ -343,7 +343,6 @@ describe('renderer workspace display view models', () => {
       } as unknown as WorkspaceSnapshot,
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
-      onOpenWorkspaceInfo: () => undefined,
       onOpenResearchSession: () => undefined,
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
@@ -386,7 +385,6 @@ describe('renderer workspace display view models', () => {
       } as unknown as WorkspaceSnapshot,
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
-      onOpenWorkspaceInfo: () => undefined,
       onOpenResearchSession: () => undefined,
       onOpenBreakoutRoom: () => undefined,
       onRemoveWorkspace: () => undefined,
@@ -421,7 +419,6 @@ describe('renderer workspace display view models', () => {
       snapshot: null,
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
-      onOpenWorkspaceInfo: () => undefined,
       onOpenResearchSession: () => undefined,
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,

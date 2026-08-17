@@ -10,7 +10,8 @@ import type {
   ResearchProviderModelCatalog,
   RunDetail,
   ShellSafetyMode,
-  SteeringAction
+  SteeringAction,
+  WorkspaceRegistryEntry
 } from '@shared/types';
 import { traceLabel } from '../../lib/formatting';
 import {
@@ -24,39 +25,110 @@ import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { renderTraceProseText } from '../traces/traceMarkup';
 
-export function ReportsIndex({ reports, onOpenReport }: {
+export function ReportsIndex({
+  reports,
+  workspaces,
+  selectedWorkspaceId,
+  loading,
+  error,
+  onScopeChange,
+  onOpenReport
+}: {
   reports: readonly HoneycrispReportSummary[];
-  onOpenReport: (reportId: string) => void;
+  workspaces: readonly WorkspaceRegistryEntry[];
+  selectedWorkspaceId: string | null;
+  loading: boolean;
+  error: string | null;
+  onScopeChange: (workspaceId: string | null) => void;
+  onOpenReport: (report: HoneycrispReportSummary) => void;
 }): JSX.Element {
   const groups = useMemo(() => reportCatalogGroups(reports), [reports]);
+  const scopeTabs = [
+    { id: null, key: 'all', label: 'All Workspaces' },
+    ...workspaces
+      .filter((workspace) => workspace.workspaceId.length > 0)
+      .map((workspace) => ({ id: workspace.workspaceId, key: workspace.id, label: workspace.workspaceName }))
+  ];
   return (
-    <section className="reports-index" aria-label="Workspace reports">
-      <header className="reports-index-header">
-        <span className="reports-index-eyebrow"><FileText size={15} aria-hidden="true" /> Reports</span>
-        <h1>Workspace reports</h1>
-        <p>Understand, refine, and track the current state of agent-created reports.</p>
-      </header>
-      {reports.length === 0 ? (
-        <div className="reports-index-empty">
-          <FileText size={20} aria-hidden="true" />
-          <strong>No reports yet</strong>
-          <span>Reports created by agents during research sessions will appear here.</span>
-        </div>
-      ) : (
-        <div className="reports-index-list">
-          {[...groups.complete, ...groups.stale].map((report) => (
-            <button type="button" className="reports-index-row" onClick={() => onOpenReport(report.id)} key={report.id}>
-              <span className="reports-index-row-icon"><FileText size={16} aria-hidden="true" /></span>
-              <span className="reports-index-row-copy">
-                <strong>{report.title}</strong>
-                <span>{report.summary || 'No summary available.'}</span>
-              </span>
-              <span className={`reports-index-status status-${report.status}`}>{traceLabel(report.status)}</span>
-              <span className="reports-index-revision">Update {report.revision}</span>
-            </button>
-          ))}
-        </div>
-      )}
+    <section className="reports-index" aria-label="Reporting">
+      <div className="reports-index-tabs research-side-view-tabs research-side-view-tabs-scrollable" role="tablist" aria-label="Report workspace scope">
+        {scopeTabs.map((scope) => {
+          const selected = selectedWorkspaceId === scope.id;
+          return (
+            <div className={`research-side-view-tab provider-settings-tab reports-index-tab ${selected ? 'active' : ''}`.trim()} key={scope.key}>
+              <button
+                type="button"
+                className="research-side-view-tab-activate"
+                role="tab"
+                aria-selected={selected}
+                aria-controls="reports-index-panel"
+                onClick={() => onScopeChange(scope.id)}
+              >
+                <span>{scope.label}</span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <div id="reports-index-panel" role="tabpanel">
+        {loading ? (
+          <div className="reports-index-empty" role="status">
+            <LoaderCircle className="runbook-view-spinner" size={20} aria-hidden="true" />
+            <strong>Loading reports</strong>
+          </div>
+        ) : error ? (
+          <div className="reports-index-empty is-error" role="alert">
+            <CircleAlert size={20} aria-hidden="true" />
+            <strong>Reports could not be loaded</strong>
+            <span>{error}</span>
+          </div>
+        ) : reports.length === 0 ? (
+          <div className="reports-index-empty">
+            <FileText size={20} aria-hidden="true" />
+            <strong>No reports yet</strong>
+            <span>Reports created by agents during research sessions will appear here.</span>
+          </div>
+        ) : (
+          <div className="reports-index-list">
+            {groups.complete.length > 0 ? (
+              <ReportsIndexSection reports={groups.complete} label="Complete" onOpenReport={onOpenReport} />
+            ) : null}
+            {groups.stale.length > 0 ? (
+              <ReportsIndexSection reports={groups.stale} label="Stale" onOpenReport={onOpenReport} />
+            ) : null}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ReportsIndexSection({ reports, label, onOpenReport }: {
+  reports: readonly HoneycrispReportSummary[];
+  label: 'Complete' | 'Stale';
+  onOpenReport: (report: HoneycrispReportSummary) => void;
+}): JSX.Element {
+  return (
+    <section className="reports-index-section" aria-label={`${reports.length} ${label} reports`}>
+      <h2>{reports.length} {label}</h2>
+      <div className="reports-index-section-items">
+        {reports.map((report) => (
+          <button
+            type="button"
+            className="reports-index-row"
+            onClick={() => onOpenReport(report)}
+            key={`${report.workspaceId}:${report.id}`}
+          >
+            <span className="reports-index-row-copy">
+              <strong>{report.title}</strong>
+              <span>{report.summary || 'No summary available.'}</span>
+              <small className="reports-index-row-workspace">{report.workspaceName}</small>
+            </span>
+            <span className={`reports-index-status status-${report.status}`}>{traceLabel(report.status)}</span>
+            <span className="reports-index-revision">Update {report.revision}</span>
+          </button>
+        ))}
+      </div>
     </section>
   );
 }

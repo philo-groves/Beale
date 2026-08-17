@@ -14,16 +14,13 @@ import type {
   ProfilingReport,
   ProfilingState,
   WorkspaceOnboardingProgressUpdate,
-  WorkspaceRegistryEntry,
   RunDetail,
   SessionTranscriptSearchResult,
   WorkspaceSnapshot
 } from '@shared/types';
 import type { TraceCategoryId } from '../traceClassification';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
-import { WorkspaceInformationModal } from '../features/workspaces/WorkspaceModals';
 import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
-import { SessionSummaryModal } from '../features/sessions/SessionSummaryModal';
 import { TranscriptSearchSheet } from '../features/search/TranscriptSearchSheet';
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import { PluginManagerModal } from '../features/plugins/PluginManagerModal';
@@ -63,8 +60,6 @@ export function AppModals({
   lastProfilingReport,
   workspaceDraft,
   workspaceOnboardingProgress,
-  workspaceInfo,
-  sessionSummaryDetail,
   searchOpen,
   selectedRunId,
   selectedTraceEvent,
@@ -81,8 +76,6 @@ export function AppModals({
   onChangeVisibleTraceCategories,
   onCloseNotification,
   onCloseProfiling,
-  onCloseWorkspaceInfo,
-  onCloseSessionSummary,
   onCloseSearch,
   onCloseTraceDetail,
   onCloseTraceFilters,
@@ -131,8 +124,6 @@ export function AppModals({
   lastProfilingReport: ProfilingReport | null;
   workspaceDraft: WorkspaceOnboardingFormState | null;
   workspaceOnboardingProgress: WorkspaceOnboardingProgressUpdate | null;
-  workspaceInfo: WorkspaceRegistryEntry | null;
-  sessionSummaryDetail: RunDetail | null;
   searchOpen: boolean;
   selectedRunId: string | null;
   selectedTraceEvent: TraceDisplayEvent | null;
@@ -149,8 +140,6 @@ export function AppModals({
   onChangeVisibleTraceCategories: (categories: TraceCategoryId[]) => void;
   onCloseNotification: () => void;
   onCloseProfiling: () => void;
-  onCloseWorkspaceInfo: () => void;
-  onCloseSessionSummary: () => void;
   onCloseSearch: () => void;
   onCloseTraceDetail: () => void;
   onCloseTraceFilters: () => void;
@@ -264,7 +253,6 @@ export function AppModals({
           onSteer={(instruction) => onSteerNotification(activeNotification, instruction)}
         />
       ) : null}
-      {sessionSummaryDetail ? <SessionSummaryModal detail={sessionSummaryDetail} onClose={onCloseSessionSummary} /> : null}
       {traceDetailOpen && selectedTraceEvent ? (
         <TraceDetailModal
           detail={activeRunDetail}
@@ -272,7 +260,6 @@ export function AppModals({
           onClose={onCloseTraceDetail}
         />
       ) : null}
-      {workspaceInfo ? <WorkspaceInformationModal workspace={workspaceInfo} onClose={onCloseWorkspaceInfo} /> : null}
     </>
   );
 }

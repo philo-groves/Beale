@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import type { JSX, ReactNode } from 'react';
 
+export function mainSideScrollHasOverflow(scrollHeight: number, clientHeight: number): boolean {
+  return scrollHeight - clientHeight > 1;
+}
+
 export function MainSideScrollRegion({
   children,
   className,
@@ -24,10 +28,12 @@ export function MainSideScrollRegion({
     if (!region || !list) return;
 
     const scrollableDistance = list.scrollHeight - list.clientHeight;
+    const hasOverflow = mainSideScrollHasOverflow(list.scrollHeight, list.clientHeight);
     const canScroll = scrollableDistance > 8;
     const showTopFade = canScroll && list.scrollTop > 8;
     const showBottomFade = canScroll && list.scrollTop < scrollableDistance - 8;
 
+    region.classList.toggle('has-overflow', hasOverflow);
     region.classList.toggle('has-top-fade', showTopFade);
     region.classList.toggle('has-bottom-fade', showBottomFade);
   }, []);

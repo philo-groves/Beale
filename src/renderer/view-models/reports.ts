@@ -52,6 +52,13 @@ export function reportCatalogGroups(reports: readonly HoneycrispReportSummary[])
   return { complete, stale };
 }
 
+export function reportsForReportingScope(
+  reports: readonly HoneycrispReportSummary[],
+  workspaceId: string | null
+): HoneycrispReportSummary[] {
+  return workspaceId ? reports.filter((report) => report.workspaceId === workspaceId) : [...reports];
+}
+
 export interface ReportMarkdownBlock {
   id: string;
   content: string;

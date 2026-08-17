@@ -19,6 +19,8 @@ import type {
   MemoryDreamingProgressUpdate,
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
+  HoneycrispReportLocator,
+  HoneycrispReportSummary,
   ReportSessionStartInput,
   ReportSessionStartResult,
   HoneycrispToolingConfigUpdate,
@@ -228,8 +230,11 @@ const api: BealeApi = {
   getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispRunbook, runbookId);
   },
-  getHoneycrispReport(reportId: string): Promise<HoneycrispReportDocument> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispReport, reportId);
+  listReportingReports(): Promise<HoneycrispReportSummary[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.listReportingReports);
+  },
+  getHoneycrispReport(locator: HoneycrispReportLocator): Promise<HoneycrispReportDocument> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispReport, locator);
   },
   startReportSession(input: ReportSessionStartInput): Promise<ReportSessionStartResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.startReportSession, input);

@@ -24,7 +24,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   snapshot,
   onAddWorkspace,
   onOpenWorkspace,
-  onOpenWorkspaceInfo,
   onOpenResearchSession,
   onOpenBreakoutRoom = () => undefined,
   onRemoveWorkspace,
@@ -49,7 +48,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   snapshot: WorkspaceSnapshot | null;
   onAddWorkspace: () => void;
   onOpenWorkspace: (workspace: WorkspaceRegistryEntry) => void;
-  onOpenWorkspaceInfo: (workspace: WorkspaceRegistryEntry) => void;
   onOpenResearchSession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
   onOpenBreakoutRoom?: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary, roomId: string) => void;
   onRemoveWorkspace: (workspace: WorkspaceRegistryEntry) => void;
@@ -95,7 +93,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           <CalendarClock size={15} />
           <span>Automations</span>
         </button>
-        <button type="button" className={`sidebar-utility-button${reportsActive ? ' active' : ''}`} title="Reporting" aria-current={reportsActive ? 'page' : undefined} disabled={!snapshot} onClick={onOpenReports}>
+        <button type="button" className={`sidebar-utility-button${reportsActive ? ' active' : ''}`} title="Reporting" aria-current={reportsActive ? 'page' : undefined} onClick={onOpenReports}>
           <FileText size={15} />
           <span>Reporting</span>
         </button>
@@ -212,16 +210,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                     </button>
                     {menuOpen ? (
                       <div className="workspace-menu" role="menu">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            onOpenWorkspaceInfo(workspace);
-                            onSetOpenWorkspaceMenuId(null);
-                          }}
-                        >
-                          Workspace Information
-                        </button>
                         <button type="button" role="menuitem" className="danger" onClick={() => onRemoveWorkspace(workspace)}>
                           Remove
                         </button>

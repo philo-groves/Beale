@@ -115,6 +115,8 @@ import type {
   NotificationRecord,
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
+  HoneycrispReportLocator,
+  HoneycrispReportSummary,
   ReportSessionStartInput,
   ReportSessionStartResult,
   HoneycrispToolingConfigSummary,
@@ -1080,15 +1082,49 @@ export class WorkspaceService {
     return resolveHoneycrispArtifact(report.artifactId, this.honeycrispStorage(runtime), 'report').path;
   }
 
-  public getHoneycrispReport(reportId: string): HoneycrispReportDocument {
-    const runtime = this.getForegroundRuntime();
-    if (!runtime) throw new Error('No Beale workspace is open');
-    return getHoneycrispReportDocument(runtime.db.getWorkspaceId(), reportId, this.honeycrispStorage(runtime));
+  public async listReportingReports(): Promise<HoneycrispReportSummary[]> {
+    const workspaces = this.getWorkspaceRegistry().getState().workspaces.filter((workspace) => workspace.workspaceId.length > 0);
+    const catalogs = await Promise.all(workspaces.map(async (workspace) => {
+      const runtime = this.runtimeForWorkspacePath(workspace.workspacePath);
+      const summary = runtime
+        ? await this.memorySummaryForRuntimeAsync(runtime)
+        : await getHoneycrispMemorySummaryAsync({
+            workspaceId: workspace.workspaceId,
+            subjectId: null
+          }, {
+            databasePath: this.globalHoneycrispDatabasePath(workspace.researchProfileId),
+            artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(workspace.researchProfileId)
+          });
+      return summary.reports.filter((report) => report.workspaceId === workspace.workspaceId);
+    }));
+    const reports = new Map<string, HoneycrispReportSummary>();
+    for (const report of catalogs.flat()) reports.set(`${report.workspaceId}:${report.id}`, report);
+    return [...reports.values()].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt) || left.title.localeCompare(right.title));
+  }
+
+  public getHoneycrispReport(locator: HoneycrispReportLocator): HoneycrispReportDocument {
+    const workspaceId = locator.workspaceId.trim();
+    const reportId = locator.reportId.trim();
+    const workspace = this.getWorkspaceRegistry().getState().workspaces.find((candidate) => candidate.workspaceId === workspaceId);
+    if (!workspace) throw new Error(`Report workspace is not registered: ${workspaceId}`);
+    return getHoneycrispReportDocument(workspaceId, reportId, {
+      databasePath: this.globalHoneycrispDatabasePath(workspace.researchProfileId),
+      artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(workspace.researchProfileId)
+    });
   }
 
   public startReportSession(input: ReportSessionStartInput): ReportSessionStartResult {
+    const workspaceId = input.workspaceId.trim();
+    const workspace = this.getWorkspaceRegistry().getState().workspaces.find((candidate) => candidate.workspaceId === workspaceId);
+    if (!workspace) throw new Error(`Report workspace is not registered: ${workspaceId}`);
+    if (this.getForegroundRuntime()?.db.getWorkspaceId() !== workspaceId) {
+      this.openRegisteredWorkspace(workspace.id);
+    }
     const runtime = this.getForegroundRuntime();
-    if (!runtime) throw new Error('No Beale workspace is open');
+    if (!runtime || runtime.db.getWorkspaceId() !== workspaceId) {
+      throw new Error(`Could not open the report workspace: ${workspace.workspaceName}`);
+    }
     const normalizedReportId = input.reportId.trim();
     const instruction = input.instruction.trim();
     if (!instruction) throw new Error('Starting a report session requires an instruction.');

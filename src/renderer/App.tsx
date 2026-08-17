@@ -12,6 +12,7 @@ import type {
   ProviderModelDefaults,
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
+  HoneycrispReportSummary,
   MemoryDreamingProgressUpdate,
   NotificationRecord,
   OpenAiOAuthStartResult,
@@ -77,7 +78,7 @@ import { sessionHeatForDetail, sessionHeatPaletteForProfile, sessionHeatPaletteS
 import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
-import { isReportResourceRun, reportSessionDefaultModelSelection } from './view-models/reports';
+import { isReportResourceRun, reportsForReportingScope, reportSessionDefaultModelSelection } from './view-models/reports';
 import {
   clearConfirmedProviderOAuthResults,
   isSubscriptionAuthenticationConfirmed
@@ -146,6 +147,10 @@ export function App(): JSX.Element {
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [automationsOpen, setAutomationsOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
+  const [reportingScopeWorkspaceId, setReportingScopeWorkspaceId] = useState<string | null>(null);
+  const [reportingReports, setReportingReports] = useState<HoneycrispReportSummary[]>([]);
+  const [reportingReportsLoading, setReportingReportsLoading] = useState(false);
+  const [reportingReportsError, setReportingReportsError] = useState<string | null>(null);
   const [reportSessionRunId, setReportSessionRunId] = useState<string | null>(null);
   const [reportSessionRefreshVersion, setReportSessionRefreshVersion] = useState(0);
   const [agentPluginState, setAgentPluginState] = useState<AgentPluginRegistryState | null>(null);
@@ -159,12 +164,12 @@ export function App(): JSX.Element {
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
   const [workspaceAlerts, setWorkspaceAlerts] = useState<WorkspaceAlert[]>([]);
-  const [sessionSummaryDetail, setSessionSummaryDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [selectedSubagentPath, setSelectedSubagentPath] = useState<string | null>(null);
   const [selectedBreakoutRoomId, setSelectedBreakoutRoomId] = useState<string | null>(null);
   const [selectedRunbookId, setSelectedRunbookId] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [selectedReportWorkspaceId, setSelectedReportWorkspaceId] = useState<string | null>(null);
   const [rightSidenavExpanded, setRightSidenavExpanded] = useState(false);
   const [selectedRunbookDocument, setSelectedRunbookDocument] = useState<HoneycrispRunbookDocument | null>(null);
   const [runbookLoading, setRunbookLoading] = useState(false);
@@ -182,9 +187,7 @@ export function App(): JSX.Element {
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const {
     openRegisteredWorkspaceMenuId,
-    setOpenWorkspaceMenuId,
-    workspaceInfo,
-    setWorkspaceInfo
+    setOpenWorkspaceMenuId
   } = useWorkspaceOverlayState(workspaceRegistry);
   const {
     profilingState,
@@ -484,6 +487,7 @@ export function App(): JSX.Element {
     setRightSidenavExpanded(true);
     setSelectedSubagentPath(null);
     setSelectedReportId(null);
+    setSelectedReportWorkspaceId(null);
     setSelectedReportDocument(null);
     setReportError(null);
     setSelectedRunbookId(runbookId);
@@ -496,25 +500,61 @@ export function App(): JSX.Element {
     setSelectedRunbookDocument(null);
     setRunbookError(null);
     setSelectedReportId(reportId);
-  }, []);
+    setSelectedReportWorkspaceId(snapshot?.workspace.workspaceId ?? null);
+  }, [snapshot?.workspace.workspaceId]);
 
   const openReports = useCallback((): void => {
     clearRunDetail();
     setSelectedRunId(null);
     setSelectedBreakoutRoomId(null);
     setSelectedReportId(null);
+    setSelectedReportWorkspaceId(null);
     setSelectedReportDocument(null);
     setReportSessionRunId(null);
     setReportSessionRefreshVersion(0);
     setReportError(null);
     setError(null);
+    setReportingScopeWorkspaceId(snapshot?.workspace.workspaceId ?? null);
     setReportsOpen(true);
-  }, [clearRunDetail, setSelectedRunId]);
+  }, [clearRunDetail, setSelectedRunId, snapshot?.workspace.workspaceId]);
 
-  const openReportSession = useCallback((reportId: string): void => {
+  const reportingWorkspaceCatalogKey = workspaceRegistry?.workspaces
+    .map((workspace) => `${workspace.id}:${workspace.workspaceId}:${workspace.updatedAt}`)
+    .join('|') ?? '';
+  const activeWorkspaceReportCatalogKey = snapshot?.honeycrispMemory.reports
+    .map((report) => `${report.id}:${report.revision}:${report.updatedAt}`)
+    .join('|') ?? '';
+  useEffect(() => {
+    if (!reportsOpen) return undefined;
+    let cancelled = false;
+    setReportingReportsLoading(true);
+    setReportingReportsError(null);
+    void window.beale.listReportingReports()
+      .then((reports) => {
+        if (!cancelled) setReportingReports(reports);
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) setReportingReportsError(errorMessage(caught));
+      })
+      .finally(() => {
+        if (!cancelled) setReportingReportsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceReportCatalogKey, reportingWorkspaceCatalogKey, reportsOpen]);
+
+  useEffect(() => {
+    if (!workspaceRegistry || !reportingScopeWorkspaceId) return;
+    if (workspaceRegistry.workspaces.some((workspace) => workspace.workspaceId === reportingScopeWorkspaceId)) return;
+    setReportingScopeWorkspaceId(null);
+  }, [reportingScopeWorkspaceId, workspaceRegistry]);
+
+  const openReportSession = useCallback((report: HoneycrispReportSummary): void => {
     clearRunDetail();
     setSelectedRunId(null);
-    setSelectedReportId(reportId);
+    setSelectedReportId(report.id);
+    setSelectedReportWorkspaceId(report.workspaceId);
     setSelectedReportDocument(null);
     setReportSessionRunId(null);
     setReportSessionRefreshVersion(0);
@@ -527,11 +567,18 @@ export function App(): JSX.Element {
     modelSelection?: ResearchModelSelection,
     shellSafetyMode?: ShellSafetyMode
   ): Promise<void> => {
-    if (!selectedReportId) throw new Error('No report is selected.');
+    if (!selectedReportId || !selectedReportWorkspaceId) throw new Error('No report is selected.');
+    const report = reportingReports.find((candidate) => (
+      candidate.id === selectedReportId && candidate.workspaceId === selectedReportWorkspaceId
+    )) ?? snapshot?.honeycrispMemory.reports.find((candidate) => (
+      candidate.id === selectedReportId && candidate.workspaceId === selectedReportWorkspaceId
+    ));
+    if (!report) throw new Error('The selected report is no longer available.');
     setBusy(true);
     setError(null);
     try {
       const result = await window.beale.startReportSession({
+        workspaceId: report.workspaceId,
         reportId: selectedReportId,
         instruction,
         ...(modelSelection ? { modelSelection } : {}),
@@ -548,7 +595,7 @@ export function App(): JSX.Element {
     } finally {
       setBusy(false);
     }
-  }, [applySnapshot, selectedReportId, setSelectedRunId]);
+  }, [applySnapshot, reportingReports, selectedReportId, selectedReportWorkspaceId, setSelectedRunId, snapshot?.honeycrispMemory.reports]);
 
   const submitReportChange = useCallback(async (instruction: string): Promise<void> => {
     if (!reportSessionRunId) {
@@ -580,6 +627,7 @@ export function App(): JSX.Element {
     setSelectedRunbookDocument(null);
     setRunbookError(null);
     setSelectedReportId(null);
+    setSelectedReportWorkspaceId(null);
     setSelectedReportDocument(null);
     setReportError(null);
     setSelectedSubagentPath(path);
@@ -593,6 +641,7 @@ export function App(): JSX.Element {
 
   const backToReports = useCallback((): void => {
     setSelectedReportId(null);
+    setSelectedReportWorkspaceId(null);
     setSelectedReportDocument(null);
     setReportError(null);
   }, []);
@@ -896,7 +945,6 @@ export function App(): JSX.Element {
     setSelectedRunId,
     setWorkspaceDraft,
     setWorkspaceOnboardingProgress,
-    setWorkspaceInfo,
     setOpenWorkspaceMenuId
   });
 
@@ -977,16 +1025,6 @@ export function App(): JSX.Element {
       }
     })();
   }, [applySnapshot]);
-  const activeWorkspaceEntry = useMemo(() => {
-    if (!snapshot || !workspaceRegistry) return null;
-    return (
-      workspaceRegistry.workspaces.find(
-        (workspace) =>
-          (snapshot.workspace.workspaceId.length > 0 && workspace.workspaceId === snapshot.workspace.workspaceId) ||
-          workspace.workspacePath === snapshot.workspace.workspacePath
-      ) ?? null
-    );
-  }, [workspaceRegistry, snapshot?.workspace.workspaceId, snapshot?.workspace.workspacePath]);
   const researchPanelMemory = selectedRunId
     ? activeRunDetail?.honeycrispMemory ?? null
     : snapshot?.honeycrispMemory ?? null;
@@ -994,16 +1032,21 @@ export function App(): JSX.Element {
     () => researchPanelMemory?.runbooks.find((runbook) => runbook.id === selectedRunbookId) ?? null,
     [researchPanelMemory?.runbooks, selectedRunbookId]
   );
-  const reportCatalogMemory = reportsOpen
-    ? activeRunDetail?.honeycrispMemory ?? snapshot?.honeycrispMemory ?? null
-    : researchPanelMemory;
   const selectedReport = useMemo(
-    () =>
-      reportCatalogMemory?.reports.find((report) => report.id === selectedReportId) ??
-      (reportsOpen
-        ? snapshot?.honeycrispMemory.reports.find((report) => report.id === selectedReportId) ?? null
-        : null),
-    [reportCatalogMemory?.reports, reportsOpen, selectedReportId, snapshot?.honeycrispMemory.reports]
+    () => {
+      if (!reportsOpen) {
+        return researchPanelMemory?.reports.find((report) => (
+          report.id === selectedReportId && (!selectedReportWorkspaceId || report.workspaceId === selectedReportWorkspaceId)
+        )) ?? null;
+      }
+      const catalogReport = reportingReports.find((report) => (
+        report.id === selectedReportId && report.workspaceId === selectedReportWorkspaceId
+      )) ?? null;
+      return snapshot?.honeycrispMemory.reports.find((report) => (
+        report.id === selectedReportId && report.workspaceId === selectedReportWorkspaceId
+      )) ?? catalogReport;
+    },
+    [reportingReports, reportsOpen, researchPanelMemory?.reports, selectedReportId, selectedReportWorkspaceId, snapshot?.honeycrispMemory.reports]
   );
   const workspaceDashboardRuns = useMemo(
     () => snapshot?.runs.filter((row) => !isReportResourceRun(row.run)) ?? [],
@@ -1040,13 +1083,14 @@ export function App(): JSX.Element {
     };
   }, [selectedRunbook?.revision, selectedRunbookId]);
   useEffect(() => {
-    if (!selectedReportId || !reportCatalogMemory || selectedReport) return;
+    if (!selectedReportId || selectedReport || (reportsOpen && reportingReportsLoading)) return;
     setSelectedReportId(null);
+    setSelectedReportWorkspaceId(null);
     setSelectedReportDocument(null);
     setReportError(null);
-  }, [reportCatalogMemory, selectedReport, selectedReportId]);
+  }, [reportingReportsLoading, reportsOpen, selectedReport, selectedReportId]);
   useEffect(() => {
-    if (!selectedReportId) {
+    if (!selectedReportId || !selectedReport) {
       setReportLoading(false);
       return undefined;
     }
@@ -1054,7 +1098,7 @@ export function App(): JSX.Element {
     setReportLoading(true);
     setReportError(null);
     setSelectedReportDocument((current) => current?.reportId === selectedReportId ? current : null);
-    void window.beale.getHoneycrispReport(selectedReportId)
+    void window.beale.getHoneycrispReport({ workspaceId: selectedReport.workspaceId, reportId: selectedReportId })
       .then((document) => {
         if (cancelled || document.reportId !== selectedReportId) return;
         setSelectedReportDocument(document);
@@ -1066,7 +1110,7 @@ export function App(): JSX.Element {
         if (!cancelled) setReportLoading(false);
       });
     return () => { cancelled = true; };
-  }, [selectedReport?.revision, selectedReportId]);
+  }, [selectedReport?.revision, selectedReport?.workspaceId, selectedReportId]);
 
   const needsFullTraceEvents = Boolean(activeRunDetail && (selectedBreakoutRoomId || selectedSubagentPath || pendingSearchTarget));
   const activeTraceEvents = useMemo(
@@ -1124,6 +1168,13 @@ export function App(): JSX.Element {
     sidebarCollapsed
   })}${settingsOpen ? ' settings-open' : ''}`;
   const currentWorkspaceName = snapshot?.activeScope.workspaceName ?? 'No Workspace Selected';
+  const reportingScopeName = reportingScopeWorkspaceId
+    ? workspaceRegistry?.workspaces.find((workspace) => workspace.workspaceId === reportingScopeWorkspaceId)?.workspaceName ?? 'Workspace'
+    : 'All Workspaces';
+  const scopedReportingReports = useMemo(
+    () => reportsForReportingScope(reportingReports, reportingScopeWorkspaceId),
+    [reportingReports, reportingScopeWorkspaceId]
+  );
   const activeBreakoutRoomTitle = selectedBreakoutRoomId
     ? activeRunDetail?.breakoutRooms?.find((room) => room.id === selectedBreakoutRoomId)?.title ?? null
     : null;
@@ -1140,6 +1191,7 @@ export function App(): JSX.Element {
       setSelectedRunId(null);
       setReportSessionRunId(null);
       setSelectedReportId(null);
+      setSelectedReportWorkspaceId(null);
       setSelectedReportDocument(null);
     }
     setReportsOpen(false);
@@ -1225,16 +1277,13 @@ export function App(): JSX.Element {
         staticContextTitle={settingsOpen
           ? { primary: 'Agent Settings', secondary: settingsSectionLabel(settingsSection) }
           : reportsOpen
-            ? { primary: 'Reports', secondary: selectedReport?.title ?? currentWorkspaceName }
+            ? { primary: 'Reporting', secondary: selectedReport?.title ?? reportingScopeName }
             : null}
         platform={windowControlPlatform}
         workspaceName={currentWorkspaceName}
-        activeWorkspace={activeWorkspaceEntry}
         activeRunDetail={activeRunDetail}
         activeBreakoutRoomTitle={activeBreakoutRoomTitle}
         profilingEnabled={profilingState?.enabled ?? false}
-        onOpenSessionSummary={setSessionSummaryDetail}
-        onOpenWorkspaceInfo={setWorkspaceInfo}
         onOpenProfiling={openProfiling}
         onAddWorkspace={() => {
           addWorkspace();
@@ -1271,7 +1320,6 @@ export function App(): JSX.Element {
             setReportsOpen(false);
             openRegisteredWorkspace(workspace);
           }}
-          onOpenWorkspaceInfo={setWorkspaceInfo}
           onOpenResearchSession={(workspace, session) => {
             setReportsOpen(false);
             setSelectedBreakoutRoomId(null);
@@ -1328,7 +1376,7 @@ export function App(): JSX.Element {
           />
         ) : (
           <div className="workspace-page">
-            {snapshot && reportsOpen ? (
+            {reportsOpen ? (
               selectedReport ? (
                 <ReportSessionWorkspace
                   report={selectedReport}
@@ -1355,7 +1403,21 @@ export function App(): JSX.Element {
                   onSteerInstruction={handleSteerInstruction}
                 />
               ) : (
-                <ReportsIndex reports={snapshot.honeycrispMemory.reports} onOpenReport={openReportSession} />
+                <ReportsIndex
+                  reports={scopedReportingReports}
+                  workspaces={workspaceRegistry?.workspaces ?? []}
+                  selectedWorkspaceId={reportingScopeWorkspaceId}
+                  loading={reportingReportsLoading}
+                  error={reportingReportsError}
+                  onScopeChange={(workspaceId) => {
+                    setReportingScopeWorkspaceId(workspaceId);
+                    setSelectedReportId(null);
+                    setSelectedReportWorkspaceId(null);
+                    setSelectedReportDocument(null);
+                    setReportError(null);
+                  }}
+                  onOpenReport={openReportSession}
+                />
               )
             ) : snapshot ? <MainSessionWorkspace
               chatView={chatView}
@@ -1456,8 +1518,6 @@ export function App(): JSX.Element {
         lastProfilingReport={lastProfilingReport}
         workspaceDraft={workspaceDraft}
         workspaceOnboardingProgress={workspaceOnboardingProgress}
-        workspaceInfo={workspaceInfo}
-        sessionSummaryDetail={sessionSummaryDetail}
         searchOpen={searchOpen}
         selectedRunId={selectedRunId}
         selectedTraceEvent={selectedTraceEvent}
@@ -1477,8 +1537,6 @@ export function App(): JSX.Element {
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
         onCloseNotification={() => setActiveNotification(null)}
         onCloseProfiling={closeProfiling}
-        onCloseWorkspaceInfo={() => setWorkspaceInfo(null)}
-        onCloseSessionSummary={() => setSessionSummaryDetail(null)}
         onCloseSearch={() => setSearchOpen(false)}
         onCloseTraceDetail={closeTraceDetail}
         onCloseTraceFilters={() => setTraceFilterOpen(false)}

@@ -1,24 +1,18 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import type { WorkspaceRegistryEntry, RunDetail } from '@shared/types';
+import type { RunDetail } from '@shared/types';
 import { displaySessionTitle } from '../../shared/sessionTitle';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { displayBreakoutRoomTitle, displayWorkspaceHeaderName } from '../view-models/appHeader';
 
 export const AppHeaderTitle = memo(function AppHeaderTitle({
   workspaceName,
-  activeWorkspace,
   detail,
-  breakoutRoomTitle,
-  onOpenWorkspaceInfo,
-  onOpenSessionSummary
+  breakoutRoomTitle
 }: {
   workspaceName: string;
-  activeWorkspace: WorkspaceRegistryEntry | null;
   detail: RunDetail | null;
   breakoutRoomTitle?: string | null;
-  onOpenWorkspaceInfo: (workspace: WorkspaceRegistryEntry) => void;
-  onOpenSessionSummary: (detail: RunDetail) => void;
 }): JSX.Element {
   const workspaceLabel = displayWorkspaceHeaderName(workspaceName);
   const sessionTitle = detail ? displaySessionTitle(detail.run.title, detail.run.promptMarkdown) : null;
@@ -37,23 +31,15 @@ export const AppHeaderTitle = memo(function AppHeaderTitle({
   return (
     <div className="app-header-title" aria-label={headerSegments.join(', ')}>
       <div className="app-header-identity">
-        <button
-          type="button"
-          className="app-header-workspace-title"
-          title={activeWorkspace ? 'Open workspace information' : workspaceLabel}
-          disabled={!activeWorkspace}
-          onClick={() => {
-            if (activeWorkspace) onOpenWorkspaceInfo(activeWorkspace);
-          }}
-        >
+        <span className="app-header-workspace-title app-header-static-title" title={workspaceLabel}>
           <span>{workspaceLabel}</span>
-        </button>
+        </span>
         {detail && sessionTitle ? (
           <>
             <span className="app-header-divider" aria-hidden="true" />
-            <button type="button" className="app-header-session-title" title="View session summary" onClick={() => onOpenSessionSummary(detail)}>
+            <span className="app-header-session-title app-header-static-title" title={sessionTitle}>
               <span>{sessionTitle}</span>
-            </button>
+            </span>
           </>
         ) : null}
         {breakoutRoomLabel ? (

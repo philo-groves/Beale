@@ -75,11 +75,14 @@
 
 ### Removed
 
+- Removed the workspace-information and session-summary bottom sheets; workspace and session names in the application header are now plain, non-clickable labels.
 - Removed Beale's dormant project graph and local semantic-index stores, production fixture runtime, host tool/verifier executors, synthetic VM context model and schema, and duplicated Dreaming schema initialization.
 - Removed Beale's legacy Honeycrisp stdio event/control protocol and its test-only compatibility switch; active sessions now use the versioned Honeycrisp WebSocket boundary exclusively.
 
 ### Changed
 
+- Reporting no longer requires an open workspace: its catalog defaults to All Workspaces, offers workspace scope tabs with the same compact content spacing as Profile settings, groups reports into divider-separated status lists, and defaults to the currently selected workspace when entered from one. Cross-workspace report reads stay independent of foreground navigation; starting an edit session opens the report's owning workspace.
+- The left-sidebar scrollbar now becomes visible on hover only when its measured list content exceeds the available height.
 - Left-sidebar session rows now reserve their leading slot for active spinners or durable unviewed-result dots, keep relative time on the right during active work, and show only muted active spinners for breakout rooms instead of status dots.
 - Commentary session loads now transfer only renderable message content and compact event/tool scaffolding; full tool inputs and outputs load on demand when an individual call is expanded, while Trace mode retains complete detail.
 - App startup now leaves every workspace closed and presents the neutral No Workspace Selected view without loading copy; reopening a known workspace requires an explicit user action.

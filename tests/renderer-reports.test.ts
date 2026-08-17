@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispReportSummary, ProviderSettings, ResearchProviderModelCatalog } from '@shared/types';
+import type { HoneycrispReportSummary, ProviderSettings, ResearchProviderModelCatalog, WorkspaceRegistryEntry } from '@shared/types';
 import { reportResourceProjectNotes } from '../src/main/honeycrispRunEngine';
 import { EditableReport, ReportsIndex } from '../src/renderer/features/reports/ReportsWorkspace';
 import {
@@ -10,6 +10,7 @@ import {
   reportChangeInstruction,
   reportMarkdownBlocks,
   reportSessionDefaultModelSelection,
+  reportsForReportingScope,
   joinReportBlockSelection
 } from '../src/renderer/view-models/reports';
 
@@ -28,6 +29,23 @@ const report: HoneycrispReportSummary = {
   revisions: [],
   createdAt: '2026-08-10T12:00:00.000Z',
   updatedAt: '2026-08-16T12:00:00.000Z'
+};
+
+const workspace: WorkspaceRegistryEntry = {
+  id: 'registry_workspace_one',
+  workspacePath: 'C:\\workspaces\\parser',
+  workspaceId: 'workspace_one',
+  workspaceName: 'Parser',
+  researchProfileId: 'security-research',
+  scopeOwner: 'Parser',
+  descriptionMarkdown: '',
+  rulesMarkdown: '',
+  expiresAt: null,
+  createdAt: '2026-08-10T12:00:00.000Z',
+  updatedAt: '2026-08-16T12:00:00.000Z',
+  lastOpenedAt: '2026-08-16T12:00:00.000Z',
+  runCount: 1,
+  lastRunAt: '2026-08-16T12:00:00.000Z'
 };
 
 describe('reports resource views', () => {
@@ -134,25 +152,87 @@ describe('reports resource views', () => {
   });
 
   it('renders the workspace report catalog and current report state', () => {
+    const staleReport = { ...report, id: 'report_stale', title: 'Parser follow-up', status: 'stale' as const };
     const html = renderToStaticMarkup(createElement(ReportsIndex, {
-      reports: [report],
+      reports: [report, staleReport],
+      workspaces: [workspace],
+      selectedWorkspaceId: null,
+      loading: false,
+      error: null,
+      onScopeChange: () => undefined,
       onOpenReport: () => undefined
     }));
 
-    expect(html).toContain('Workspace reports');
+    expect(html).toContain('All Workspaces');
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain('>Parser</span>');
     expect(html).toContain('Parser boundary confusion');
+    expect(html).toContain('Parser follow-up');
     expect(html).toContain('A verified parser boundary issue.');
+    expect(html).toContain('class="reports-index-row-workspace">Parser</small>');
     expect(html).toContain('Update 3');
+    expect(html).toContain('<h2>1 Complete</h2>');
+    expect(html).toContain('<h2>1 Stale</h2>');
+    expect(html).not.toContain('reports-index-eyebrow');
+    expect(html).not.toContain('<h1>Reports</h1>');
+    expect(html).not.toContain('Understand, refine, and track');
+  });
+
+  it('matches Profile settings content spacing and symmetric tab padding', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+
+    expect(styles).toMatch(/\.reports-index\s*\{[^}]*width:\s*100%;[^}]*padding:\s*10px;/s);
+    expect(styles).toMatch(/\.reports-index-tabs,[\s\S]*?\.reports-index-empty\s*\{[^}]*width:\s*100%;/s);
+    expect(styles).toMatch(/\.reports-index-tab\.provider-settings-tab \.research-side-view-tab-activate\s*\{[^}]*padding:\s*0 9px;/s);
+    expect(styles).toMatch(/\.settings-main-view\s*\{[^}]*padding:\s*10px;/s);
+    expect(styles).toMatch(/\.profile-settings-tab \.research-side-view-tab-activate\s*\{[^}]*padding:\s*0 9px;/s);
+  });
+
+  it('uses detailed-sidenav status sections and divider rows instead of report cards', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+
+    expect(styles).toMatch(/\.reports-index-section-items\s*\{[^}]*border-top:\s*1px solid var\(--panel-border\);[^}]*border-bottom:\s*1px solid var\(--panel-border\);/s);
+    expect(styles).toMatch(/\.reports-index-row\s*\{[^}]*border:\s*0;[^}]*border-radius:\s*0;[^}]*background:\s*transparent;/s);
+    expect(styles).toMatch(/\.reports-index-row:not\(:last-child\)\s*\{[^}]*border-bottom:\s*1px solid var\(--panel-border\);/s);
   });
 
   it('renders an explicit empty state before an agent creates a report', () => {
     const html = renderToStaticMarkup(createElement(ReportsIndex, {
       reports: [],
+      workspaces: [workspace],
+      selectedWorkspaceId: workspace.workspaceId,
+      loading: false,
+      error: null,
+      onScopeChange: () => undefined,
       onOpenReport: () => undefined
     }));
 
     expect(html).toContain('No reports yet');
     expect(html).toContain('Reports created by agents during research sessions');
+  });
+
+  it('defaults Reporting to the selected workspace and otherwise supports all-workspace scope', () => {
+    const appSource = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
+    const sidebarSource = readFileSync(new URL('../src/renderer/features/workspaces/WorkspaceSidebar.tsx', import.meta.url), 'utf8');
+    const otherReport = { ...report, id: 'report_other', workspaceId: 'workspace_two', workspaceName: 'Other' };
+
+    expect(reportsForReportingScope([report, otherReport], null)).toHaveLength(2);
+    expect(reportsForReportingScope([report, otherReport], workspace.workspaceId)).toEqual([report]);
+    expect(appSource).toContain('setReportingScopeWorkspaceId(snapshot?.workspace.workspaceId ?? null);');
+    expect(appSource).toContain('{reportsOpen ? (');
+    expect(sidebarSource).not.toMatch(/title="Reporting"[^>]*disabled=\{!snapshot\}/);
+  });
+
+  it('loads reporting data and report documents through workspace-independent host contracts', () => {
+    const apiSource = readFileSync(new URL('../src/shared/types.ts', import.meta.url), 'utf8');
+    const serviceSource = readFileSync(new URL('../src/main/workspaceService.ts', import.meta.url), 'utf8');
+
+    expect(apiSource).toContain('listReportingReports(): Promise<HoneycrispReportSummary[]>;');
+    expect(apiSource).toContain('getHoneycrispReport(locator: HoneycrispReportLocator)');
+    expect(serviceSource).toContain('public async listReportingReports(): Promise<HoneycrispReportSummary[]>');
+    expect(serviceSource).toContain('workspaceId: workspace.workspaceId');
+    expect(serviceSource).toContain('Report workspace is not registered');
   });
 
   it('makes report blocks targetable for inline change requests', () => {

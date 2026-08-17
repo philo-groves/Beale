@@ -1,14 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { WorkspaceRegistryEntry, WorkspaceRegistryState } from '@shared/types';
+import type { WorkspaceRegistryState } from '@shared/types';
 import { workspaceExists } from '../view-models/workspaceDisplay';
 
 export function useWorkspaceOverlayState(workspaceRegistry: WorkspaceRegistryState | null): {
   openRegisteredWorkspaceMenuId: string | null;
   setOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
-  workspaceInfo: WorkspaceRegistryEntry | null;
-  setWorkspaceInfo: (workspace: WorkspaceRegistryEntry | null | ((current: WorkspaceRegistryEntry | null) => WorkspaceRegistryEntry | null)) => void;
 } {
-  const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceRegistryEntry | null>(null);
   const [openRegisteredWorkspaceMenuId, setOpenWorkspaceMenuId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,15 +35,10 @@ export function useWorkspaceOverlayState(workspaceRegistry: WorkspaceRegistrySta
     if (openRegisteredWorkspaceMenuId && !workspaceExists(workspaceRegistry, openRegisteredWorkspaceMenuId)) {
       setOpenWorkspaceMenuId(null);
     }
-    if (workspaceInfo && !workspaceExists(workspaceRegistry, workspaceInfo.id)) {
-      setWorkspaceInfo(null);
-    }
-  }, [openRegisteredWorkspaceMenuId, workspaceInfo, workspaceRegistry]);
+  }, [openRegisteredWorkspaceMenuId, workspaceRegistry]);
 
   return {
     openRegisteredWorkspaceMenuId,
-    setOpenWorkspaceMenuId,
-    workspaceInfo,
-    setWorkspaceInfo
+    setOpenWorkspaceMenuId
   };
 }

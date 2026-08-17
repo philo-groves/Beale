@@ -520,6 +520,11 @@ export interface HoneycrispReportDocument {
   content: string;
 }
 
+export interface HoneycrispReportLocator {
+  workspaceId: string;
+  reportId: string;
+}
+
 export interface ReportResourceContext {
   kind: 'report';
   resourceId: string;
@@ -529,8 +534,7 @@ export interface ReportResourceContext {
   revision?: number;
 }
 
-export interface ReportSessionStartInput {
-  reportId: string;
+export interface ReportSessionStartInput extends HoneycrispReportLocator {
   instruction: string;
   modelSelection?: ResearchModelSelection;
   shellSafetyMode?: ShellSafetyMode;
@@ -1673,7 +1677,8 @@ export interface BealeApi {
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
   getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument>;
-  getHoneycrispReport(reportId: string): Promise<HoneycrispReportDocument>;
+  listReportingReports(): Promise<HoneycrispReportSummary[]>;
+  getHoneycrispReport(locator: HoneycrispReportLocator): Promise<HoneycrispReportDocument>;
   startReportSession(input: ReportSessionStartInput): Promise<ReportSessionStartResult>;
   getWorkspaceDejunkSummary(workspaceId: string): Promise<WorkspaceDejunkSummary>;
   runWorkspaceDejunk(): Promise<WorkspaceSnapshot>;

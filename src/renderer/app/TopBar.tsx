@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { JSX, MouseEvent } from 'react';
 import { Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, X } from 'lucide-react';
-import type { HostEnvironment, WorkspaceRegistryEntry, RunDetail, ZoomState } from '@shared/types';
+import type { HostEnvironment, RunDetail, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { AppHeaderTitle, StaticAppHeaderTitle } from './AppHeaderTitle';
 import { viewMenuShortcut, zoomPercentLabel } from './menuActions';
@@ -16,12 +16,9 @@ export const TopBar = memo(function TopBar({
   staticContextTitle,
   platform,
   workspaceName,
-  activeWorkspace,
   activeRunDetail,
   activeBreakoutRoomTitle,
   profilingEnabled,
-  onOpenSessionSummary,
-  onOpenWorkspaceInfo,
   onOpenProfiling,
   onAddWorkspace,
   onToggleRightSidenav,
@@ -34,12 +31,9 @@ export const TopBar = memo(function TopBar({
   staticContextTitle: { primary: string; secondary: string } | null;
   platform: HostEnvironment['platform'];
   workspaceName: string;
-  activeWorkspace: WorkspaceRegistryEntry | null;
   activeRunDetail: RunDetail | null;
   activeBreakoutRoomTitle: string | null;
   profilingEnabled: boolean;
-  onOpenSessionSummary: (detail: RunDetail) => void;
-  onOpenWorkspaceInfo: (workspace: WorkspaceRegistryEntry) => void;
   onOpenProfiling: () => void;
   onAddWorkspace: () => void;
   onToggleRightSidenav: () => void;
@@ -217,11 +211,8 @@ export const TopBar = memo(function TopBar({
       {contextualTitleVisible ? (
         <AppHeaderTitle
           workspaceName={workspaceName}
-          activeWorkspace={activeWorkspace}
           detail={activeRunDetail}
           breakoutRoomTitle={activeBreakoutRoomTitle}
-          onOpenWorkspaceInfo={onOpenWorkspaceInfo}
-          onOpenSessionSummary={onOpenSessionSummary}
         />
       ) : staticContextTitle ? (
         <StaticAppHeaderTitle primaryTitle={staticContextTitle.primary} secondaryTitle={staticContextTitle.secondary} />

@@ -80,7 +80,6 @@ describe('renderer top bar', () => {
       sidebarCollapsed: false,
       platform: 'win32',
       workspaceName: 'Security',
-      activeWorkspace: null,
       activeRunDetail: detail,
       activeBreakoutRoomTitle: 'parser review',
       rightSidenavAvailable: false,
@@ -88,8 +87,6 @@ describe('renderer top bar', () => {
       contextualTitleVisible: true,
       staticContextTitle: null,
       profilingEnabled: false,
-      onOpenSessionSummary: () => undefined,
-      onOpenWorkspaceInfo: () => undefined,
       onOpenProfiling: () => undefined,
       onAddWorkspace: () => undefined,
       onToggleRightSidenav: () => undefined,
@@ -98,6 +95,12 @@ describe('renderer top bar', () => {
 
     expect(html).toContain('aria-label="Security, Primary session, Parser Review"');
     expect(html.match(/app-header-divider/g)?.length).toBe(2);
+    expect(html).toContain('<span class="app-header-workspace-title app-header-static-title" title="Security"><span>Security</span></span>');
+    expect(html).toContain('<span class="app-header-session-title app-header-static-title" title="Primary session"><span>Primary session</span></span>');
+    expect(html).not.toContain('<button type="button" class="app-header-workspace-title"');
+    expect(html).not.toContain('<button type="button" class="app-header-session-title"');
+    expect(html).not.toContain('Open workspace information');
+    expect(html).not.toContain('View session summary');
     expect(html).toContain('<span class="app-header-breakout-room-title app-header-static-title" title="Parser Review"><span>Parser Review</span></span>');
   });
 
@@ -123,7 +126,6 @@ function renderTopBar(
     sidebarCollapsed: false,
     platform,
     workspaceName: 'Security',
-    activeWorkspace: null,
     activeRunDetail: null,
     activeBreakoutRoomTitle: null,
     rightSidenavAvailable,
@@ -131,8 +133,6 @@ function renderTopBar(
     contextualTitleVisible,
     staticContextTitle,
     profilingEnabled: false,
-    onOpenSessionSummary: () => undefined,
-    onOpenWorkspaceInfo: () => undefined,
     onOpenProfiling: () => undefined,
     onAddWorkspace: () => undefined,
     onToggleRightSidenav: () => undefined,
