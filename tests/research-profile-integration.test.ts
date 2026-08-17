@@ -66,7 +66,7 @@ describe('research profile host integration', () => {
     });
 
     const resolved = service.resolve('C:\\workspace', 'security-research');
-    expect(resolved.profile.name).toBe('Security Research');
+    expect(resolved.profile.name).toBe('Security');
     expect(captured).toEqual({
       command: 'honeycrisp-test',
       args: ['cli.js', 'profile', 'resolve', '--workspace-root', 'C:\\workspace', '--profile-id', 'security-research', '--json']

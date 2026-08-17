@@ -148,7 +148,7 @@ export function WorkspaceOnboardingModal({
                 event.target.value as 'security-research' | 'mathematics'
               ))}
             >
-              <option value="security-research">Cybersecurity</option>
+              <option value="security-research">Security</option>
               <option value="mathematics">Mathematics</option>
             </select>
           </label>

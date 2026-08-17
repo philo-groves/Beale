@@ -208,7 +208,7 @@ describe('workspace dashboard', () => {
     expect(html).toContain('Workspace directory<input disabled="" value="/workspaces/parser"/>');
     expect(html).toContain('Workspace name<input required="" value="Parser Workspace"/>');
     expect(html).toContain('Research subject<input disabled="" value="Parser"/>');
-    expect(html).toContain('Research Profile<input disabled="" value="Cybersecurity"/>');
+    expect(html).toContain('Research Profile<input disabled="" value="Security"/>');
     expect(html).toContain('<button class="primary-button" disabled="" type="submit">Save changes</button>');
     expect(html).not.toContain('>Surface</span>');
     expect(html).not.toContain('Research Surface');

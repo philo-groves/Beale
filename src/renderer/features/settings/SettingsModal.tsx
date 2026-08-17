@@ -14,6 +14,7 @@ import type {
   ProviderAuthenticationMethod,
   ProviderModelDefaults,
   ResearchProfile,
+  ResearchProfileMemoryType,
   ResearchProfileSessionHeatPalette,
   ResolvedResearchProfile,
   ResearchProfileSnapshot,
@@ -42,7 +43,6 @@ import { permissionModeOptions } from '../../view-models/permissionSettings';
 import {
   EMPTY_SESSION_HEAT_PREFERENCES,
   SESSION_HEAT_COLOR_LEVELS,
-  SESSION_HEAT_LEVELS,
   normalizeHexColor,
   sessionHeatPaletteForProfile,
   type SessionHeat,
@@ -265,7 +265,6 @@ export function ProfileSettingsView({
   researchProfiles,
   loading = false,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
-  onSetSessionHeatPreference = () => undefined,
   onSetSessionHeatPalettePreference = () => undefined
 }: {
   researchProfile: ResearchProfileSnapshot | null;
@@ -292,8 +291,6 @@ export function ProfileSettingsView({
     ? memoryTypes.find((memoryType) => memoryType.id === selectedMemoryTypeId) ?? null
     : null;
   const memoryTypeKey = memoryTypes.map((memoryType) => memoryType.id).join('|');
-  const statusesById = new Map(selectedProfile?.profile.memory.statuses.map((status) => [status.id, status]) ?? []);
-
   useEffect(() => {
     if (profiles.some((profile) => profile.profile.id === selectedProfileId)) return;
     const nextProfile = profiles.find((profile) => profile.profile.id === researchProfile?.profileId) ?? profiles[0] ?? null;
@@ -323,7 +320,7 @@ export function ProfileSettingsView({
   };
   const profileName = profileSettingsName(selectedProfile.profile.id, selectedProfile.profile.name);
   const profileDetailDraft = profileDetailDrafts[selectedProfile.profile.id] ?? {
-    name: selectedProfile.profile.name,
+    name: profileName,
     description: selectedProfile.profile.description
   };
   const updateProfileDetailDraft = (update: Partial<typeof profileDetailDraft>): void => {
@@ -408,57 +405,14 @@ export function ProfileSettingsView({
           })}
         </div>
         {selectedMemoryType ? (
-          <article
-            className="profile-memory-type-view"
+          <MemoryTypeSettingsView
+            key={`${selectedProfile.profile.id}:${selectedMemoryType.id}`}
             id="profile-settings-view-panel"
-            role="tabpanel"
-            aria-labelledby={`profile-memory-tab-${selectedProfile.profile.id}-${selectedMemoryType.id}`}
-            aria-label={`${selectedMemoryType.name} memory definition`}
-          >
-            <header className="profile-memory-type-header">
-              <div>
-                <span>Memory type</span>
-                <h4>{selectedMemoryType.name} <small>{'\u00b7'} {selectedMemoryType.id}</small></h4>
-              </div>
-              <small>
-                {selectedMemoryType.lifecycle === 'retired' || !selectedMemoryType.creatable ? 'Read-only' : 'Creatable'}
-                {' \u00b7 '}
-                {selectedMemoryType.allowedStatuses.join(', ')}
-              </small>
-            </header>
-            <p className="profile-memory-type-description">{selectedMemoryType.description}</p>
-            <section className="profile-memory-session-heat" aria-label={`${selectedMemoryType.name} session heat settings`}>
-              <h4>Session Heat</h4>
-              <div>
-                {selectedMemoryType.allowedStatuses
-                  .filter((statusId) => statusesById.get(statusId)?.polarity !== 'negative')
-                  .map((statusId) => {
-                    const defaultHeat = selectedMemoryType.sessionHeat?.[statusId] ?? 'none';
-                    const override = sessionHeatPreferences.heatOverrides[selectedProfile.profile.id]?.[selectedMemoryType.id]?.[statusId];
-                    return (
-                      <label key={statusId}>
-                        <span>{statusesById.get(statusId)?.name ?? statusId}</span>
-                        <select
-                          aria-label={`${selectedMemoryType.name} ${statusId} session heat`}
-                          value={override ?? ''}
-                          onChange={(event) => onSetSessionHeatPreference(
-                            selectedProfile.profile.id,
-                            selectedMemoryType.id,
-                            statusId,
-                            event.target.value ? event.target.value as SessionHeat : null
-                          )}
-                        >
-                          <option value="">Profile default {'\u00b7'} {sessionHeatLabel(defaultHeat)}</option>
-                          {SESSION_HEAT_LEVELS.map((heat) => (
-                            <option value={heat} key={heat}>{sessionHeatLabel(heat)}</option>
-                          ))}
-                        </select>
-                      </label>
-                    );
-                  })}
-              </div>
-            </section>
-          </article>
+            labelledBy={`profile-memory-tab-${selectedProfile.profile.id}-${selectedMemoryType.id}`}
+            profile={selectedProfile.profile}
+            memoryType={selectedMemoryType}
+            sessionHeatPreferences={sessionHeatPreferences}
+          />
         ) : (
           <article
             className="profile-overview-view"
@@ -468,7 +422,7 @@ export function ProfileSettingsView({
           >
             <section className="settings-form profile-basic-details-form">
               <header className="settings-form-heading">
-                <h2 id="profile-basic-details-heading">Basic Details</h2>
+                <h2 id="profile-basic-details-heading">{profileDetailDraft.name || profileName}</h2>
                 <p>Set the name and description presented for this research profile.</p>
               </header>
               <div className="settings-form-squircle profile-basic-details-squircle" aria-labelledby="profile-basic-details-heading">
@@ -512,6 +466,250 @@ export function ProfileSettingsView({
   );
 }
 
+export function MemoryTypeSettingsView({
+  id,
+  labelledBy,
+  profile,
+  memoryType,
+  sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES
+}: {
+  id: string;
+  labelledBy: string;
+  profile: ResearchProfile;
+  memoryType: ResearchProfileMemoryType;
+  sessionHeatPreferences?: SessionHeatPreferences;
+}): JSX.Element {
+  const [draft, setDraft] = useState(() => ({
+    name: memoryType.name,
+    description: memoryType.description,
+    allowedStatuses: [...memoryType.allowedStatuses],
+    sessionHeatLevels: SESSION_HEAT_COLOR_LEVELS.filter((level) =>
+      Object.values(memoryType.sessionHeat ?? {}).includes(level)
+    ),
+    sessionHeatStates: {
+      low: [],
+      medium: [],
+      high: [],
+      critical: []
+    } as Record<SessionHeatColorLevel, string[]>
+  }));
+  const statuses = [...profile.memory.statuses].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+  const darkPalette = sessionHeatPaletteForProfile(profile, sessionHeatPreferences, 'dark');
+  const toggleAllowedStatus = (statusId: string): void => {
+    setDraft((current) => {
+      const allowedStatuses = toggleStringValue(current.allowedStatuses, statusId);
+      return {
+        ...current,
+        allowedStatuses,
+        sessionHeatStates: Object.fromEntries(
+          SESSION_HEAT_COLOR_LEVELS.map((level) => [
+            level,
+            current.sessionHeatStates[level].filter((candidate) => allowedStatuses.includes(candidate))
+          ])
+        ) as Record<SessionHeatColorLevel, string[]>
+      };
+    });
+  };
+  const toggleSessionHeatLevel = (level: SessionHeatColorLevel): void => {
+    setDraft((current) => ({
+      ...current,
+      sessionHeatLevels: toggleStringValue(current.sessionHeatLevels, level) as SessionHeatColorLevel[]
+    }));
+  };
+  const headingName = draft.name.trim() || memoryType.name;
+  const allowedStatuses = statuses.filter((status) => draft.allowedStatuses.includes(status.id));
+
+  return (
+    <article
+      className="profile-memory-type-view"
+      id={id}
+      role="tabpanel"
+      aria-labelledby={labelledBy}
+      aria-label={`${memoryType.name} memory definition`}
+    >
+      <section className="settings-form profile-basic-details-form profile-memory-details-form">
+        <header className="settings-form-heading">
+          <h2 id="profile-memory-details-heading">{headingName}</h2>
+          <p>Set the name, description, and stable identifier for this memory type.</p>
+        </header>
+        <div className="settings-form-squircle" aria-labelledby="profile-memory-details-heading">
+          <div className="settings-form-control-list">
+            <label className="settings-form-control-row">
+              <span className="settings-form-control-copy">
+                <strong>Memory Type Name</strong>
+                <small>Choose the name used to identify this memory type.</small>
+              </span>
+              <input
+                className="profile-basic-details-name-input"
+                type="text"
+                aria-label="Memory Type Name"
+                value={draft.name}
+                onChange={(event) => setDraft((current) => ({ ...current, name: event.currentTarget.value }))}
+              />
+            </label>
+            <label className="settings-form-control-row profile-basic-details-description-row">
+              <span className="settings-form-control-copy">
+                <strong>Memory Type Description</strong>
+                <small>Describe what this memory type represents and when it should be used.</small>
+              </span>
+              <textarea
+                aria-label="Memory Type Description"
+                value={draft.description}
+                onChange={(event) => setDraft((current) => ({ ...current, description: event.currentTarget.value }))}
+              />
+            </label>
+            <label className="settings-form-control-row profile-memory-id-row">
+              <span className="settings-form-control-copy">
+                <strong>Immutable ID</strong>
+                <small>The stable identifier used by memory records and profile contracts.</small>
+              </span>
+              <input
+                className="profile-basic-details-name-input"
+                type="text"
+                aria-label="Immutable Memory Type ID"
+                value={memoryType.id}
+                disabled
+              />
+            </label>
+          </div>
+        </div>
+      </section>
+      <section className="settings-form profile-memory-states-form">
+        <header className="settings-form-heading">
+          <h2 id="profile-memory-states-heading">Possible States</h2>
+          <p>Choose which profile states this memory type supports.</p>
+        </header>
+        <fieldset className="settings-form-squircle" aria-labelledby="profile-memory-states-heading">
+          <div className="settings-form-control-list">
+            {statuses.map((status) => (
+              <label className="settings-form-control-row" key={status.id}>
+                <span className="settings-form-control-copy">
+                  <strong>{status.name}</strong>
+                  <small>{status.description}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label={`Allow ${status.name}`}
+                  checked={draft.allowedStatuses.includes(status.id)}
+                  onChange={() => toggleAllowedStatus(status.id)}
+                />
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </section>
+      <section className="settings-form profile-memory-heat-form">
+        <header className="settings-form-heading">
+          <h2 id="profile-memory-heat-heading">Session Heat</h2>
+          <p>Choose which heat levels this memory type can contribute to a session.</p>
+        </header>
+        <fieldset className="settings-form-squircle" aria-labelledby="profile-memory-heat-heading">
+          <div className="settings-form-control-list">
+            {SESSION_HEAT_COLOR_LEVELS.map((level) => {
+              const enabled = draft.sessionHeatLevels.includes(level);
+              return (
+                <div className="settings-form-control-row profile-memory-heat-row" key={level}>
+                  <span className="settings-form-control-copy">
+                    <strong>{sessionHeatLabel(level)}</strong>
+                    <small>{SESSION_HEAT_LEVEL_DESCRIPTIONS[level]}</small>
+                  </span>
+                  <span className="profile-memory-heat-controls">
+                    <span
+                      className="profile-memory-heat-preview"
+                      data-heat-level={level}
+                      style={{ '--profile-session-heat-color': darkPalette[level] } as CSSProperties}
+                      aria-hidden="true"
+                    />
+                    <MemoryHeatStatePicker
+                      key={`${level}:${enabled ? 'enabled' : 'disabled'}`}
+                      level={level}
+                      statuses={allowedStatuses}
+                      selectedStateIds={draft.sessionHeatStates[level]}
+                      disabled={!enabled}
+                      onChange={(stateIds) => setDraft((current) => ({
+                        ...current,
+                        sessionHeatStates: {
+                          ...current.sessionHeatStates,
+                          [level]: stateIds
+                        }
+                      }))}
+                    />
+                    <input
+                      type="checkbox"
+                      aria-label={`Enable ${sessionHeatLabel(level)} session heat`}
+                      checked={enabled}
+                      onChange={() => toggleSessionHeatLevel(level)}
+                    />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </fieldset>
+      </section>
+    </article>
+  );
+}
+
+function MemoryHeatStatePicker({
+  level,
+  statuses,
+  selectedStateIds,
+  disabled,
+  onChange
+}: {
+  level: SessionHeatColorLevel;
+  statuses: readonly { id: string; name: string }[];
+  selectedStateIds: readonly string[];
+  disabled: boolean;
+  onChange: (stateIds: string[]) => void;
+}): JSX.Element {
+  const selectedStatuses = statuses.filter((status) => selectedStateIds.includes(status.id));
+  const selectionLabel = selectedStatuses.length === 0
+    ? 'Any State'
+    : selectedStatuses.length === 1
+      ? selectedStatuses[0]!.name
+      : `${selectedStatuses.length} States`;
+  const ariaLabel = `${sessionHeatLabel(level)} heat trigger states`;
+
+  return (
+    <details className={`profile-memory-heat-state-picker${disabled ? ' disabled' : ''}`}>
+      <summary
+        aria-label={`${ariaLabel}: ${selectionLabel}`}
+        aria-disabled={disabled}
+        tabIndex={disabled ? -1 : undefined}
+        onClick={(event) => {
+          if (disabled) event.preventDefault();
+        }}
+      >
+        <span>{selectionLabel}</span>
+      </summary>
+      <div className="profile-memory-heat-state-menu" role="group" aria-label={ariaLabel}>
+        <label>
+          <input
+            type="checkbox"
+            checked={selectedStateIds.length === 0}
+            disabled={disabled}
+            onChange={() => onChange([])}
+          />
+          <span>Any State</span>
+        </label>
+        {statuses.map((status) => (
+          <label key={status.id}>
+            <input
+              type="checkbox"
+              checked={selectedStateIds.includes(status.id)}
+              disabled={disabled}
+              onChange={() => onChange(toggleStringValue(selectedStateIds, status.id))}
+            />
+            <span>{status.name}</span>
+          </label>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function SessionHeatPaletteSettings({
   profile,
   sessionHeatPreferences,
@@ -532,7 +730,7 @@ function SessionHeatPaletteSettings({
     <section className="settings-form profile-heat-form" aria-label={`${profile.name} session heat colors`}>
       <header className="settings-form-heading profile-heat-form-heading">
         <div className="profile-heat-form-title">
-          <h2 id="profile-heat-heading">Heat</h2>
+                <h2 id="profile-heat-heading">Heat Palette</h2>
           <div className="profile-heat-form-controls">
             <div className="profile-heat-theme-toggle" role="group" aria-label="Heat variant">
               {(['light', 'dark'] as const).map((candidate) => (
@@ -665,16 +863,22 @@ function profileSettingsCatalog(
 
 function sortedProfileMemoryTypes(profile: ResolvedResearchProfile | null) {
   return profile
-    ? [...profile.profile.memory.types].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
+    ? profile.profile.memory.types
+      .filter((memoryType) => memoryType.lifecycle === 'active')
+      .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
     : [];
 }
 
 function profileSettingsName(profileId: string, name: string): string {
-  return profileId === 'security-research' ? 'Cybersecurity' : name;
+  return profileId === 'security-research' ? 'Security' : name;
 }
 
 function sessionHeatLabel(heat: SessionHeat): string {
   return heat.charAt(0).toUpperCase() + heat.slice(1);
+}
+
+function toggleStringValue(values: readonly string[], value: string): string[] {
+  return values.includes(value) ? values.filter((candidate) => candidate !== value) : [...values, value];
 }
 
 export function GeneralSettingsView({

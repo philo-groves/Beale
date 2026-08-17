@@ -201,7 +201,7 @@ describe('renderer research profile presentation', () => {
       onSetSessionHeatPalettePreference: () => undefined
     }));
 
-    expect(html).toContain('<h2 id="profile-heat-heading">Heat</h2>');
+    expect(html).toContain('<h2 id="profile-heat-heading">Heat Palette</h2>');
     expect(html).toContain('role="group" aria-label="Heat variant"');
     expect(html).toContain('aria-pressed="false">Light</button>');
     expect(html).toContain('class="active" type="button" aria-pressed="true">Dark</button>');
@@ -213,6 +213,8 @@ describe('renderer research profile presentation', () => {
     expect(html).toContain('value="#445566"');
     expect(html).toContain('A subtle signal for sessions with light activity.');
     expect(html).toContain('The strongest signal for sessions with exceptional activity.');
+    expect(html).toContain('>Note</span>');
+    expect(html).not.toContain('>Archived Note</span>');
   });
 });
 

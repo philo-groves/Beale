@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { serializeResearchProfile } from '../src/shared/researchProfile';
 import type { ResearchProfile, ResolvedResearchProfile } from '@shared/types';
 
-export function testResearchProfile(version = '1.0.0', name = 'Security Research'): ResearchProfile {
+export function testResearchProfile(version = '1.0.0', name = 'Security'): ResearchProfile {
   return {
     schemaVersion: 1,
     id: 'security-research',

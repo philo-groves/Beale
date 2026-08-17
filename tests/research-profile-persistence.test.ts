@@ -23,7 +23,7 @@ afterEach(() => {
 
 describe('research profile persistence', () => {
   it('rejects collaboration recipes that target an unknown workflow', () => {
-    const profile = structuredClone(researchProfile('1.0.0', 'Security Research'));
+    const profile = structuredClone(researchProfile('1.0.0', 'Security'));
     profile.collaboration.recipes = [{
       id: 'invalid-recipe', name: 'Invalid recipe', workflowIds: ['typoed-workflow'], roomKind: 'validation',
       roles: [
@@ -78,7 +78,7 @@ describe('research profile persistence', () => {
 
   it('stores immutable snapshots and reuses only the same resolution provenance', () => {
     const fixture = createDatabaseFixture();
-    const profile = researchProfile('1.0.0', 'Security Research');
+    const profile = researchProfile('1.0.0', 'Security');
     const first = fixture.database.activateResearchProfileSnapshot(resolveProfile(profile, 'bundled-default'));
     const reused = fixture.database.activateResearchProfileSnapshot(resolveProfile(profile, 'bundled-default'));
     const explicit = fixture.database.activateResearchProfileSnapshot(
@@ -119,7 +119,7 @@ describe('research profile persistence', () => {
     });
 
     first.profile.name = 'Mutated caller copy';
-    expect(fixture.database.getResearchProfileSnapshot(first.id)?.profile.name).toBe('Security Research');
+    expect(fixture.database.getResearchProfileSnapshot(first.id)?.profile.name).toBe('Security');
 
     const raw = new DatabaseSync(fixture.databasePath);
     expect(raw.prepare('SELECT COUNT(*) AS count FROM research_profile_snapshots').get()).toEqual({ count: 2 });
@@ -133,7 +133,7 @@ describe('research profile persistence', () => {
   it('switches the single active snapshot without changing historical snapshot content', () => {
     const fixture = createDatabaseFixture();
     const first = fixture.database.activateResearchProfileSnapshot(
-      resolveProfile(researchProfile('1.0.0', 'Security Research'), 'bundled-default')
+      resolveProfile(researchProfile('1.0.0', 'Security'), 'bundled-default')
     );
     const second = fixture.database.activateResearchProfileSnapshot(
       resolveProfile(researchProfile('2.0.0', 'General Research'), 'workspace-default', join(fixture.workspacePath, '.honeycrisp', 'profile.json'))
@@ -145,7 +145,7 @@ describe('research profile persistence', () => {
     expect(fixture.database.getResearchProfileSnapshot(second.id)).toMatchObject({ active: true, profileVersion: '2.0.0' });
 
     const reactivated = fixture.database.activateResearchProfileSnapshot(
-      resolveProfile(researchProfile('1.0.0', 'Security Research'), 'bundled-default')
+      resolveProfile(researchProfile('1.0.0', 'Security'), 'bundled-default')
     );
     expect(reactivated.id).toBe(first.id);
     expect(fixture.database.getResearchProfileSnapshot(second.id)?.active).toBe(false);
@@ -173,7 +173,7 @@ describe('research profile persistence', () => {
     expect(migrated.getRunResearchProfileSnapshot(legacyRun.run.id)).toBeNull();
 
     const profileSnapshot = migrated.activateResearchProfileSnapshot(
-      resolveProfile(researchProfile('1.0.0', 'Security Research'), 'bundled-default')
+      resolveProfile(researchProfile('1.0.0', 'Security'), 'bundled-default')
     );
     const profiledRun = migrated.createRun(runInput(migrated, profileSnapshot.id));
     expect(profiledRun.run.researchProfileSnapshotId).toBe(profileSnapshot.id);
@@ -212,7 +212,7 @@ describe('research profile persistence', () => {
     expect(first.setResearchSubject({ name: 'Shared Subject' }).id).toBe(
       second.setResearchSubject({ name: 'Shared Subject' }).id
     );
-    const resolved = resolveProfile(researchProfile('1.0.0', 'Security Research'), 'bundled-default');
+    const resolved = resolveProfile(researchProfile('1.0.0', 'Security'), 'bundled-default');
     const firstSnapshot = first.activateResearchProfileSnapshot(resolved);
     const secondSnapshot = second.activateResearchProfileSnapshot(resolved);
 

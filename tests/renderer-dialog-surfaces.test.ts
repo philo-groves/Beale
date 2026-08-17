@@ -81,7 +81,7 @@ describe('renderer dialog surfaces', () => {
     expect(securityHtml).toContain('aria-label="Workspace template"');
     expect(securityHtml).toContain('start-run-dialog workspace-onboarding-modal');
     expect(securityHtml).toContain('<select');
-    expect(securityHtml).toContain('<option value="security-research" selected="">Cybersecurity</option>');
+    expect(securityHtml).toContain('<option value="security-research" selected="">Security</option>');
     expect(securityHtml).not.toContain('Authorization owner');
     expect(securityHtml).not.toContain('Authorization expires');
     expect(securityHtml).not.toContain('Index Now');

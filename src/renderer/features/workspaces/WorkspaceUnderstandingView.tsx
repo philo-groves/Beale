@@ -419,7 +419,7 @@ function WorkspaceOverviewPanel({
 
 function workspaceResearchProfileLabel(profile: ResearchProfile | null): string {
   if (!profile) return '';
-  if (profile.id === 'security-research') return 'Cybersecurity';
+  if (profile.id === 'security-research') return 'Security';
   if (profile.id === 'mathematics') return 'Mathematics';
   return profile.name;
 }

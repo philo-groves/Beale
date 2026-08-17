@@ -10,7 +10,7 @@ import {
   type MemoryTypeDescriptions
 } from '../src/shared/types';
 import { WorkspaceRegistry } from '../src/main/workspaceRegistry';
-import { ProfileSettingsView } from '../src/renderer/features/settings/SettingsModal';
+import { MemoryTypeSettingsView, ProfileSettingsView } from '../src/renderer/features/settings/SettingsModal';
 import { resolvedTestResearchProfile, testResearchProfile } from './researchProfileFixture';
 
 const createdDirectories: string[] = [];
@@ -53,18 +53,18 @@ describe('memory settings', () => {
     expect(html.match(/role="tablist"/gu)).toHaveLength(2);
     expect(html.match(/profile-settings-tab-row(?: profile-settings-view-tab-row)? research-side-view-tabs research-side-view-tabs-scrollable/gu)).toHaveLength(2);
     const profileTabsIndex = html.indexOf('aria-label="Research profiles"');
-    const profileViewsIndex = html.indexOf('aria-label="Cybersecurity profile views"');
+    const profileViewsIndex = html.indexOf('aria-label="Security profile views"');
     const profileDescriptionIndex = html.indexOf(resolved.profile.description);
     expect(html).toContain('aria-label="Research profiles"');
     expect(html).toContain('class="research-side-view-tab provider-settings-tab profile-settings-tab active"');
-    expect(html).toContain('<span>Cybersecurity</span></button>');
+    expect(html).toContain('<span>Security</span></button>');
     expect(html).toContain('<span>Mathematics</span></button>');
-    expect(html).toContain('aria-label="Cybersecurity profile views"');
+    expect(html).toContain('aria-label="Security profile views"');
     expect(html).toContain('<span>Overview</span></button>');
     expect(html).toContain('<span>Finding</span></button>');
     expect(html).toContain('class="profile-overview-view"');
-    expect(html).toContain('<h2 id="profile-basic-details-heading">Basic Details</h2>');
-    expect(html).toContain('aria-label="Profile Name" value="Security Research"');
+    expect(html).toContain('<h2 id="profile-basic-details-heading">Security</h2>');
+    expect(html).toContain('aria-label="Profile Name" value="Security"');
     expect(html).toContain(`aria-label="Profile Description">${resolved.profile.description}</textarea>`);
     expect(html).not.toContain('aria-label="Finding memory definition"');
     expect(html).not.toContain('class="profile-memory-type-view"');
@@ -83,6 +83,37 @@ describe('memory settings', () => {
     expect(viewTabRowStyles).toContain('padding-inline: 0');
     expect(tabButtonStyles).toContain('padding: 0 9px');
     expect(descriptionRowStyles).toContain('grid-template-columns: minmax(0, 1fr)');
+  });
+
+  it('renders memory types as details, possible states, and session heat forms', () => {
+    const profile = testResearchProfile();
+    const memoryType = profile.memory.types[0]!;
+    const html = renderToStaticMarkup(createElement(MemoryTypeSettingsView, {
+      id: 'memory-type-panel',
+      labelledBy: 'memory-type-tab',
+      profile,
+      memoryType
+    }));
+
+    expect(html).toContain('<h2 id="profile-memory-details-heading">Finding</h2>');
+    expect(html).toContain('aria-label="Memory Type Name" value="Finding"');
+    expect(html).toContain(`aria-label="Memory Type Description">${memoryType.description}</textarea>`);
+    expect(html).toMatch(/aria-label="Immutable Memory Type ID"[^>]*disabled=""[^>]*value="finding"/u);
+    expect(html).toContain('<h2 id="profile-memory-states-heading">Possible States</h2>');
+    expect(html).toContain('>Draft</strong><small>Not established.</small>');
+    expect(html).toContain('>Confirmed</strong><small>Evidence-backed.</small>');
+    expect(html).toContain('aria-label="Allow Draft" checked=""');
+    expect(html).toContain('aria-label="Allow Confirmed" checked=""');
+    expect(html).toContain('<h2 id="profile-memory-heat-heading">Session Heat</h2>');
+    expect(html.match(/class="profile-memory-heat-preview"/gu)).toHaveLength(4);
+    expect(html.match(/heat trigger states: Any State/gu)).toHaveLength(4);
+    expect(html.match(/<span>Any State<\/span>/gu)).toHaveLength(8);
+    expect(html).toContain('aria-label="Low heat trigger states: Any State" aria-disabled="true" tabindex="-1"');
+    expect(html).toContain('aria-label="High heat trigger states: Any State" aria-disabled="false"');
+    expect(html).toMatch(/data-heat-level="high"[\s\S]*?class="profile-memory-heat-state-picker"[\s\S]*?aria-label="Enable High session heat"/u);
+    expect(html).toContain('aria-label="Enable High session heat" checked=""');
+    expect(html).toContain('aria-label="Enable Low session heat"');
+    expect(html).not.toContain('type="color"');
   });
 
   it('persists normalized descriptions and restores them from the global registry', () => {
