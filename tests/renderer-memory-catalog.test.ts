@@ -3,8 +3,9 @@ import type { ComponentProps } from 'react';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchProfile, RunDetail, TraceEventRecord } from '@shared/types';
+import type { BreakoutRoomRecord, HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchProfile, RunDetail, TraceEventRecord } from '@shared/types';
 import {
+  BreakoutRoomCatalogItem,
   ResearchSidePanel,
   ResearchSideViewTabs,
   MemoryCatalogSection,
@@ -15,6 +16,8 @@ import {
   DEFAULT_WORKSPACE_MEMORY_LEVEL_FILTER,
   DEFAULT_WORKSPACE_RUNBOOK_SCOPE_FILTER,
   availableResearchSideViews,
+  breakoutRoomCatalogGroups,
+  filterBreakoutRoomCatalog,
   isLastOpenResearchSideView,
   filterRunbookCatalog,
   memoryLevelFiltersForViewSpace,
@@ -107,6 +110,30 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('A short report summary.');
   });
 
+  it('filters and groups breakout rooms for the detailed Rooms catalog', () => {
+    const active = breakoutRoom({ id: 'room_active', title: 'live parser review', status: 'active' });
+    const completed = breakoutRoom({ id: 'room_completed', title: 'Completed proof review', status: 'completed' });
+    const interrupted = breakoutRoom({ id: 'room_interrupted', title: 'Interrupted provider review', status: 'interrupted' });
+
+    expect(filterBreakoutRoomCatalog([completed, interrupted, active], 'live')).toEqual([active]);
+    expect(breakoutRoomCatalogGroups([completed, interrupted, active])).toEqual([
+      { status: 'active', rooms: [active] },
+      { status: 'completed', rooms: [completed] },
+      { status: 'interrupted', rooms: [interrupted] }
+    ]);
+
+    const html = renderToStaticMarkup(createElement(BreakoutRoomCatalogItem, {
+      room: active,
+      selected: false,
+      onOpen: () => undefined
+    }));
+    expect(html).toContain('room-status-active');
+    expect(html).toContain('lucide-messages-square');
+    expect(html).toContain('Live Parser Review');
+    expect(html).toContain('Active');
+    expect(html).toContain('Review competing parser hypotheses.');
+  });
+
   it('opens, activates, and closes detailed side views without losing neighboring tabs', () => {
     let state: ResearchSideNavigationState = { openViews: [], activeView: null };
     state = researchSideNavigationReducer(state, { type: 'open', view: 'memory' });
@@ -121,7 +148,7 @@ describe('renderer memory catalog', () => {
 
     state = researchSideNavigationReducer(state, { type: 'close', view: 'runbooks' });
     expect(state).toEqual({ openViews: ['memory', 'subagents'], activeView: 'subagents' });
-    expect(availableResearchSideViews(state.openViews)).toEqual(['runbooks', 'reports']);
+    expect(availableResearchSideViews(state.openViews)).toEqual(['runbooks', 'reports', 'rooms']);
 
     state = researchSideNavigationReducer(state, { type: 'close', view: 'subagents' });
     state = researchSideNavigationReducer(state, { type: 'close', view: 'memory' });
@@ -134,12 +161,14 @@ describe('renderer memory catalog', () => {
       '/root/parser_review',
       null,
       null,
-      ['memory', 'runbooks', 'reports', 'subagents']
+      null,
+      ['memory', 'runbooks', 'reports', 'rooms', 'subagents']
     )).toEqual({ openViews: ['subagents'], activeView: 'subagents' });
 
     expect(researchSideNavigationForSelectedDetail(
       { openViews: ['memory'], activeView: 'memory' },
       '/root/parser_review',
+      null,
       null,
       null,
       ['memory', 'subagents']
@@ -160,7 +189,7 @@ describe('renderer memory catalog', () => {
       collaborationEnabled: false
     });
 
-    expect(researchSideViewsForProfile(null)).toEqual(['memory', 'runbooks', 'reports', 'subagents']);
+    expect(researchSideViewsForProfile(null)).toEqual(['memory', 'runbooks', 'reports', 'rooms', 'subagents']);
     expect(researchProfileFeatureAvailability(null)).toEqual({ memory: true, runbooks: true, reports: true, collaboration: true });
     expect(researchSideViewsForProfile(runbooksOnly)).toEqual(['runbooks']);
     expect(hasResearchProfileDetailFeatures(runbooksOnly)).toBe(true);
@@ -172,7 +201,7 @@ describe('renderer memory catalog', () => {
     }))).toBe(false);
     expect(availableResearchSideViews([], ['runbooks'])).toEqual(['runbooks']);
     expect(restrictResearchSideNavigation({
-        openViews: ['memory', 'runbooks', 'reports', 'subagents'],
+        openViews: ['memory', 'runbooks', 'reports', 'rooms', 'subagents'],
       activeView: 'subagents'
     }, ['runbooks'])).toEqual({
       openViews: ['runbooks'],
@@ -183,7 +212,7 @@ describe('renderer memory catalog', () => {
   it('renders icon-and-close tabs and hides the add-view button when every view is open', () => {
     const html = renderToStaticMarkup(createElement(ResearchSideViewTabs, {
       activeView: 'subagents',
-      openViews: ['memory', 'runbooks', 'reports', 'subagents'],
+      openViews: ['memory', 'runbooks', 'reports', 'rooms', 'subagents'],
       onActivate: () => undefined,
       onClose: () => undefined,
       onOpen: () => undefined
@@ -194,10 +223,12 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('lucide-database');
     expect(html).toContain('lucide-book-open');
     expect(html).toContain('lucide-file-text');
+    expect(html).toContain('lucide-messages-square');
     expect(html).toContain('lucide-bot');
     expect(html).toContain('aria-label="Close Memories"');
     expect(html).toContain('aria-label="Close Runbooks"');
     expect(html).toContain('aria-label="Close Reports"');
+    expect(html).toContain('aria-label="Close Rooms"');
     expect(html).toContain('aria-label="Close Subagents"');
     expect(html).not.toContain('aria-label="Add session detail view"');
   });
@@ -473,22 +504,49 @@ describe('renderer memory catalog', () => {
     expect(html.match(/session-memory-type-item/g)).toHaveLength(4);
     expect(html).toContain('<span>3 Runbooks</span>');
     expect(html).toContain('class="session-summary-meta">12 Updates</span>');
-    expect(html).toContain('<span>0 Subagents</span>');
+    expect(html).not.toContain('<span>0 Subagents</span>');
+    expect(html).not.toContain('<span>0 Rooms</span>');
     expect(html).not.toContain('0 Active');
     expect(html).not.toContain('0 Completed');
-    expect(html.match(/session-summary-chevron/g)).toHaveLength(4);
-    expect(html).toContain('<span>0 Reports</span>');
-    expect(html).toContain('class="session-summary-meta">0 Updates</span>');
+    expect(html.match(/session-summary-chevron/g)).toHaveLength(2);
+    expect(html).not.toContain('<span>0 Reports</span>');
     expect(html).not.toContain('aria-label="Search memory"');
     const firstDividerIndex = html.indexOf('class="session-summary-divider"');
     const secondDividerIndex = html.indexOf('class="session-summary-divider"', firstDividerIndex + 1);
     expect(html.indexOf('60k Tokens')).toBeLessThan(firstDividerIndex);
     expect(html.indexOf('<span>3 Runbooks</span>')).toBeGreaterThan(firstDividerIndex);
-    expect(html.indexOf('<span>0 Subagents</span>')).toBeGreaterThan(html.indexOf('<span>3 Runbooks</span>'));
-    expect(html.indexOf('<span>0 Subagents</span>')).toBeLessThan(secondDividerIndex);
     expect(html.indexOf('<span>3 Runbooks</span>')).toBeLessThan(secondDividerIndex);
     expect(html.indexOf('<span>6 Memories</span>')).toBeGreaterThan(secondDividerIndex);
     expect(html.indexOf('>1 Sink</span>')).toBeGreaterThan(secondDividerIndex);
+  });
+
+  it('shows non-empty session resource rows in the compact summary', () => {
+    const html = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      detail: {
+        ...summaryDetail(),
+        breakoutRooms: [breakoutRoom({ id: 'room_active', status: 'active' })],
+        breakoutRoomMembers: [],
+        breakoutRoomMessages: []
+      },
+      events: [subagentCommentaryEvent()],
+      memory: {
+        contextWorkspaceId: 'workspace_zsh',
+        contextSubjectId: 'subject_apple',
+        nodes: [],
+        edges: [],
+        runbooks: [runbook()],
+        reports: [report()],
+        lastError: null
+      } as unknown as HoneycrispMemorySummary
+    })));
+
+    expect(html).toContain('<span>1 Runbook</span>');
+    expect(html).toContain('<span>1 Report</span>');
+    expect(html).toContain('<span>1 Room</span>');
+    expect(html).toContain('<span>1 Subagent</span>');
+    expect(html).not.toMatch(/<span>1 (?:Runbooks|Reports|Rooms|Subagents)<\/span>/u);
+    expect(html).toContain('class="session-summary-meta">1 Active</span>');
+    expect(html.match(/session-summary-chevron/g)).toHaveLength(5);
   });
 
   it('shows a centered first-view chooser when the detailed sidenav has no open views', () => {
@@ -500,6 +558,8 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('<span>Memories</span>');
     expect(html).toContain('lucide-book-open');
     expect(html).toContain('<span>Runbooks</span>');
+    expect(html).toContain('lucide-messages-square');
+    expect(html).toContain('<span>Rooms</span>');
     expect(html).toContain('lucide-bot');
     expect(html).toContain('<span>Subagents</span>');
     expect(html).not.toContain('aria-label="Session summary"');
@@ -525,6 +585,7 @@ describe('renderer memory catalog', () => {
           runbook({ id: 'workspace_prior', sessionId: 'run_prior', revision: 5 }),
           runbook({ id: 'other_workspace_runbook', workspaceId: 'workspace_mdns', revision: 11 })
         ],
+        reports: [report({ id: 'workspace_report', revision: 3 })],
         lastError: null
       } as unknown as HoneycrispMemorySummary,
       runId: 'workspace:workspace_zsh',
@@ -536,13 +597,16 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('class="session-summary-title">Workspace</h2>');
     expect(html).toContain('<span>2 Runbooks</span>');
     expect(html).toContain('class="session-summary-meta">7 Updates</span>');
+    expect(html).toContain('<span>1 Report</span>');
+    expect(html).toContain('class="session-summary-meta">3 Updates</span>');
     expect(html).toContain('<span>2 Memories</span>');
     expect(html).toContain('class="session-memory-type-item"><span>1 Primitive</span><span class="session-summary-meta">1 Suspected</span></div>');
     expect(html).toContain('class="session-memory-type-item"><span>1 Chain</span><span class="session-summary-meta">1 Confirmed</span></div>');
     expect(html.match(/session-memory-type-item/g)).toHaveLength(2);
     expect(html.match(/session-summary-chevron/g)).toHaveLength(3);
-    expect(html).toContain('<span>0 Reports</span>');
+    expect(html).not.toContain('<span>0 Reports</span>');
     expect(html).not.toContain('<span>Subagents</span>');
+    expect(html).not.toContain('<span>Rooms</span>');
     expect(html).not.toContain('<span>1 Subagents</span>');
     expect(html).not.toContain('Session duration');
     expect(html).not.toContain('Tokens');
@@ -609,6 +673,7 @@ describe('renderer memory catalog', () => {
     expect(summaryHtml).not.toContain('<span>0 Runbooks</span>');
     expect(summaryHtml).not.toContain('<span>0 Reports</span>');
     expect(summaryHtml).not.toContain('<span>0 Subagents</span>');
+    expect(summaryHtml).not.toContain('<span>0 Rooms</span>');
     expect(summaryHtml).not.toContain('session-summary-chevron');
 
     const runbooksOnlyHtml = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
@@ -626,6 +691,7 @@ describe('renderer memory catalog', () => {
     expect(runbooksOnlyHtml).toContain('<span>Runbooks</span>');
     expect(runbooksOnlyHtml).not.toContain('<span>Memories</span>');
     expect(runbooksOnlyHtml).not.toContain('<span>Subagents</span>');
+    expect(runbooksOnlyHtml).not.toContain('<span>Rooms</span>');
     expect(runbooksOnlyHtml).not.toContain('Back to Subagents');
     expect(runbooksOnlyHtml).not.toContain('legacy_subagent');
   });
@@ -643,6 +709,26 @@ describe('renderer memory catalog', () => {
     expect(html).not.toContain('Open session detail views');
     expect(html).not.toContain('Add session detail view');
     expect(html).not.toContain('Back to Main');
+  });
+
+  it('opens a selected breakout room in the detailed right sidenav', () => {
+    const room = breakoutRoom({ id: 'room_parser', title: 'parser challenge', status: 'active' });
+    const html = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      detail: {
+        ...summaryDetail(),
+        breakoutRooms: [room],
+        breakoutRoomMembers: [],
+        breakoutRoomMessages: []
+      },
+      selectedBreakoutRoomId: room.id
+    })));
+
+    expect(html).toContain('view-rooms has-nested-view');
+    expect(html).toContain('Back to Rooms');
+    expect(html).toContain('title="Parser Challenge">Parser Challenge</span>');
+    expect(html).toContain('aria-label="Breakout room: parser challenge"');
+    expect(html).toContain('This room has no recorded messages yet.');
+    expect(html).not.toContain('Open session detail views');
   });
 
   it('replaces detail tabs with Back to Runbooks and renders the selected runbook', () => {
@@ -767,6 +853,25 @@ function memoryToolEvent(
     approvalId: null
   };
 }
+function breakoutRoom(overrides: Partial<BreakoutRoomRecord> = {}): BreakoutRoomRecord {
+  return {
+    id: 'room_test',
+    runId: 'run_current',
+    attemptId: 'attempt_current',
+    name: 'parser_review',
+    title: 'Parser review',
+    purpose: 'Review competing parser hypotheses.',
+    kind: 'validation',
+    status: 'completed',
+    phase: 'completed',
+    challengeRound: 1,
+    outcomeMarkdown: null,
+    createdAt: '2026-07-19T12:01:00.000Z',
+    closedAt: '2026-07-19T12:04:00.000Z',
+    ...overrides
+  };
+}
+
 function summaryDetail(): RunDetail {
   return {
     run: {

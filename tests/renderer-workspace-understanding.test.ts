@@ -205,8 +205,8 @@ describe('workspace dashboard', () => {
     expect(html).toContain('aria-expanded="false"');
     expect(html.indexOf('workspace-timeline-legend-popover')).toBeLessThan(html.indexOf('workspace-timeline-rows'));
     expect(html).toContain('No session activity recorded.');
-    expect(html).toContain('<span>0 Runbooks</span>');
-    expect(html).toContain('<span>0 Reports</span>');
+    expect(html).not.toContain('<span>0 Runbooks</span>');
+    expect(html).not.toContain('<span>0 Reports</span>');
     expect(html).toContain('<span>0 Memories</span>');
     expect(html).not.toContain('<span>0 Subagents</span>');
   });

@@ -1,14 +1,12 @@
 import { memo, useState } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { CalendarClock, FileText, Folder, FolderPlus, LoaderCircle, MoreVertical, Plug, RefreshCw, Search, SquarePen } from 'lucide-react';
-import type { BreakoutRoomStatus, BreakoutRoomSummary, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
+import { CalendarClock, FileText, Folder, FolderPlus, LoaderCircle, MoreVertical, Plug, RefreshCw, Search, SquarePen, X } from 'lucide-react';
+import type { WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { useDevRenderProbe } from '../../devInstrumentation';
-import { displayBreakoutRoomTitle } from '../../view-models/appHeader';
 import { promptSessionTitle, researchSessionsForWorkspace, shortRelativeAge } from '../../view-models/workspaceDisplay';
 
 const SIDEBAR_SESSION_LIMIT = 4;
-type SidebarBreakoutRoom = Pick<BreakoutRoomSummary, 'id' | 'runId' | 'title' | 'status'>;
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   busy,
@@ -20,20 +18,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   selectedRunId,
   automationsActive = false,
   reportsActive = false,
-  selectedBreakoutRoomId = null,
-  selectedRunBreakoutRooms,
   snapshot,
   onAddWorkspace,
   onOpenWorkspace,
   onOpenResearchSession,
-  onOpenBreakoutRoom = () => undefined,
   onRemoveWorkspace,
   onResizePointerDown,
   onSetOpenWorkspaceMenuId,
   onOpenAutomations = () => undefined,
   onOpenReports = () => undefined,
   onOpenPlugins = () => undefined,
-  onSearch,
   onStartNewResearch
 }: {
   busy: boolean;
@@ -45,20 +39,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   selectedRunId: string | null;
   automationsActive?: boolean;
   reportsActive?: boolean;
-  selectedBreakoutRoomId?: string | null;
-  selectedRunBreakoutRooms?: readonly SidebarBreakoutRoom[];
   snapshot: WorkspaceSnapshot | null;
   onAddWorkspace: () => void;
   onOpenWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   onOpenResearchSession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
-  onOpenBreakoutRoom?: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary, roomId: string) => void;
   onRemoveWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onSetOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
   onOpenAutomations?: () => void;
   onOpenReports?: () => void;
   onOpenPlugins?: () => void;
-  onSearch: () => void;
   onStartNewResearch: () => void;
 }): JSX.Element {
   useDevRenderProbe('sidebar.workspaces', () => ({
@@ -72,13 +62,32 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   const sessionLabel = presentation?.sessionLabel ?? 'Session';
   const workspaceNoun = snapshot?.researchProfile?.profile.workspace.workspaceNoun ?? 'Research Workspace';
   const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useState<Set<string>>(() => new Set());
+  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
+  const [sessionSearchQuery, setSessionSearchQuery] = useState('');
+  const normalizedSessionSearchQuery = sessionSearchQuery.trim();
+  const filteringSessions = normalizedSessionSearchQuery.length > 0;
+  const workspaceRows = workspaces
+    .map((workspace) => {
+      const sessions = workspaceRegistry ? researchSessionsForWorkspace(workspaceRegistry, workspace) : [];
+      return {
+        workspace,
+        sessions: filteringSessions
+          ? sessions.filter((session) => sessionMatchesSidebarSearch(session, normalizedSessionSearchQuery))
+          : sessions
+      };
+    })
+    .filter(({ sessions }) => !filteringSessions || sessions.length > 0);
   const listUpdateKey = [
     workspaceRegistryLoading,
     workspaces.length,
     workspaceRegistry?.researchSessions.length ?? 0,
-    selectedRunBreakoutRooms?.length ?? 0,
-    [...expandedWorkspaceIds].sort().join(',')
+    [...expandedWorkspaceIds].sort().join(','),
+    normalizedSessionSearchQuery
   ].join(':');
+  const closeSessionSearch = (): void => {
+    setSessionSearchOpen(false);
+    setSessionSearchQuery('');
+  };
 
   return (
     <aside className="sidebar" aria-hidden={collapsed} inert={collapsed}>
@@ -87,10 +96,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         <span>{newResearchLabel}</span>
       </button>
       <div className="sidebar-quick-actions">
-        <button type="button" className="sidebar-utility-button" title="Find a Session" onClick={onSearch}>
-          <Search size={15} />
-          <span>Find a Session</span>
-        </button>
         <button type="button" className={`sidebar-utility-button${automationsActive ? ' active' : ''}`} title="Automations" aria-current={automationsActive ? 'page' : undefined} onClick={onOpenAutomations}>
           <CalendarClock size={15} />
           <span>Automations</span>
@@ -105,11 +110,34 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         </button>
       </div>
       <div className="sidebar-section workspace-list">
-        <div className="section-row">
-          <div className="workspace-list-title">Workspaces</div>
-          <button type="button" title={`Add ${workspaceNoun.toLocaleLowerCase()}`} disabled={busy || workspaceRegistryLoading} onClick={onAddWorkspace}>
-            <FolderPlus size={15} />
-          </button>
+        <div className="section-row workspace-list-header">
+          {sessionSearchOpen ? (
+            <div className="workspace-list-search" role="search">
+              <input
+                autoFocus
+                value={sessionSearchQuery}
+                aria-label="Search sessions"
+                placeholder="Search sessions"
+                onChange={(event) => setSessionSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') closeSessionSearch();
+                }}
+              />
+              <button type="button" className="workspace-list-search-close" title="Close session search" aria-label="Close session search" onClick={closeSessionSearch}>
+                <X size={13} />
+              </button>
+            </div>
+          ) : <div className="workspace-list-title">Workspaces</div>}
+          <div className="workspace-list-header-actions">
+            {!sessionSearchOpen ? (
+              <button type="button" title="Search sessions" aria-label="Search sessions" onClick={() => setSessionSearchOpen(true)}>
+                <Search size={15} />
+              </button>
+            ) : null}
+            <button type="button" className="workspace-list-add-button" title={`Add ${workspaceNoun.toLocaleLowerCase()}`} disabled={busy || workspaceRegistryLoading} onClick={onAddWorkspace}>
+              <FolderPlus size={15} />
+            </button>
+          </div>
         </div>
         <MainSideScrollRegion
           className="sidebar-list-scroll-region"
@@ -126,21 +154,17 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             {!workspaceRegistryLoading && workspaces.length === 0 ? (
               <span className="workspace-session-empty">No Workspaces Yet...</span>
             ) : null}
-            {workspaces.map((workspace) => {
+            {!workspaceRegistryLoading && workspaces.length > 0 && filteringSessions && workspaceRows.length === 0 ? (
+              <span className="workspace-session-empty">No matching sessions.</span>
+            ) : null}
+            {workspaceRows.map(({ workspace, sessions }) => {
               const workspaceLoaded = snapshot?.workspace.workspacePath === workspace.workspacePath;
               const dashboardActive = workspaceLoaded && selectedRunId === null && !reportsActive;
               const menuOpen = openRegisteredWorkspaceMenuId === workspace.id;
-              const sessions = workspaceRegistry ? researchSessionsForWorkspace(workspaceRegistry, workspace) : [];
               const sessionsExpanded = expandedWorkspaceIds.has(workspace.id);
-              const visibleSessions = sessions.slice(0, SIDEBAR_SESSION_LIMIT);
-              const hiddenSessions = sessions.slice(SIDEBAR_SESSION_LIMIT);
+              const visibleSessions = filteringSessions ? sessions : sessions.slice(0, SIDEBAR_SESSION_LIMIT);
+              const hiddenSessions = filteringSessions ? [] : sessions.slice(SIDEBAR_SESSION_LIMIT);
               const renderSession = (session: ResearchSessionSummary): JSX.Element => {
-                const rooms = selectedRunId === session.runId && selectedRunBreakoutRooms !== undefined
-                  ? selectedRunBreakoutRooms
-                  : workspaceLoaded
-                    ? snapshot?.runs.find((row) => row.run.id === session.runId)?.breakoutRooms ?? session.breakoutRooms ?? []
-                    : session.breakoutRooms ?? [];
-                const roomsVisible = selectedRunId === session.runId && rooms.length > 0;
                 return (
                   <div className="workspace-session-row" key={session.id}>
                     <button
@@ -153,40 +177,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                       <span className="workspace-session-title">{promptSessionTitle(session)}</span>
                       <span className="workspace-session-age">{shortRelativeAge(session.updatedAt)}</span>
                     </button>
-                    {rooms.length > 0 ? (
-                      <div
-                        className="workspace-breakout-room-reveal"
-                        data-state={roomsVisible ? 'open' : 'closed'}
-                        aria-hidden={!roomsVisible}
-                        inert={!roomsVisible}
-                      >
-                        <div className="workspace-breakout-room-list">
-                          {rooms.map((room) => {
-                            const roomTitle = displayBreakoutRoomTitle(room.title);
-                            return (
-                              <button
-                                type="button"
-                                className={`workspace-breakout-room-item${selectedBreakoutRoomId === room.id ? ' active' : ''}`}
-                                data-room-status={room.status}
-                                title={`${roomTitle} — ${breakoutRoomStatusLabel(room.status)}`}
-                                onClick={() => onOpenBreakoutRoom(workspace, session, room.id)}
-                                key={room.id}
-                              >
-                                <span
-                                  className="workspace-breakout-room-leading-status"
-                                  title={room.status === 'active' ? 'Active' : undefined}
-                                  aria-label={room.status === 'active' ? 'Breakout room status: Active' : undefined}
-                                  aria-hidden={room.status === 'active' ? undefined : 'true'}
-                                >
-                                  {room.status === 'active' ? <RefreshCw size={10} aria-hidden="true" /> : null}
-                                </span>
-                                <span className="workspace-breakout-room-title">{roomTitle}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
                 );
               };
@@ -263,6 +253,20 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   );
 });
 
+export function sessionMatchesSidebarSearch(session: ResearchSessionSummary, query: string): boolean {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean);
+  if (terms.length === 0) return true;
+  const searchableText = [
+    promptSessionTitle(session),
+    session.promptMarkdown,
+    session.summary,
+    session.model,
+    session.reasoningEffort,
+    session.status
+  ].join('\n').toLocaleLowerCase();
+  return terms.every((term) => searchableText.includes(term));
+}
+
 function SessionLeadingIndicator({ session }: { session: ResearchSessionSummary }): JSX.Element {
   if (session.status === 'active') {
     return (
@@ -285,11 +289,4 @@ function SessionLeadingIndicator({ session }: { session: ResearchSessionSummary 
 
 function isEndedResearchRunStatus(status: RunStatus): boolean {
   return status === 'blocked' || status === 'completed' || status === 'failed' || status === 'stopped';
-}
-
-function breakoutRoomStatusLabel(status: BreakoutRoomStatus): string {
-  if (status === 'active') return 'Active';
-  if (status === 'completed') return 'Completed';
-  if (status === 'interrupted') return 'Interrupted';
-  return 'Error';
 }

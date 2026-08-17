@@ -4,7 +4,6 @@ import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument,
 import { WorkspaceHousekeepingPanel, WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
-import { BreakoutRoomView } from './BreakoutRoomView';
 import { TraceView } from '../traces/TraceView';
 import { isEndedResearchRunStatus, SessionNextSteps, type ResearchGoalSeed } from './SessionNextSteps';
 import type { TraceCategoryId } from '../../traceClassification';
@@ -66,6 +65,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onBackToRunbooks,
   onOpenHoneycrispReport = () => undefined,
   onBackToReports = () => undefined,
+  onOpenBreakoutRoom = () => undefined,
+  onBackToRooms = () => undefined,
   onBackToSubagents,
   onSelectTraceEvent,
   onSelectSubagent,
@@ -122,6 +123,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onBackToRunbooks: () => void;
   onOpenHoneycrispReport?: (reportId: string) => void;
   onBackToReports?: () => void;
+  onOpenBreakoutRoom?: (roomId: string) => void;
+  onBackToRooms?: () => void;
   onBackToSubagents: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
@@ -180,14 +183,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onAddResource={onAddWorkspaceResource}
           onChangeResource={onChangeWorkspaceResource}
           onOpenSession={onOpenSession}
-        />
-      ) : selectedBreakoutRoomId ? (
-        <BreakoutRoomView
-          detail={detail}
-          events={allEvents}
-          providerModelCatalog={providerModelCatalog}
-          roomId={selectedBreakoutRoomId}
-          onSelectSubagent={onSelectSubagent}
         />
       ) : chatView === 'commentary' ? (
         <CommentaryView
@@ -267,6 +262,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           selectedReportId={selectedReportId}
           reportLoading={reportLoading}
           reportError={reportError}
+          selectedBreakoutRoomId={selectedBreakoutRoomId}
           selectedSubagentPath={selectedSubagentPath}
           selectedTraceEventId={selectedTraceEventId}
           searchHighlightQuery={searchHighlightQuery}
@@ -276,6 +272,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onBackToRunbooks={onBackToRunbooks}
           onOpenReport={onOpenHoneycrispReport}
           onBackToReports={onBackToReports}
+          onOpenBreakoutRoom={onOpenBreakoutRoom}
+          onBackToRooms={onBackToRooms}
           onBackToSubagents={onBackToSubagents}
           onSelectTraceEvent={onSelectTraceEvent}
           onExpandedChange={onResearchDetailsOpenChange}

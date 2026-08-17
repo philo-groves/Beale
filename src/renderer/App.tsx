@@ -30,7 +30,6 @@ import type {
   ScopeAssetInput,
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
-  SessionTranscriptSearchResult,
   ShellSafetyMode,
   SteeringAction,
   WorkspaceSnapshot
@@ -78,7 +77,7 @@ import {
 } from './view-models/appShell';
 import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
 import { sessionHeatForDetail, sessionHeatPaletteForProfile, sessionHeatPaletteStyle } from './view-models/sessionHeat';
-import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath, type TraceDisplayEvent } from './view-models/traceDisplay';
+import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
 import { isReportResourceRun, reportsForReportingScope, reportSessionDefaultModelSelection } from './view-models/reports';
@@ -146,7 +145,6 @@ export function App(): JSX.Element {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [newResearchInitialGoal, setNewResearchInitialGoal] = useState<ResearchGoalSeed | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [automationsOpen, setAutomationsOpen] = useState(false);
   const [automationScopeWorkspaceId, setAutomationScopeWorkspaceId] = useState<string | null>(null);
@@ -167,8 +165,6 @@ export function App(): JSX.Element {
   const [agentPluginsBusy, setAgentPluginsBusy] = useState(false);
   const [agentPluginsError, setAgentPluginsError] = useState<string | null>(null);
   const [pluginRepositoryUrl, setPluginRepositoryUrl] = useState('');
-  const [pendingSearchTarget, setPendingSearchTarget] = useState<SessionTranscriptSearchResult | null>(null);
-  const [traceSearchHighlightQuery, setTraceSearchHighlightQuery] = useState('');
   const [profilingOpen, setProfilingOpen] = useState(false);
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
@@ -207,7 +203,7 @@ export function App(): JSX.Element {
     observeReports: profilingOpen || settingsOpen
   });
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
-  const runDetailProjection = chatView === 'commentary' && !selectedBreakoutRoomId && !pendingSearchTarget
+  const runDetailProjection = chatView === 'commentary'
     ? 'commentary' as const
     : 'full' as const;
   const selectedRunRefreshKey = useMemo(() => {
@@ -274,6 +270,7 @@ export function App(): JSX.Element {
     ?? null;
   useEffect(() => {
     setRightSidenavExpanded(false);
+    setSelectedBreakoutRoomId(null);
     setSelectedSubagentPath(null);
     setSelectedRunbookId(null);
     setSelectedRunbookDocument(null);
@@ -494,6 +491,7 @@ export function App(): JSX.Element {
 
   const openHoneycrispRunbook = useCallback((runbookId: string): void => {
     setRightSidenavExpanded(true);
+    setSelectedBreakoutRoomId(null);
     setSelectedSubagentPath(null);
     setSelectedReportId(null);
     setSelectedReportWorkspaceId(null);
@@ -504,6 +502,7 @@ export function App(): JSX.Element {
 
   const openHoneycrispReport = useCallback((reportId: string): void => {
     setRightSidenavExpanded(true);
+    setSelectedBreakoutRoomId(null);
     setSelectedSubagentPath(null);
     setSelectedRunbookId(null);
     setSelectedRunbookDocument(null);
@@ -666,6 +665,7 @@ export function App(): JSX.Element {
 
   const selectSubagent = useCallback((path: string): void => {
     setRightSidenavExpanded(true);
+    setSelectedBreakoutRoomId(null);
     setSelectedRunbookId(null);
     setSelectedRunbookDocument(null);
     setRunbookError(null);
@@ -674,6 +674,23 @@ export function App(): JSX.Element {
     setSelectedReportDocument(null);
     setReportError(null);
     setSelectedSubagentPath(path);
+  }, []);
+
+  const openBreakoutRoom = useCallback((roomId: string): void => {
+    setRightSidenavExpanded(true);
+    setSelectedSubagentPath(null);
+    setSelectedRunbookId(null);
+    setSelectedRunbookDocument(null);
+    setRunbookError(null);
+    setSelectedReportId(null);
+    setSelectedReportWorkspaceId(null);
+    setSelectedReportDocument(null);
+    setReportError(null);
+    setSelectedBreakoutRoomId(roomId);
+  }, []);
+
+  const backToRooms = useCallback((): void => {
+    setSelectedBreakoutRoomId(null);
   }, []);
 
   const backToRunbooks = useCallback((): void => {
@@ -1155,7 +1172,7 @@ export function App(): JSX.Element {
     return () => { cancelled = true; };
   }, [selectedReport?.revision, selectedReport?.workspaceId, selectedReportId]);
 
-  const needsFullTraceEvents = Boolean(activeRunDetail && (selectedBreakoutRoomId || selectedSubagentPath || pendingSearchTarget));
+  const needsFullTraceEvents = Boolean(activeRunDetail && (selectedBreakoutRoomId || selectedSubagentPath));
   const activeTraceEvents = useMemo(
     () => (activeRunDetail && needsFullTraceEvents
       ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail))
@@ -1187,7 +1204,6 @@ export function App(): JSX.Element {
     traceDetailOpen,
     selectedTraceEvent,
     selectTraceEvent,
-    focusTraceEvent,
     closeTraceDetail
   } = useTraceSelection({
     events: needsFullTraceEvents ? activeTraceEvents : mainSessionTraceEvents,
@@ -1274,7 +1290,6 @@ export function App(): JSX.Element {
     },
     [clearRunDetail, setSelectedRunId]
   );
-  const openSearch = useCallback(() => setSearchOpen(true), []);
   const openAutomations = useCallback((): void => {
     clearRunDetail();
     setSelectedRunId(null);
@@ -1293,43 +1308,6 @@ export function App(): JSX.Element {
     )));
     return updated;
   }, []);
-  const openSearchResult = useCallback(
-    (result: SessionTranscriptSearchResult, query: string): void => {
-      setReportsOpen(false);
-      setAutomationsOpen(false);
-      setPendingSearchTarget(result);
-      setTraceSearchHighlightQuery(query);
-      const targetWorkspace = workspaceRegistry?.workspaces.find((workspace) => workspace.id === result.registryWorkspaceId) ?? null;
-      const activeWorkspace = snapshot?.workspace.workspacePath === result.workspacePath;
-      if (targetWorkspace && !activeWorkspace) {
-        void runWorkspaceAction(async () => {
-          clearRunDetail();
-          applySnapshot(await window.beale.openRegisteredWorkspace(targetWorkspace.id));
-          setSelectedRunId(result.runId);
-        }, { markBusy: false, reloadRegistry: false });
-        setSearchOpen(false);
-        return;
-      }
-      if (selectedRunId !== result.runId) {
-        clearRunDetail();
-      }
-      setSelectedRunId(result.runId);
-      setSearchOpen(false);
-    },
-    [applySnapshot, clearRunDetail, workspaceRegistry, runWorkspaceAction, selectedRunId, setSelectedRunId, snapshot]
-  );
-  useEffect(() => {
-    if (!pendingSearchTarget || activeRunDetail?.run.id !== pendingSearchTarget.runId) return;
-    const targetEvent = traceEventForSearchResult(activeTraceEvents, pendingSearchTarget);
-    if (!targetEvent) return;
-    setSelectedSubagentPath(null);
-    setSelectedRunbookId(null);
-    setSelectedRunbookDocument(null);
-    setRunbookError(null);
-    focusTraceEvent(targetEvent);
-    setPendingSearchTarget(null);
-  }, [activeRunDetail?.run.id, activeTraceEvents, focusTraceEvent, pendingSearchTarget]);
-
   return (
     <div ref={appShellRef} className={shellClassName} style={shellStyle}>
       <AppBackgroundPulses />
@@ -1377,8 +1355,6 @@ export function App(): JSX.Element {
           selectedRunId={reportsOpen || automationsOpen ? null : selectedRunId}
           automationsActive={automationsOpen}
           reportsActive={reportsOpen}
-          selectedBreakoutRoomId={selectedBreakoutRoomId}
-          selectedRunBreakoutRooms={activeRunDetail?.breakoutRooms}
           snapshot={snapshot}
           onAddWorkspace={() => {
             addWorkspace();
@@ -1394,19 +1370,12 @@ export function App(): JSX.Element {
             setSelectedBreakoutRoomId(null);
             openResearchSession(workspace, session);
           }}
-          onOpenBreakoutRoom={(workspace, session, roomId) => {
-            setReportsOpen(false);
-            setAutomationsOpen(false);
-            openResearchSession(workspace, session);
-            setSelectedBreakoutRoomId(roomId);
-          }}
           onRemoveWorkspace={removeRegisteredWorkspace}
           onResizePointerDown={beginSidebarResize}
           onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
           onOpenAutomations={openAutomations}
           onOpenReports={openReports}
           onOpenPlugins={openPlugins}
-          onSearch={openSearch}
           onStartNewResearch={startNewResearch}
         />
       )}
@@ -1541,7 +1510,7 @@ export function App(): JSX.Element {
               reportError={reportError}
               selectedSubagentPath={selectedSubagentPath}
               selectedTraceEventId={selectedTraceEventId}
-              searchHighlightQuery={traceSearchHighlightQuery}
+              searchHighlightQuery=""
               shellApproval={autoReviewOverrideApproval}
               shellApprovalBusy={Boolean(autoReviewOverrideApproval && (busy || shellApprovalDecisionInFlight === autoReviewOverrideApproval.id))}
               visibleTraceCategories={visibleTraceCategories}
@@ -1563,6 +1532,8 @@ export function App(): JSX.Element {
               onBackToRunbooks={backToRunbooks}
               onOpenHoneycrispReport={openHoneycrispReport}
               onBackToReports={backToReports}
+              onOpenBreakoutRoom={openBreakoutRoom}
+              onBackToRooms={backToRooms}
               onBackToSubagents={backToSubagents}
               onSelectTraceEvent={selectTraceEvent}
               onSelectSubagent={selectSubagent}
@@ -1588,7 +1559,6 @@ export function App(): JSX.Element {
       <AppModals
         activeNotification={activeNotification}
         activeRunDetail={activeRunDetail}
-        activeWorkspaceName={snapshot?.activeScope.workspaceName ?? 'current workspace'}
         busy={busy}
         newResearchOpen={newResearchOpen}
         newResearchInitialGoal={newResearchInitialGoal}
@@ -1612,8 +1582,6 @@ export function App(): JSX.Element {
         lastProfilingReport={lastProfilingReport}
         workspaceDraft={workspaceDraft}
         workspaceOnboardingProgress={workspaceOnboardingProgress}
-        searchOpen={searchOpen}
-        selectedRunId={selectedRunId}
         selectedTraceEvent={selectedTraceEvent}
         snapshot={snapshot}
         traceDetailOpen={traceDetailOpen}
@@ -1630,7 +1598,6 @@ export function App(): JSX.Element {
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
         onCloseNotification={() => setActiveNotification(null)}
         onCloseProfiling={closeProfiling}
-        onCloseSearch={() => setSearchOpen(false)}
         onCloseTraceDetail={closeTraceDetail}
         onCloseTraceFilters={() => setTraceFilterOpen(false)}
         onLookupHackerOne={lookupHackerOneScope}
@@ -1640,7 +1607,6 @@ export function App(): JSX.Element {
         onSelectResearchGoalSuggestion={researchGoalSuggestionState.consume}
         onRetryResearchGoalSuggestions={researchGoalSuggestionState.retry}
         onStartedNewResearch={handleResearchStarted}
-        onOpenSearchResult={openSearchResult}
         onSteerNotification={(notification, instruction) => {
           void runAction(() => window.beale.steerRun({ type: 'steer', runId: notification.runId, instruction }));
           setActiveNotification(null);
@@ -1673,17 +1639,4 @@ function shellApprovalWorkspacePath(approval: ApprovalRecord): string {
     throw new Error('Shell approval is missing its originating workspace.');
   }
   return workspacePath;
-}
-
-
-function traceEventForSearchResult(events: TraceDisplayEvent[], result: SessionTranscriptSearchResult): TraceDisplayEvent | null {
-  const transcriptEventId = `transcript:${result.transcriptMessageId}`;
-  return (
-    events.find((event) => {
-      if (event.id === transcriptEventId || event.transcriptMessageId === result.transcriptMessageId) return true;
-      if (event.payload.transcriptMessageId === result.transcriptMessageId) return true;
-      if (!result.traceEventId) return false;
-      return event.id === result.traceEventId || event.payload.linkedTraceEventId === result.traceEventId;
-    }) ?? null
-  );
 }

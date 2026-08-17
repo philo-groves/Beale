@@ -4,10 +4,14 @@
 
 ### Changed
 
+- Compact session and workspace summary sidenavs now omit Runbooks, Reports, Rooms, and Subagents rows when their count is zero and use singular labels when exactly one resource is present.
+- Breakout rooms now live in the session right sidenav, with a stacked Rooms summary button, a status-grouped Rooms tab, and the existing room transcript layout in a nested detail view instead of workspace-sidebar rows.
+- Session search now opens as a fixed-height pill in the workspace-list header and filters matching sessions in place across registered workspaces, replacing the Find a Session navigation item and transcript-search dialog.
 - Pruned the overlapping 4,300-line workbench catch-all and brittle renderer presentation/source-shape tests. Expensive process, SQLite, filesystem, and loopback-server boundaries now run serially under `npm run test:integration`; `npm run test:all` retains the focused critical suite while the default `npm test` stays fast.
 
 ### Fixed
 
+- Selecting a breakout room or returning to the Rooms list no longer reloads the session detail projection and briefly flashes the compact summary sidenav.
 - Automation editing now loads provider configuration and model catalogs when the view opens, keeps the lead model picker populated and editable, applies the editor field background to its dropdowns, and hides the New Research-only Add Context control.
 - The Automations catalog now batches canonical session summaries by research profile and opens at most one lightweight profile reader per batch, instead of launching a Honeycrisp process and materializing a recovery-capable workspace runtime for every registered workspace.
 - Breakout rooms no longer remain active after a subagent interruption or parent-session interruption; room state is reconciled from terminal member and session state across both Honeycrisp-owned and legacy persistence, including existing cached sidebar records.
@@ -67,7 +71,7 @@
 - Added durable structured collaboration-room protocol state in workbench migration 22, including independent, challenge, response, synthesis, and completed phases; bounded challenge rounds; evidence references; confidence; uncertainty; proposed next checks; and a lead-owned room outcome.
 - Added access-restricted OpenAI Daybreak Red (`gpt-daybreak-red-latest`) as an optional model. It remains hidden from model selectors and defaults until explicitly enabled in OpenAI Provider Settings.
 - Active breakout-room members now appear as collapsed working disclosures with live durations and expandable, real-time subagent commentary and tool history.
-- Added durable multi-provider breakout rooms for research sessions. New Research now configures adaptive collaboration, provider/model preferences, independent first passes, challenge rounds, and bounded team intensity; room membership and transcripts remain available under each session in the workspace sidebar.
+- Added durable multi-provider breakout rooms for research sessions. New Research now configures adaptive collaboration, provider/model preferences, independent first passes, challenge rounds, and bounded team intensity; room membership and transcripts remain available from each session's Rooms sidenav.
 - Added Grok 4.6 to the xAI research-model options with its supported low-through-xhigh reasoning levels.
 - Added workspace Dejunk housekeeping beside Dream. Dejunk tracks files created since its last baseline, uses 10/50/200/1,000-file heat thresholds, organizes recognizable loose notes, PoCs, evidence, scripts, and scratch material under `research/`, and removes only large rebuildable trees or recognizable IPSW extractions outside `.beale`, symlinks, and detected Git repositories.
 - Added a compact Research Surface to the workspace dashboard with authorized repositories and references, scope direction, index readiness, directly targeted session coverage, linked Memory counts, and last-researched recency.

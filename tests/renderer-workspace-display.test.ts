@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, WorkspaceSnapshot } from '@shared/types';
-import { WorkspaceSidebar } from '../src/renderer/features/workspaces/WorkspaceSidebar';
+import { sessionMatchesSidebarSearch, WorkspaceSidebar } from '../src/renderer/features/workspaces/WorkspaceSidebar';
 import { mainSideScrollHasOverflow } from '../src/renderer/app/MainSideScrollRegion';
 import { INSET_SCROLLBAR_SELECTOR } from '../src/renderer/hooks/useInsetScrollbarActivation';
 import {
@@ -18,19 +18,6 @@ import { testResearchProfile } from './researchProfileFixture';
 describe('renderer workspace display view models', () => {
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  it('uses the session-list expansion text palette for every breakout-room state', () => {
-    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
-    const roomStyles = styles.match(/\.workspace-breakout-room-item\s*\{([^}]*)\}/u)?.[1] ?? '';
-    const sessionToggleStyles = styles.match(/\.session-memory-type-toggle\s*\{([^}]*)\}/u)?.[1] ?? '';
-    const sessionToggleHoverStyles = styles.match(/\.session-memory-type-toggle:hover:not\(:disabled\),\s*\.session-memory-type-toggle:focus-visible\s*\{([^}]*)\}/u)?.[1] ?? '';
-
-    expect(roomStyles).toContain('--breakout-room-title-color: var(--muted);');
-    expect(roomStyles).toContain('--breakout-room-title-emphasis-color: var(--muted-strong);');
-    expect(sessionToggleStyles).toContain('color: var(--muted);');
-    expect(sessionToggleHoverStyles).toContain('color: var(--muted-strong);');
-    expect(styles).not.toMatch(/\.workspace-breakout-room-item\[data-room-status="active"\][^{]*\{/u);
   });
 
   it('uses the summary sidenav transition for session-list overflow', () => {
@@ -72,6 +59,21 @@ describe('renderer workspace display view models', () => {
     expect(shortRelativeAge('2026-04-22T12:00:00.000Z')).toBe('1W');
   });
 
+  it('filters sidebar sessions immediately across their searchable metadata', () => {
+    const candidate = session({
+      title: 'Parser Boundary Review',
+      promptMarkdown: 'Audit request framing.',
+      summary: 'Found an unchecked length conversion.',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'xhigh'
+    });
+
+    expect(sessionMatchesSidebarSearch(candidate, 'parser length')).toBe(true);
+    expect(sessionMatchesSidebarSearch(candidate, 'request framing')).toBe(true);
+    expect(sessionMatchesSidebarSearch(candidate, '5.6 xhigh')).toBe(true);
+    expect(sessionMatchesSidebarSearch(candidate, 'authentication')).toBe(false);
+  });
+
   it('labels the left navigation workspace section without the profile prefix', () => {
     const profile = testResearchProfile();
     const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
@@ -95,7 +97,6 @@ describe('renderer workspace display view models', () => {
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
       onSetOpenWorkspaceMenuId: () => undefined,
-      onSearch: () => undefined,
       onStartNewResearch: () => undefined
     }));
 
@@ -105,9 +106,11 @@ describe('renderer workspace display view models', () => {
     expect(html).toContain('<div class="sidebar-list-scroll-content">');
     expect(html).toContain('class="lucide lucide-square-pen"');
     expect(html).not.toContain('class="lucide lucide-play"');
-    expect(html).toContain('title="Find a Session"');
-    expect(html).toContain('<span>Find a Session</span>');
-    expect(html).not.toContain('<span>Search</span>');
+    expect(html).toContain('title="Search sessions"');
+    expect(html).toContain('class="lucide lucide-search"');
+    expect(html).toContain('class="workspace-list-add-button"');
+    expect(html.indexOf('title="Search sessions"')).toBeLessThan(html.indexOf('title="Add research workspace"'));
+    expect(html).not.toContain('Find a Session');
     expect(html).not.toContain('Workspace Information');
     expect(html).not.toContain('Research Workspaces');
   });
@@ -143,6 +146,18 @@ describe('renderer workspace display view models', () => {
     expect(mainSideScrollHasOverflow(200, 200)).toBe(false);
   });
 
+  it('keeps the inline session-search pill the same height as the workspace header', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const headerStyles = styles.match(/\.workspace-list-header\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const searchStyles = styles.match(/\.workspace-list-search\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const actionStyles = styles.match(/\.workspace-list-header-actions\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+    expect(headerStyles).toContain('height: 28px');
+    expect(searchStyles).toContain('height: 28px');
+    expect(searchStyles).toContain('border-radius: 999px');
+    expect(actionStyles).toContain('gap: 0');
+  });
+
   it('shows registry loading state instead of an empty workspace list during startup', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
       busy: false,
@@ -159,69 +174,12 @@ describe('renderer workspace display view models', () => {
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
       onSetOpenWorkspaceMenuId: () => undefined,
-      onSearch: () => undefined,
       onStartNewResearch: () => undefined
     }));
 
     expect(html).toContain('Loading workspaces');
     expect(html).toContain('lucide-loader-circle');
     expect(html).not.toContain('No Workspaces Yet');
-  });
-
-  it('renders selected-session breakout rooms from live detail before the workspace snapshot refreshes', () => {
-    const profile = testResearchProfile();
-    const registeredWorkspace = workspace('workspace_test', '/workspace/test');
-    const selectedSession = session({ registryWorkspaceId: registeredWorkspace.id });
-    const registry: WorkspaceRegistryState = {
-      registryPath: '/home/user/.beale/workspaces.json',
-      workspaces: [registeredWorkspace],
-      researchSessions: [selectedSession]
-    };
-    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
-      busy: false,
-      collapsed: false,
-      error: null,
-      openRegisteredWorkspaceMenuId: null,
-      workspaceRegistry: registry,
-      selectedRunId: selectedSession.runId,
-      selectedBreakoutRoomId: null,
-      selectedRunBreakoutRooms: [{
-        id: 'room_live',
-        runId: selectedSession.runId,
-        title: 'live provider challenge',
-        status: 'active'
-      }],
-      snapshot: {
-        workspace: { workspacePath: registeredWorkspace.workspacePath },
-        researchProfile: { profile },
-        runs: [{ run: { id: selectedSession.runId }, breakoutRooms: [] }]
-      } as unknown as WorkspaceSnapshot,
-      onAddWorkspace: () => undefined,
-      onOpenWorkspace: () => undefined,
-      onOpenResearchSession: () => undefined,
-      onOpenBreakoutRoom: () => undefined,
-      onRemoveWorkspace: () => undefined,
-      onResizePointerDown: () => undefined,
-      onSetOpenWorkspaceMenuId: () => undefined,
-      onSearch: () => undefined,
-      onStartNewResearch: () => undefined
-    }));
-
-    expect(html).toContain('Live Provider Challenge');
-    expect(html).toContain('title="Live Provider Challenge — Active"');
-    expect(html).toContain('workspace-breakout-room-item');
-    expect(html).toContain('class="workspace-breakout-room-item" data-room-status="active"');
-    expect(html).toContain('class="workspace-breakout-room-reveal" data-state="open" aria-hidden="false"');
-    expect(html).toContain('class="lucide lucide-folder"');
-    expect(html).not.toContain('lucide-chevron');
-    expect(html).not.toContain('class="lucide lucide-messages-square"');
-    const statusIndex = html.indexOf('workspace-breakout-room-leading-status');
-    const titleIndex = html.indexOf('class="workspace-breakout-room-title">Live Provider Challenge');
-    expect(statusIndex).toBeGreaterThanOrEqual(0);
-    expect(titleIndex).toBeGreaterThan(statusIndex);
-    expect(html).toContain('class="lucide lucide-refresh-cw"');
-    expect(html).not.toMatch(/class="workspace-item-row active\b/u);
-    expect(html).toContain('class="workspace-session-item active"');
   });
 
   it('marks a workspace active only while its dashboard is selected', () => {
@@ -254,7 +212,6 @@ describe('renderer workspace display view models', () => {
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
       onSetOpenWorkspaceMenuId: () => undefined,
-      onSearch: () => undefined,
       onStartNewResearch: () => undefined
     }));
 
@@ -264,60 +221,6 @@ describe('renderer workspace display view models', () => {
     expect(html).not.toContain('More Sessions...');
     expect(html).not.toContain('More Snapchat Sessions');
     expect(html).not.toContain('More Research Sessions');
-  });
-
-  it('keeps breakout rooms collapsed beneath sessions that are not selected', () => {
-    const profile = testResearchProfile();
-    const registeredWorkspace = workspace('workspace_test', '/workspace/test');
-    const selectedSession = session({ id: 'session_selected', runId: 'run_selected', registryWorkspaceId: registeredWorkspace.id });
-    const previousSession = session({
-      id: 'session_previous',
-      runId: 'run_previous',
-      registryWorkspaceId: registeredWorkspace.id,
-      breakoutRooms: [{
-        id: 'room_previous',
-        runId: 'run_previous',
-        name: 'previous_provider_challenge',
-        title: 'Previous provider challenge',
-        kind: 'validation',
-        status: 'completed',
-        updatedAt: '2026-04-29T12:05:00.000Z',
-        memberCount: 2,
-        providers: ['anthropic', 'openai-codex'],
-        unreadCount: 0
-      }]
-    });
-    const registry: WorkspaceRegistryState = {
-      registryPath: '/home/user/.beale/workspaces.json',
-      workspaces: [registeredWorkspace],
-      researchSessions: [selectedSession, previousSession]
-    };
-    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
-      busy: false,
-      collapsed: false,
-      error: null,
-      openRegisteredWorkspaceMenuId: null,
-      workspaceRegistry: registry,
-      selectedRunId: selectedSession.runId,
-      snapshot: {
-        workspace: { workspacePath: registeredWorkspace.workspacePath },
-        researchProfile: { profile },
-        runs: []
-      } as unknown as WorkspaceSnapshot,
-      onAddWorkspace: () => undefined,
-      onOpenWorkspace: () => undefined,
-      onOpenResearchSession: () => undefined,
-      onOpenBreakoutRoom: () => undefined,
-      onRemoveWorkspace: () => undefined,
-      onResizePointerDown: () => undefined,
-      onSetOpenWorkspaceMenuId: () => undefined,
-      onSearch: () => undefined,
-      onStartNewResearch: () => undefined
-    }));
-
-    expect(html).toContain('Previous Provider Challenge');
-    expect(html).toContain('class="workspace-breakout-room-reveal" data-state="closed" aria-hidden="true" inert=""');
-    expect(html).not.toContain('lucide-chevron');
   });
 
   it('moves an active session spinner to the leading slot and keeps its timestamp on the right', () => {
@@ -347,7 +250,6 @@ describe('renderer workspace display view models', () => {
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
       onSetOpenWorkspaceMenuId: () => undefined,
-      onSearch: () => undefined,
       onStartNewResearch: () => undefined
     }));
 
@@ -356,47 +258,6 @@ describe('renderer workspace display view models', () => {
     expect(html).toContain('class="workspace-session-age"');
     expect(html.indexOf('workspace-session-leading-status')).toBeLessThan(html.indexOf('workspace-session-title'));
     expect(html.indexOf('workspace-session-age')).toBeGreaterThan(html.indexOf('workspace-session-title'));
-  });
-
-  it('uses only a muted leading spinner for active breakout rooms', () => {
-    const profile = testResearchProfile();
-    const registeredWorkspace = workspace('workspace_test', '/workspace/test');
-    const selectedSession = session({ registryWorkspaceId: registeredWorkspace.id });
-    const registry: WorkspaceRegistryState = {
-      registryPath: '/home/user/.beale/workspaces.json',
-      workspaces: [registeredWorkspace],
-      researchSessions: [selectedSession]
-    };
-    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
-      busy: false,
-      collapsed: false,
-      error: null,
-      openRegisteredWorkspaceMenuId: null,
-      workspaceRegistry: registry,
-      selectedRunId: selectedSession.runId,
-      selectedBreakoutRoomId: 'room_loading',
-      snapshot: {
-        workspace: { workspacePath: registeredWorkspace.workspacePath },
-        researchProfile: { profile },
-        runs: [{
-          run: { id: selectedSession.runId },
-          breakoutRooms: [{ id: 'room_loading', runId: selectedSession.runId, title: 'Loading review', status: 'active' }]
-        }]
-      } as unknown as WorkspaceSnapshot,
-      onAddWorkspace: () => undefined,
-      onOpenWorkspace: () => undefined,
-      onOpenResearchSession: () => undefined,
-      onOpenBreakoutRoom: () => undefined,
-      onRemoveWorkspace: () => undefined,
-      onResizePointerDown: () => undefined,
-      onSetOpenWorkspaceMenuId: () => undefined,
-      onSearch: () => undefined,
-      onStartNewResearch: () => undefined
-    }));
-
-    expect(html).toContain('class="workspace-breakout-room-leading-status" title="Active" aria-label="Breakout room status: Active"');
-    expect(html).toContain('class="lucide lucide-refresh-cw"');
-    expect(html).not.toContain('workspace-breakout-room-status');
   });
 
   it('uses the leading slot for an unviewed result dot and leaves viewed results blank', () => {
@@ -423,7 +284,6 @@ describe('renderer workspace display view models', () => {
       onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
       onSetOpenWorkspaceMenuId: () => undefined,
-      onSearch: () => undefined,
       onStartNewResearch: () => undefined
     }));
 

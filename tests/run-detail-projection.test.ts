@@ -69,6 +69,20 @@ describe('run detail commentary projection', () => {
     expect(projectRunDetailForRenderer(detail, 'full')).toBe(detail);
   });
 
+  it('retains breakout-room records while projecting commentary', () => {
+    const detail = runDetail({
+      breakoutRooms: [{ id: 'room_one', title: 'Parser challenge', status: 'active' }] as RunDetail['breakoutRooms'],
+      breakoutRoomMembers: [{ id: 'member_one', roomId: 'room_one', agentPath: '/root/reviewer', status: 'active' }] as RunDetail['breakoutRoomMembers'],
+      breakoutRoomMessages: [{ id: 'message_one', roomId: 'room_one', contentMarkdown: 'Reviewing parser state.' }] as RunDetail['breakoutRoomMessages']
+    });
+
+    const projected = projectRunDetailForRenderer(detail, 'commentary');
+
+    expect(projected.breakoutRooms).toBe(detail.breakoutRooms);
+    expect(projected.breakoutRoomMembers).toBe(detail.breakoutRoomMembers);
+    expect(projected.breakoutRoomMessages).toBe(detail.breakoutRoomMessages);
+  });
+
   it('defers tool input/output until the paired records are requested', () => {
     const requested = toolEvent('request', 'tool.requested', {
       toolActionId: 'action_one',
@@ -268,6 +282,9 @@ function transcript(contentMarkdown: string, role: TranscriptMessageRecord['role
 function runDetail(input: {
   traceEvents?: TraceEventRecord[];
   transcriptMessages?: TranscriptMessageRecord[];
+  breakoutRooms?: RunDetail['breakoutRooms'];
+  breakoutRoomMembers?: RunDetail['breakoutRoomMembers'];
+  breakoutRoomMessages?: RunDetail['breakoutRoomMessages'];
 }): RunDetail {
   return {
     run: {
@@ -279,6 +296,9 @@ function runDetail(input: {
     attempts: [],
     traceEvents: input.traceEvents ?? [],
     transcriptMessages: input.transcriptMessages ?? [],
+    breakoutRooms: input.breakoutRooms,
+    breakoutRoomMembers: input.breakoutRoomMembers,
+    breakoutRoomMessages: input.breakoutRoomMessages,
     artifacts: [],
     verifierContracts: [],
     verifierRuns: [],

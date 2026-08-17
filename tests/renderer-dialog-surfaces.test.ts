@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { HoneycrispMemoryNodeSummary, ResearchGoalSuggestionsByPhase, RunDetail, WorkspaceSnapshot } from '@shared/types';
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePanel';
-import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
 import { shouldAutoGenerateSessionNextSteps } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
 import { SessionNextSteps, SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
@@ -440,22 +439,6 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('Could not load chaining goals');
     expect(html).toContain('Chaining request failed.');
     expect(html).not.toContain('research-goal-choice-loading');
-  });
-
-  it('uses the New Research-style dialog for transcript search', () => {
-    const searchHtml = renderToStaticMarkup(
-      createElement(TranscriptSearchSheet, {
-        activeWorkspaceName: 'Parser Research',
-        workspaceOpen: true,
-        selectedRunId: 'run_one',
-        onClose: () => undefined,
-        onOpenResult: () => undefined
-      })
-    );
-
-    expect(searchHtml).toContain('start-run-dialog transcript-search-dialog');
-    expect(searchHtml).toContain('Search session transcripts...');
-    expect(searchHtml).not.toContain('modal-footer');
   });
 
   it('renders memory record details in a bottom sheet', () => {

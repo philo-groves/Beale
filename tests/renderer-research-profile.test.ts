@@ -178,7 +178,7 @@ describe('renderer research profile presentation', () => {
     expect(html).toContain('>Session</h2>');
     expect(html).not.toContain('Study summary');
     expect(html).toContain('0 Memories');
-    expect(html).toContain('0 Runbooks');
+    expect(html).not.toContain('0 Runbooks');
     expect(html).not.toContain('0 Notes');
     expect(html).not.toContain('0 Guides');
   });

@@ -1,7 +1,9 @@
 import { memo, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronRight, Database, FileText, Plus, Search, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronRight, Database, FileText, MessagesSquare, Plus, Search, X } from 'lucide-react';
 import type {
+  BreakoutRoomRecord,
+  BreakoutRoomStatus,
   HoneycrispMemoryEdgeSummary,
   HoneycrispMemoryNodeSummary,
   HoneycrispMemorySummary,
@@ -22,6 +24,7 @@ import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
+import { displayBreakoutRoomTitle } from '../../view-models/appHeader';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogStatusSections, memoryCatalogUpdateKey, memoryTypeSummaryPresentation, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
 import type { MemoryStatusGroup, SessionMemoryTypeSummary } from '../../view-models/memoryCatalog';
 import { filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentOverviewForEvents, subagentOverviewFromSummaries, subagentOverviewStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
@@ -36,6 +39,7 @@ import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import type { TraceCategoryId } from '../../traceClassification';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { SessionUsageSummary } from '../momentum/SessionUsageStatus';
+import { BreakoutRoomView } from '../sessions/BreakoutRoomView';
 import { SessionDurationMetric } from '../sessions/SessionMetrics';
 import { MemoryTypeIcon, MemoryTypeLabel, memoryTypeClassName, memoryTypeDefinition, memoryTypeLabel } from './MemoryTypeLabel';
 import { RunbookView } from './RunbookView';
@@ -52,7 +56,7 @@ export type RunbookScopeFilter = 'session' | 'workspace';
 export const DEFAULT_RUNBOOK_SCOPE_FILTER: RunbookScopeFilter = 'session';
 export const DEFAULT_WORKSPACE_RUNBOOK_SCOPE_FILTER: RunbookScopeFilter = 'workspace';
 export type ResearchViewSpace = 'session' | 'workspace';
-export type ResearchSideView = 'memory' | 'runbooks' | 'reports' | 'subagents';
+export type ResearchSideView = 'memory' | 'runbooks' | 'reports' | 'rooms' | 'subagents';
 
 export interface ResearchSideNavigationState {
   openViews: ResearchSideView[];
@@ -66,7 +70,7 @@ export type ResearchSideNavigationAction =
   | { type: 'restrict'; views: readonly ResearchSideView[] }
   | { type: 'reset' };
 
-export const RESEARCH_SIDE_VIEWS: readonly ResearchSideView[] = ['memory', 'runbooks', 'reports', 'subagents'];
+export const RESEARCH_SIDE_VIEWS: readonly ResearchSideView[] = ['memory', 'runbooks', 'reports', 'rooms', 'subagents'];
 
 export function memoryLevelFiltersForViewSpace(viewSpace: ResearchViewSpace): MemoryLevelFilter[] {
   return viewSpace === 'workspace' ? ['workspace', 'subject'] : ['session', 'workspace', 'subject'];
@@ -157,6 +161,7 @@ function initialResearchSideNavigation(
   selectedSubagentPath: string | null,
   selectedRunbookId: string | null,
   selectedReportId: string | null,
+  selectedBreakoutRoomId: string | null,
   enabledViews: readonly ResearchSideView[]
 ): ResearchSideNavigationState {
   return researchSideNavigationForSelectedDetail(
@@ -164,6 +169,7 @@ function initialResearchSideNavigation(
     selectedSubagentPath,
     selectedRunbookId,
     selectedReportId,
+    selectedBreakoutRoomId,
     enabledViews
   );
 }
@@ -173,8 +179,12 @@ export function researchSideNavigationForSelectedDetail(
   selectedSubagentPath: string | null,
   selectedRunbookId: string | null,
   selectedReportId: string | null,
+  selectedBreakoutRoomId: string | null,
   enabledViews: readonly ResearchSideView[]
 ): ResearchSideNavigationState {
+  if (selectedBreakoutRoomId && enabledViews.includes('rooms')) {
+    return researchSideNavigationReducer(state, { type: 'open', view: 'rooms' });
+  }
   if (selectedSubagentPath && enabledViews.includes('subagents')) {
     return researchSideNavigationReducer(state, { type: 'open', view: 'subagents' });
   }
@@ -205,6 +215,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedReportDocument = null,
   reportLoading = false,
   reportError = null,
+  selectedBreakoutRoomId = null,
   selectedSubagentPath,
   selectedRunbookId,
   selectedReportId = null,
@@ -213,9 +224,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   visibleTraceCategories,
   onOpenRunbook,
   onOpenReport = () => undefined,
+  onOpenBreakoutRoom = () => undefined,
   onSelectSubagent,
   onBackToRunbooks,
   onBackToReports = () => undefined,
+  onBackToRooms = () => undefined,
   onBackToSubagents,
   onSelectTraceEvent,
   expanded,
@@ -239,6 +252,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedReportDocument?: HoneycrispReportDocument | null;
   reportLoading?: boolean;
   reportError?: string | null;
+  selectedBreakoutRoomId?: string | null;
   selectedSubagentPath: string | null;
   selectedRunbookId: string | null;
   selectedReportId?: string | null;
@@ -247,9 +261,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   visibleTraceCategories: TraceCategoryId[];
   onOpenRunbook: (runbookId: string) => void;
   onOpenReport?: (reportId: string) => void;
+  onOpenBreakoutRoom?: (roomId: string) => void;
   onSelectSubagent: (path: string) => void;
   onBackToRunbooks: () => void;
   onBackToReports?: () => void;
+  onBackToRooms?: () => void;
   onBackToSubagents: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   expanded?: boolean;
@@ -259,16 +275,17 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const featureAvailability = researchProfileFeatureAvailability(researchProfile);
   const subagentsAvailable = featureAvailability.collaboration && viewSpace === 'session';
   const enabledViews = researchSideViewsForProfile(researchProfile)
-    .filter((view) => viewSpace === 'session' || view !== 'subagents');
+    .filter((view) => viewSpace === 'session' || (view !== 'subagents' && view !== 'rooms'));
   const enabledViewsKey = enabledViews.join(':');
   const [navigation, dispatchNavigation] = useReducer(
     researchSideNavigationReducer,
-    initialResearchSideNavigation(selectedSubagentPath, selectedRunbookId, selectedReportId, enabledViews)
+    initialResearchSideNavigation(selectedSubagentPath, selectedRunbookId, selectedReportId, selectedBreakoutRoomId, enabledViews)
   );
   const runIdRef = useRef(runId);
   const [query, setQuery] = useState('');
   const [runbookQuery, setRunbookQuery] = useState('');
   const [reportQuery, setReportQuery] = useState('');
+  const [roomQuery, setRoomQuery] = useState('');
   const [subagentQuery, setSubagentQuery] = useState('');
   const [scope, setScope] = useState<MemoryLevelFilter>(
     viewSpace === 'workspace' ? DEFAULT_WORKSPACE_MEMORY_LEVEL_FILTER : DEFAULT_MEMORY_LEVEL_FILTER
@@ -285,6 +302,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     selectedSubagentPath,
     selectedRunbookId,
     selectedReportId,
+    selectedBreakoutRoomId,
     enabledViews
   );
   const detailsOpen = expanded ?? visibleNavigation.openViews.length > 0;
@@ -331,6 +349,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   );
   const sessionReports = useMemo(() => reports.filter((report) => report.sessionId === runId), [reports, runId]);
   const sessionReportRevisions = useMemo(() => sessionReports.reduce((count, report) => count + report.revision, 0), [sessionReports]);
+  const breakoutRooms = detail?.breakoutRooms ?? [];
+  const activeBreakoutRoomCount = useMemo(
+    () => breakoutRooms.filter((room) => room.status === 'active').length,
+    [breakoutRooms]
+  );
   const workspaceId = memory?.contextWorkspaceId ?? null;
   const subjectId = memory?.contextSubjectId ?? null;
   const workspaceMemoryNodes = useMemo(
@@ -395,6 +418,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const visibleSelectedRunbook = visibleSelectedRunbookId ? selectedRunbook : null;
   const visibleSelectedReportId = featureAvailability.reports ? selectedReportId : null;
   const visibleSelectedReport = visibleSelectedReportId ? selectedReport : null;
+  const visibleSelectedBreakoutRoomId = subagentsAvailable ? selectedBreakoutRoomId : null;
+  const selectedBreakoutRoom = visibleSelectedBreakoutRoomId
+    ? breakoutRooms.find((room) => room.id === visibleSelectedBreakoutRoomId) ?? null
+    : null;
   const selectedSubagent = visibleSelectedSubagentPath
     ? subagents.find((subagent) => subagent.path === visibleSelectedSubagentPath) ?? null
     : null;
@@ -409,6 +436,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const selectedReportName = visibleSelectedReport?.title
     ?? reports.find((report) => report.id === visibleSelectedReportId)?.title
     ?? 'Loading report';
+  const selectedBreakoutRoomName = displayBreakoutRoomTitle(selectedBreakoutRoom?.title);
   const selectedSubagentEvents = useMemo(
     () => traceEventsForSubagent(events, visibleSelectedSubagentPath),
     [events, visibleSelectedSubagentPath]
@@ -435,14 +463,25 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     [reportQuery, reports, runId, runbookScope, workspaceId]
   );
   const groupedReports = useMemo(() => reportCatalogGroups(filteredReports), [filteredReports]);
+  const filteredBreakoutRooms = useMemo(
+    () => filterBreakoutRoomCatalog(breakoutRooms, roomQuery),
+    [breakoutRooms, roomQuery]
+  );
+  const groupedBreakoutRooms = useMemo(
+    () => breakoutRoomCatalogGroups(filteredBreakoutRooms),
+    [filteredBreakoutRooms]
+  );
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const selectedNode = featureAvailability.memory && selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
   const updateKey = memoryCatalogUpdateKey(filteredNodes);
   const runbookUpdateKey = filteredRunbooks.map((runbook) => `${runbook.id}:${runbook.updatedAt}`).join('|');
   const reportUpdateKey = filteredReports.map((report) => `${report.id}:${report.updatedAt}`).join('|');
+  const roomUpdateKey = filteredBreakoutRooms.map((room) => `${room.id}:${room.status}:${room.closedAt ?? room.createdAt}`).join('|');
   const hasSessionMetadata = Boolean(detail);
-  const hasSessionResources = featureAvailability.runbooks || featureAvailability.reports || featureAvailability.collaboration;
+  const hasSessionResources = (featureAvailability.runbooks && sessionRunbooks > 0)
+    || (featureAvailability.reports && sessionReports.length > 0)
+    || (featureAvailability.collaboration && (breakoutRooms.length > 0 || subagentOverview.count > 0));
   const hasSessionMemories = featureAvailability.memory;
 
   useEffect(() => {
@@ -461,6 +500,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   }, [enabledViewsKey, featureAvailability.memory]);
 
   useEffect(() => {
+    if (selectedBreakoutRoomId && subagentsAvailable) {
+      dispatchNavigation({ type: 'open', view: 'rooms' });
+      return;
+    }
     if (selectedSubagentPath && subagentsAvailable) {
       dispatchNavigation({ type: 'open', view: 'subagents' });
       return;
@@ -477,6 +520,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     featureAvailability.runbooks,
     selectedReportId,
     selectedRunbookId,
+    selectedBreakoutRoomId,
     selectedSubagentPath,
     subagentsAvailable
   ]);
@@ -484,15 +528,18 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   useEffect(() => {
     if (!featureAvailability.runbooks && selectedRunbookId) onBackToRunbooks();
     if (!featureAvailability.reports && selectedReportId) onBackToReports();
+    if (!subagentsAvailable && selectedBreakoutRoomId) onBackToRooms();
     if (!subagentsAvailable && selectedSubagentPath) onBackToSubagents();
   }, [
     featureAvailability.runbooks,
     featureAvailability.reports,
     onBackToRunbooks,
     onBackToReports,
+    onBackToRooms,
     onBackToSubagents,
     selectedRunbookId,
     selectedReportId,
+    selectedBreakoutRoomId,
     selectedSubagentPath,
     subagentsAvailable
   ]);
@@ -538,18 +585,18 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               <h2 className="session-summary-title">Workspace</h2>
             </header>
             <section className="session-summary-items session-summary-resources" aria-label="Workspace resources">
-              {featureAvailability.runbooks ? (
+              {featureAvailability.runbooks && workspaceRunbooks.length > 0 ? (
                 <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
                   <BookOpen size={15} aria-hidden="true" />
-                  <span>{workspaceRunbooks.length} {runbookLabel}</span>
+                  <span>{workspaceRunbooks.length} {workspaceRunbooks.length === 1 ? 'Runbook' : runbookLabel}</span>
                   <span className="session-summary-meta">{workspaceRunbookRevisions} Updates</span>
                   <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                 </button>
               ) : null}
-              {featureAvailability.reports ? (
+              {featureAvailability.reports && workspaceReports.length > 0 ? (
                 <button type="button" className="session-summary-item" onClick={() => openDetails('reports')}>
                   <FileText size={15} aria-hidden="true" />
-                  <span>{workspaceReports.length} Reports</span>
+                  <span>{workspaceReports.length} {workspaceReports.length === 1 ? 'Report' : 'Reports'}</span>
                   <span className="session-summary-meta">{workspaceReportRevisions} Updates</span>
                   <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                 </button>
@@ -585,26 +632,34 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           </section>
           {hasSessionMetadata && (hasSessionResources || hasSessionMemories) ? <hr className="session-summary-divider" /> : null}
           <section className="session-summary-items session-summary-resources" aria-label="Session resources">
-            {featureAvailability.runbooks ? (
+            {featureAvailability.runbooks && sessionRunbooks > 0 ? (
               <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
                 <BookOpen size={15} aria-hidden="true" />
-                <span>{sessionRunbooks} {runbookLabel}</span>
+                <span>{sessionRunbooks} {sessionRunbooks === 1 ? 'Runbook' : runbookLabel}</span>
                 <span className="session-summary-meta">{sessionRunbookRevisions} Updates</span>
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
             ) : null}
-            {featureAvailability.reports ? (
+            {featureAvailability.reports && sessionReports.length > 0 ? (
               <button type="button" className="session-summary-item" onClick={() => openDetails('reports')}>
                 <FileText size={15} aria-hidden="true" />
-                <span>{sessionReports.length} Reports</span>
+                <span>{sessionReports.length} {sessionReports.length === 1 ? 'Report' : 'Reports'}</span>
                 <span className="session-summary-meta">{sessionReportRevisions} Updates</span>
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
             ) : null}
-            {featureAvailability.collaboration ? (
+            {featureAvailability.collaboration && breakoutRooms.length > 0 ? (
+              <button type="button" className="session-summary-item" onClick={() => openDetails('rooms')}>
+                <MessagesSquare size={15} aria-hidden="true" />
+                <span>{breakoutRooms.length} {breakoutRooms.length === 1 ? 'Room' : 'Rooms'}</span>
+                {activeBreakoutRoomCount > 0 ? <span className="session-summary-meta">{activeBreakoutRoomCount} Active</span> : null}
+                <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+              </button>
+            ) : null}
+            {featureAvailability.collaboration && subagentOverview.count > 0 ? (
               <button type="button" className="session-summary-item" onClick={() => openDetails('subagents')}>
                 <Bot size={15} aria-hidden="true" />
-                <span>{subagentOverview.count} Subagents</span>
+                <span>{subagentOverview.count} {subagentOverview.count === 1 ? 'Subagent' : 'Subagents'}</span>
                 {subagentStatusCounts ? <span className="session-summary-meta">{subagentStatusCounts}</span> : null}
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
@@ -641,8 +696,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 
   return (
     <>
-      <aside className={`main-session-side memory-catalog view-${activeView} ${visibleSelectedSubagentPath || visibleSelectedRunbookId || visibleSelectedReportId || selectedNode ? 'has-nested-view' : ''}`} aria-label={`${viewSpaceLabel} details`}>
-        {visibleSelectedSubagentPath ? (
+      <aside className={`main-session-side memory-catalog view-${activeView} ${visibleSelectedBreakoutRoomId || visibleSelectedSubagentPath || visibleSelectedRunbookId || visibleSelectedReportId || selectedNode ? 'has-nested-view' : ''}`} aria-label={`${viewSpaceLabel} details`}>
+        {visibleSelectedBreakoutRoomId ? (
+          <ResearchSideNestedHeader label="Rooms" name={selectedBreakoutRoomName} onBack={onBackToRooms} />
+        ) : visibleSelectedSubagentPath ? (
           <ResearchSideNestedHeader
             label="Subagents"
             leading={selectedSubagent ? (
@@ -699,7 +756,17 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           />
         )}
 
-        {visibleSelectedSubagentPath ? (
+        {visibleSelectedBreakoutRoomId ? (
+          <div className="research-side-nested-content breakout-room-detail-content">
+            <BreakoutRoomView
+              detail={detail}
+              events={events}
+              providerModelCatalog={providerModelCatalog}
+              roomId={visibleSelectedBreakoutRoomId}
+              onSelectSubagent={onSelectSubagent}
+            />
+          </div>
+        ) : visibleSelectedSubagentPath ? (
           <div className="research-side-nested-content subagent-chat-content">
             {chatView === 'commentary' ? (
               <CommentaryView
@@ -896,6 +963,27 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               )}
             </MainSideScrollRegion>
           </>
+        ) : activeView === 'rooms' ? (
+          <>
+            <CatalogSearch value={roomQuery} placeholder="Find a Room" ariaLabel="Search rooms" onChange={setRoomQuery} />
+            <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list breakout-room-catalog-list" stickToStart updateKey={roomUpdateKey}>
+              {filteredBreakoutRooms.length === 0 ? (
+                <p className="runbook-catalog-empty">
+                  {roomQuery.trim() ? 'No rooms match this search.' : 'No rooms yet.'}
+                </p>
+              ) : (
+                groupedBreakoutRooms.map((group) => (
+                  <BreakoutRoomCatalogSection
+                    key={group.status}
+                    label={breakoutRoomStatusLabel(group.status)}
+                    rooms={group.rooms}
+                    selectedRoomId={visibleSelectedBreakoutRoomId}
+                    onOpen={onOpenBreakoutRoom}
+                  />
+                ))
+              )}
+            </MainSideScrollRegion>
+          </>
         ) : (
           <>
             <CatalogSearch value={subagentQuery} placeholder="Find a Subagent" ariaLabel="Search subagents" onChange={setSubagentQuery} />
@@ -980,6 +1068,39 @@ export function filterReportCatalog(
     return [report.id, report.title, report.summary, report.status, report.workspaceName, report.subjectName ?? '']
       .join('\n').toLocaleLowerCase().includes(normalizedQuery);
   });
+}
+
+export function filterBreakoutRoomCatalog(
+  rooms: readonly BreakoutRoomRecord[],
+  query = ''
+): BreakoutRoomRecord[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return rooms
+    .filter((room) => !normalizedQuery || [room.title, room.name, room.purpose, room.kind, room.status]
+      .join('\n')
+      .toLocaleLowerCase()
+      .includes(normalizedQuery))
+    .sort((left, right) => breakoutRoomTimestamp(right).localeCompare(breakoutRoomTimestamp(left)) || left.id.localeCompare(right.id));
+}
+
+export function breakoutRoomCatalogGroups(
+  rooms: readonly BreakoutRoomRecord[]
+): Array<{ status: BreakoutRoomStatus; rooms: BreakoutRoomRecord[] }> {
+  const statusOrder: readonly BreakoutRoomStatus[] = ['active', 'completed', 'interrupted', 'errored'];
+  return statusOrder
+    .map((status) => ({ status, rooms: rooms.filter((room) => room.status === status) }))
+    .filter((group) => group.rooms.length > 0);
+}
+
+function breakoutRoomTimestamp(room: BreakoutRoomRecord): string {
+  return room.closedAt ?? room.createdAt;
+}
+
+function breakoutRoomStatusLabel(status: BreakoutRoomStatus): string {
+  if (status === 'active') return 'Active';
+  if (status === 'completed') return 'Completed';
+  if (status === 'interrupted') return 'Interrupted';
+  return 'Errored';
 }
 
 function CatalogSearch({
@@ -1213,7 +1334,15 @@ function researchSideViewLabel(
   view: ResearchSideView,
   labels?: Partial<Record<ResearchSideView, string>>
 ): string {
-  return labels?.[view] ?? (view === 'memory' ? 'Memories' : view === 'runbooks' ? 'Runbooks' : view === 'reports' ? 'Reports' : 'Subagents');
+  return labels?.[view] ?? (view === 'memory'
+    ? 'Memories'
+    : view === 'runbooks'
+      ? 'Runbooks'
+      : view === 'reports'
+        ? 'Reports'
+        : view === 'rooms'
+          ? 'Rooms'
+          : 'Subagents');
 }
 
 interface CatalogMemoryTypeOption {
@@ -1290,6 +1419,7 @@ function researchSideViewIcon(view: ResearchSideView, size: number): JSX.Element
   if (view === 'memory') return <Database size={size} aria-hidden="true" />;
   if (view === 'runbooks') return <BookOpen size={size} aria-hidden="true" />;
   if (view === 'reports') return <FileText size={size} aria-hidden="true" />;
+  if (view === 'rooms') return <MessagesSquare size={size} aria-hidden="true" />;
   return <Bot size={size} aria-hidden="true" />;
 }
 
@@ -1398,6 +1528,57 @@ function ReportCatalogSection({ reports, label, selectedReportId, onOpen }: {
         )) : (
           <p className="runbook-catalog-empty">{label === 'Complete' ? 'No complete reports yet.' : 'No stale reports yet.'}</p>
         )}
+      </div>
+    </section>
+  );
+}
+
+export function BreakoutRoomCatalogItem({ room, selected, onOpen }: {
+  room: BreakoutRoomRecord;
+  selected: boolean;
+  onOpen: () => void;
+}): JSX.Element {
+  const timestamp = breakoutRoomTimestamp(room);
+  return (
+    <button
+      type="button"
+      className={`runbook-catalog-item breakout-room-catalog-item room-status-${stateClass(room.status)} ${selected ? 'selected' : ''}`}
+      aria-pressed={selected}
+      onClick={onOpen}
+    >
+      <span className="runbook-catalog-heading">
+        <span className="runbook-catalog-primary">
+          <MessagesSquare className="runbook-catalog-icon" size={16} aria-hidden="true" />
+          <span className="runbook-catalog-name">{displayBreakoutRoomTitle(room.title)}</span>
+        </span>
+        <span className="runbook-catalog-heading-trailing">
+          <span className="runbook-catalog-status">{breakoutRoomStatusLabel(room.status)}</span>
+          <time dateTime={timestamp} title={formatSessionDateTime(timestamp)}>{formatSessionDateTime(timestamp)}</time>
+        </span>
+      </span>
+      {room.purpose ? <span className="runbook-catalog-purpose">{runbookDescriptionText(room.purpose)}</span> : null}
+    </button>
+  );
+}
+
+function BreakoutRoomCatalogSection({ rooms, label, selectedRoomId, onOpen }: {
+  rooms: readonly BreakoutRoomRecord[];
+  label: string;
+  selectedRoomId: string | null;
+  onOpen: (roomId: string) => void;
+}): JSX.Element {
+  return (
+    <section className="runbook-catalog-section breakout-room-catalog-section" aria-label={`${rooms.length} ${label}`}>
+      <h3>{rooms.length} {label}</h3>
+      <div className="runbook-catalog-items">
+        {rooms.map((room) => (
+          <BreakoutRoomCatalogItem
+            key={room.id}
+            room={room}
+            selected={selectedRoomId === room.id}
+            onOpen={() => onOpen(room.id)}
+          />
+        ))}
       </div>
     </section>
   );

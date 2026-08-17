@@ -15,13 +15,11 @@ import type {
   ProfilingState,
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
-  SessionTranscriptSearchResult,
   WorkspaceSnapshot
 } from '@shared/types';
 import type { TraceCategoryId } from '../traceClassification';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
 import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
-import { TranscriptSearchSheet } from '../features/search/TranscriptSearchSheet';
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import { PluginManagerModal } from '../features/plugins/PluginManagerModal';
 import type { ResearchGoalSeed } from '../features/sessions/SessionNextSteps';
@@ -34,7 +32,6 @@ import type { WorkspaceOnboardingFormState, WorkspaceTemplateKind } from '../vie
 export function AppModals({
   activeNotification,
   activeRunDetail,
-  activeWorkspaceName,
   busy,
   newResearchOpen,
   newResearchInitialGoal,
@@ -58,8 +55,6 @@ export function AppModals({
   lastProfilingReport,
   workspaceDraft,
   workspaceOnboardingProgress,
-  searchOpen,
-  selectedRunId,
   selectedTraceEvent,
   snapshot,
   traceDetailOpen,
@@ -73,7 +68,6 @@ export function AppModals({
   onChangeVisibleTraceCategories,
   onCloseNotification,
   onCloseProfiling,
-  onCloseSearch,
   onCloseTraceDetail,
   onCloseTraceFilters,
   onLookupHackerOne,
@@ -85,7 +79,6 @@ export function AppModals({
   onStartedNewResearch,
   onSteerNotification,
   onSubmitWorkspaceOnboarding,
-  onOpenSearchResult,
   onAddAgentPluginFromFilesystem,
   onAddAgentPluginFromRepository,
   onSetAgentPluginEnabled,
@@ -94,7 +87,6 @@ export function AppModals({
 }: {
   activeNotification: NotificationRecord | null;
   activeRunDetail: RunDetail | null;
-  activeWorkspaceName: string;
   busy: boolean;
   newResearchOpen: boolean;
   newResearchInitialGoal: ResearchGoalSeed | null;
@@ -118,8 +110,6 @@ export function AppModals({
   lastProfilingReport: ProfilingReport | null;
   workspaceDraft: WorkspaceOnboardingFormState | null;
   workspaceOnboardingProgress: WorkspaceOnboardingProgressUpdate | null;
-  searchOpen: boolean;
-  selectedRunId: string | null;
   selectedTraceEvent: TraceDisplayEvent | null;
   snapshot: WorkspaceSnapshot | null;
   traceDetailOpen: boolean;
@@ -133,7 +123,6 @@ export function AppModals({
   onChangeVisibleTraceCategories: (categories: TraceCategoryId[]) => void;
   onCloseNotification: () => void;
   onCloseProfiling: () => void;
-  onCloseSearch: () => void;
   onCloseTraceDetail: () => void;
   onCloseTraceFilters: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
@@ -145,7 +134,6 @@ export function AppModals({
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
   onSubmitWorkspaceOnboarding: () => void;
-  onOpenSearchResult: (result: SessionTranscriptSearchResult, query: string) => void;
   onAddAgentPluginFromFilesystem: () => void;
   onAddAgentPluginFromRepository: () => void;
   onSetAgentPluginEnabled: (pluginId: string, enabled: boolean) => void;
@@ -216,15 +204,6 @@ export function AppModals({
           visibleCategories={visibleTraceCategories}
           onChange={onChangeVisibleTraceCategories}
           onClose={onCloseTraceFilters}
-        />
-      ) : null}
-      {searchOpen ? (
-        <TranscriptSearchSheet
-          activeWorkspaceName={activeWorkspaceName}
-          workspaceOpen={Boolean(snapshot)}
-          selectedRunId={selectedRunId}
-          onClose={onCloseSearch}
-          onOpenResult={onOpenSearchResult}
         />
       ) : null}
       {activeNotification ? (
