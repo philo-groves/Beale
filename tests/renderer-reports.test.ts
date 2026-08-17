@@ -220,7 +220,7 @@ describe('reports resource views', () => {
     expect(reportsForReportingScope([report, otherReport], null)).toHaveLength(2);
     expect(reportsForReportingScope([report, otherReport], workspace.workspaceId)).toEqual([report]);
     expect(appSource).toContain('setReportingScopeWorkspaceId(snapshot?.workspace.workspaceId ?? null);');
-    expect(appSource).toContain('{reportsOpen ? (');
+    expect(appSource).toContain('reportsOpen ? (');
     expect(sidebarSource).not.toMatch(/title="Reporting"[^>]*disabled=\{!snapshot\}/);
   });
 

@@ -24,7 +24,6 @@ import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboar
 import { TranscriptSearchSheet } from '../features/search/TranscriptSearchSheet';
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import { PluginManagerModal } from '../features/plugins/PluginManagerModal';
-import { AutomationsModal } from '../features/plugins/AutomationsModal';
 import type { ResearchGoalSeed } from '../features/sessions/SessionNextSteps';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
@@ -39,7 +38,6 @@ export function AppModals({
   busy,
   newResearchOpen,
   newResearchInitialGoal,
-  automationsOpen,
   pluginsOpen,
   agentPluginState,
   agentPluginsLoading,
@@ -68,7 +66,6 @@ export function AppModals({
   traceFilterOpen,
   visibleTraceCategories,
   onCancelNewResearch,
-  onCloseAutomations,
   onClosePlugins,
   onCancelWorkspaceOnboarding,
   onPluginRepositoryUrlChange,
@@ -86,8 +83,6 @@ export function AppModals({
   onSelectResearchGoalSuggestion,
   onRetryResearchGoalSuggestions,
   onStartedNewResearch,
-  onCancelRepeatAutomation,
-  onOpenAutomationSession,
   onSteerNotification,
   onSubmitWorkspaceOnboarding,
   onOpenSearchResult,
@@ -103,7 +98,6 @@ export function AppModals({
   busy: boolean;
   newResearchOpen: boolean;
   newResearchInitialGoal: ResearchGoalSeed | null;
-  automationsOpen: boolean;
   pluginsOpen: boolean;
   agentPluginState: AgentPluginRegistryState | null;
   agentPluginsLoading: boolean;
@@ -132,7 +126,6 @@ export function AppModals({
   traceFilterOpen: boolean;
   visibleTraceCategories: TraceCategoryId[];
   onCancelNewResearch: () => void;
-  onCloseAutomations: () => void;
   onClosePlugins: () => void;
   onCancelWorkspaceOnboarding: () => void;
   onPluginRepositoryUrlChange: (value: string) => void;
@@ -150,8 +143,6 @@ export function AppModals({
   onSelectResearchGoalSuggestion: (phase: ResearchGoalPhase, suggestion: string) => void;
   onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStartedNewResearch: (runId: string) => void;
-  onCancelRepeatAutomation: (runId: string) => void;
-  onOpenAutomationSession: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
   onSubmitWorkspaceOnboarding: () => void;
   onOpenSearchResult: (result: SessionTranscriptSearchResult, query: string) => void;
@@ -210,15 +201,6 @@ export function AppModals({
           onSetEnabled={onSetAgentPluginEnabled}
           onRemove={onRemoveAgentPlugin}
           onClose={onClosePlugins}
-        />
-      ) : null}
-      {automationsOpen ? (
-        <AutomationsModal
-          snapshot={snapshot}
-          busy={busy}
-          onCancelRepeat={onCancelRepeatAutomation}
-          onOpenSession={onOpenAutomationSession}
-          onClose={onCloseAutomations}
         />
       ) : null}
       {profilingOpen ? (

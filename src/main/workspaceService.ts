@@ -59,6 +59,7 @@ import {
   resolveHoneycrispAuxiliaryModelRoute,
   resolveHoneycrispStoragePaths,
   restoreHoneycrispMemoryDreamingChange,
+  type HoneycrispSessionSummary,
   type MemoryDreamingProfileInput,
   type MemoryDreamingPlan,
   type HoneycrispAuxiliaryModelRoute
@@ -94,6 +95,9 @@ import { isLiveResearchRunStatus } from '../shared/types';
 import { isHoneycrispToolTraceEvent, projectRunDetailForRenderer } from '../shared/runDetailProjection';
 import type {
   ApprovalRecord,
+  ActiveRepeatSchedule,
+  AutomationSummary,
+  AutomationUpdateInput,
   AttemptRecord,
   ArtifactRecord,
   DeveloperSettings,
@@ -145,6 +149,7 @@ import type {
   RunDetailVersion,
   RunMessageDetail,
   RunMessageDetailRequest,
+  RunRecord,
   RunStatus,
   RunRow,
   SessionTranscriptSearchInput,
@@ -1080,6 +1085,110 @@ export class WorkspaceService {
     const report = summary.reports.find((candidate) => candidate.id === reportId);
     if (!report) throw new Error(`Report not found in the active workspace: ${reportId}`);
     return resolveHoneycrispArtifact(report.artifactId, this.honeycrispStorage(runtime), 'report').path;
+  }
+
+  public async listAutomations(): Promise<AutomationSummary[]> {
+    const workspaces = this.getWorkspaceRegistry().getState().workspaces.filter((workspace) => workspace.workspaceId.length > 0);
+    const catalogs = await Promise.all(workspaces.map(async (workspace) => {
+      const runtime = this.requireIntrospectionRuntime({ registryWorkspaceId: workspace.id });
+      const sessions = await listHoneycrispSessionSummariesAsync(
+        workspace.workspaceId,
+        {
+          databasePath: this.globalHoneycrispDatabasePath(workspace.researchProfileId),
+          artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(workspace.researchProfileId)
+        },
+        500
+      );
+      return sessions.flatMap((session) => {
+        const automation = automationSummaryFromSession(
+          session,
+          workspace.workspaceName,
+          runtime.db.getRunResearchProfileSnapshot(session.id)
+        );
+        return automation ? [automation] : [];
+      });
+    }));
+    return catalogs.flat().sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt) || left.title.localeCompare(right.title));
+  }
+
+  public updateAutomation(input: AutomationUpdateInput): AutomationSummary {
+    const settings = input.settings;
+    if (settings.runEngine !== 'honeycrisp') throw new Error('Automations must use the Honeycrisp run engine.');
+    if (!Number.isFinite(settings.budget.maxMinutes) || settings.budget.maxMinutes < 1) {
+      throw new Error("Automation max minutes must be at least 1.");
+    }
+    if (!Number.isFinite(settings.budget.maxAttempts) || settings.budget.maxAttempts < 1) {
+      throw new Error("Automation max attempts must be at least 1.");
+    }
+    if (!Number.isFinite(settings.budget.maxCostUsd) || settings.budget.maxCostUsd < 0) {
+      throw new Error("Automation max cost must be at least 0.");
+    }
+
+    const workspaceId = input.workspaceId.trim();
+    const workspace = this.getWorkspaceRegistry().getState().workspaces.find((candidate) => candidate.workspaceId === workspaceId);
+    if (!workspace) throw new Error(`Automation workspace is not registered: ${workspaceId}`);
+    const runtime = this.requireIntrospectionRuntime({ registryWorkspaceId: workspace.id });
+    const run = runtime.db.getRun(input.runId);
+    if (!run) throw new Error(`Automation session was not found: ${input.runId}`);
+    const existingSchedule = automationScheduleFromBudget(run.budget);
+    if (!existingSchedule) throw new Error(`Session is not an automation: ${input.runId}`);
+    const schedule = normalizeRepeatSchedule(settings.budget.repeatSchedule);
+    if (schedule.type === 'none') throw new Error('An automation schedule must repeat.');
+    const provider = settings.provider?.trim();
+    if (!isResearchModelProviderId(provider)) throw new Error('Automation Lead provider is invalid.');
+    const model = settings.model.trim();
+    if (!model) throw new Error('Automation Lead model cannot be empty.');
+    const reasoningEffort = automationReasoningEffort(settings.reasoningEffort);
+    const promptMarkdown = settings.promptMarkdown.trim();
+    if (!promptMarkdown) throw new Error('Automation instructions cannot be empty.');
+    const collaboration = normalizeResearchCollaboration(settings.collaboration);
+    const providerSettings = this.getWorkspaceRegistry().getProviderSettings();
+    requireEnabledProviderModel(providerSettings, provider, model);
+    for (const collaborator of collaboration.providers.filter((candidate) => candidate.enabled)) {
+      requireEnabledProviderModel(providerSettings, collaborator.provider, collaborator.model);
+    }
+    const researchProfile = runtime.db.getRunResearchProfileSnapshot(run.id);
+    const workflowId = settings.workflowId?.trim() || null;
+    if (workflowId && researchProfile && !researchProfile.profile.workflows.some((workflow) => workflow.id === workflowId)) {
+      throw new Error(`Automation workflow is not available in its research profile: ${workflowId}`);
+    }
+    if (researchProfile?.profile.id === 'security-research' && collaboration.mode !== 'solo') {
+      requireCollaborationPolicyAcknowledgements(
+        collaboration.providers.filter((candidate) => candidate.enabled).map((candidate) => candidate.provider),
+        providerSettings
+      );
+    }
+    const title = input.title.replace(/\s+/g, ' ').trim();
+    if (!title) throw new Error('Automation title cannot be empty.');
+
+    runtime.db.updateRunTitle(run.id, title);
+    runtime.db.updateRunPrompt(run.id, promptMarkdown);
+    runtime.db.updateRunShellSafetyMode(run.id, normalizeShellSafetyMode(settings.shellSafetyMode));
+    runtime.db.updateRunModelSelection(run.id, { provider, model, reasoningEffort });
+    const updated = runtime.db.updateRunBudget(run.id, {
+      ...settings.budget,
+      maxMinutes: settings.budget.maxMinutes,
+      maxAttempts: settings.budget.maxAttempts,
+      maxCostUsd: settings.budget.maxCostUsd,
+      repeatSchedule: input.enabled ? schedule : { type: 'none' },
+      automationSchedule: schedule,
+      modelProvider: provider,
+      goalEnabled: settings.goalEnabled,
+      goalObjective: settings.goalObjective,
+      researchWorkflowId: workflowId,
+      collaboration
+    });
+    this.emitRuntimeChange(runtime.workspacePath, { workspaceRegistryChanged: true });
+    return automationSummaryFromRun(
+      updated,
+      workspace.workspaceId,
+      workspace.workspaceName,
+      title,
+      input.enabled,
+      schedule,
+      researchProfile
+    );
   }
 
   public async listReportingReports(): Promise<HoneycrispReportSummary[]> {
@@ -6207,6 +6316,138 @@ function memorySubjectId(subjectName: string): string {
 function numberFromBudget(budget: Record<string, unknown>, key: string, fallback: number): number {
   const value = budget[key];
   return typeof value === 'number' ? value : fallback;
+}
+
+function automationSummaryFromSession(
+  session: HoneycrispSessionSummary,
+  workspaceName: string,
+  researchProfile: ResearchProfileSnapshot | null
+): AutomationSummary | null {
+  const storedRun = recordFromUnknown(session.metadata.bealeRun);
+  const budget = recordFromUnknown(storedRun?.budget) ?? {};
+  const schedule = automationScheduleFromBudget(budget);
+  if (!schedule) return null;
+  return {
+    runId: session.id,
+    workspaceId: session.workspaceId,
+    workspaceName,
+    title: session.title,
+    promptPreview: session.prompt.replace(/\s+/g, ' ').trim().slice(0, 220),
+    enabled: normalizeRepeatSchedule(budget.repeatSchedule).type !== 'none',
+    schedule,
+    maxMinutes: numberFromBudget(budget, 'maxMinutes', 1),
+    maxAttempts: numberFromBudget(budget, 'maxAttempts', 1),
+    maxCostUsd: numberFromBudget(budget, 'maxCostUsd', 0),
+    settings: automationSettingsFromSession(session, storedRun, budget, schedule),
+    researchProfile,
+    sessionStatus: session.status,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt
+  };
+}
+
+function automationSummaryFromRun(
+  run: RunRecord,
+  workspaceId: string,
+  workspaceName: string,
+  title: string,
+  enabled: boolean,
+  schedule: ActiveRepeatSchedule,
+  researchProfile: ResearchProfileSnapshot | null
+): AutomationSummary {
+  return {
+    runId: run.id,
+    workspaceId,
+    workspaceName,
+    title,
+    promptPreview: run.promptMarkdown.replace(/\s+/g, ' ').trim().slice(0, 220),
+    enabled,
+    schedule,
+    maxMinutes: numberFromBudget(run.budget, 'maxMinutes', 1),
+    maxAttempts: numberFromBudget(run.budget, 'maxAttempts', 1),
+    maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0),
+    settings: automationSettingsFromRun(run, schedule),
+    researchProfile,
+    sessionStatus: run.status,
+    createdAt: run.createdAt,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function automationSettingsFromSession(
+  session: HoneycrispSessionSummary,
+  storedRun: Record<string, unknown> | null,
+  budget: Record<string, unknown>,
+  schedule: ActiveRepeatSchedule
+): StartRunInput {
+  const provider = stringFromRecord(budget, 'modelProvider').trim() || session.provider?.trim() || '';
+  const goalObjective = stringFromRecord(budget, 'goalObjective').trim();
+  const workflowId = stringFromRecord(budget, 'researchWorkflowId').trim() || session.workflowId?.trim() || '';
+  return {
+    runEngine: 'honeycrisp',
+    ...(provider ? { provider } : {}),
+    shellSafetyMode: normalizeShellSafetyMode(session.metadata.shellSafetyMode ?? storedRun?.shellSafetyMode),
+    goalEnabled: budget.goalEnabled === true,
+    goalObjective: goalObjective || null,
+    promptMarkdown: session.prompt,
+    ...(workflowId ? { workflowId } : {}),
+    mode: stringFromRecord(storedRun ?? {}, 'mode') || 'dynamic',
+    attemptStrategy: stringFromRecord(storedRun ?? {}, 'attemptStrategy') || 'iterative_research',
+    model: session.model,
+    reasoningEffort: session.reasoningEffort,
+    ...(budget.collaboration ? { collaboration: normalizeResearchCollaboration(budget.collaboration) } : {}),
+    sandboxProfile: stringFromRecord(storedRun ?? {}, 'sandboxProfile') || 'host',
+    targetAssetId: stringFromRecord(storedRun ?? {}, 'targetAssetId') || null,
+    targetPath: stringFromRecord(storedRun ?? {}, 'targetPath') || null,
+    budget: automationBudget(budget, schedule)
+  };
+}
+
+function automationSettingsFromRun(run: RunRecord, schedule: ActiveRepeatSchedule): StartRunInput {
+  const provider = stringFromRecord(run.budget, 'modelProvider').trim();
+  const goalObjective = stringFromRecord(run.budget, 'goalObjective').trim();
+  const workflowId = stringFromRecord(run.budget, 'researchWorkflowId').trim();
+  return {
+    runEngine: 'honeycrisp',
+    ...(provider ? { provider } : {}),
+    shellSafetyMode: run.shellSafetyMode,
+    goalEnabled: run.budget.goalEnabled === true,
+    goalObjective: goalObjective || null,
+    promptMarkdown: run.promptMarkdown,
+    ...(workflowId ? { workflowId } : {}),
+    mode: run.mode,
+    attemptStrategy: run.attemptStrategy,
+    model: run.model,
+    reasoningEffort: run.reasoningEffort,
+    ...(run.budget.collaboration ? { collaboration: normalizeResearchCollaboration(run.budget.collaboration) } : {}),
+    sandboxProfile: run.sandboxProfile,
+    targetAssetId: run.targetAssetId,
+    targetPath: run.targetPath,
+    budget: automationBudget(run.budget, schedule)
+  };
+}
+
+function automationBudget(budget: Record<string, unknown>, schedule: ActiveRepeatSchedule): StartRunInput['budget'] {
+  return {
+    maxMinutes: numberFromBudget(budget, 'maxMinutes', 1),
+    maxAttempts: numberFromBudget(budget, 'maxAttempts', 1),
+    maxCostUsd: numberFromBudget(budget, 'maxCostUsd', 0),
+    repeatSchedule: schedule,
+    automationSchedule: schedule
+  };
+}
+
+function automationReasoningEffort(value: string): ResearchModelEffortLevel {
+  if (value === 'off' || value === 'minimal' || value === 'low' || value === 'medium'
+    || value === 'high' || value === 'xhigh' || value === 'max') return value;
+  throw new Error(`Automation reasoning effort is invalid: ${value || '(empty)'}`);
+}
+
+function automationScheduleFromBudget(budget: Record<string, unknown>): ActiveRepeatSchedule | null {
+  const active = normalizeRepeatSchedule(budget.repeatSchedule);
+  if (active.type !== 'none') return active;
+  const retained = normalizeRepeatSchedule(budget.automationSchedule);
+  return retained.type === 'none' ? null : retained;
 }
 
 function stringFromRecord(record: Record<string, unknown>, key: string): string {

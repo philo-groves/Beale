@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   HoneycrispMemoryDirectorySummary,
+  AutomationUpdateInput,
   HoneycrispToolingConfigUpdate,
   NativeMenuAction,
   ProfilingReport,
@@ -582,12 +583,18 @@ function registerIpc(): void {
       if (error) throw new Error(error);
     })
   );
-  ipcMain.handle(IPC_CHANNELS.getHoneycrispRunbook, (_event, runbookId: string) =>
+    ipcMain.handle(IPC_CHANNELS.getHoneycrispRunbook, (_event, runbookId: string) =>
     timedMainIpc('getHoneycrispRunbook', { runbook: shortMetricId(runbookId) }, () =>
       workspaceService.getHoneycrispRunbook(runbookId)
     )
-  );
-  ipcMain.handle(IPC_CHANNELS.listReportingReports, () =>
+    );
+    ipcMain.handle(IPC_CHANNELS.listAutomations, () =>
+      timedMainIpcAsync('listAutomations', {}, () => workspaceService.listAutomations())
+    );
+    ipcMain.handle(IPC_CHANNELS.updateAutomation, (_event, input: AutomationUpdateInput) =>
+      timedMainIpc('updateAutomation', { run: shortMetricId(input.runId) }, () => workspaceService.updateAutomation(input))
+    );
+    ipcMain.handle(IPC_CHANNELS.listReportingReports, () =>
     timedMainIpc('listReportingReports', {}, () => workspaceService.listReportingReports())
   );
   ipcMain.handle(IPC_CHANNELS.getHoneycrispReport, (_event, locator: HoneycrispReportLocator) =>

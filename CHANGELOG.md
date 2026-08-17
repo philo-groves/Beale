@@ -81,6 +81,7 @@
 
 ### Changed
 
+- Automations now open as a main-content workspace view instead of a dialog, with All Automations and workspace scopes, Active and Inactive status lists, and an editor built from the reusable New Research settings form. Automation edits inflate the stored prompt, safety, workflow, repeat schedule, Lead and collaborator models, and collaboration controls without goal suggestions; disabled automations retain their schedule for later reactivation.
 - Reporting no longer requires an open workspace: its catalog defaults to All Workspaces, offers workspace scope tabs with the same compact content spacing as Profile settings, groups reports into divider-separated status lists, and defaults to the currently selected workspace when entered from one. Cross-workspace report reads stay independent of foreground navigation; starting an edit session opens the report's owning workspace.
 - The left-sidebar scrollbar now becomes visible on hover only when its measured list content exceeds the available height.
 - Left-sidebar session rows now reserve their leading slot for active spinners or durable unviewed-result dots, keep relative time on the right during active work, and show only muted active spinners for breakout rooms instead of status dots.

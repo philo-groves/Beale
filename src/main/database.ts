@@ -9,6 +9,7 @@ import { resolvedBreakoutRoomStatus } from './breakoutRoomStatus';
 import { decodeResearchProfileJson, decodeResolvedResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
 import { normalizeShellSafetyMode } from '../shared/shellSafety';
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
+import { normalizeResearchCollaboration } from '../shared/collaboration';
 import type {
   ApprovalRecord,
   ArtifactRecord,
@@ -4115,6 +4116,16 @@ export class WorkspaceDatabase {
     return run;
   }
 
+  public updateRunPrompt(runId: string, promptMarkdown: string): RunRecord {
+    const normalized = promptMarkdown.trim();
+    if (!normalized) throw new Error('Run prompt cannot be empty.');
+    this.db.prepare('UPDATE runs SET prompt_markdown = ? WHERE id = ?').run(normalized, runId);
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run not found after prompt update: ${runId}`);
+    this.indexRunSearchDocument(run);
+    return run;
+  }
+
   public updateRunModelSelection(runId: string, selection: ResearchModelSelection): RunRecord {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
@@ -4161,6 +4172,28 @@ export class WorkspaceDatabase {
     }
     if (budgetPatch.repeatSchedule !== undefined) {
       nextBudget.repeatSchedule = normalizeRepeatSchedule(budgetPatch.repeatSchedule);
+    }
+    if (budgetPatch.automationSchedule !== undefined) {
+      const schedule = normalizeRepeatSchedule(budgetPatch.automationSchedule);
+      if (schedule.type === 'none') throw new Error('An automation schedule must repeat.');
+      nextBudget.automationSchedule = schedule;
+    }
+    if (budgetPatch.modelProvider !== undefined) {
+      nextBudget.modelProvider = budgetPatch.modelProvider?.trim() || null;
+    }
+    if (budgetPatch.goalEnabled !== undefined) {
+      nextBudget.goalEnabled = budgetPatch.goalEnabled;
+    }
+    if (budgetPatch.goalObjective !== undefined) {
+      nextBudget.goalObjective = budgetPatch.goalObjective?.trim() || null;
+    }
+    if (budgetPatch.researchWorkflowId !== undefined) {
+      nextBudget.researchWorkflowId = budgetPatch.researchWorkflowId?.trim() || null;
+    }
+    if (budgetPatch.collaboration !== undefined) {
+      nextBudget.collaboration = budgetPatch.collaboration
+        ? normalizeResearchCollaboration(budgetPatch.collaboration)
+        : null;
     }
     this.db.prepare('UPDATE runs SET budget_json = ? WHERE id = ?').run(toJson(nextBudget), runId);
     const updated = this.getRun(runId);

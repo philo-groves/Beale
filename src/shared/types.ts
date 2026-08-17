@@ -1125,6 +1125,12 @@ export interface StartRunInput {
     maxAttempts: number;
     maxCostUsd: number;
     repeatSchedule?: RepeatSchedule;
+    automationSchedule?: RepeatSchedule;
+    modelProvider?: string | null;
+    goalEnabled?: boolean;
+    goalObjective?: string | null;
+    researchWorkflowId?: string | null;
+    collaboration?: ResearchCollaborationPreferences | null;
   };
 }
 
@@ -1135,6 +1141,34 @@ export type RepeatSchedule =
   | { type: 'daily'; interval: number }
   | { type: 'weekly'; interval: number }
   | { type: 'monthly'; interval: number };
+
+export type ActiveRepeatSchedule = Exclude<RepeatSchedule, { type: 'none' }>;
+
+export interface AutomationSummary {
+  runId: string;
+  workspaceId: string;
+  workspaceName: string;
+  title: string;
+  promptPreview: string;
+  enabled: boolean;
+  schedule: ActiveRepeatSchedule;
+  maxMinutes: number;
+  maxAttempts: number;
+  maxCostUsd: number;
+  settings: StartRunInput;
+  researchProfile: ResearchProfileSnapshot | null;
+  sessionStatus: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AutomationUpdateInput {
+  runId: string;
+  workspaceId: string;
+  title: string;
+  enabled: boolean;
+  settings: StartRunInput;
+}
 
 export interface ResearchSubjectInput {
   id?: string | null;
@@ -1677,6 +1711,8 @@ export interface BealeApi {
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
   getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument>;
+  listAutomations(): Promise<AutomationSummary[]>;
+  updateAutomation(input: AutomationUpdateInput): Promise<AutomationSummary>;
   listReportingReports(): Promise<HoneycrispReportSummary[]>;
   getHoneycrispReport(locator: HoneycrispReportLocator): Promise<HoneycrispReportDocument>;
   startReportSession(input: ReportSessionStartInput): Promise<ReportSessionStartResult>;

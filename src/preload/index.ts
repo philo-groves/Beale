@@ -16,6 +16,8 @@ import type {
   HackerOneScopeLookupResult,
   GitHubRepositorySummary,
   HoneycrispMemoryDirectorySummary,
+  AutomationSummary,
+  AutomationUpdateInput,
   MemoryDreamingProgressUpdate,
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
@@ -229,6 +231,12 @@ const api: BealeApi = {
   },
   getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispRunbook, runbookId);
+  },
+  listAutomations(): Promise<AutomationSummary[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.listAutomations);
+  },
+  updateAutomation(input: AutomationUpdateInput): Promise<AutomationSummary> {
+    return ipcRenderer.invoke(IPC_CHANNELS.updateAutomation, input);
   },
   listReportingReports(): Promise<HoneycrispReportSummary[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.listReportingReports);

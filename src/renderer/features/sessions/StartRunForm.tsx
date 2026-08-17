@@ -12,6 +12,7 @@ import type {
   ProviderSettings,
   ResearchCollaborationIntensity,
   ResearchCollaborationMode,
+  ResearchProfileSnapshot,
   ResearchProfileWorkflow,
   ResearchProviderModel,
   ResearchProviderModelCatalog,
@@ -107,26 +108,7 @@ const LEGACY_RESEARCH_GOAL_WORKFLOWS: readonly ResearchProfileWorkflow[] = [
   }
 ];
 
-export function StartRunForm({
-  snapshot,
-  openAiStatus,
-  defaultProviderId,
-  providerModelDefaults,
-  providerPolicyRiskAcknowledgements = undefined,
-  researchProviderStatuses,
-  providerModelCatalog,
-  researchGoalSuggestions,
-  researchGoalSuggestionsLoading,
-  researchGoalSuggestionErrors,
-  initialGoal = null,
-  busy,
-  runAction,
-  onCancel,
-  onLoadResearchGoalSuggestions = () => undefined,
-  onSelectResearchGoalSuggestion = () => undefined,
-  onRetryResearchGoalSuggestions,
-  onStarted
-}: {
+interface StartRunFormProps {
   snapshot: WorkspaceSnapshot;
   openAiStatus: OpenAiAccountStatus | null;
   defaultProviderId: ResearchModelProviderId | null | undefined;
@@ -145,27 +127,101 @@ export function StartRunForm({
   onSelectResearchGoalSuggestion?: (phase: ResearchGoalPhase, suggestion: string) => void;
   onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStarted: (runId: string) => void;
-}): JSX.Element {
-  const profile = snapshot.researchProfile?.profile;
+}
+
+export interface ResearchSettingsFormProps {
+  researchProfile: ResearchProfileSnapshot | null;
+  formIdentity: string;
+  openAiStatus: OpenAiAccountStatus | null;
+  defaultProviderId: ResearchModelProviderId | null | undefined;
+  providerModelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> | undefined;
+  providerPolicyRiskAcknowledgements?: ProviderSettings['cyberPolicyRiskAcknowledgements'];
+  researchProviderStatuses: ResearchProviderStatus[];
+  providerModelCatalog: ResearchProviderModelCatalog[];
+  researchGoalSuggestions?: ResearchGoalSuggestionsByPhase;
+  researchGoalSuggestionsLoading?: ResearchGoalSuggestionStateByPhase<boolean>;
+  researchGoalSuggestionErrors?: ResearchGoalSuggestionStateByPhase<string | null>;
+  initialGoal?: ResearchGoalSeed | null;
+  initialInput?: StartRunInput;
+  showSuggestions?: boolean;
+  disableNoRepeat?: boolean;
+  presentation?: 'dialog' | 'embedded';
+  title?: string;
+  submitLabel?: string;
+  busy: boolean;
+  onCancel?: () => void;
+  onLoadResearchGoalSuggestions?: (phase: ResearchGoalPhase) => void;
+  onSelectResearchGoalSuggestion?: (phase: ResearchGoalPhase, suggestion: string) => void;
+  onRetryResearchGoalSuggestions?: (phase: ResearchGoalPhase) => void;
+  onSubmit: (input: StartRunInput) => Promise<void> | void;
+}
+
+export function StartRunForm(props: StartRunFormProps): JSX.Element {
+  const {
+    snapshot,
+    runAction,
+    onStarted,
+    ...settingsProps
+  } = props;
+  return (
+    <ResearchSettingsForm
+      {...settingsProps}
+      researchProfile={snapshot.researchProfile ?? null}
+      formIdentity={`${snapshot.workspace.workspaceId}:${snapshot.activeScope.id}:${snapshot.researchProfile?.profileHash ?? 'default'}`}
+      showSuggestions
+      presentation="dialog"
+      onSubmit={(input) => runAction(async () => {
+        const next = await window.beale.startRun(input);
+        const latestRunId = next.runs[0]?.run.id;
+        if (latestRunId) onStarted(latestRunId);
+        return next;
+      })}
+    />
+  );
+}
+
+export function ResearchSettingsForm({
+  researchProfile,
+  formIdentity,
+  openAiStatus,
+  defaultProviderId,
+  providerModelDefaults,
+  providerPolicyRiskAcknowledgements = undefined,
+  researchProviderStatuses,
+  providerModelCatalog,
+  researchGoalSuggestions = {},
+  researchGoalSuggestionsLoading = {},
+  researchGoalSuggestionErrors = {},
+  initialGoal = null,
+  initialInput,
+  showSuggestions = true,
+  disableNoRepeat = false,
+  presentation: formPresentation = 'embedded',
+  title,
+  submitLabel = 'Save changes',
+  busy,
+  onCancel = () => undefined,
+  onLoadResearchGoalSuggestions = () => undefined,
+  onSelectResearchGoalSuggestion = () => undefined,
+  onRetryResearchGoalSuggestions = () => undefined,
+  onSubmit
+}: ResearchSettingsFormProps): JSX.Element {
+  const profile = researchProfile?.profile;
   const workflows = profile?.workflows.length ? profile.workflows : LEGACY_RESEARCH_GOAL_WORKFLOWS;
   const defaultWorkflowId = defaultResearchWorkflowId(workflows);
-  const presentation = profile?.presentation;
+  const profilePresentation = profile?.presentation;
   const initialWorkflowId = initialGoal?.phase ?? defaultWorkflowId;
-  const [input, setInput] = useState<StartRunInput>(() => ({
-    ...defaultRunInput,
-    workflowId: initialWorkflowId,
-    goalObjective: initialGoal?.sentence ?? null,
-    promptMarkdown: initialGoal?.sentence ?? '',
-    sandboxProfile: 'host'
-  }));
+  const [input, setInput] = useState<StartRunInput>(() => researchSettingsInput(initialInput, initialWorkflowId, initialGoal));
   const [startingRun, setStartingRun] = useState(false);
-  const [editorStage, setEditorStage] = useState<PromptEditorStage>('goal');
+  const [editorStage, setEditorStage] = useState<PromptEditorStage>(initialInput ? 'prompt' : 'goal');
   const [generateEnabled, setGenerateEnabled] = useState(false);
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
-  const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId | null>(defaultProviderId ?? null);
-  const providerSelectionInitializedRef = useRef(false);
-  const modelSelectionInitializedRef = useRef(false);
+  const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId | null>(
+    researchProviderId(initialInput?.provider) ?? defaultProviderId ?? null
+  );
+  const providerSelectionInitializedRef = useRef(Boolean(initialInput?.provider));
+  const modelSelectionInitializedRef = useRef(Boolean(initialInput?.model));
   const promptBoxRef = useRef<HTMLTextAreaElement | null>(null);
   const inputRef = useRef(input);
   const mountedRef = useRef(true);
@@ -314,21 +370,16 @@ export function StartRunForm({
 
   useEffect(() => {
     cancelPromptGeneration();
-    setInput((current) => {
-      const next = {
-        ...current,
-        shellSafetyMode: DEFAULT_SHELL_SAFETY_MODE,
-        sandboxProfile: 'host',
-        workflowId: initialGoal?.phase ?? defaultWorkflowId,
-        goalObjective: initialGoal?.sentence ?? null,
-        promptMarkdown: initialGoal?.sentence ?? ''
-      };
-      inputRef.current = next;
-      return next;
-    });
-    setEditorStage('goal');
+    const next = researchSettingsInput(initialInput, initialGoal?.phase ?? defaultWorkflowId, initialGoal);
+    inputRef.current = next;
+    setInput(next);
+    const inflatedProvider = researchProviderId(initialInput?.provider);
+    setSelectedProviderId(inflatedProvider ?? defaultProviderId ?? null);
+    providerSelectionInitializedRef.current = Boolean(inflatedProvider);
+    modelSelectionInitializedRef.current = Boolean(initialInput?.model);
+    setEditorStage(initialInput ? 'prompt' : 'goal');
     setGenerationError(null);
-  }, [defaultWorkflowId, initialGoal, snapshot.activeScope.id, snapshot.researchProfile?.profileHash, snapshot.workspace.workspaceId]);
+  }, [defaultProviderId, defaultWorkflowId, formIdentity, initialGoal, initialInput]);
 
   useEffect(() => {
     inputRef.current = input;
@@ -481,12 +532,7 @@ export function StartRunForm({
   const startWithInput = (startInput: StartRunInput): void => {
     if (startingRun) return;
     setStartingRun(true);
-    void runAction(async () => {
-      const next = await window.beale.startRun(startInput);
-      const latestRunId = next.runs[0]?.run.id;
-      if (latestRunId) onStarted(latestRunId);
-      return next;
-    }).finally(() => setStartingRun(false));
+    void Promise.resolve(onSubmit(startInput)).finally(() => setStartingRun(false));
   };
 
   const start = (): void => {
@@ -555,6 +601,7 @@ export function StartRunForm({
   };
 
   const selectRepeatSchedule = (repeatSchedule: RepeatSchedule): void => {
+    if (disableNoRepeat && normalizeRepeatSchedule(repeatSchedule).type === 'none') return;
     setInput((current) => {
       const next = {
         ...current,
@@ -657,43 +704,38 @@ export function StartRunForm({
     });
   };
 
-  const closeModal = (): void => {
+  const closeForm = (): void => {
     cancelPromptGeneration();
     onCancel();
   };
 
-  return (
-    <Modal
-      title={presentation?.newResearchLabel ?? 'New Research'}
-      wide
-      className="start-run-dialog"
-      onClose={closeModal}
-      footer={
-        <>
-          {generateEnabled ? (
-            <button type="button" disabled={busy || startingRun || !canGenerate} onClick={() => void generateFullPrompt()}>
-              <Sparkles size={15} />
-              Add Context
-            </button>
-          ) : null}
-          <button
-            className="primary-button"
-            type="button"
-            disabled={busy || startingRun || generatingPrompt || !canStart}
-            onClick={generateEnabled ? generateAndStart : start}
-          >
-            {generateEnabled ? <Sparkles size={16} /> : <Play size={16} />}
-            {generateEnabled ? 'Add Context & Start' : 'Start'}
-          </button>
-        </>
-      }
-    >
-      <div className="start-run-modal-body">
-        <div className="new-research-compose-layout">
+  const primaryLabel = formPresentation === 'dialog' ? 'Start' : submitLabel;
+  const actions = (
+    <>
+      {generateEnabled ? (
+        <button type="button" disabled={busy || startingRun || !canGenerate} onClick={() => void generateFullPrompt()}>
+          <Sparkles size={15} />
+          Add Context
+        </button>
+      ) : null}
+      <button
+        className="primary-button"
+        type="button"
+        disabled={busy || startingRun || generatingPrompt || !canStart}
+        onClick={generateEnabled ? generateAndStart : start}
+      >
+        {generateEnabled ? <Sparkles size={16} /> : formPresentation === 'dialog' ? <Play size={16} /> : null}
+        {generateEnabled ? `Add Context & ${primaryLabel}` : primaryLabel}
+      </button>
+    </>
+  );
+  const content = (
+      <div className={`start-run-modal-body research-settings-form-body ${showSuggestions ? '' : 'without-suggestions'}`.trim()}>
+        <div className={`new-research-compose-layout ${showSuggestions ? '' : 'without-suggestions'}`.trim()}>
           <section className="new-research-composer" aria-label="Research objective composer" aria-busy={generatingPrompt}>
             <textarea
               ref={promptBoxRef}
-              autoFocus
+              autoFocus={formPresentation === 'dialog'}
               value={input.promptMarkdown}
               disabled={generatingPrompt}
               placeholder={editorStage === 'goal'
@@ -727,6 +769,7 @@ export function StartRunForm({
               <RepeatSchedulePicker
                 value={repeatSchedule}
                 disabled={generatingPrompt}
+                disableNoRepeat={disableNoRepeat}
                 onChange={selectRepeatSchedule}
               />
               <label
@@ -755,17 +798,19 @@ export function StartRunForm({
               </label>
             </div>
           </section>
-          <ResearchGoalChooser
-            workflows={workflows}
-            suggestions={researchGoalSuggestions}
-            loading={researchGoalSuggestionsLoading}
-            errors={researchGoalSuggestionErrors}
-            selectedWorkflowId={activeWorkflowId}
-            onSelectWorkflow={selectWorkflow}
-            onLoad={onLoadResearchGoalSuggestions}
-            onSelect={selectGoalSentence}
-            onRetry={onRetryResearchGoalSuggestions}
-          />
+          {showSuggestions ? (
+            <ResearchGoalChooser
+              workflows={workflows}
+              suggestions={researchGoalSuggestions}
+              loading={researchGoalSuggestionsLoading}
+              errors={researchGoalSuggestionErrors}
+              selectedWorkflowId={activeWorkflowId}
+              onSelectWorkflow={selectWorkflow}
+              onLoad={onLoadResearchGoalSuggestions}
+              onSelect={selectGoalSentence}
+              onRetry={onRetryResearchGoalSuggestions}
+            />
+          ) : null}
         </div>
         <div className="collaboration-settings">
             <div className="research-model-team">
@@ -921,17 +966,35 @@ export function StartRunForm({
             ) : null}
         </div>
       </div>
+  );
+
+  return formPresentation === 'dialog' ? (
+    <Modal
+      title={title ?? profilePresentation?.newResearchLabel ?? 'New Research'}
+      wide
+      className="start-run-dialog"
+      onClose={closeForm}
+      footer={actions}
+    >
+      {content}
     </Modal>
+  ) : (
+    <div className="research-settings-form" aria-label={title ?? 'Research settings'}>
+      {content}
+      <div className="research-settings-form-actions">{actions}</div>
+    </div>
   );
 }
 
 function RepeatSchedulePicker({
   value,
   disabled,
+  disableNoRepeat,
   onChange
 }: {
   value: RepeatSchedule;
   disabled: boolean;
+  disableNoRepeat: boolean;
   onChange: (value: RepeatSchedule) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -962,6 +1025,7 @@ function RepeatSchedulePicker({
   }, [disabled]);
 
   const selectType = (type: RepeatSchedule['type']): void => {
+    if (disableNoRepeat && type === 'none') return;
     onChange(repeatScheduleFor(type, type === schedule.type ? interval : 1));
   };
 
@@ -1011,6 +1075,7 @@ function RepeatSchedulePicker({
                 role="option"
                 aria-selected={schedule.type === type}
                 className={schedule.type === type ? 'is-selected' : undefined}
+                disabled={disableNoRepeat && type === 'none'}
                 onClick={() => selectType(type)}
                 key={type}
               >
@@ -1147,6 +1212,43 @@ export function defaultResearchWorkflowId(workflows: readonly ResearchProfileWor
     ?? workflows.find((workflow) => workflow.default)?.id
     ?? workflows[0]?.id
     ?? 'discovery';
+}
+
+export function researchSettingsInput(
+  initialInput: StartRunInput | undefined,
+  initialWorkflowId: string,
+  initialGoal: ResearchGoalSeed | null
+): StartRunInput {
+  if (initialInput) {
+    return {
+      ...defaultRunInput,
+      ...initialInput,
+      provider: initialInput.provider,
+      workflowId: initialInput.workflowId ?? initialWorkflowId,
+      collaboration: initialInput.collaboration
+        ? normalizeResearchCollaboration(initialInput.collaboration)
+        : normalizeResearchCollaboration(defaultRunInput.collaboration),
+      budget: {
+        ...defaultRunInput.budget,
+        ...initialInput.budget,
+        repeatSchedule: normalizeRepeatSchedule(initialInput.budget.repeatSchedule)
+      }
+    };
+  }
+  return {
+    ...defaultRunInput,
+    workflowId: initialGoal?.phase ?? initialWorkflowId,
+    goalObjective: initialGoal?.sentence ?? null,
+    promptMarkdown: initialGoal?.sentence ?? '',
+    sandboxProfile: 'host',
+    budget: { ...defaultRunInput.budget },
+    collaboration: normalizeResearchCollaboration(defaultRunInput.collaboration)
+  };
+}
+
+function researchProviderId(value: string | null | undefined): ResearchModelProviderId | null {
+  if (value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai') return value;
+  return null;
 }
 
 function repeatTypeLabel(type: RepeatSchedule['type']): string {

@@ -18,6 +18,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry,
   workspaceRegistryLoading = false,
   selectedRunId,
+  automationsActive = false,
   reportsActive = false,
   selectedBreakoutRoomId = null,
   selectedRunBreakoutRooms,
@@ -42,6 +43,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry: WorkspaceRegistryState | null;
   workspaceRegistryLoading?: boolean;
   selectedRunId: string | null;
+  automationsActive?: boolean;
   reportsActive?: boolean;
   selectedBreakoutRoomId?: string | null;
   selectedRunBreakoutRooms?: readonly SidebarBreakoutRoom[];
@@ -89,7 +91,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           <Search size={15} />
           <span>Find a Session</span>
         </button>
-        <button type="button" className="sidebar-utility-button" title="Automations" onClick={onOpenAutomations}>
+        <button type="button" className={`sidebar-utility-button${automationsActive ? ' active' : ''}`} title="Automations" aria-current={automationsActive ? 'page' : undefined} onClick={onOpenAutomations}>
           <CalendarClock size={15} />
           <span>Automations</span>
         </button>

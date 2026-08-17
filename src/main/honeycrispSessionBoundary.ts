@@ -458,6 +458,22 @@ export function createHoneycrispSessionBoundary(
       return { ...sessionRun(current), title };
     }) as WorkspaceDatabase['updateRunTitle'],
 
+    updateRunPrompt: ((runId: string, promptMarkdown: string): RunRecord => {
+      if (!ownedRunIds.has(runId)) return database.updateRunPrompt(runId, promptMarkdown);
+      const session = getHoneycrispSession(runId, storage);
+      const run = sessionRun(session);
+      const normalized = promptMarkdown.trim();
+      if (!normalized) throw new Error('Run prompt cannot be empty.');
+      const updated = { ...run, promptMarkdown: normalized };
+      const next = transitionHoneycrispSession(runId, {
+        status: session.status,
+        summary: session.summary,
+        configuration: { prompt: normalized },
+        metadata: { bealeRun: updated }
+      }, storage);
+      return sessionRun(next);
+    }) as WorkspaceDatabase['updateRunPrompt'],
+
     updateRunShellSafetyMode: ((runId: string, shellSafetyMode: Parameters<WorkspaceDatabase['updateRunShellSafetyMode']>[1]): RunRecord => {
       if (!ownedRunIds.has(runId)) return database.updateRunShellSafetyMode(runId, shellSafetyMode);
       const current = getHoneycrispSession(runId, storage);
@@ -477,6 +493,11 @@ export function createHoneycrispSessionBoundary(
       const next = transitionHoneycrispSession(runId, {
         status: session.status,
         summary: session.summary,
+        configuration: {
+          provider: selection.provider,
+          model: selection.model,
+          reasoningEffort: selection.reasoningEffort === 'off' ? '' : selection.reasoningEffort
+        },
         metadata: { bealeRun: updated }
       }, storage);
       return sessionRun(next);
@@ -490,6 +511,20 @@ export function createHoneycrispSessionBoundary(
       const next = transitionHoneycrispSession(runId, {
         status: session.status,
         summary: session.summary,
+        ...(
+          budgetPatch.modelProvider !== undefined || budgetPatch.researchWorkflowId !== undefined
+            ? {
+                configuration: {
+                  ...(budgetPatch.modelProvider !== undefined
+                    ? { provider: typeof budgetPatch.modelProvider === 'string' ? budgetPatch.modelProvider : null }
+                    : {}),
+                  ...(budgetPatch.researchWorkflowId !== undefined
+                    ? { workflowId: typeof budgetPatch.researchWorkflowId === 'string' ? budgetPatch.researchWorkflowId : null }
+                    : {})
+                }
+              }
+            : {}
+        ),
         metadata: { bealeRun: updated }
       }, storage);
       return sessionRun(next);

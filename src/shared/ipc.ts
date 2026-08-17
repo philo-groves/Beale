@@ -48,6 +48,8 @@ export const IPC_CHANNELS = {
   recordProfilingReport: 'beale:record-profiling-report',
   openHoneycrispMemoryDirectory: 'beale:open-honeycrisp-memory-directory',
   getHoneycrispRunbook: 'beale:get-honeycrisp-runbook',
+  listAutomations: 'beale:list-automations',
+  updateAutomation: 'beale:update-automation',
   listReportingReports: 'beale:list-reporting-reports',
   getHoneycrispReport: 'beale:get-honeycrisp-report',
   startReportSession: 'beale:start-report-session',

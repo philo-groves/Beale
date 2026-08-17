@@ -7,6 +7,8 @@ import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from '
 import type {
   ApprovalRecord,
   AgentPluginRegistryState,
+  AutomationSummary,
+  AutomationUpdateInput,
   ProviderSettings,
   ProviderAuthenticationMethod,
   ProviderModelDefaults,
@@ -42,6 +44,7 @@ import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { WorkspaceStartupView } from './features/workspaces/WorkspaceStartupView';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { ReportsIndex, ReportSessionWorkspace } from './features/reports/ReportsWorkspace';
+import { AutomationsWorkspace } from './features/automations/AutomationsWorkspace';
 import type { ResearchGoalSeed } from './features/sessions/SessionNextSteps';
 import {
   isAutoReviewOverrideApproval,
@@ -146,6 +149,12 @@ export function App(): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [automationsOpen, setAutomationsOpen] = useState(false);
+  const [automationScopeWorkspaceId, setAutomationScopeWorkspaceId] = useState<string | null>(null);
+  const [automations, setAutomations] = useState<AutomationSummary[]>([]);
+  const [automationsLoading, setAutomationsLoading] = useState(false);
+  const [automationsError, setAutomationsError] = useState<string | null>(null);
+  const [selectedAutomationRunId, setSelectedAutomationRunId] = useState<string | null>(null);
+  const [selectedAutomationWorkspaceId, setSelectedAutomationWorkspaceId] = useState<string | null>(null);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [reportingScopeWorkspaceId, setReportingScopeWorkspaceId] = useState<string | null>(null);
   const [reportingReports, setReportingReports] = useState<HoneycrispReportSummary[]>([]);
@@ -515,6 +524,7 @@ export function App(): JSX.Element {
     setReportError(null);
     setError(null);
     setReportingScopeWorkspaceId(snapshot?.workspace.workspaceId ?? null);
+    setAutomationsOpen(false);
     setReportsOpen(true);
   }, [clearRunDetail, setSelectedRunId, snapshot?.workspace.workspaceId]);
 
@@ -549,6 +559,39 @@ export function App(): JSX.Element {
     if (workspaceRegistry.workspaces.some((workspace) => workspace.workspaceId === reportingScopeWorkspaceId)) return;
     setReportingScopeWorkspaceId(null);
   }, [reportingScopeWorkspaceId, workspaceRegistry]);
+
+  useEffect(() => {
+    if (!automationsOpen) return undefined;
+    let cancelled = false;
+    setAutomationsLoading(true);
+    setAutomationsError(null);
+    void window.beale.listAutomations()
+      .then((next) => {
+        if (!cancelled) setAutomations(next);
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) setAutomationsError(errorMessage(caught));
+      })
+      .finally(() => {
+        if (!cancelled) setAutomationsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [automationsOpen, reportingWorkspaceCatalogKey, snapshot?.version]);
+
+  useEffect(() => {
+    if (!workspaceRegistry || !automationScopeWorkspaceId) return;
+    if (workspaceRegistry.workspaces.some((workspace) => workspace.workspaceId === automationScopeWorkspaceId)) return;
+    setAutomationScopeWorkspaceId(null);
+  }, [automationScopeWorkspaceId, workspaceRegistry]);
+
+  useEffect(() => {
+    if (!selectedAutomationRunId || !selectedAutomationWorkspaceId) return;
+    if (automations.some((automation) => automation.runId === selectedAutomationRunId && automation.workspaceId === selectedAutomationWorkspaceId)) return;
+    setSelectedAutomationRunId(null);
+    setSelectedAutomationWorkspaceId(null);
+  }, [automations, selectedAutomationRunId, selectedAutomationWorkspaceId]);
 
   const openReportSession = useCallback((report: HoneycrispReportSummary): void => {
     clearRunDetail();
@@ -1171,6 +1214,15 @@ export function App(): JSX.Element {
   const reportingScopeName = reportingScopeWorkspaceId
     ? workspaceRegistry?.workspaces.find((workspace) => workspace.workspaceId === reportingScopeWorkspaceId)?.workspaceName ?? 'Workspace'
     : 'All Workspaces';
+  const automationScopeName = automationScopeWorkspaceId
+    ? workspaceRegistry?.workspaces.find((workspace) => workspace.workspaceId === automationScopeWorkspaceId)?.workspaceName ?? 'Workspace'
+    : 'All Automations';
+  const selectedAutomation = useMemo(
+    () => automations.find((automation) => (
+      automation.runId === selectedAutomationRunId && automation.workspaceId === selectedAutomationWorkspaceId
+    )) ?? null,
+    [automations, selectedAutomationRunId, selectedAutomationWorkspaceId]
+  );
   const scopedReportingReports = useMemo(
     () => reportsForReportingScope(reportingReports, reportingScopeWorkspaceId),
     [reportingReports, reportingScopeWorkspaceId]
@@ -1195,6 +1247,7 @@ export function App(): JSX.Element {
       setSelectedReportDocument(null);
     }
     setReportsOpen(false);
+    setAutomationsOpen(false);
     setNewResearchInitialGoal(null);
     setNewResearchOpen(true);
   }, [clearRunDetail, reportsOpen, setSelectedRunId]);
@@ -1214,6 +1267,7 @@ export function App(): JSX.Element {
   const openWorkspaceDashboardSession = useCallback(
     (runId: string): void => {
       setReportsOpen(false);
+      setAutomationsOpen(false);
       clearRunDetail();
       setSelectedBreakoutRoomId(null);
       setSelectedRunId(runId);
@@ -1221,18 +1275,28 @@ export function App(): JSX.Element {
     [clearRunDetail, setSelectedRunId]
   );
   const openSearch = useCallback(() => setSearchOpen(true), []);
-  const openAutomations = useCallback(() => setAutomationsOpen(true), []);
-  const cancelRepeatAutomation = useCallback((runId: string): void => {
-    void runAction(() => window.beale.steerRun({
-      type: 'update_run_budget',
-      runId,
-      budgetPatch: { repeatSchedule: { type: 'none' } },
-      note: 'Repeat automation canceled by user.'
-    }));
-  }, [runAction]);
+  const openAutomations = useCallback((): void => {
+    clearRunDetail();
+    setSelectedRunId(null);
+    setSelectedBreakoutRoomId(null);
+    setSelectedAutomationRunId(null);
+    setSelectedAutomationWorkspaceId(null);
+    setAutomationScopeWorkspaceId(snapshot?.workspace.workspaceId ?? null);
+    setAutomationsError(null);
+    setReportsOpen(false);
+    setAutomationsOpen(true);
+  }, [clearRunDetail, setSelectedRunId, snapshot?.workspace.workspaceId]);
+  const saveAutomation = useCallback(async (input: AutomationUpdateInput): Promise<AutomationSummary> => {
+    const updated = await window.beale.updateAutomation(input);
+    setAutomations((current) => current.map((automation) => (
+      automation.runId === updated.runId && automation.workspaceId === updated.workspaceId ? updated : automation
+    )));
+    return updated;
+  }, []);
   const openSearchResult = useCallback(
     (result: SessionTranscriptSearchResult, query: string): void => {
       setReportsOpen(false);
+      setAutomationsOpen(false);
       setPendingSearchTarget(result);
       setTraceSearchHighlightQuery(query);
       const targetWorkspace = workspaceRegistry?.workspaces.find((workspace) => workspace.id === result.registryWorkspaceId) ?? null;
@@ -1271,14 +1335,16 @@ export function App(): JSX.Element {
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
-        rightSidenavAvailable={!settingsOpen && !reportsOpen && researchDetailsAvailable}
-        rightSidenavExpanded={!reportsOpen && rightSidenavExpanded && researchDetailsAvailable}
-        contextualTitleVisible={!settingsOpen && !reportsOpen}
+        rightSidenavAvailable={!settingsOpen && !reportsOpen && !automationsOpen && researchDetailsAvailable}
+        rightSidenavExpanded={!reportsOpen && !automationsOpen && rightSidenavExpanded && researchDetailsAvailable}
+        contextualTitleVisible={!settingsOpen && !reportsOpen && !automationsOpen}
         staticContextTitle={settingsOpen
           ? { primary: 'Agent Settings', secondary: settingsSectionLabel(settingsSection) }
           : reportsOpen
             ? { primary: 'Reporting', secondary: selectedReport?.title ?? reportingScopeName }
-            : null}
+            : automationsOpen
+              ? { primary: 'Automations', secondary: selectedAutomation?.title ?? automationScopeName }
+              : null}
         platform={windowControlPlatform}
         workspaceName={currentWorkspaceName}
         activeRunDetail={activeRunDetail}
@@ -1308,7 +1374,8 @@ export function App(): JSX.Element {
           openRegisteredWorkspaceMenuId={openRegisteredWorkspaceMenuId}
           workspaceRegistry={workspaceRegistry}
           workspaceRegistryLoading={startupPhase === 'shell' || startupPhase === 'registry'}
-          selectedRunId={reportsOpen ? null : selectedRunId}
+          selectedRunId={reportsOpen || automationsOpen ? null : selectedRunId}
+          automationsActive={automationsOpen}
           reportsActive={reportsOpen}
           selectedBreakoutRoomId={selectedBreakoutRoomId}
           selectedRunBreakoutRooms={activeRunDetail?.breakoutRooms}
@@ -1318,15 +1385,18 @@ export function App(): JSX.Element {
           }}
           onOpenWorkspace={(workspace) => {
             setReportsOpen(false);
+            setAutomationsOpen(false);
             openRegisteredWorkspace(workspace);
           }}
           onOpenResearchSession={(workspace, session) => {
             setReportsOpen(false);
+            setAutomationsOpen(false);
             setSelectedBreakoutRoomId(null);
             openResearchSession(workspace, session);
           }}
           onOpenBreakoutRoom={(workspace, session, roomId) => {
             setReportsOpen(false);
+            setAutomationsOpen(false);
             openResearchSession(workspace, session);
             setSelectedBreakoutRoomId(roomId);
           }}
@@ -1376,7 +1446,32 @@ export function App(): JSX.Element {
           />
         ) : (
           <div className="workspace-page">
-            {reportsOpen ? (
+            {automationsOpen ? (
+              <AutomationsWorkspace
+                automations={automations}
+                workspaces={workspaceRegistry?.workspaces ?? []}
+                selectedWorkspaceId={automationScopeWorkspaceId}
+                selectedAutomation={selectedAutomation}
+                openAiStatus={snapshot?.openAi ?? openAiStatus}
+                defaultProviderId={providerSettings?.defaultProviderId}
+                providerModelDefaults={providerSettings?.modelDefaults}
+                providerPolicyRiskAcknowledgements={providerSettings?.cyberPolicyRiskAcknowledgements}
+                researchProviderStatuses={researchProviderStatuses}
+                providerModelCatalog={enabledResearchProviderModelCatalog}
+                loading={automationsLoading}
+                error={automationsError}
+                onScopeChange={(workspaceId) => {
+                  setAutomationScopeWorkspaceId(workspaceId);
+                  setSelectedAutomationRunId(null);
+                  setSelectedAutomationWorkspaceId(null);
+                }}
+                onSelectAutomation={(automation) => {
+                  setSelectedAutomationRunId(automation?.runId ?? null);
+                  setSelectedAutomationWorkspaceId(automation?.workspaceId ?? null);
+                }}
+                onSaveAutomation={saveAutomation}
+              />
+            ) : reportsOpen ? (
               selectedReport ? (
                 <ReportSessionWorkspace
                   report={selectedReport}
@@ -1497,7 +1592,6 @@ export function App(): JSX.Element {
         busy={busy}
         newResearchOpen={newResearchOpen}
         newResearchInitialGoal={newResearchInitialGoal}
-        automationsOpen={automationsOpen}
         pluginsOpen={pluginsOpen}
         agentPluginState={agentPluginState}
         agentPluginsLoading={agentPluginsLoading}
@@ -1529,7 +1623,6 @@ export function App(): JSX.Element {
           setNewResearchInitialGoal(null);
           setNewResearchOpen(false);
         }}
-        onCloseAutomations={() => setAutomationsOpen(false)}
         onClosePlugins={() => setPluginsOpen(false)}
         onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
         onPluginRepositoryUrlChange={setPluginRepositoryUrl}
@@ -1547,11 +1640,6 @@ export function App(): JSX.Element {
         onSelectResearchGoalSuggestion={researchGoalSuggestionState.consume}
         onRetryResearchGoalSuggestions={researchGoalSuggestionState.retry}
         onStartedNewResearch={handleResearchStarted}
-        onCancelRepeatAutomation={cancelRepeatAutomation}
-        onOpenAutomationSession={(runId) => {
-          openWorkspaceDashboardSession(runId);
-          setAutomationsOpen(false);
-        }}
         onOpenSearchResult={openSearchResult}
         onSteerNotification={(notification, instruction) => {
           void runAction(() => window.beale.steerRun({ type: 'steer', runId: notification.runId, instruction }));
