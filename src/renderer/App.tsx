@@ -282,12 +282,12 @@ export function App(): JSX.Element {
   }, [researchViewContextKey]);
 
   useEffect(() => {
-    if (!newResearchOpen && !reportsOpen && !(settingsOpen && settingsSection === 'providers')) return;
+    if (!newResearchOpen && !automationsOpen && !reportsOpen && !(settingsOpen && settingsSection === 'providers')) return;
     window.beale
       .getProviderSettings()
       .then(setProviderSettings)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
-  }, [handleError, newResearchOpen, reportsOpen, settingsOpen, settingsSection]);
+  }, [automationsOpen, handleError, newResearchOpen, reportsOpen, settingsOpen, settingsSection]);
 
   useEffect(() => {
     if (!settingsOpen || settingsSection !== 'profile') return;
@@ -738,15 +738,15 @@ export function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (!newResearchOpen && !(settingsOpen && settingsSection === 'providers')) return;
+    if (!newResearchOpen && !automationsOpen && !(settingsOpen && settingsSection === 'providers')) return;
     void loadResearchProviderStatuses();
     void loadOpenAiProviderStatus();
-  }, [loadOpenAiProviderStatus, loadResearchProviderStatuses, newResearchOpen, settingsOpen, settingsSection]);
+  }, [automationsOpen, loadOpenAiProviderStatus, loadResearchProviderStatuses, newResearchOpen, settingsOpen, settingsSection]);
 
   useEffect(() => {
-    if (!newResearchOpen && !reportsOpen && !selectedRunId && !(settingsOpen && settingsSection === 'providers')) return;
+    if (!newResearchOpen && !automationsOpen && !reportsOpen && !selectedRunId && !(settingsOpen && settingsSection === 'providers')) return;
     void loadResearchProviderModelCatalog();
-  }, [loadResearchProviderModelCatalog, newResearchOpen, reportsOpen, selectedRunId, settingsOpen, settingsSection]);
+  }, [automationsOpen, loadResearchProviderModelCatalog, newResearchOpen, reportsOpen, selectedRunId, settingsOpen, settingsSection]);
 
   useEffect(() => {
     if (!settingsOpen || !researchProviderStatuses.some((provider) => provider.loginInProgress)) return;

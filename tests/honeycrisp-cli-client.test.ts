@@ -6,7 +6,8 @@ import {
   decodeHoneycrispProtocolEnvelope,
   getHoneycrispProtocolDescriptor,
   invokeHoneycrispCliProtocol,
-  invokeHoneycrispCliProtocolAsync
+  invokeHoneycrispCliProtocolAsync,
+  listHoneycrispSessionSummariesForWorkspacesAsync
 } from '../src/main/honeycrispCliClient';
 
 const createdDirectories: string[] = [];
@@ -138,5 +139,27 @@ describe('Honeycrisp CLI protocol client', () => {
       ['session', 'get', '--session-id', 'session_large', '--json']
     );
     expect(envelope.result.text).toHaveLength(3 * 1024 * 1024);
+  });
+
+  it('batches multiple workspace summary catalogs into one protocol process', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-protocol-'));
+    createdDirectories.push(directory);
+    const fixture = join(directory, 'protocol-workspace-batch-fixture.mjs');
+    writeFileSync(fixture, [
+      '#!/usr/bin/env node',
+      "const args = process.argv.slice(2);",
+      "const requestId = args[args.indexOf('--request-id') + 1];",
+      "const workspaceIds = args.flatMap((arg, index) => arg === '--workspace-id' ? [args[index + 1]] : []);",
+      "if (workspaceIds.join(',') !== 'workspace_one,workspace_two') process.exit(2);",
+      "console.log(JSON.stringify({ protocol: 'honeycrisp', protocolVersion: 1, operation: 'session.list_summaries', requestId, ok: true, result: [] }));"
+    ].join('\n'));
+    chmodSync(fixture, 0o700);
+    process.env.BEALE_HONEYCRISP_PROTOCOL_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_PROTOCOL_ARGS_JSON = JSON.stringify([fixture]);
+
+    await expect(listHoneycrispSessionSummariesForWorkspacesAsync(
+      ['workspace_one', 'workspace_two', 'workspace_one'],
+      { databasePath: join(directory, 'memory.sqlite'), artifactDirectoryPath: join(directory, 'artifacts') }
+    )).resolves.toEqual([]);
   });
 });

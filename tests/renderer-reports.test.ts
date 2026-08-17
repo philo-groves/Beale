@@ -105,8 +105,8 @@ describe('reports resource views', () => {
 
   it('loads provider settings and the model catalog for an idle report view', () => {
     const appSource = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
-    expect(appSource).toContain("if (!newResearchOpen && !reportsOpen && !(settingsOpen && settingsSection === 'providers')) return;");
-    expect(appSource).toContain("if (!newResearchOpen && !reportsOpen && !selectedRunId && !(settingsOpen && settingsSection === 'providers')) return;");
+    expect(appSource).toContain("if (!newResearchOpen && !automationsOpen && !reportsOpen && !(settingsOpen && settingsSection === 'providers')) return;");
+    expect(appSource).toContain("if (!newResearchOpen && !automationsOpen && !reportsOpen && !selectedRunId && !(settingsOpen && settingsSection === 'providers')) return;");
   });
 
   it('enables the safety selector before the first report message and applies it when starting the run', () => {

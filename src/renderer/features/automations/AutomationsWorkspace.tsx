@@ -243,6 +243,7 @@ function AutomationEditor({
         providerModelCatalog={providerModelCatalog}
         initialInput={automation.settings}
         showSuggestions={false}
+        showAddContext={false}
         disableNoRepeat
         presentation="embedded"
         title="Automation research settings"

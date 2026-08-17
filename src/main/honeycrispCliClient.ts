@@ -467,6 +467,27 @@ export async function listHoneycrispSessionSummariesAsync(
   )).result;
 }
 
+export async function listHoneycrispSessionSummariesForWorkspacesAsync(
+  workspaceIds: readonly string[],
+  storage: HoneycrispSessionStorage,
+  limitPerWorkspace = 200
+): Promise<HoneycrispSessionSummary[]> {
+  const normalizedWorkspaceIds = [...new Set(workspaceIds.map((workspaceId) => workspaceId.trim()).filter(Boolean))];
+  if (normalizedWorkspaceIds.length === 0) return [];
+  return (await invokeHoneycrispCliProtocolAsync<HoneycrispSessionSummary[]>(
+    'session.list_summaries',
+    [
+      'session',
+      'list-summaries',
+      ...normalizedWorkspaceIds.flatMap((workspaceId) => ['--workspace-id', workspaceId]),
+      '--limit',
+      String(limitPerWorkspace),
+      '--json'
+    ],
+    { env: storageEnvironment(storage), timeoutMs: 30_000 }
+  )).result;
+}
+
 export function getHoneycrispMemorySummary(
   input: {
     workspaceId: string;

@@ -50,6 +50,7 @@ import {
   getHoneycrispReportDocument,
   getHoneycrispRunbookDocument,
   listHoneycrispSessionSummariesAsync,
+  listHoneycrispSessionSummariesForWorkspacesAsync,
   parseHoneycrispMemoryDreamingPlan,
   prepareHoneycrispMemoryDreaming,
   recordHoneycrispMemoryDreamingFailure,
@@ -1089,24 +1090,57 @@ export class WorkspaceService {
 
   public async listAutomations(): Promise<AutomationSummary[]> {
     const workspaces = this.getWorkspaceRegistry().getState().workspaces.filter((workspace) => workspace.workspaceId.length > 0);
-    const catalogs = await Promise.all(workspaces.map(async (workspace) => {
-      const runtime = this.requireIntrospectionRuntime({ registryWorkspaceId: workspace.id });
-      const sessions = await listHoneycrispSessionSummariesAsync(
-        workspace.workspaceId,
+    const profileWorkspaces = new Map<ResearchProfileId, WorkspaceRegistryEntry[]>();
+    for (const workspace of workspaces) {
+      const entries = profileWorkspaces.get(workspace.researchProfileId) ?? [];
+      entries.push(workspace);
+      profileWorkspaces.set(workspace.researchProfileId, entries);
+    }
+    const catalogs = await Promise.all([...profileWorkspaces].map(async ([profileId, entries]) => {
+      const sessions = await listHoneycrispSessionSummariesForWorkspacesAsync(
+        entries.map((workspace) => workspace.workspaceId),
         {
-          databasePath: this.globalHoneycrispDatabasePath(workspace.researchProfileId),
-          artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(workspace.researchProfileId)
+          databasePath: this.globalHoneycrispDatabasePath(profileId),
+          artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(profileId)
         },
         500
       );
-      return sessions.flatMap((session) => {
-        const automation = automationSummaryFromSession(
-          session,
-          workspace.workspaceName,
-          runtime.db.getRunResearchProfileSnapshot(session.id)
+      const workspaceById = new Map(entries.map((workspace) => [workspace.workspaceId, workspace]));
+      const automationSessions = sessions.filter(isAutomationSessionSummary);
+      if (automationSessions.length === 0) return [];
+
+      const runtime = entries
+        .map((workspace) => this.runtimeForWorkspacePath(workspace.workspacePath))
+        .find((candidate): candidate is WorkspaceRuntime => candidate !== null);
+      let db = runtime?.db ?? null;
+      let closeDatabase = false;
+      if (!db) {
+        const firstWorkspace = entries[0];
+        if (!firstWorkspace) return [];
+        const rawDatabase = new WorkspaceDatabase(
+          this.globalHoneycrispDatabasePath(profileId),
+          join(firstWorkspace.workspacePath, '.beale', 'artifacts'),
+          { workspacePath: firstWorkspace.workspacePath, workspaceId: firstWorkspace.workspaceId }
         );
-        return automation ? [automation] : [];
-      });
+        rawDatabase.initialize();
+        db = createHoneycrispSessionBoundary(rawDatabase);
+        closeDatabase = true;
+      }
+      try {
+        return automationSessions.flatMap((session) => {
+          const workspace = workspaceById.get(session.workspaceId);
+          if (!workspace) return [];
+          const snapshotId = automationResearchProfileSnapshotId(session);
+          const automation = automationSummaryFromSession(
+            session,
+            workspace.workspaceName,
+            snapshotId ? db.getResearchProfileSnapshotForWorkspace(session.workspaceId, snapshotId) : null
+          );
+          return automation ? [automation] : [];
+        });
+      } finally {
+        if (closeDatabase) db.close();
+      }
     }));
     return catalogs.flat().sort((left, right) =>
       right.updatedAt.localeCompare(left.updatedAt) || left.title.localeCompare(right.title));
@@ -6344,6 +6378,20 @@ function automationSummaryFromSession(
     createdAt: session.createdAt,
     updatedAt: session.updatedAt
   };
+}
+
+function isAutomationSessionSummary(session: HoneycrispSessionSummary): boolean {
+  const storedRun = recordFromUnknown(session.metadata.bealeRun);
+  const budget = recordFromUnknown(storedRun?.budget) ?? {};
+  return automationScheduleFromBudget(budget) !== null;
+}
+
+function automationResearchProfileSnapshotId(session: HoneycrispSessionSummary): string | null {
+  const profile = recordFromUnknown(session.profile);
+  const storedRun = recordFromUnknown(session.metadata.bealeRun);
+  return stringFromRecord(profile ?? {}, 'snapshotId').trim()
+    || stringFromRecord(storedRun ?? {}, 'researchProfileSnapshotId').trim()
+    || null;
 }
 
 function automationSummaryFromRun(

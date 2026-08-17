@@ -3082,6 +3082,17 @@ export class WorkspaceDatabase {
     return row ? this.mapResearchProfileSnapshot(row) : null;
   }
 
+  public getResearchProfileSnapshotForWorkspace(
+    workspaceId: string,
+    snapshotId: string
+  ): ResearchProfileSnapshot | null {
+    const row = rowOrUndefined(
+      this.db.prepare('SELECT * FROM research_profile_snapshots WHERE id = ? AND workspace_id = ?')
+        .get(snapshotId, workspaceId)
+    );
+    return row ? this.mapResearchProfileSnapshot(row) : null;
+  }
+
   public getRunResearchProfileSnapshot(runId: string): ResearchProfileSnapshot | null {
     const row = rowOrUndefined(
       this.db

@@ -9384,6 +9384,16 @@ button.session-summary-item:hover:not(:disabled),
 
 .automation-editor-enabled input { min-height: 0; }
 
+.automation-editor > .automation-editor-field input,
+.automation-editor .new-research-composer,
+.automation-editor .new-research-safety-picker .floating-text-picker-trigger,
+.automation-editor .new-research-workflow-picker .floating-text-picker-trigger,
+.automation-editor .new-research-repeat-trigger,
+.automation-editor .research-model-squircle,
+.automation-editor .collaboration-inline-control > select {
+  background-color: var(--panel);
+}
+
 .research-settings-form {
   min-width: 0;
   display: grid;

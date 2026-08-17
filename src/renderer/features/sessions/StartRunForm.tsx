@@ -144,6 +144,7 @@ export interface ResearchSettingsFormProps {
   initialGoal?: ResearchGoalSeed | null;
   initialInput?: StartRunInput;
   showSuggestions?: boolean;
+  showAddContext?: boolean;
   disableNoRepeat?: boolean;
   presentation?: 'dialog' | 'embedded';
   title?: string;
@@ -195,6 +196,7 @@ export function ResearchSettingsForm({
   initialGoal = null,
   initialInput,
   showSuggestions = true,
+  showAddContext = true,
   disableNoRepeat = false,
   presentation: formPresentation = 'embedded',
   title,
@@ -784,18 +786,20 @@ export function ResearchSettingsForm({
                 />
                 <span>Goal</span>
               </label>
-              <label
-                className="new-research-generate-toggle"
-                title="Add relevant workspace context to the objective before starting."
-              >
-                <input
-                  type="checkbox"
-                  checked={generateEnabled}
-                  disabled={generatingPrompt}
-                  onChange={(event) => setGenerateEnabled(event.target.checked)}
-                />
-                <span>Add Context</span>
-              </label>
+              {showAddContext ? (
+                <label
+                  className="new-research-generate-toggle"
+                  title="Add relevant workspace context to the objective before starting."
+                >
+                  <input
+                    type="checkbox"
+                    checked={generateEnabled}
+                    disabled={generatingPrompt}
+                    onChange={(event) => setGenerateEnabled(event.target.checked)}
+                  />
+                  <span>Add Context</span>
+                </label>
+              ) : null}
             </div>
           </section>
           {showSuggestions ? (

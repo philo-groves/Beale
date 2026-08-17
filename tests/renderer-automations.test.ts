@@ -80,7 +80,18 @@ function render(selectedAutomation: AutomationSummary | null = null): string {
     defaultProviderId: null,
     providerModelDefaults: {},
     researchProviderStatuses: [],
-    providerModelCatalog: [],
+    providerModelCatalog: [{
+      providerId: 'openai-codex',
+      providerName: 'OpenAI',
+      models: [{
+        id: 'gpt-5.6-sol',
+        name: 'GPT-5.6 Sol',
+        reasoning: true,
+        effortLevels: ['low', 'medium', 'high', 'xhigh'],
+        contextWindow: 400_000,
+        maxTokens: 128_000
+      }]
+    }],
     loading: false,
     error: null,
     onScopeChange: () => undefined,
@@ -135,10 +146,14 @@ describe('automation workspace', () => {
     expect(html).toContain('aria-label="Research workflow"');
     expect(html).toContain('aria-label="Repeat schedule"');
     expect(html).toContain('aria-label="Lead model settings"');
+    expect(html).toContain('<span class="model-selection-picker-model">5.6 Sol</span>');
+    const leadModelTrigger = html.match(/<button[^>]*aria-label="Lead model settings"[^>]*>/)?.[0] ?? '';
+    expect(leadModelTrigger).not.toContain('disabled');
     expect(html).toContain('Challenge Rounds');
     expect(html).toContain('>Mode</span>');
     expect(html).toContain('>Intensity</span>');
     expect(html).not.toContain('aria-label="Research suggestions"');
+    expect(html).not.toContain('Add Context');
     expect(html).toContain('>Save changes</button>');
     expect(settingsSource).toContain("export function ResearchSettingsForm({");
     expect(settingsSource).toContain("disabled={disableNoRepeat && type === 'none'}");
@@ -152,12 +167,20 @@ describe('automation workspace', () => {
     expect(styles).not.toContain('.automation-card');
   });
 
+  it('uses the automation field background for native collaboration dropdowns', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+
+    expect(styles).toMatch(/\.automation-editor \.collaboration-inline-control > select\s*\{[^}]*background-color:\s*var\(--panel\);/s);
+  });
+
   it('moves Automations out of AppModals and into main navigation', () => {
     const appSource = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
     const modalSource = readFileSync(new URL('../src/renderer/app/AppModals.tsx', import.meta.url), 'utf8');
     const sidebarSource = readFileSync(new URL('../src/renderer/features/workspaces/WorkspaceSidebar.tsx', import.meta.url), 'utf8');
 
     expect(appSource).toContain('<AutomationsWorkspace');
+    expect(appSource).toContain('!newResearchOpen && !automationsOpen && !reportsOpen');
+    expect(appSource).toContain('!newResearchOpen && !automationsOpen && !(settingsOpen');
     expect(appSource).toContain('setAutomationScopeWorkspaceId(snapshot?.workspace.workspaceId ?? null);');
     expect(appSource).toContain("? { primary: 'Automations', secondary: selectedAutomation?.title ?? automationScopeName }");
     expect(modalSource).not.toContain('AutomationsModal');
