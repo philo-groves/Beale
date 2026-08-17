@@ -76,40 +76,47 @@ describe('renderer provider settings', () => {
   it('gives inactive provider tabs a contrasting surface', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const inactiveTabStyles = styles.match(/\.provider-settings-tab:not\(\.active\)\s*\{([^}]*)\}/)?.[1] ?? '';
+    const tabActivateStyles =
+      styles.match(/^\.provider-settings-tab \.research-side-view-tab-activate\s*\{([^}]*)\}/m)?.[1] ?? '';
     const providerContentStyles = styles.match(/\.provider-settings-page > \.provider-card\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(inactiveTabStyles).toContain('background: var(--panel-strong)');
+    expect(tabActivateStyles).toContain('padding-inline: 9px');
     expect(providerContentStyles).toContain('border: 0');
     expect(providerContentStyles).toContain('border-radius: 0');
     expect(providerContentStyles).toContain('background: transparent');
     expect(providerContentStyles).toContain('padding: 0');
   });
 
-  it('uses compact New Research styling for provider defaults', () => {
+  it('uses centered stacked forms for provider settings', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const pageStyles = styles.match(/\.provider-settings-page\s*\{([^}]*)\}/)?.[1] ?? '';
+    const panelStyles = styles.match(/\.provider-settings-provider-panel\s*\{([^}]*)\}/)?.[1] ?? '';
+    const titleStyles = styles.match(/\.provider-settings-form-title\s*\{([^}]*)\}/)?.[1] ?? '';
     const defaultsStyles = styles.match(/^\.provider-model-defaults\s*\{([^}]*)\}/m)?.[1] ?? '';
-    const defaultsHeadingStyles = styles.match(/\.provider-model-defaults-heading\s*\{([^}]*)\}/)?.[1] ?? '';
-    const defaultsDividerStyles = styles.match(/\.provider-model-defaults-divider\s*\{([^}]*)\}/)?.[1] ?? '';
-    const labelStyles = styles.match(/\.provider-model-defaults label\s*\{([^}]*)\}/)?.[1] ?? '';
+    const defaultsControlsStyles = styles.match(/\.provider-model-defaults-controls\s*\{([^}]*)\}/)?.[1] ?? '';
+    const rowStyles = styles.match(/^\.provider-model-default-row\s*\{([^}]*)\}/m)?.[1] ?? '';
+    const rowControlStyles = styles.match(/\.provider-model-default-row-controls\s*\{([^}]*)\}/)?.[1] ?? '';
+    const defaultCopyStyles = styles.match(/\.provider-model-default-copy\s*\{([^}]*)\}/)?.[1] ?? '';
     const selectStyles = styles.match(/\.provider-model-defaults select\s*\{([^}]*)\}/)?.[1] ?? '';
     const providerControlStyles = styles.match(/\.provider-settings-default-control\s*\{([^}]*)\}/)?.[1] ?? '';
     const providerSelectStyles = styles.match(/\.provider-settings-default-control select\s*\{([^}]*)\}/)?.[1] ?? '';
     const healthyStyles = styles.match(/\.provider-health-indicator\.state-healthy\s*\{([^}]*)\}/)?.[1] ?? '';
     const unhealthyStyles = styles.match(/\.provider-health-indicator\.state-unhealthy\s*\{([^}]*)\}/)?.[1] ?? '';
-    const authenticatingStyles = styles.match(/\.provider-health-indicator\.state-authenticating\s*\{([^}]*)\}/)?.[1] ?? '';
-    const acknowledgementHeadingStyles = styles.match(/\.provider-policy-warning > h3\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticatingStyles = styles.match(/^\.provider-health-indicator\.state-authenticating\s*\{([^}]*)\}/m)?.[1] ?? '';
     const removeProviderStyles = styles.match(/\.provider-remove-button\s*\{([^}]*)\}/)?.[1] ?? '';
     const acknowledgementStyles = styles.match(/\.provider-risk-acknowledgement\s*\{([^}]*)\}/)?.[1] ?? '';
     const acknowledgementInputStyles = styles.match(/\.provider-risk-acknowledgement input\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionalModelsStyles = styles.match(/\.provider-optional-models\s*\{([^}]*)\}/)?.[1] ?? '';
-    const optionalHeadingStyles = styles.match(/\.provider-optional-models > h3\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionalLabelStyles = styles.match(/\.provider-optional-models label\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionalInputStyles = styles.match(/\.provider-optional-models input\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionalCopyStyles = styles.match(/\.provider-optional-model-copy\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionalDescriptionStyles = styles.match(/\.provider-optional-models small\s*\{([^}]*)\}/)?.[1] ?? '';
-    const authenticationStyles = styles.match(/\.provider-authentication-section\s*\{([^}]*)\}/)?.[1] ?? '';
-    const authenticationHeadingStyles = styles.match(/\.provider-authentication-section > h3\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticationTitleStyles = styles.match(/\.provider-authentication-form-title\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticationWarningStyles = styles.match(/\.provider-authentication-warning\s*\{([^}]*)\}/)?.[1] ?? '';
     const authenticationOptionsStyles = styles.match(/\.provider-authentication-options\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticationRowStyles = styles.match(/\.provider-authentication-option\s*\{([^}]*)\}/)?.[1] ?? '';
+    const authenticationCopyStyles = styles.match(/\.provider-authentication-copy\s*\{([^}]*)\}/)?.[1] ?? '';
     const authenticationLabelStyles = styles.match(/\.provider-authentication-option-heading strong\s*\{([^}]*)\}/)?.[1] ?? '';
     const authenticationStatusStyles = styles.match(/\.provider-authentication-status\s*\{([^}]*)\}/)?.[1] ?? '';
     const authenticationActionStyles = styles.match(/\.provider-authentication-action,([\s\S]*?)\{([^}]*)\}/)?.[2] ?? '';
@@ -118,16 +125,27 @@ describe('renderer provider settings', () => {
     const apiKeyFieldStyles = styles.match(/\.provider-api-key-field\s*\{([^}]*)\}/)?.[1] ?? '';
     const apiKeyDialogButtonStyles = styles.match(/\.provider-api-key-dialog button,([\s\S]*?)\{([^}]*)\}/)?.[2] ?? '';
 
-    expect(defaultsStyles).toContain('justify-content: flex-end');
-    expect(defaultsHeadingStyles).toContain('display: inline-flex');
-    expect(defaultsHeadingStyles).toContain('color: var(--text)');
-    expect(defaultsHeadingStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
-    expect(defaultsDividerStyles).toContain('border-left: 1px solid var(--panel-border)');
-    expect(labelStyles).toContain('display: inline-flex');
-    expect(labelStyles).toContain('gap: 5px');
-    expect(labelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
-    expect(labelStyles).toContain('font-weight: 400');
-    expect(selectStyles).toContain('max-width: 120px');
+    expect(pageStyles).toContain('width: 100%');
+    expect(pageStyles).toContain('gap: 6px');
+    expect(pageStyles).not.toContain('max-width: var(--session-content-max-width)');
+    expect(panelStyles).toContain('display: grid');
+    expect(panelStyles).toContain('gap: 14px');
+    expect(panelStyles).toContain('max-width: var(--session-content-max-width)');
+    expect(panelStyles).toContain('margin-inline: auto');
+    expect(titleStyles).toContain('display: flex');
+    expect(defaultsStyles).toContain('display: grid');
+    expect(defaultsControlsStyles).toContain('display: grid');
+    expect(rowStyles).toContain('display: grid');
+    expect(rowStyles).toContain('grid-template-columns: minmax(0, 1fr) auto');
+    expect(rowStyles).toContain('gap: 16px');
+    expect(rowStyles).toContain('padding: 10px 0');
+    expect(rowStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(rowStyles).toContain('font-weight: 400');
+    expect(rowControlStyles).toContain('display: flex');
+    expect(rowControlStyles).toContain('justify-content: flex-end');
+    expect(defaultCopyStyles).toContain('display: grid');
+    expect(defaultCopyStyles).toContain('gap: 3px');
+    expect(selectStyles).toContain('max-width: 150px');
     expect(selectStyles).toContain('border: 0');
     expect(selectStyles).toContain('background-color: #141414');
     expect(selectStyles).toContain('font-weight: 400');
@@ -149,35 +167,33 @@ describe('renderer provider settings', () => {
     expect(unhealthyStyles).toContain('background: var(--red)');
     expect(authenticatingStyles).toContain('border: 1.5px solid rgba(255, 255, 255, 0.28)');
     expect(authenticatingStyles).toContain('animation: provider-health-spin 800ms linear infinite');
-    expect(acknowledgementHeadingStyles).toBe(authenticationHeadingStyles);
     expect(acknowledgementStyles).toContain('width: fit-content');
     expect(acknowledgementStyles).toContain('display: inline-flex');
     expect(acknowledgementStyles).toContain('justify-content: flex-start');
     expect(acknowledgementStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(acknowledgementStyles).toContain('font-weight: 400');
     expect(acknowledgementInputStyles).toContain('width: 14px');
-    expect(optionalModelsStyles).toContain('grid-template-columns: 14px max-content minmax(0, 1fr)');
-    expect(optionalModelsStyles).toContain('column-gap: 8px');
     expect(acknowledgementInputStyles).toContain('flex: 0 0 14px');
     expect(optionalModelsStyles).toContain('background: transparent');
-    expect(optionalHeadingStyles).toContain('font-size: 1rem');
-    expect(optionalHeadingStyles).toContain('font-weight: 400');
-    expect(optionalHeadingStyles).toContain('border-bottom: 1px solid var(--panel-border)');
     expect(optionalLabelStyles).toContain('display: grid');
-    expect(optionalLabelStyles).toContain('grid-template-columns: subgrid');
+    expect(optionalLabelStyles).toContain('grid-template-columns: minmax(0, 1fr) auto');
+    expect(optionalLabelStyles).toContain('padding: 10px 0');
     expect(optionalLabelStyles).toContain('background: transparent');
     expect(optionalLabelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
     expect(optionalInputStyles).toContain('width: 14px');
-    expect(optionalInputStyles).toContain('flex: 0 0 14px');
     expect(optionalCopyStyles).toContain('display: grid');
-    expect(optionalCopyStyles).toContain('grid-template-columns: subgrid');
-    expect(optionalCopyStyles).toContain('white-space: nowrap');
-    expect(optionalDescriptionStyles).toContain('padding-left: 7px');
-    expect(optionalDescriptionStyles).toContain('border-left: 1px solid var(--panel-border)');
-    expect(authenticationStyles).toContain('display: grid');
-    expect(authenticationHeadingStyles).toContain('border-bottom: 1px solid var(--panel-border)');
-    expect(authenticationHeadingStyles).toContain('font-size: 1rem');
-    expect(authenticationHeadingStyles).toContain('font-weight: 400');
-    expect(authenticationOptionsStyles).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(optionalCopyStyles).toContain('gap: 3px');
+    expect(optionalDescriptionStyles).toContain('font-weight: 400');
+    expect(optionalDescriptionStyles).toContain('line-height: 1.4');
+    expect(authenticationTitleStyles).toContain('display: flex');
+    expect(authenticationTitleStyles).toContain('justify-content: space-between');
+    expect(authenticationWarningStyles).toContain('color: #f0a24b');
+    expect(authenticationWarningStyles).toContain('font-weight: 400');
+    expect(authenticationOptionsStyles).toContain('display: grid');
+    expect(authenticationRowStyles).toContain('grid-template-columns: minmax(0, 1fr) auto');
+    expect(authenticationRowStyles).toContain('padding: 10px 0');
+    expect(authenticationCopyStyles).toContain('display: grid');
+    expect(authenticationCopyStyles).toContain('gap: 3px');
     expect(authenticationLabelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
     expect(authenticationStatusStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
     expect(authenticationActionStyles).toContain('border: 0');
@@ -220,8 +236,11 @@ describe('renderer provider settings', () => {
     expect(html).toContain('<span>OpenAI</span>');
     expect(html).toContain('<span>Anthropic</span>');
     expect(html).toContain('aria-label="Add provider"');
-    expect(html).toContain('aria-label="Refresh OpenAI"');
+    expect(html).not.toContain('aria-label="Refresh OpenAI"');
     expect(html).toContain('aria-label="Refresh Anthropic"');
+    expect(html).not.toContain('provider-settings-tab-refresh');
+    expect(html.match(/class="provider-settings-heading-refresh"/gu)).toHaveLength(1);
+    expect(html).toMatch(/class="provider-settings-heading-refresh"[\s\S]*?width="16"[\s\S]*?class="provider-health-indicator state-healthy"/u);
     expect(html).not.toContain('>Refresh</button>');
     expect(html.match(/role="tabpanel"/gu)).toHaveLength(1);
     expect(html).not.toContain('aria-label="OpenAI provider settings"');
@@ -231,7 +250,10 @@ describe('renderer provider settings', () => {
     expect(html).not.toContain('class="status-pill');
     expect(html).toContain('class="provider-health-indicator state-healthy"');
     expect(html).toContain('aria-label="Healthy"');
-    expect(html.indexOf('aria-label="Provider model defaults"')).toBeLessThan(html.indexOf('class="provider-policy-warning"'));
+    expect(html).toContain('Please accept the Anthropic provider acknowledgment before configuring authentication.');
+    expect(html.indexOf('class="provider-policy-warning"')).toBeLessThan(html.indexOf('aria-label="Authentication"'));
+    expect(html.indexOf('aria-label="Authentication"')).toBeLessThan(html.indexOf('aria-label="Provider model defaults"'));
+    expect(html.indexOf('aria-label="Provider model defaults"')).toBeLessThan(html.indexOf('aria-label="Optional Models"'));
     expect(html).not.toContain('class="provider-grid"');
     expect(html).not.toContain('<span>Source</span>');
     expect(html).not.toContain('<span>Transport</span>');
@@ -242,8 +264,10 @@ describe('renderer provider settings', () => {
     expect(html).not.toContain('(Codex)');
     expect(html).not.toContain('(Claude)');
     expect(html).toContain('aria-label="Authentication"');
-    expect(html).toContain('<h3>Acknowledgment</h3>');
-    expect(html).toContain('<h3>Authentication</h3>');
+    expect(html).not.toContain('<h3>Acknowledgment</h3>');
+    expect(html).toContain('<h2>Authentication</h2>');
+    expect(html).toContain('Use your Anthropic subscription account.');
+    expect(html).toContain('Use an API key encrypted by the operating system and retained by Beale');
     expect(html).toContain('<strong>Subscription</strong>');
     expect(html).toContain('<strong>API Key</strong>');
     expect(html).toContain('provider-authentication-status state-configured');
@@ -285,9 +309,11 @@ describe('renderer provider settings', () => {
     }));
 
     const pendingHtml = render(false);
+    expect(pendingHtml).toContain('Please accept the OpenAI provider acknowledgment before configuring authentication.');
     expect(pendingHtml).toMatch(/<button class="secondary-button provider-authentication-action" type="button" disabled="">Sign in<\/button>/u);
     expect(pendingHtml).toMatch(/<button class="secondary-button provider-authentication-action" type="button" disabled="">Configure<\/button>/u);
-    expect(pendingHtml.match(/Acknowledge the risks first/gu)).toHaveLength(2);
+    expect(pendingHtml.match(/Acknowledge the risks first/gu)).toHaveLength(1);
+    expect(pendingHtml).toContain('class="provider-authentication-warning" role="status"');
 
     const confirmedHtml = render(true);
     expect(confirmedHtml).toContain('<button class="secondary-button provider-authentication-action" type="button">Sign in</button>');
@@ -330,7 +356,7 @@ describe('renderer provider settings', () => {
 
     expect(html.match(/provider-authentication-status state-configured/gu)).toHaveLength(2);
     expect(html.match(/>Configured<\/span>/gu)).toHaveLength(2);
-    expect(html).toContain('>Remove</button>');
+    expect(html.match(/>Forget<\/button>/gu)).toHaveLength(2);
     expect(html).not.toContain('>Configure</button>');
     expect(html).not.toContain('Host credential');
     expect(html).not.toContain('OPENAI_API_KEY');
@@ -475,10 +501,17 @@ describe('renderer provider settings', () => {
     expect(html).not.toContain('Anthropic is ready.');
     expect(html).not.toContain('API-key authentication is also available');
     expect(html).not.toContain('OAuth ready');
-    expect(html).toContain('<span>Defaults</span>');
-    expect(html).toContain('<span>Large</span>');
-    expect(html).toContain('<span>Small</span>');
-    expect(html).toContain('<span>Reasoning</span>');
+    expect(html).toContain('<h2>Default Models</h2>');
+    expect(html).toContain('Choose the models and reasoning level used by default for this provider.');
+    expect(html).toContain('<strong>Large Model</strong>');
+    expect(html).toContain('<strong>Small Model</strong>');
+    expect(html).not.toContain('<strong>Reasoning</strong>');
+    expect(html).toContain('aria-label="Large model"');
+    expect(html).toMatch(/aria-label="Large model reasoning"[^>]*>/u);
+    expect(html).not.toMatch(/aria-label="Large model reasoning"[^>]*disabled=""/u);
+    expect(html).toMatch(/aria-label="Small model"[^>]*>/u);
+    expect(html).not.toMatch(/aria-label="Small model"[^>]*disabled=""/u);
+    expect(html).toMatch(/aria-label="Small model reasoning"[^>]*disabled=""/u);
     expect(html).not.toContain('Default large');
     expect(html).not.toContain('Default small');
     expect(html).not.toContain('Default reasoning');
@@ -518,18 +551,18 @@ describe('renderer provider settings', () => {
     const defaultHtml = render({});
     expect(defaultHtml).toContain('<strong>Fable 5</strong>');
     expect(defaultHtml).toContain('may decline cybersecurity requests even for Cyber Verification Program members');
-    expect(defaultHtml).toMatch(/<label><input type="checkbox" checked=""\/><span class="provider-optional-model-copy"><strong>Fable 5<\/strong>/u);
+    expect(defaultHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Fable 5<\/strong>[\s\S]*?<\/span><input type="checkbox" checked=""\/><\/label>/u);
     expect(defaultHtml).toContain('<strong>Mythos 5</strong>');
     expect(defaultHtml).toContain('primarily available to approved commercial users');
-    expect(defaultHtml).toMatch(/<label><input type="checkbox"\/><span class="provider-optional-model-copy"><strong>Mythos 5<\/strong>/u);
+    expect(defaultHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Mythos 5<\/strong>[\s\S]*?<\/span><input type="checkbox"\/><\/label>/u);
     expect(defaultHtml).not.toContain('value="claude-mythos-5"');
 
     const mythosHtml = render({ mythos: true });
-    expect(mythosHtml).toMatch(/<label><input type="checkbox" checked=""\/><span class="provider-optional-model-copy"><strong>Mythos 5<\/strong>/u);
+    expect(mythosHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Mythos 5<\/strong>[\s\S]*?<\/span><input type="checkbox" checked=""\/><\/label>/u);
     expect(mythosHtml).toContain('<option value="claude-mythos-5">Mythos 5</option>');
 
     const fableDisabledHtml = render({ fableDisabled: true });
-    expect(fableDisabledHtml).toMatch(/<label><input type="checkbox"\/><span class="provider-optional-model-copy"><strong>Fable 5<\/strong>/u);
+    expect(fableDisabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Fable 5<\/strong>[\s\S]*?<\/span><input type="checkbox"\/><\/label>/u);
     expect(fableDisabledHtml).not.toContain('value="claude-fable-5"');
   });
 
@@ -559,6 +592,7 @@ describe('renderer provider settings', () => {
     }));
 
     expect(html).toContain('OpenAI Trusted Access for Cyber members');
+    expect(html).toContain('You have accepted the OpenAI provider acknowledgment.');
     expect(html).toContain('I confirm this account has OpenAI Trusted Access for Cyber membership');
     expect(html).toContain('class="provider-risk-acknowledgement is-locked"');
     expect(html).toMatch(/<input type="checkbox"[^>]*disabled=""[^>]*checked=""/u);
@@ -590,20 +624,21 @@ describe('renderer provider settings', () => {
 
     const disabledHtml = render({});
     expect(disabledHtml).toContain('aria-label="Optional Models"');
-    expect(disabledHtml).toContain('<h3>Optional Models</h3>');
+    expect(disabledHtml).toContain('<h2>Optional Models</h2>');
+    expect(disabledHtml).toContain('Enable additional provider models when they are available to your account.');
     expect(disabledHtml).toContain('class="provider-optional-model-copy"');
     expect(disabledHtml).toContain('<strong>Daybreak Blue</strong>');
     expect(disabledHtml).toContain('Expected, but not guaranteed, for Trusted Access for Cyber members.');
-    expect(disabledHtml).toMatch(/<label><input type="checkbox"[^>]*checked=""\/><span class="provider-optional-model-copy"><strong>Daybreak Blue<\/strong>/u);
+    expect(disabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Blue<\/strong>[\s\S]*?<\/span><input type="checkbox"[^>]*checked=""\/><\/label>/u);
     expect(disabledHtml).toContain('<strong>Daybreak Red</strong>');
     expect(disabledHtml).toContain('primarily available to approved commercial users');
-    expect(disabledHtml).toMatch(/<label><input type="checkbox"\/><span class="provider-optional-model-copy"><strong>Daybreak Red<\/strong>/u);
+    expect(disabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Red<\/strong>[\s\S]*?<\/span><input type="checkbox"\/><\/label>/u);
     expect(disabledHtml).not.toContain('gpt-daybreak-red-latest');
     const enabledHtml = render({ red: true });
-    expect(enabledHtml).toMatch(/<label><input type="checkbox" checked=""\/><span class="provider-optional-model-copy"><strong>Daybreak Red<\/strong>/u);
+    expect(enabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Red<\/strong>[\s\S]*?<\/span><input type="checkbox" checked=""\/><\/label>/u);
     expect(enabledHtml).toContain('gpt-daybreak-red-latest');
     const blueDisabledHtml = render({ blueDisabled: true });
-    expect(blueDisabledHtml).toMatch(/<label><input type="checkbox" disabled=""\/><span class="provider-optional-model-copy"><strong>Daybreak Blue<\/strong>/u);
+    expect(blueDisabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Blue<\/strong>[\s\S]*?<\/span><input type="checkbox" disabled=""\/><\/label>/u);
   });
 
   it('shows the xAI policy-use risk acknowledgement without a program-membership claim', () => {
