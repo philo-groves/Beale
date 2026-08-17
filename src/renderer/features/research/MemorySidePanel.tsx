@@ -41,7 +41,7 @@ import { CommentaryView } from '../commentary/CommentaryView';
 import { SessionUsageSummary } from '../momentum/SessionUsageStatus';
 import { BreakoutRoomView } from '../sessions/BreakoutRoomView';
 import { SessionDurationMetric } from '../sessions/SessionMetrics';
-import { MemoryTypeIcon, MemoryTypeLabel, memoryTypeClassName, memoryTypeDefinition, memoryTypeLabel } from './MemoryTypeLabel';
+import { MemoryTypeIcon, MemoryTypeLabel, memoryTypeClassName, memoryTypeDefinition, memoryTypeLabel, memoryTypeStyle } from './MemoryTypeLabel';
 import { RunbookView } from './RunbookView';
 import { ReportView } from './ReportView';
 import { renderInlineCodeText } from '../traces/traceMarkup';
@@ -852,6 +852,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               nodeById={nodeById}
               relationships={relationshipsByNodeId.get(selectedNode.id) ?? []}
               researchProfile={researchProfile}
+              sessionHeatPreferences={sessionHeatPreferences}
             />
           </MainSideScrollRegion>
         ) : activeView === 'memory' ? (
@@ -879,9 +880,13 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                         label: nodeType.label,
                         group: nodeType.group,
                         className: `memory-type-option ${memoryTypeClassName(nodeType.id, memoryTypes)}`,
-                        style: nodeType.color
-                          ? { '--memory-type-color': nodeType.color } as CSSProperties
-                          : undefined
+                        style: memoryTypeStyle(
+                          nodeType.id,
+                          memoryTypes,
+                          undefined,
+                          researchProfile?.id,
+                          sessionHeatPreferences
+                        )
                       }))
                     ]}
                     onChange={setType}
@@ -904,6 +909,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                     memoryLabel={memoryLabel}
                     memoryTypes={memoryTypes}
                     nodes={statusSection.nodes}
+                    profileId={researchProfile?.id}
+                    sessionHeatPreferences={sessionHeatPreferences}
                     selectedNodeId={visibleSelectedNodeId}
                     onExpand={() => setExpandedMemoryGroups((current) => new Set(current).add(statusSection.id))}
                     onOpen={(nodeId) => setSelectedNodeId(nodeId)}
@@ -1358,7 +1365,6 @@ interface CatalogMemoryTypeOption {
   id: string;
   label: string;
   group?: string;
-  color?: string;
 }
 
 export function orderedCatalogMemoryTypes(
@@ -1382,8 +1388,7 @@ export function orderedCatalogMemoryTypes(
     .map(({ id, definition }) => ({
       id,
       label: memoryTypeLabel(id, definitions),
-      ...(definition?.group ? { group: definition.group } : {}),
-      ...(definition?.color ? { color: definition.color } : {})
+      ...(definition?.group ? { group: definition.group } : {})
     }));
 }
 
@@ -1653,11 +1658,15 @@ function SubagentProviderIcon({
 export function MemoryCatalogItem({
   node,
   memoryTypes,
+  profileId,
+  sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   selected,
   onOpen
 }: {
   node: HoneycrispMemoryNodeSummary;
   memoryTypes?: readonly ResearchProfileMemoryType[];
+  profileId?: string | null;
+  sessionHeatPreferences?: SessionHeatPreferences;
   selected: boolean;
   onOpen: () => void;
 }): JSX.Element {
@@ -1667,11 +1676,24 @@ export function MemoryCatalogItem({
         <span className="memory-catalog-item-heading">
           <span className="memory-catalog-item-meta-line">
             <span className="memory-catalog-item-primary">
-              <MemoryTypeIcon type={node.type} definitions={memoryTypes} />
+              <MemoryTypeIcon
+                type={node.type}
+                definitions={memoryTypes}
+                status={node.status}
+                profileId={profileId}
+                sessionHeatPreferences={sessionHeatPreferences}
+              />
               <span className="memory-catalog-item-name" title={node.title}>{node.title}</span>
             </span>
             <span className="memory-catalog-item-trailing">
-              <MemoryTypeLabel type={node.type} definitions={memoryTypes} showDot={false} />
+              <MemoryTypeLabel
+                type={node.type}
+                definitions={memoryTypes}
+                status={node.status}
+                profileId={profileId}
+                sessionHeatPreferences={sessionHeatPreferences}
+                showDot={false}
+              />
               <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
             </span>
           </span>
@@ -1690,6 +1712,8 @@ export function MemoryCatalogSection({
   displayLabel,
   memoryLabel = 'memory',
   memoryTypes,
+  profileId,
+  sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   expanded,
   selectedNodeId,
   onExpand,
@@ -1700,6 +1724,8 @@ export function MemoryCatalogSection({
   displayLabel?: string;
   memoryLabel?: string;
   memoryTypes?: readonly ResearchProfileMemoryType[];
+  profileId?: string | null;
+  sessionHeatPreferences?: SessionHeatPreferences;
   expanded: boolean;
   selectedNodeId: string | null;
   onExpand: () => void;
@@ -1716,6 +1742,8 @@ export function MemoryCatalogSection({
             key={node.id}
             node={node}
             memoryTypes={memoryTypes}
+            profileId={profileId}
+            sessionHeatPreferences={sessionHeatPreferences}
             selected={selectedNodeId === node.id}
             onOpen={() => onOpen(node.id)}
           />
@@ -1737,12 +1765,14 @@ export function MemoryDetailView({
   node,
   nodeById,
   relationships,
-  researchProfile = null
+  researchProfile = null,
+  sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES
 }: {
   node: HoneycrispMemoryNodeSummary;
   nodeById: Map<string, HoneycrispMemoryNodeSummary>;
   relationships: HoneycrispMemoryEdgeSummary[];
   researchProfile?: ResearchProfile | null;
+  sessionHeatPreferences?: SessionHeatPreferences;
 }): JSX.Element {
   const memoryProfile = researchProfile?.memory;
   const statusDefinition = memoryProfile?.statuses.find((status) => status.id === node.status);
@@ -1757,7 +1787,13 @@ export function MemoryDetailView({
     <article className={`memory-detail type-${stateClass(node.type)}`}>
       <header className="memory-detail-heading">
         <span className="memory-catalog-item-labels">
-          <MemoryTypeLabel type={node.type} definitions={memoryProfile?.types} />
+          <MemoryTypeLabel
+            type={node.type}
+            definitions={memoryProfile?.types}
+            status={node.status}
+            profileId={researchProfile?.id}
+            sessionHeatPreferences={sessionHeatPreferences}
+          />
           <span className="memory-catalog-status">{statusLabel}</span>
         </span>
         <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>

@@ -215,6 +215,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           memoryDreamingProgress={memoryDreamingProgress}
           honeycrispMemory={honeycrispMemory}
           researchProfile={researchProfile}
+          sessionHeatPreferences={sessionHeatPreferences}
           researchSubjectName={researchSubjectName}
           workspacePath={workspacePath}
           workspaceDirectories={workspaceDirectories}

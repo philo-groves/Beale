@@ -16,14 +16,15 @@ import type {
   WorkspaceScopeVersion
 } from '@shared/types';
 import { Modal } from '../../app/Modal';
-import { memoryTypeClassName, memoryTypeLabel } from '../research/MemoryTypeLabel';
+import { memoryTypeClassName, memoryTypeDefinition, memoryTypeHeat, memoryTypeLabel, memoryTypeStyle } from '../research/MemoryTypeLabel';
 import { MemoryCatalogItem, RunbookCatalogItem } from '../research/MemorySidePanel';
 import {
   buildWorkspaceTimeline,
   formatWorkspaceTimelineDuration
 } from '../../view-models/workspaceTimeline';
 import type { WorkspaceTimelineResult } from '../../view-models/workspaceTimeline';
-import type { SessionHeat } from '../../view-models/sessionHeat';
+import { EMPTY_SESSION_HEAT_PREFERENCES, SESSION_HEAT_LEVELS } from '../../view-models/sessionHeat';
+import type { SessionHeat, SessionHeatPreferences } from '../../view-models/sessionHeat';
 import { errorMessage } from '../../lib/errors';
 import { WorkspaceDirectoriesWidget } from './WorkspaceDirectoriesWidget';
 
@@ -154,6 +155,7 @@ export function WorkspaceUnderstandingView({
   honeycrispMemory,
   activeScope = null,
   researchProfile = null,
+  sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   researchSubjectName = '',
   workspacePath = '',
   workspaceDirectories,
@@ -182,6 +184,7 @@ export function WorkspaceUnderstandingView({
   honeycrispMemory: HoneycrispMemorySummary | null;
   activeScope?: WorkspaceScopeVersion | null;
   researchProfile?: ResearchProfile | null;
+  sessionHeatPreferences?: SessionHeatPreferences;
   researchSubjectName?: string;
   workspacePath?: string;
   workspaceDirectories?: readonly string[];
@@ -370,7 +373,13 @@ export function WorkspaceUnderstandingView({
                       key={marker.id}
                       style={{
                         left: `${marker.leftPercent}%`,
-                        ...(marker.color ? { '--memory-type-color': marker.color } : {})
+                        ...memoryTypeStyle(
+                          marker.type,
+                          memoryTypes,
+                          marker.status,
+                          researchProfile?.id,
+                          sessionHeatPreferences
+                        )
                       } as CSSProperties}
                       title={`${memoryTypeLabel(marker.type, memoryTypes)} · ${marker.title} · ${formatDateTime(marker.createdAt)}`}
                     />
@@ -423,6 +432,8 @@ export function WorkspaceUnderstandingView({
         nowMs={timelineNowMs}
         nodes={workspaceMemoryNodes}
         onOpen={onOpenMemory}
+        profileId={researchProfile?.id}
+        sessionHeatPreferences={sessionHeatPreferences}
         workspaceName={activeScope?.workspaceName || workspaceName}
       />
 
@@ -734,6 +745,48 @@ function workspaceHeatmapValueLabel(value: number, metric: WorkspaceHeatmapMetri
   }
 }
 
+export interface WorkspaceMemoryTypeGroup {
+  type: string;
+  nodes: HoneycrispMemorySummary['nodes'];
+}
+
+export function workspaceMemoryTypeGroups(
+  nodes: HoneycrispMemorySummary['nodes'],
+  memoryTypes: ResearchProfile['memory']['types'],
+  profileId: string | null | undefined,
+  sessionHeatPreferences: SessionHeatPreferences
+): WorkspaceMemoryTypeGroup[] {
+  const groups = new Map<string, HoneycrispMemorySummary['nodes']>();
+  for (const node of nodes) {
+    const type = memoryTypeDefinition(node.type, memoryTypes)?.id ?? node.type;
+    groups.set(type, [...(groups.get(type) ?? []), node]);
+  }
+  return [...groups.entries()]
+    .map(([type, groupedNodes]) => ({ type, nodes: groupedNodes }))
+    .sort((left, right) => {
+      const leftHeat = SESSION_HEAT_LEVELS.indexOf(memoryTypeHeat(
+        left.type,
+        memoryTypes,
+        undefined,
+        profileId,
+        sessionHeatPreferences
+      ));
+      const rightHeat = SESSION_HEAT_LEVELS.indexOf(memoryTypeHeat(
+        right.type,
+        memoryTypes,
+        undefined,
+        profileId,
+        sessionHeatPreferences
+      ));
+      if (rightHeat !== leftHeat) return rightHeat - leftHeat;
+      if (right.nodes.length !== left.nodes.length) return right.nodes.length - left.nodes.length;
+      const leftDefinition = memoryTypeDefinition(left.type, memoryTypes);
+      const rightDefinition = memoryTypeDefinition(right.type, memoryTypes);
+      return (leftDefinition?.order ?? Number.MAX_SAFE_INTEGER) - (rightDefinition?.order ?? Number.MAX_SAFE_INTEGER)
+        || memoryTypeLabel(left.type, memoryTypes).localeCompare(memoryTypeLabel(right.type, memoryTypes));
+    });
+}
+
 function WorkspaceMemoryPanel({
   hidden,
   loading,
@@ -741,6 +794,8 @@ function WorkspaceMemoryPanel({
   nowMs,
   nodes,
   onOpen,
+  profileId,
+  sessionHeatPreferences,
   workspaceName
 }: {
   hidden: boolean;
@@ -749,9 +804,15 @@ function WorkspaceMemoryPanel({
   nowMs: number;
   nodes: HoneycrispMemorySummary['nodes'];
   onOpen: (nodeId: string) => void;
+  profileId?: string | null;
+  sessionHeatPreferences: SessionHeatPreferences;
   workspaceName: string;
 }): JSX.Element {
   const activity = useMemo(() => workspaceCreationActivity(nodes, nowMs), [nodes, nowMs]);
+  const groups = useMemo(
+    () => workspaceMemoryTypeGroups(nodes, memoryTypes, profileId, sessionHeatPreferences),
+    [memoryTypes, nodes, profileId, sessionHeatPreferences]
+  );
   return (
     <section
       aria-label="Workspace memory"
@@ -761,14 +822,15 @@ function WorkspaceMemoryPanel({
       role="tabpanel"
     >
       <WorkspaceActivityForm activity={activity} metric="memories" viewLabel="Memory" workspaceName={workspaceName} />
-      <div className="workspace-catalog-list memory-catalog-list">
-        {nodes.map((node) => (
-          <MemoryCatalogItem
-            key={node.id}
+      <div className="workspace-catalog-list memory-catalog-list workspace-memory-type-lists">
+        {groups.map((group) => (
+          <WorkspaceMemoryTypeSection
+            group={group}
+            key={group.type}
             memoryTypes={memoryTypes}
-            node={node}
-            selected={false}
-            onOpen={() => onOpen(node.id)}
+            onOpen={onOpen}
+            profileId={profileId}
+            sessionHeatPreferences={sessionHeatPreferences}
           />
         ))}
         {nodes.length === 0 ? (
@@ -777,6 +839,72 @@ function WorkspaceMemoryPanel({
       </div>
     </section>
   );
+}
+
+function WorkspaceMemoryTypeSection({
+  group,
+  memoryTypes,
+  onOpen,
+  profileId,
+  sessionHeatPreferences
+}: {
+  group: WorkspaceMemoryTypeGroup;
+  memoryTypes: ResearchProfile['memory']['types'];
+  onOpen: (nodeId: string) => void;
+  profileId?: string | null;
+  sessionHeatPreferences: SessionHeatPreferences;
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const visibleNodes = group.nodes.slice(0, 4);
+  const overflowNodes = group.nodes.slice(4);
+  const definition = memoryTypeDefinition(group.type, memoryTypes);
+  const fallbackLabel = memoryTypeLabel(group.type, memoryTypes);
+  const typeLabel = group.nodes.length === 1
+    ? definition?.name ?? fallbackLabel
+    : definition?.pluralName ?? workspaceMemoryTypePluralLabel(fallbackLabel);
+  const renderNode = (node: HoneycrispMemorySummary['nodes'][number]): JSX.Element => (
+    <MemoryCatalogItem
+      key={node.id}
+      memoryTypes={memoryTypes}
+      node={node}
+      profileId={profileId}
+      selected={false}
+      sessionHeatPreferences={sessionHeatPreferences}
+      onOpen={() => onOpen(node.id)}
+    />
+  );
+  return (
+    <section className="workspace-memory-type-section" aria-label={`${group.nodes.length} ${typeLabel}`}>
+      <h3>{group.nodes.length.toLocaleString()} {typeLabel}</h3>
+      <div className="workspace-memory-type-primary-items">
+        {visibleNodes.map(renderNode)}
+      </div>
+      {overflowNodes.length > 0 ? (
+        <>
+          <div
+            aria-hidden={!expanded}
+            className={`workspace-memory-type-overflow ${expanded ? 'expanded' : ''}`.trim()}
+            inert={expanded ? undefined : true}
+          >
+            <div>{overflowNodes.map(renderNode)}</div>
+          </div>
+          <button
+            aria-expanded={expanded}
+            className="session-memory-type-toggle workspace-memory-type-toggle"
+            onClick={() => setExpanded((current) => !current)}
+            type="button"
+          >
+            {expanded ? 'Show less' : `Show ${overflowNodes.length.toLocaleString()} more`}
+          </button>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function workspaceMemoryTypePluralLabel(label: string): string {
+  if (label.startsWith('Unknown type (')) return label.replace('Unknown type (', 'Unknown types (');
+  return label.endsWith('s') ? label : `${label}s`;
 }
 
 function WorkspaceRunbooksPanel({

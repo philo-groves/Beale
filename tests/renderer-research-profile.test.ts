@@ -98,7 +98,7 @@ describe('renderer research profile presentation', () => {
     ]);
   });
 
-  it('uses profile type names, groups, colors, status labels, and readable fallbacks', () => {
+  it('uses profile type names, groups, heat colors, status labels, and readable fallbacks', () => {
     const profile = customProfile();
     const nodes = [
       node('published_note', 'note', 'published'),
@@ -108,8 +108,8 @@ describe('renderer research profile presentation', () => {
     ];
 
     expect(orderedCatalogMemoryTypes(nodes, profile.memory.types)).toEqual([
-      { id: 'retired_note', label: 'Archived Note', group: 'Archive', color: '#778899' },
-      { id: 'note', label: 'Note', group: 'Knowledge', color: '#123456' },
+      { id: 'retired_note', label: 'Archived Note', group: 'Archive' },
+      { id: 'note', label: 'Note', group: 'Knowledge' },
       { id: 'old_observation', label: 'Unknown type (Old observation)' }
     ]);
     expect(sessionMemoryTypeSummaries(nodes, profile.memory).map((summary) => ({
@@ -127,8 +127,37 @@ describe('renderer research profile presentation', () => {
       definitions: profile.memory.types
     }));
     expect(retiredHtml).toContain('data-memory-type-lifecycle="retired"');
-    expect(retiredHtml).toContain('style="--memory-type-color:#778899"');
+    expect(retiredHtml).not.toContain('--memory-type-color');
     expect(retiredHtml).toContain('>Archived Note</span>');
+
+    const draftHtml = renderToStaticMarkup(createElement(MemoryTypeLabel, {
+      type: 'note',
+      definitions: profile.memory.types,
+      status: 'draft'
+    }));
+    expect(draftHtml).not.toContain('data-memory-heat');
+    expect(draftHtml).not.toContain('--memory-type-color');
+
+    const publishedHtml = renderToStaticMarkup(createElement(MemoryTypeLabel, {
+      type: 'note',
+      definitions: profile.memory.types,
+      status: 'published'
+    }));
+    expect(publishedHtml).toContain('data-memory-heat="high"');
+    expect(publishedHtml).toContain('style="--memory-type-color:var(--session-heat-high-color)"');
+
+    const overriddenHtml = renderToStaticMarkup(createElement(MemoryTypeLabel, {
+      type: 'note',
+      definitions: profile.memory.types,
+      status: 'published',
+      profileId: profile.id,
+      sessionHeatPreferences: {
+        heatOverrides: { [profile.id]: { note: { published: 'critical' } } },
+        paletteOverrides: {}
+      }
+    }));
+    expect(overriddenHtml).toContain('data-memory-heat="critical"');
+    expect(overriddenHtml).toContain('style="--memory-type-color:var(--session-heat-critical-color)"');
 
     const unknownHtml = renderToStaticMarkup(createElement(MemoryTypeLabel, {
       type: 'old_observation',
@@ -236,7 +265,8 @@ function customProfile(): ResearchProfile {
           color: '#123456',
           order: 20,
           defaultStatus: 'draft',
-          allowedStatuses: ['draft', 'published']
+          allowedStatuses: ['draft', 'published'],
+          sessionHeat: { published: 'high' }
         },
         {
           id: 'retired_note',

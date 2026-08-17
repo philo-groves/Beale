@@ -14,6 +14,7 @@ import {
   workspaceResearchSurfaceItems,
   workspaceScopeDraftForConfigurationUpdate,
   workspaceCreationActivity,
+  workspaceMemoryTypeGroups,
   workspaceTokenActivity,
   WorkspaceHousekeepingPanel,
   WorkspaceResourceDialog,
@@ -49,6 +50,11 @@ describe('workspace dashboard', () => {
     const mainOnlyStyles = styles.match(/\.main-session-grid\.workspace-main-only\s*\{([^}]*)\}/)?.[1] ?? '';
     const catalogViewStyles = styles.match(/\.workspace-catalog-view\s*\{([^}]*)\}/)?.[1] ?? '';
     const catalogListStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.workspace-catalog-list\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceMemoryItemStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.memory-catalog-list\s+\.memory-catalog-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceMemoryDescriptionStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.memory-catalog-list\s+\.memory-catalog-item-description\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceMemorySectionStyles = styles.match(/\.workspace-memory-type-section\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceMemoryHeadingStyles = styles.match(/\.workspace-memory-type-section\s*>\s*h3\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceMemoryToggleStyles = styles.match(/\.workspace-memory-type-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
     const sideStackStyles = styles.match(/\.workspace-side-stack\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamAreaStyles = styles.match(/\.workspace-dream-area\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamContentStyles = styles.match(/\.workspace-dream-content\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -78,6 +84,8 @@ describe('workspace dashboard', () => {
     expect(overviewDisabledStyles).toContain('background: var(--panel-strong)');
     expect(overviewDisabledStyles).toContain('color: var(--muted)');
     expect(overviewDisabledStyles).toContain('cursor: not-allowed');
+    expect(styles).toContain('--memory-type-neutral: var(--muted)');
+    expect(styles).not.toContain('--memory-type-primitive:');
     expect(timelinePanelStyles).not.toContain('border-bottom');
     expect(timelinePanelStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
     expect(timelinePanelStyles).toContain('gap: 10px');
@@ -99,6 +107,16 @@ describe('workspace dashboard', () => {
     expect(catalogViewStyles).toContain('overflow: hidden');
     expect(catalogListStyles).toContain('width: 100%');
     expect(catalogListStyles).toContain('height: 100%');
+    expect(workspaceMemoryItemStyles).toContain('padding-block: 7px');
+    expect(workspaceMemoryDescriptionStyles).toContain('color: var(--muted)');
+    expect(workspaceMemorySectionStyles).not.toContain('border-top');
+    expect(workspaceMemorySectionStyles).not.toContain('border-bottom');
+    expect(workspaceMemoryHeadingStyles).toContain('padding: 8px var(--settings-form-inline-padding) 12px');
+    expect(workspaceMemoryToggleStyles).toContain('width: max-content');
+    expect(workspaceMemoryToggleStyles).toContain('justify-content: flex-start');
+    expect(workspaceMemoryToggleStyles).toContain('padding: 5px var(--settings-form-inline-padding) 7px 0');
+    expect(workspaceMemoryToggleStyles).toContain('background: transparent');
+    expect(workspaceMemoryToggleStyles).not.toContain('border-top');
     expect(styles).toMatch(/:where\([\s\S]*\.main-commentary-list,[\s\S]*\.workspace-surface-list,[\s\S]*\)\s*\{\s*scrollbar-color: transparent transparent;/u);
     expect(styles).not.toContain('.workspace-housekeeping-header');
     expect(sideStackStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
@@ -288,7 +306,7 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('workspace-activity-weekdays');
     expect(html).not.toContain('Token usage heat scale');
     expect(html.indexOf('<h2>Parser Workspace Resources</h2>')).toBeLessThan(html.indexOf('aria-label="Workspace resource types"'));
-    expect(html.indexOf('<h2>Parser Workspace Memory</h2>')).toBeLessThan(html.indexOf('class="workspace-catalog-list memory-catalog-list"'));
+    expect(html.indexOf('<h2>Parser Workspace Memory</h2>')).toBeLessThan(html.indexOf('class="workspace-catalog-list memory-catalog-list workspace-memory-type-lists"'));
     expect(html.indexOf('<h2>Parser Workspace Runbooks</h2>')).toBeLessThan(html.indexOf('class="workspace-catalog-list runbook-catalog-list"'));
     expect(html).toContain('aria-label="Parser Workspace — most recent 4 hours of session activity"');
     expect(html).toContain('<span>Activity</span>');
@@ -377,6 +395,87 @@ describe('workspace dashboard', () => {
     expect(activity.days.find((day) => day.dateKey === '2026-08-10')).toMatchObject({ value: 2, heatLevel: 4 });
   });
 
+  it('groups workspace memories by type, ranks groups by configured heat, and limits collapsed lists to four rows', () => {
+    const baseProfile = testResearchProfile();
+    const finding = baseProfile.memory.types[0]!;
+    const note = {
+      ...finding,
+      id: 'note',
+      name: 'Note',
+      pluralName: 'Notes',
+      order: 20,
+      sessionHeat: { draft: 'low' as const }
+    };
+    const neutral = {
+      ...finding,
+      id: 'neutral',
+      name: 'Neutral',
+      pluralName: 'Neutrals',
+      order: 30,
+      sessionHeat: {}
+    };
+    const profile = {
+      ...baseProfile,
+      memory: { ...baseProfile.memory, types: [finding, note, neutral] }
+    };
+    const memory = memorySummary({
+      nodes: [
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `finding_${index}`,
+          type: finding.id,
+          status: 'confirmed',
+          title: `Finding ${index}`,
+          workspaces: [{ id: 'workspace_security', name: 'Security' }]
+        })),
+        {
+          id: 'note_one',
+          type: note.id,
+          status: 'draft',
+          title: 'Note one',
+          workspaces: [{ id: 'workspace_security', name: 'Security' }]
+        },
+        ...Array.from({ length: 6 }, (_, index) => ({
+          id: `neutral_${index}`,
+          type: neutral.id,
+          status: 'draft',
+          title: `Neutral ${index}`,
+          workspaces: [{ id: 'workspace_security', name: 'Security' }]
+        }))
+      ]
+    });
+    const sessionHeatPreferences = {
+      heatOverrides: { [profile.id]: { [note.id]: { draft: 'critical' as const } } },
+      paletteOverrides: {}
+    };
+
+    expect(workspaceMemoryTypeGroups(
+      memory.nodes,
+      profile.memory.types,
+      profile.id,
+      sessionHeatPreferences
+    ).map((group) => group.type)).toEqual(['note', 'finding', 'neutral']);
+
+    const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: false,
+      memoryDreamingInProgress: false,
+      honeycrispMemory: memory,
+      researchProfile: profile,
+      sessionHeatPreferences,
+      workspaceName: 'Security',
+      runs: [],
+      nowMs: NOW,
+      onRunMemoryDreaming: () => undefined
+    }));
+    expect(html).toContain('<h3>1 Note</h3>');
+    expect(html).toContain('<h3>5 Findings</h3>');
+    expect(html).toContain('<h3>6 Neutrals</h3>');
+    expect(html.indexOf('<h3>1 Note</h3>')).toBeLessThan(html.indexOf('<h3>5 Findings</h3>'));
+    expect(html).toContain('aria-expanded="false" class="session-memory-type-toggle workspace-memory-type-toggle"');
+    expect(html).toContain('>Show 1 more</button>');
+    expect(html).toContain('>Show 2 more</button>');
+    expect(html).toContain('class="workspace-memory-type-overflow" inert=""');
+  });
+
   it('renders split work intervals and per-memory-type timeline markers', () => {
     const profile = testResearchProfile();
     const memoryType = profile.memory.types[0];
@@ -389,6 +488,7 @@ describe('workspace dashboard', () => {
         id: 'memory_one',
         sessionIds: ['run_one'],
         type: memoryType.id,
+        status: 'confirmed',
         title: 'Parser state transition',
         createdAt: '2026-08-12T10:00:00.000Z'
       }],
@@ -425,7 +525,7 @@ describe('workspace dashboard', () => {
     expect((rows[0]?.segments[1]?.leftPercent ?? 0) + (rows[0]?.segments[1]?.widthPercent ?? 0))
       .toBeCloseTo(100);
     expect(rows[0]?.memoryMarkers).toEqual([
-      expect.objectContaining({ id: 'memory_one', type: memoryType.id, color: memoryType.color ?? null })
+      expect.objectContaining({ id: 'memory_one', type: memoryType.id, status: 'confirmed' })
     ]);
     expect(rows[0]?.memoryMarkers[0]?.leftPercent).toBeCloseTo(50);
     expect(rows[0]?.runbookRevisionMarkers).toEqual([
@@ -464,6 +564,7 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('5h total');
     expect(html.match(/workspace-timeline-segment/g)).toHaveLength(2);
     expect(html).toContain(`workspace-timeline-memory-marker memory-type-${memoryType.id}`);
+    expect(html).toContain('--memory-type-color:var(--session-heat-high-color)');
     expect(html).toContain(`memory recorded: Parser state transition`);
     expect(html.match(/workspace-timeline-runbook-marker/g)).toHaveLength(2);
     expect(html).toContain('Runbook update 2: Parser proof');

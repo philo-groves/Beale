@@ -46,18 +46,7 @@
   --violet-soft: rgba(255, 255, 255, 0.07);
   --teal: #dddddd;
   --teal-soft: rgba(255, 255, 255, 0.08);
-  --memory-type-asset: #4fc3f7;
-  --memory-type-bug: #ff6b6b;
-  --memory-type-invariant: #65d68a;
-  --memory-type-mitigation: #a8d65e;
-  --memory-type-source: #ff9f43;
-  --memory-type-sink: #ffd166;
-  --memory-type-hypothesis: #e879f9;
-  --memory-type-primitive: #ff78a8;
-  --memory-type-chain: #7c9cff;
-  --memory-type-procedure: #45d6c4;
-  --memory-type-trajectory: #b98cff;
-  --memory-type-other: #c6d36f;
+  --memory-type-neutral: var(--muted);
   --shadow: none;
   --sidebar-width: 292px;
   --app-window-radius: 12px;
@@ -2013,6 +2002,84 @@ body.is-resizing-research-side .main-session-grid {
   padding: 10px var(--settings-form-inline-padding);
 }
 
+.workspace-catalog-view > .memory-catalog-list .memory-catalog-toggle {
+  padding-block: 7px;
+}
+
+.workspace-catalog-view > .memory-catalog-list .memory-catalog-item-description {
+  color: var(--muted);
+}
+
+.workspace-catalog-view > .workspace-memory-type-lists {
+  gap: 14px;
+  border-block: 0;
+  padding-bottom: 10px;
+}
+
+.workspace-memory-type-section {
+  min-width: 0;
+}
+
+.workspace-memory-type-section > h3 {
+  margin: 0;
+  padding: 8px var(--settings-form-inline-padding) 12px;
+  border-bottom: 1px solid var(--panel-border);
+  color: var(--muted-strong);
+  font-size: inherit;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+.workspace-memory-type-primary-items,
+.workspace-memory-type-overflow > div {
+  min-width: 0;
+  display: grid;
+}
+
+.workspace-memory-type-overflow {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows 180ms ease,
+    opacity 160ms ease,
+    visibility 0s linear 180ms;
+}
+
+.workspace-memory-type-overflow > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-memory-type-overflow.expanded {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.workspace-memory-type-overflow.expanded > div > .memory-catalog-item:first-child {
+  border-top: 1px solid var(--panel-border);
+}
+
+.workspace-memory-type-toggle {
+  width: max-content;
+  min-height: 24px;
+  border: 0;
+  justify-content: flex-start;
+  padding: 5px var(--settings-form-inline-padding) 7px 0;
+  color: var(--muted);
+  background: transparent;
+  text-align: left;
+}
+
+.workspace-memory-type-toggle:hover,
+.workspace-memory-type-toggle:focus-visible {
+  color: var(--muted-strong);
+  background: transparent;
+}
+
 .workspace-cleaning-form .settings-form-control-list > * + * {
   border-top: 1px solid var(--line);
 }
@@ -2468,7 +2535,7 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-timeline-memory-marker {
-  --memory-type-color: var(--memory-type-other);
+  --memory-type-color: var(--memory-type-neutral);
   width: 4px;
   height: 18px;
   position: absolute;
@@ -5302,21 +5369,8 @@ button.session-summary-item:hover:not(:disabled),
 .memory-type-dot,
 .memory-type-icon,
 .memory-type-option {
-  --memory-type-color: var(--memory-type-other);
+  --memory-type-color: var(--memory-type-neutral);
 }
-
-.memory-type-asset { --memory-type-color: var(--memory-type-asset); }
-.memory-type-bug { --memory-type-color: var(--memory-type-bug); }
-.memory-type-invariant { --memory-type-color: var(--memory-type-invariant); }
-.memory-type-mitigation { --memory-type-color: var(--memory-type-mitigation); }
-.memory-type-source { --memory-type-color: var(--memory-type-source); }
-.memory-type-sink { --memory-type-color: var(--memory-type-sink); }
-.memory-type-hypothesis { --memory-type-color: var(--memory-type-hypothesis); }
-.memory-type-primitive { --memory-type-color: var(--memory-type-primitive); }
-.memory-type-chain { --memory-type-color: var(--memory-type-chain); }
-.memory-type-procedure { --memory-type-color: var(--memory-type-procedure); }
-.memory-type-trajectory { --memory-type-color: var(--memory-type-trajectory); }
-.memory-type-other { --memory-type-color: var(--memory-type-other); }
 
 .memory-type-label {
   min-width: 0;

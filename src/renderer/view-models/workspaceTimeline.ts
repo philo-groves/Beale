@@ -22,9 +22,9 @@ export interface WorkspaceTimelineSegment {
 export interface WorkspaceTimelineMemoryMarker {
   id: string;
   type: string;
+  status: string;
   title: string;
   createdAt: string;
-  color: string | null;
   leftPercent: number;
 }
 
@@ -158,9 +158,9 @@ export function buildWorkspaceTimeline(
       return [{
         id: memory.id,
         type: definition?.id ?? memory.type,
+        status: memory.status,
         title: memory.title,
         createdAt: memory.createdAt,
-        color: definition?.color ?? null,
         leftPercent: percentOfActivityWindow(activityOffsetMs, activityClock)
       }];
     });
