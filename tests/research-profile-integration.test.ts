@@ -616,24 +616,51 @@ describe('research profile host integration', () => {
         workspaceName: 'Climate Literature Library',
         scopeOwner: 'Boundary Administrator',
         descriptionMarkdown: 'A collection of local literature and model outputs.',
-        rulesMarkdown: 'Use only recorded research assets.',
+        rulesMarkdown: [
+          '## In scope',
+          '- data.example.test',
+          '- misplaced.example.test',
+          '',
+          '## Out of scope',
+          '- excluded.example.test'
+        ].join('\n'),
         expiresAt: null,
         assets: [
           { direction: 'in_scope', kind: 'domain', value: 'data.example.test', sensitivity: 'public' },
           { direction: 'in_scope', kind: 'host', value: '192.0.2.15', sensitivity: 'public' },
           { direction: 'in_scope', kind: 'service', value: 'https://catalog.example.test/api', sensitivity: 'public' },
           { direction: 'in_scope', kind: 'repo', value: workspace, sensitivity: 'internal' },
+          {
+            direction: 'in_scope',
+            kind: 'path',
+            value: workspace,
+            sensitivity: 'internal',
+            attributes: { instruction: 'Preserve the recorded collection during analysis.' }
+          },
+          { direction: 'out_of_scope', kind: 'domain', value: 'misplaced.example.test', sensitivity: 'public' },
           { direction: 'out_of_scope', kind: 'domain', value: 'excluded.example.test', sensitivity: 'public' }
         ]
       });
       const networkEnabledStarted = service.startRun(runInput('literature-synthesis'));
       const networkEnabledRunId = networkEnabledStarted.runs[0]?.run.id ?? '';
       await waitForRun(service, networkEnabledRunId);
-      const networkEnabledInvocation = readInvocations(invocationLog).find((candidate) => candidate.args.includes('network'));
+      const networkEnabledInvocation = readInvocations(invocationLog).at(-1);
       expect(networkEnabledInvocation?.args).toEqual(expect.arrayContaining(['--allowed-side-effect', 'network']));
       expect(networkEnabledInvocation?.workspaceContext.authorization).not.toHaveProperty('networkProfile');
       expect(networkEnabledInvocation?.workspaceContext.authorization).not.toHaveProperty('allowedNetworkDestinations');
       expect(networkEnabledInvocation?.args).not.toContain('--openai-trusted-access-cyber-risk-acknowledged');
+      const networkProjectNotes = (
+        networkEnabledInvocation?.workspaceContext.projectNotes as string[] | undefined
+      )?.join('\n') ?? '';
+      expect(networkProjectNotes).toContain('Rules and constraints: ## In scope - data.example.test - misplaced.example.test ## Out of scope - excluded.example.test');
+      expect(networkProjectNotes).not.toContain('Included in Collection boundary (domain, public): data.example.test');
+      expect(networkProjectNotes).not.toContain('Excluded from Collection boundary (domain, public): excluded.example.test');
+      expect(networkProjectNotes).not.toContain(`Included in Collection boundary (repo, internal): ${workspace}`);
+      expect(networkProjectNotes).toContain(
+        `Included in Collection boundary (path, internal): ${workspace} — Preserve the recorded collection during analysis.`
+      );
+      expect(networkProjectNotes).toContain('Included in Collection boundary (host, public): 192.0.2.15');
+      expect(networkProjectNotes).toContain('Excluded from Collection boundary (domain, public): misplaced.example.test');
 
       service.setProviderCyberPolicyRiskAcknowledged('openai-codex', true);
       const openAiStarted = service.startRun({

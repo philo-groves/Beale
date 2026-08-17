@@ -3133,7 +3133,7 @@ function honeycrispWorkspaceContext(
     knownRepositories,
     materializedSourcePaths,
     projectNotes: [
-      ...honeycrispScopeNotes(scope, researchProfile, workflowId, subject),
+      ...honeycrispScopeNotes(scope, researchProfile, workflowId, subject, knownRepositories),
       ...reportResourceProjectNotes(resourceContext)
     ]
   };
@@ -3208,9 +3208,10 @@ function honeycrispScopeNotes(
   scope: WorkspaceScopeVersion,
   researchProfile: ResearchProfileSnapshot | null,
   workflowId: string | null,
-  researchSubject: { id: string; name: string }
+  researchSubject: { id: string; name: string },
+  knownRepositories: readonly HoneycrispWorkspaceRepositoryContext[] = []
 ): string[] {
-  if (!researchProfile) return legacyHoneycrispScopeNotes(scope);
+  if (!researchProfile) return legacyHoneycrispScopeNotes(scope, knownRepositories);
   const profile = researchProfile.profile;
   const workspaceContract = profile.workspace;
   const workflow = profile.workflows.find((candidate) => candidate.id === workflowId)
@@ -3218,6 +3219,7 @@ function honeycrispScopeNotes(
     ?? profile.workflows[0];
   const recordedBoundary = isRecordedWorkspaceScope(scope);
   const authorizationRequired = workspaceContract.authorizationMode === 'required_for_live_network';
+  const modelVisibleRules = scope.rulesMarkdown.trim() ? boundedContextText(scope.rulesMarkdown) : '';
   const notes = [
     `Research profile: ${boundedContextText(`${profile.id}@${profile.version}`)}`,
     workflow
@@ -3242,7 +3244,7 @@ function honeycrispScopeNotes(
     ...workspaceContract.boundaryInstructions
       .slice(0, 16)
       .map((instruction) => `${boundedContextText(workspaceContract.boundaryNoun)} instruction: ${boundedContextText(instruction, 1_000)}`),
-    scope.rulesMarkdown.trim() ? `Rules and constraints: ${boundedContextText(scope.rulesMarkdown)}` : '',
+    modelVisibleRules ? `Rules and constraints: ${modelVisibleRules}` : '',
     scope.expiresAt
       ? `${boundedContextText(workspaceContract.boundaryNoun)} expiry or review date: ${scope.expiresAt}`
       : `${boundedContextText(workspaceContract.boundaryNoun)} expiry or review date: no expiry recorded.`,
@@ -3250,29 +3252,58 @@ function honeycrispScopeNotes(
       ? `${boundedContextText(workspaceContract.boundaryNoun)} description: ${boundedContextText(scope.descriptionMarkdown)}`
       : ''
   ];
-  appendHoneycrispScopeAssetNotes(notes, scope, workspaceContract.boundaryNoun);
+  appendHoneycrispScopeAssetNotes(
+    notes,
+    scope,
+    workspaceContract.boundaryNoun,
+    modelVisibleRules,
+    knownRepositories
+  );
   return notes.filter(Boolean);
 }
 
-function legacyHoneycrispScopeNotes(scope: WorkspaceScopeVersion): string[] {
+function legacyHoneycrispScopeNotes(
+  scope: WorkspaceScopeVersion,
+  knownRepositories: readonly HoneycrispWorkspaceRepositoryContext[] = []
+): string[] {
+  const modelVisibleRules = scope.rulesMarkdown.trim() ? boundedContextText(scope.rulesMarkdown) : '';
   const notes = [
     'Authorization: This is an operator-recorded authorized security research scope. Treat only explicitly in-scope assets as authorized; exclusions and constraints override research objectives.',
     scope.workspaceName.trim() ? `Scope: ${boundedContextText(scope.workspaceName)}` : '',
     scope.scopeOwner.trim() ? `Scope owner or subject: ${boundedContextText(scope.scopeOwner)}` : '',
-    scope.rulesMarkdown.trim() ? `Rules and constraints: ${boundedContextText(scope.rulesMarkdown)}` : '',
+    modelVisibleRules ? `Rules and constraints: ${modelVisibleRules}` : '',
     scope.expiresAt ? `Authorization expiry or review date: ${scope.expiresAt}` : 'Authorization expiry or review date: no expiry recorded.',
     scope.descriptionMarkdown.trim() ? `Scope description: ${boundedContextText(scope.descriptionMarkdown)}` : ''
   ];
-  appendHoneycrispScopeAssetNotes(notes, scope, 'scope');
+  appendHoneycrispScopeAssetNotes(notes, scope, 'scope', modelVisibleRules, knownRepositories);
   return notes.filter(Boolean);
 }
 
-function appendHoneycrispScopeAssetNotes(notes: string[], scope: WorkspaceScopeVersion, boundaryNoun: string): void {
+function appendHoneycrispScopeAssetNotes(
+  notes: string[],
+  scope: WorkspaceScopeVersion,
+  boundaryNoun: string,
+  modelVisibleRules = '',
+  knownRepositories: readonly HoneycrispWorkspaceRepositoryContext[] = []
+): void {
   const orderedAssets = [...scope.assets].sort((left, right) => Number(left.direction === 'in_scope') - Number(right.direction === 'in_scope'));
+  const repositoryRoots = new Set(knownRepositories.map((repository) => resolve(repository.rootPath).toLocaleLowerCase()));
   for (const asset of orderedAssets.slice(0, 200)) {
     const instruction = stringAttribute(asset.attributes?.instruction);
+    const assetValue = honeycrispScopeAssetValue(asset);
+    const representedInRules = asset.kind !== 'credential_ref'
+      && scopeAssetRepresentedInRules(modelVisibleRules, asset, assetValue, instruction);
+    if (representedInRules) continue;
+    const localRoot = localRootForAsset(asset);
+    if (
+      asset.direction === 'in_scope'
+      && (asset.kind === 'repo' || asset.kind === 'path')
+      && !instruction
+      && localRoot
+      && repositoryRoots.has(resolve(localRoot).toLocaleLowerCase())
+    ) continue;
     notes.push(
-      `${asset.direction === 'in_scope' ? `Included in ${boundedContextText(boundaryNoun)}` : `Excluded from ${boundedContextText(boundaryNoun)}`} (${asset.kind}, ${asset.sensitivity}): ${honeycrispScopeAssetValue(asset)}` +
+      `${asset.direction === 'in_scope' ? `Included in ${boundedContextText(boundaryNoun)}` : `Excluded from ${boundedContextText(boundaryNoun)}`} (${asset.kind}, ${asset.sensitivity}): ${assetValue}` +
         (instruction ? ` — ${boundedContextText(instruction, 1_000)}` : '')
     );
   }
@@ -3281,6 +3312,37 @@ function appendHoneycrispScopeAssetNotes(notes: string[], scope: WorkspaceScopeV
       `${boundedContextText(boundaryNoun)} asset list truncated: ${scope.assets.length - 200} additional assets remain in Beale.`
     );
   }
+}
+
+function scopeAssetRepresentedInRules(
+  modelVisibleRules: string,
+  asset: ScopeAsset,
+  assetValue: string,
+  instruction: string | null
+): boolean {
+  const rules = modelVisibleRules.toLocaleLowerCase();
+  const value = assetValue.toLocaleLowerCase();
+  let cursor = rules.indexOf(value);
+  while (cursor >= 0) {
+    const latestInScope = rules.lastIndexOf('## in scope', cursor);
+    const latestOutOfScope = rules.lastIndexOf('## out of scope', cursor);
+    if (latestInScope < 0 && latestOutOfScope < 0) {
+      cursor = rules.indexOf(value, cursor + value.length);
+      continue;
+    }
+    const representedDirection = latestInScope > latestOutOfScope ? 'in_scope' : 'out_of_scope';
+    const nextInScope = rules.indexOf('## in scope', cursor + value.length);
+    const nextOutOfScope = rules.indexOf('## out of scope', cursor + value.length);
+    const nextBoundary = [nextInScope, nextOutOfScope]
+      .filter((candidate) => candidate >= 0)
+      .sort((left, right) => left - right)[0] ?? rules.length;
+    const section = rules.slice(cursor, nextBoundary);
+    const instructionRepresented = !instruction
+      || section.includes(boundedContextText(instruction, 1_000).toLocaleLowerCase());
+    if (representedDirection === asset.direction && instructionRepresented) return true;
+    cursor = rules.indexOf(value, cursor + value.length);
+  }
+  return false;
 }
 
 function isRecordedWorkspaceScope(scope: WorkspaceScopeVersion): boolean {
