@@ -183,7 +183,7 @@ describe('renderer research profile presentation', () => {
     expect(html).not.toContain('0 Guides');
   });
 
-  it('renders configurable light and dark session heat palette controls', () => {
+  it('renders the dark session heat variant by default with a light and dark toggle', () => {
     const profile = customProfile();
     const html = renderToStaticMarkup(createElement(ProfileSettingsView, {
       researchProfile: snapshot(profile).researchProfile,
@@ -201,15 +201,18 @@ describe('renderer research profile presentation', () => {
       onSetSessionHeatPalettePreference: () => undefined
     }));
 
-    expect(html).not.toContain('Session Heat Colors');
-    expect(html).toContain('>Light Heat</h5>');
-    expect(html).toContain('>Dark Heat</h5>');
-    expect(html).toContain('aria-label="Reset Light Heat colors"');
+    expect(html).toContain('<h2 id="profile-heat-heading">Heat</h2>');
+    expect(html).toContain('role="group" aria-label="Heat variant"');
+    expect(html).toContain('aria-pressed="false">Light</button>');
+    expect(html).toContain('class="active" type="button" aria-pressed="true">Dark</button>');
+    expect(html).not.toContain('aria-label="Reset Light Heat colors"');
     expect(html).toContain('aria-label="Reset Dark Heat colors"');
-    expect(html).toContain('aria-label="Light Heat Low session heat color"');
-    expect(html).toContain('value="#112233"');
+    expect(html).not.toContain('aria-label="Light Heat Low session heat color"');
+    expect(html).not.toContain('value="#112233"');
     expect(html).toContain('aria-label="Dark Heat Critical session heat color"');
     expect(html).toContain('value="#445566"');
+    expect(html).toContain('A subtle signal for sessions with light activity.');
+    expect(html).toContain('The strongest signal for sessions with exceptional activity.');
   });
 });
 

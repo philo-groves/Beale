@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createElement } from 'react';
@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 describe('memory settings', () => {
-  it('renders profile and memory-type tabs with an expanded session-heat view', () => {
+  it('renders profile views with Overview selected before the memory-type tabs', () => {
     expect(Object.keys(DEFAULT_MEMORY_TYPE_DESCRIPTIONS)).toEqual([...MEMORY_NODE_TYPES]);
     expect(DEFAULT_MEMORY_TYPE_DESCRIPTIONS.primitive).toContain('lowercase-hyphenated attributes.rootCauseKey');
     expect(DEFAULT_MEMORY_TYPE_DESCRIPTIONS.chain).toContain('source, sink, and asset relationships are ideal');
@@ -51,27 +51,38 @@ describe('memory settings', () => {
     }));
 
     expect(html.match(/role="tablist"/gu)).toHaveLength(2);
-    expect(html.match(/profile-settings-tab-row research-side-view-tabs research-side-view-tabs-scrollable/gu)).toHaveLength(2);
+    expect(html.match(/profile-settings-tab-row(?: profile-settings-view-tab-row)? research-side-view-tabs research-side-view-tabs-scrollable/gu)).toHaveLength(2);
     const profileTabsIndex = html.indexOf('aria-label="Research profiles"');
+    const profileViewsIndex = html.indexOf('aria-label="Cybersecurity profile views"');
     const profileDescriptionIndex = html.indexOf(resolved.profile.description);
-    const memoryTabsIndex = html.indexOf('aria-label="Cybersecurity memory types"');
     expect(html).toContain('aria-label="Research profiles"');
     expect(html).toContain('class="research-side-view-tab provider-settings-tab profile-settings-tab active"');
     expect(html).toContain('<span>Cybersecurity</span></button>');
     expect(html).toContain('<span>Mathematics</span></button>');
-    expect(html).toContain('aria-label="Cybersecurity memory types"');
+    expect(html).toContain('aria-label="Cybersecurity profile views"');
+    expect(html).toContain('<span>Overview</span></button>');
     expect(html).toContain('<span>Finding</span></button>');
-    expect(html).toContain('aria-label="Finding memory definition"');
-    expect(html).toContain(resolved.profile.memory.types[0]!.description);
-    expect(html).toContain('class="profile-memory-type-view"');
-    expect(html).toContain('<h4>Session Heat</h4>');
-    expect(html).not.toContain('<textarea');
-    expect(html).toContain('Finding confirmed session heat');
-    expect(html).toContain('Profile default · High');
+    expect(html).toContain('class="profile-overview-view"');
+    expect(html).toContain('<h2 id="profile-basic-details-heading">Basic Details</h2>');
+    expect(html).toContain('aria-label="Profile Name" value="Security Research"');
+    expect(html).toContain(`aria-label="Profile Description">${resolved.profile.description}</textarea>`);
+    expect(html).not.toContain('aria-label="Finding memory definition"');
+    expect(html).not.toContain('class="profile-memory-type-view"');
+    expect(html).toContain(`aria-label="${resolved.profile.name} session heat colors"`);
     expect(profileTabsIndex).toBeLessThan(profileDescriptionIndex);
-    expect(profileDescriptionIndex).toBeLessThan(memoryTabsIndex);
+    expect(profileTabsIndex).toBeLessThan(profileViewsIndex);
+    expect(profileViewsIndex).toBeLessThan(profileDescriptionIndex);
     expect(html).not.toContain('Resolved from');
     expect(html).not.toContain('Bundled Cybersecurity profile');
+
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const viewTabRowStyles = styles.match(/\.profile-settings-view-tab-row\s*\{([^}]*)\}/)?.[1] ?? '';
+    const tabButtonStyles = styles.match(/\.profile-settings-tab \.research-side-view-tab-activate\s*\{([^}]*)\}/)?.[1] ?? '';
+    const descriptionRowStyles =
+      styles.match(/\.profile-basic-details-form \.profile-basic-details-description-row\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(viewTabRowStyles).toContain('padding-inline: 0');
+    expect(tabButtonStyles).toContain('padding: 0 9px');
+    expect(descriptionRowStyles).toContain('grid-template-columns: minmax(0, 1fr)');
   });
 
   it('persists normalized descriptions and restores them from the global registry', () => {

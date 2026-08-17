@@ -253,6 +253,13 @@ const SESSION_HEAT_THEME_LABELS: Record<SessionHeatTheme, string> = {
   dark: 'Dark Heat'
 };
 
+const SESSION_HEAT_LEVEL_DESCRIPTIONS: Record<SessionHeatColorLevel, string> = {
+  low: 'A subtle signal for sessions with light activity.',
+  medium: 'A moderate signal for sessions with sustained activity.',
+  high: 'A strong signal for sessions with heavy activity.',
+  critical: 'The strongest signal for sessions with exceptional activity.'
+};
+
 export function ProfileSettingsView({
   researchProfile,
   researchProfiles,
@@ -276,13 +283,14 @@ export function ProfileSettingsView({
   const profiles = profileSettingsCatalog(researchProfiles, researchProfile);
   const initialProfile = profiles.find((profile) => profile.profile.id === researchProfile?.profileId) ?? profiles[0] ?? null;
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(initialProfile?.profile.id ?? null);
-  const [selectedMemoryTypeId, setSelectedMemoryTypeId] = useState<string | null>(
-    sortedProfileMemoryTypes(initialProfile)[0]?.id ?? null
-  );
+  const [selectedMemoryTypeId, setSelectedMemoryTypeId] = useState<string | null>(null);
+  const [profileDetailDrafts, setProfileDetailDrafts] = useState<Record<string, { name: string; description: string }>>({});
   const profileCatalogKey = profiles.map((profile) => `${profile.profile.id}:${profile.hash}`).join('|');
   const selectedProfile = profiles.find((profile) => profile.profile.id === selectedProfileId) ?? initialProfile;
   const memoryTypes = sortedProfileMemoryTypes(selectedProfile);
-  const selectedMemoryType = memoryTypes.find((memoryType) => memoryType.id === selectedMemoryTypeId) ?? memoryTypes[0] ?? null;
+  const selectedMemoryType = selectedMemoryTypeId
+    ? memoryTypes.find((memoryType) => memoryType.id === selectedMemoryTypeId) ?? null
+    : null;
   const memoryTypeKey = memoryTypes.map((memoryType) => memoryType.id).join('|');
   const statusesById = new Map(selectedProfile?.profile.memory.statuses.map((status) => [status.id, status]) ?? []);
 
@@ -290,12 +298,12 @@ export function ProfileSettingsView({
     if (profiles.some((profile) => profile.profile.id === selectedProfileId)) return;
     const nextProfile = profiles.find((profile) => profile.profile.id === researchProfile?.profileId) ?? profiles[0] ?? null;
     setSelectedProfileId(nextProfile?.profile.id ?? null);
-    setSelectedMemoryTypeId(sortedProfileMemoryTypes(nextProfile)[0]?.id ?? null);
+    setSelectedMemoryTypeId(null);
   }, [profileCatalogKey, researchProfile?.profileId, selectedProfileId]);
 
   useEffect(() => {
-    if (memoryTypes.some((memoryType) => memoryType.id === selectedMemoryTypeId)) return;
-    setSelectedMemoryTypeId(memoryTypes[0]?.id ?? null);
+    if (selectedMemoryTypeId === null || memoryTypes.some((memoryType) => memoryType.id === selectedMemoryTypeId)) return;
+    setSelectedMemoryTypeId(null);
   }, [memoryTypeKey, selectedMemoryTypeId, selectedProfile?.profile.id]);
 
   if (profiles.length === 0 || !selectedProfile) {
@@ -310,11 +318,24 @@ export function ProfileSettingsView({
   }
 
   const selectProfile = (profileId: string): void => {
-    const profile = profiles.find((candidate) => candidate.profile.id === profileId) ?? null;
     setSelectedProfileId(profileId);
-    setSelectedMemoryTypeId(sortedProfileMemoryTypes(profile)[0]?.id ?? null);
+    setSelectedMemoryTypeId(null);
   };
   const profileName = profileSettingsName(selectedProfile.profile.id, selectedProfile.profile.name);
+  const profileDetailDraft = profileDetailDrafts[selectedProfile.profile.id] ?? {
+    name: selectedProfile.profile.name,
+    description: selectedProfile.profile.description
+  };
+  const updateProfileDetailDraft = (update: Partial<typeof profileDetailDraft>): void => {
+    setProfileDetailDrafts((current) => ({
+      ...current,
+      [selectedProfile.profile.id]: {
+        ...profileDetailDraft,
+        ...update
+      }
+    }));
+  };
+  const overviewTabId = `profile-overview-tab-${selectedProfile.profile.id}`;
 
   return (
     <div className="settings-page profile-settings-page">
@@ -333,7 +354,7 @@ export function ProfileSettingsView({
                   role="tab"
                   id={`profile-settings-tab-${profile.profile.id}`}
                   aria-selected={selected}
-                  aria-controls="profile-settings-memory-panel"
+                  aria-controls="profile-settings-profile-panel"
                   onClick={() => selectProfile(profile.profile.id)}
                 >
                   <span>{profileSettingsName(profile.profile.id, profile.profile.name)}</span>
@@ -343,15 +364,27 @@ export function ProfileSettingsView({
           })}
           {loading ? <span className="profile-settings-loading" role="status">Loading profiles...</span> : null}
         </div>
-        <div className="profile-settings-summary">
-          <p>{selectedProfile.profile.description}</p>
-        </div>
-        <SessionHeatPaletteSettings
-          profile={selectedProfile.profile}
-          sessionHeatPreferences={sessionHeatPreferences}
-          onSetColor={onSetSessionHeatPalettePreference}
-        />
-        <div className="profile-settings-tab-row research-side-view-tabs research-side-view-tabs-scrollable" role="tablist" aria-label={`${profileName} memory types`}>
+      </div>
+      <div
+        className="profile-settings-profile-view"
+        id="profile-settings-profile-panel"
+        role="tabpanel"
+        aria-labelledby={`profile-settings-tab-${selectedProfile.profile.id}`}
+      >
+        <div className="profile-settings-tab-row profile-settings-view-tab-row research-side-view-tabs research-side-view-tabs-scrollable" role="tablist" aria-label={`${profileName} profile views`}>
+          <div className={`research-side-view-tab provider-settings-tab profile-settings-tab ${selectedMemoryType ? '' : 'active'}`.trim()}>
+            <button
+              className="research-side-view-tab-activate"
+              type="button"
+              role="tab"
+              id={overviewTabId}
+              aria-selected={!selectedMemoryType}
+              aria-controls="profile-settings-view-panel"
+              onClick={() => setSelectedMemoryTypeId(null)}
+            >
+              <span>Overview</span>
+            </button>
+          </div>
           {memoryTypes.map((memoryType) => {
             const selected = memoryType.id === selectedMemoryType?.id;
             return (
@@ -365,7 +398,7 @@ export function ProfileSettingsView({
                   role="tab"
                   id={`profile-memory-tab-${selectedProfile.profile.id}-${memoryType.id}`}
                   aria-selected={selected}
-                  aria-controls="profile-settings-memory-panel"
+                  aria-controls="profile-settings-view-panel"
                   onClick={() => setSelectedMemoryTypeId(memoryType.id)}
                 >
                   <span>{memoryType.name}</span>
@@ -374,62 +407,107 @@ export function ProfileSettingsView({
             );
           })}
         </div>
+        {selectedMemoryType ? (
+          <article
+            className="profile-memory-type-view"
+            id="profile-settings-view-panel"
+            role="tabpanel"
+            aria-labelledby={`profile-memory-tab-${selectedProfile.profile.id}-${selectedMemoryType.id}`}
+            aria-label={`${selectedMemoryType.name} memory definition`}
+          >
+            <header className="profile-memory-type-header">
+              <div>
+                <span>Memory type</span>
+                <h4>{selectedMemoryType.name} <small>{'\u00b7'} {selectedMemoryType.id}</small></h4>
+              </div>
+              <small>
+                {selectedMemoryType.lifecycle === 'retired' || !selectedMemoryType.creatable ? 'Read-only' : 'Creatable'}
+                {' \u00b7 '}
+                {selectedMemoryType.allowedStatuses.join(', ')}
+              </small>
+            </header>
+            <p className="profile-memory-type-description">{selectedMemoryType.description}</p>
+            <section className="profile-memory-session-heat" aria-label={`${selectedMemoryType.name} session heat settings`}>
+              <h4>Session Heat</h4>
+              <div>
+                {selectedMemoryType.allowedStatuses
+                  .filter((statusId) => statusesById.get(statusId)?.polarity !== 'negative')
+                  .map((statusId) => {
+                    const defaultHeat = selectedMemoryType.sessionHeat?.[statusId] ?? 'none';
+                    const override = sessionHeatPreferences.heatOverrides[selectedProfile.profile.id]?.[selectedMemoryType.id]?.[statusId];
+                    return (
+                      <label key={statusId}>
+                        <span>{statusesById.get(statusId)?.name ?? statusId}</span>
+                        <select
+                          aria-label={`${selectedMemoryType.name} ${statusId} session heat`}
+                          value={override ?? ''}
+                          onChange={(event) => onSetSessionHeatPreference(
+                            selectedProfile.profile.id,
+                            selectedMemoryType.id,
+                            statusId,
+                            event.target.value ? event.target.value as SessionHeat : null
+                          )}
+                        >
+                          <option value="">Profile default {'\u00b7'} {sessionHeatLabel(defaultHeat)}</option>
+                          {SESSION_HEAT_LEVELS.map((heat) => (
+                            <option value={heat} key={heat}>{sessionHeatLabel(heat)}</option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  })}
+              </div>
+            </section>
+          </article>
+        ) : (
+          <article
+            className="profile-overview-view"
+            id="profile-settings-view-panel"
+            role="tabpanel"
+            aria-labelledby={overviewTabId}
+          >
+            <section className="settings-form profile-basic-details-form">
+              <header className="settings-form-heading">
+                <h2 id="profile-basic-details-heading">Basic Details</h2>
+                <p>Set the name and description presented for this research profile.</p>
+              </header>
+              <div className="settings-form-squircle profile-basic-details-squircle" aria-labelledby="profile-basic-details-heading">
+                <div className="settings-form-control-list">
+                  <label className="settings-form-control-row">
+                    <span className="settings-form-control-copy">
+                      <strong>Profile Name</strong>
+                      <small>Choose the name used to identify this research profile.</small>
+                    </span>
+                    <input
+                      className="profile-basic-details-name-input"
+                      type="text"
+                      aria-label="Profile Name"
+                      value={profileDetailDraft.name}
+                      onChange={(event) => updateProfileDetailDraft({ name: event.currentTarget.value })}
+                    />
+                  </label>
+                  <label className="settings-form-control-row profile-basic-details-description-row">
+                    <span className="settings-form-control-copy">
+                      <strong>Profile Description</strong>
+                      <small>Describe the profile's research purpose and intended use.</small>
+                    </span>
+                    <textarea
+                      aria-label="Profile Description"
+                      value={profileDetailDraft.description}
+                      onChange={(event) => updateProfileDetailDraft({ description: event.currentTarget.value })}
+                    />
+                  </label>
+                </div>
+              </div>
+            </section>
+            <SessionHeatPaletteSettings
+              profile={selectedProfile.profile}
+              sessionHeatPreferences={sessionHeatPreferences}
+              onSetColor={onSetSessionHeatPalettePreference}
+            />
+          </article>
+        )}
       </div>
-      {selectedMemoryType ? (
-        <article
-          className="profile-memory-type-view"
-          id="profile-settings-memory-panel"
-          role="tabpanel"
-          aria-labelledby={`profile-memory-tab-${selectedProfile.profile.id}-${selectedMemoryType.id}`}
-          aria-label={`${selectedMemoryType.name} memory definition`}
-        >
-          <header className="profile-memory-type-header">
-            <div>
-              <span>Memory type</span>
-              <h4>{selectedMemoryType.name} <small>{'\u00b7'} {selectedMemoryType.id}</small></h4>
-            </div>
-            <small>
-              {selectedMemoryType.lifecycle === 'retired' || !selectedMemoryType.creatable ? 'Read-only' : 'Creatable'}
-              {' \u00b7 '}
-              {selectedMemoryType.allowedStatuses.join(', ')}
-            </small>
-          </header>
-          <p className="profile-memory-type-description">{selectedMemoryType.description}</p>
-          <section className="profile-memory-session-heat" aria-label={`${selectedMemoryType.name} session heat settings`}>
-            <h4>Session Heat</h4>
-            <div>
-              {selectedMemoryType.allowedStatuses
-                .filter((statusId) => statusesById.get(statusId)?.polarity !== 'negative')
-                .map((statusId) => {
-                  const defaultHeat = selectedMemoryType.sessionHeat?.[statusId] ?? 'none';
-                  const override = sessionHeatPreferences.heatOverrides[selectedProfile.profile.id]?.[selectedMemoryType.id]?.[statusId];
-                  return (
-                    <label key={statusId}>
-                      <span>{statusesById.get(statusId)?.name ?? statusId}</span>
-                      <select
-                        aria-label={`${selectedMemoryType.name} ${statusId} session heat`}
-                        value={override ?? ''}
-                        onChange={(event) => onSetSessionHeatPreference(
-                          selectedProfile.profile.id,
-                          selectedMemoryType.id,
-                          statusId,
-                          event.target.value ? event.target.value as SessionHeat : null
-                        )}
-                      >
-                        <option value="">Profile default {'\u00b7'} {sessionHeatLabel(defaultHeat)}</option>
-                        {SESSION_HEAT_LEVELS.map((heat) => (
-                          <option value={heat} key={heat}>{sessionHeatLabel(heat)}</option>
-                        ))}
-                      </select>
-                    </label>
-                  );
-                })}
-            </div>
-          </section>
-        </article>
-      ) : (
-        <section className="profile-settings-empty" role="status">This profile does not define memory types.</section>
-      )}
     </div>
   );
 }
@@ -443,41 +521,58 @@ function SessionHeatPaletteSettings({
   sessionHeatPreferences: SessionHeatPreferences;
   onSetColor: (profileId: string, theme: SessionHeatTheme, level: SessionHeatColorLevel, color: string | null) => void;
 }): JSX.Element {
-  const palettes: Record<SessionHeatTheme, ResearchProfileSessionHeatPalette> = {
-    light: sessionHeatPaletteForProfile(profile, sessionHeatPreferences, 'light'),
-    dark: sessionHeatPaletteForProfile(profile, sessionHeatPreferences, 'dark')
-  };
+  const [theme, setTheme] = useState<SessionHeatTheme>('dark');
+  const palette: ResearchProfileSessionHeatPalette = sessionHeatPaletteForProfile(profile, sessionHeatPreferences, theme);
+
+  useEffect(() => {
+    setTheme('dark');
+  }, [profile.id]);
 
   return (
-    <section className="profile-session-heat-colors" aria-label={`${profile.name} session heat colors`}>
-      <div className="profile-session-heat-color-grid">
-        {(['light', 'dark'] as const).map((theme) => (
-          <div className="profile-session-heat-color-column" key={theme}>
-            <div className="profile-session-heat-color-heading">
-              <h5>{SESSION_HEAT_THEME_LABELS[theme]}</h5>
-              <button
-                type="button"
-                aria-label={`Reset ${SESSION_HEAT_THEME_LABELS[theme]} colors`}
-                title={`Reset ${SESSION_HEAT_THEME_LABELS[theme]} colors`}
-                onClick={() => SESSION_HEAT_COLOR_LEVELS.forEach((level) => onSetColor(profile.id, theme, level, null))}
-              >
-                <RefreshCw size={13} aria-hidden="true" />
-              </button>
-            </div>
-            <div className="profile-session-heat-color-list">
-              {SESSION_HEAT_COLOR_LEVELS.map((level) => (
-                <SessionHeatColorControl
-                  key={level}
-                  profileId={profile.id}
-                  theme={theme}
-                  level={level}
-                  color={palettes[theme][level]}
-                  onSetColor={onSetColor}
-                />
+    <section className="settings-form profile-heat-form" aria-label={`${profile.name} session heat colors`}>
+      <header className="settings-form-heading profile-heat-form-heading">
+        <div className="profile-heat-form-title">
+          <h2 id="profile-heat-heading">Heat</h2>
+          <div className="profile-heat-form-controls">
+            <div className="profile-heat-theme-toggle" role="group" aria-label="Heat variant">
+              {(['light', 'dark'] as const).map((candidate) => (
+                <button
+                  className={candidate === theme ? 'active' : ''}
+                  type="button"
+                  aria-pressed={candidate === theme}
+                  onClick={() => setTheme(candidate)}
+                  key={candidate}
+                >
+                  {candidate === 'light' ? 'Light' : 'Dark'}
+                </button>
               ))}
             </div>
+            <button
+              className="profile-heat-reset"
+              type="button"
+              aria-label={`Reset ${SESSION_HEAT_THEME_LABELS[theme]} colors`}
+              title={`Reset ${SESSION_HEAT_THEME_LABELS[theme]} colors`}
+              onClick={() => SESSION_HEAT_COLOR_LEVELS.forEach((level) => onSetColor(profile.id, theme, level, null))}
+            >
+              <RefreshCw size={13} aria-hidden="true" />
+            </button>
           </div>
-        ))}
+        </div>
+        <p>Customize the colors used to show session activity intensity.</p>
+      </header>
+      <div className="settings-form-squircle profile-heat-form-squircle" aria-labelledby="profile-heat-heading">
+        <div className="settings-form-control-list profile-session-heat-color-list">
+          {SESSION_HEAT_COLOR_LEVELS.map((level) => (
+            <SessionHeatColorControl
+              key={`${theme}-${level}`}
+              profileId={profile.id}
+              theme={theme}
+              level={level}
+              color={palette[level]}
+              onSetColor={onSetColor}
+            />
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -511,36 +606,41 @@ function SessionHeatColorControl({
   const colorLabel = `${SESSION_HEAT_THEME_LABELS[theme]} ${sessionHeatLabel(level)} session heat color`;
 
   return (
-    <div className="profile-session-heat-color-row" role="group" aria-label={colorLabel}>
-      <span>{sessionHeatLabel(level)}</span>
-      <label
-        className="profile-session-heat-color-picker"
-        data-heat-level={level}
-        style={{ '--profile-session-heat-color': color } as CSSProperties}
-      >
+    <div className="settings-form-control-row profile-session-heat-color-row" role="group" aria-label={colorLabel}>
+      <span className="settings-form-control-copy">
+        <strong>{sessionHeatLabel(level)}</strong>
+        <small>{SESSION_HEAT_LEVEL_DESCRIPTIONS[level]}</small>
+      </span>
+      <span className="profile-session-heat-color-controls">
+        <label
+          className="profile-session-heat-color-picker"
+          data-heat-level={level}
+          style={{ '--profile-session-heat-color': color } as CSSProperties}
+        >
+          <input
+            type="color"
+            aria-label={colorLabel}
+            value={color}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              onSetColor(profileId, theme, level, event.target.value);
+            }}
+          />
+        </label>
         <input
-          type="color"
-          aria-label={colorLabel}
-          value={color}
+          className="profile-session-heat-color-hex"
+          type="text"
+          aria-label={`${colorLabel} hex`}
+          spellCheck={false}
+          value={draft}
           onChange={(event) => {
-            setDraft(event.target.value);
-            onSetColor(profileId, theme, level, event.target.value);
+            const nextDraft = event.target.value;
+            setDraft(nextDraft);
+            commitColor(nextDraft);
           }}
+          onBlur={() => setDraft(normalizeHexColor(draft) ?? color)}
         />
-      </label>
-      <input
-        className="profile-session-heat-color-hex"
-        type="text"
-        aria-label={`${colorLabel} hex`}
-        spellCheck={false}
-        value={draft}
-        onChange={(event) => {
-          const nextDraft = event.target.value;
-          setDraft(nextDraft);
-          commitColor(nextDraft);
-        }}
-        onBlur={() => setDraft(normalizeHexColor(draft) ?? color)}
-      />
+      </span>
     </div>
   );
 }
