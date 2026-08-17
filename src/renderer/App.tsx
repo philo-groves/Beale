@@ -27,6 +27,7 @@ import type {
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
   SessionTranscriptSearchResult,
+  ShellSafetyMode,
   SteeringAction,
   WorkspaceSnapshot
 } from '@shared/types';
@@ -38,6 +39,7 @@ import { NotificationStack, type WorkspaceAlert } from './features/notifications
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { WorkspaceStartupView } from './features/workspaces/WorkspaceStartupView';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
+import { ReportsIndex, ReportSessionWorkspace } from './features/reports/ReportsWorkspace';
 import type { ResearchGoalSeed } from './features/sessions/SessionNextSteps';
 import {
   isAutoReviewOverrideApproval,
@@ -74,6 +76,7 @@ import { sessionHeatForDetail, sessionHeatPaletteForProfile, sessionHeatPaletteS
 import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
+import { isReportResourceRun, reportSessionDefaultModelSelection } from './view-models/reports';
 import {
   clearConfirmedProviderOAuthResults,
   isSubscriptionAuthenticationConfirmed
@@ -114,6 +117,10 @@ export function App(): JSX.Element {
     () => filterEnabledProviderModelCatalogs(researchProviderModelCatalog, providerSettings),
     [providerSettings, researchProviderModelCatalog]
   );
+  const reportSessionInitialModelSelection = useMemo(
+    () => reportSessionDefaultModelSelection(providerSettings, enabledResearchProviderModelCatalog),
+    [enabledResearchProviderModelCatalog, providerSettings]
+  );
   const [chatView, setChatView] = useChatViewPreference();
   const [sessionHeatPreferences, setSessionHeatPreference, setSessionHeatPalettePreference] = useSessionHeatPreferences();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
@@ -125,6 +132,9 @@ export function App(): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [automationsOpen, setAutomationsOpen] = useState(false);
+  const [reportsOpen, setReportsOpen] = useState(false);
+  const [reportSessionRunId, setReportSessionRunId] = useState<string | null>(null);
+  const [reportSessionRefreshVersion, setReportSessionRefreshVersion] = useState(0);
   const [agentPluginState, setAgentPluginState] = useState<AgentPluginRegistryState | null>(null);
   const [agentPluginsLoading, setAgentPluginsLoading] = useState(false);
   const [agentPluginsBusy, setAgentPluginsBusy] = useState(false);
@@ -182,8 +192,8 @@ export function App(): JSX.Element {
       .filter((approval) => approval.runId === selected.id)
       .map((approval) => approval.id)
       .join(',') ?? '';
-    return `${selected.status}:${selected.shellSafetyMode}:${pendingApprovalIds}`;
-  }, [selectedRunId, snapshot?.pendingShellApprovals, snapshot?.runs]);
+    return `${selected.status}:${selected.shellSafetyMode}:${pendingApprovalIds}:${reportsOpen ? reportSessionRefreshVersion : 0}`;
+  }, [reportSessionRefreshVersion, reportsOpen, selectedRunId, snapshot?.pendingShellApprovals, snapshot?.runs]);
   const handleRunDetailError = useCallback((message: string) => setError(message), []);
   const { runDetail, clearRunDetail } = useRunDetailPolling({
     selectedRunId,
@@ -247,12 +257,12 @@ export function App(): JSX.Element {
   }, [researchViewContextKey]);
 
   useEffect(() => {
-    if (!newResearchOpen && !(settingsOpen && settingsSection === 'providers')) return;
+    if (!newResearchOpen && !reportsOpen && !(settingsOpen && settingsSection === 'providers')) return;
     window.beale
       .getProviderSettings()
       .then(setProviderSettings)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
-  }, [handleError, newResearchOpen, settingsOpen, settingsSection]);
+  }, [handleError, newResearchOpen, reportsOpen, settingsOpen, settingsSection]);
 
   useEffect(() => {
     if (!settingsOpen || settingsSection !== 'profile') return;
@@ -475,6 +485,82 @@ export function App(): JSX.Element {
     setSelectedReportId(reportId);
   }, []);
 
+  const openReports = useCallback((): void => {
+    clearRunDetail();
+    setSelectedRunId(null);
+    setSelectedBreakoutRoomId(null);
+    setSelectedReportId(null);
+    setSelectedReportDocument(null);
+    setReportSessionRunId(null);
+    setReportSessionRefreshVersion(0);
+    setReportError(null);
+    setError(null);
+    setReportsOpen(true);
+  }, [clearRunDetail, setSelectedRunId]);
+
+  const openReportSession = useCallback((reportId: string): void => {
+    clearRunDetail();
+    setSelectedRunId(null);
+    setSelectedReportId(reportId);
+    setSelectedReportDocument(null);
+    setReportSessionRunId(null);
+    setReportSessionRefreshVersion(0);
+    setReportError(null);
+    setError(null);
+  }, [clearRunDetail, setSelectedRunId]);
+
+  const startReportTurn = useCallback(async (
+    instruction: string,
+    modelSelection?: ResearchModelSelection,
+    shellSafetyMode?: ShellSafetyMode
+  ): Promise<void> => {
+    if (!selectedReportId) throw new Error('No report is selected.');
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.beale.startReportSession({
+        reportId: selectedReportId,
+        instruction,
+        ...(modelSelection ? { modelSelection } : {}),
+        ...(shellSafetyMode ? { shellSafetyMode } : {})
+      });
+      applySnapshot(result.snapshot);
+      setReportSessionRunId(result.runId);
+      setSelectedRunId(result.runId);
+    } catch (caught: unknown) {
+      const message = errorMessage(caught);
+      setReportError(message);
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setBusy(false);
+    }
+  }, [applySnapshot, selectedReportId, setSelectedRunId]);
+
+  const submitReportChange = useCallback(async (instruction: string): Promise<void> => {
+    if (!reportSessionRunId) {
+      await startReportTurn(instruction);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await window.beale.steerRun({
+        type: 'steer',
+        runId: reportSessionRunId,
+        instruction
+      });
+      applySnapshot(next);
+      setReportSessionRefreshVersion((version) => version + 1);
+    } catch (caught: unknown) {
+      const message = errorMessage(caught);
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setBusy(false);
+    }
+  }, [applySnapshot, reportSessionRunId, startReportTurn]);
+
   const selectSubagent = useCallback((path: string): void => {
     setRightSidenavExpanded(true);
     setSelectedRunbookId(null);
@@ -553,9 +639,9 @@ export function App(): JSX.Element {
   }, [loadOpenAiProviderStatus, loadResearchProviderStatuses, newResearchOpen, settingsOpen, settingsSection]);
 
   useEffect(() => {
-    if (!newResearchOpen && !selectedRunId && !(settingsOpen && settingsSection === 'providers')) return;
+    if (!newResearchOpen && !reportsOpen && !selectedRunId && !(settingsOpen && settingsSection === 'providers')) return;
     void loadResearchProviderModelCatalog();
-  }, [loadResearchProviderModelCatalog, newResearchOpen, selectedRunId, settingsOpen, settingsSection]);
+  }, [loadResearchProviderModelCatalog, newResearchOpen, reportsOpen, selectedRunId, settingsOpen, settingsSection]);
 
   useEffect(() => {
     if (!settingsOpen || !researchProviderStatuses.some((provider) => provider.loginInProgress)) return;
@@ -895,9 +981,20 @@ export function App(): JSX.Element {
     () => researchPanelMemory?.runbooks.find((runbook) => runbook.id === selectedRunbookId) ?? null,
     [researchPanelMemory?.runbooks, selectedRunbookId]
   );
+  const reportCatalogMemory = reportsOpen
+    ? activeRunDetail?.honeycrispMemory ?? snapshot?.honeycrispMemory ?? null
+    : researchPanelMemory;
   const selectedReport = useMemo(
-    () => researchPanelMemory?.reports.find((report) => report.id === selectedReportId) ?? null,
-    [researchPanelMemory?.reports, selectedReportId]
+    () =>
+      reportCatalogMemory?.reports.find((report) => report.id === selectedReportId) ??
+      (reportsOpen
+        ? snapshot?.honeycrispMemory.reports.find((report) => report.id === selectedReportId) ?? null
+        : null),
+    [reportCatalogMemory?.reports, reportsOpen, selectedReportId, snapshot?.honeycrispMemory.reports]
+  );
+  const workspaceDashboardRuns = useMemo(
+    () => snapshot?.runs.filter((row) => !isReportResourceRun(row.run)) ?? [],
+    [snapshot?.runs]
   );
   useEffect(() => {
     if (!selectedRunbookId || !researchPanelMemory || selectedRunbook) return;
@@ -930,11 +1027,11 @@ export function App(): JSX.Element {
     };
   }, [selectedRunbook?.revision, selectedRunbookId]);
   useEffect(() => {
-    if (!selectedReportId || !researchPanelMemory || selectedReport) return;
+    if (!selectedReportId || !reportCatalogMemory || selectedReport) return;
     setSelectedReportId(null);
     setSelectedReportDocument(null);
     setReportError(null);
-  }, [researchPanelMemory, selectedReport, selectedReportId]);
+  }, [reportCatalogMemory, selectedReport, selectedReportId]);
   useEffect(() => {
     if (!selectedReportId) {
       setReportLoading(false);
@@ -943,7 +1040,7 @@ export function App(): JSX.Element {
     let cancelled = false;
     setReportLoading(true);
     setReportError(null);
-    setSelectedReportDocument(null);
+    setSelectedReportDocument((current) => current?.reportId === selectedReportId ? current : null);
     void window.beale.getHoneycrispReport(selectedReportId)
       .then((document) => {
         if (cancelled || document.reportId !== selectedReportId) return;
@@ -1025,9 +1122,17 @@ export function App(): JSX.Element {
   const closeProfiling = useCallback(() => setProfilingOpen(false), []);
   const openTraceFilters = useCallback(() => setTraceFilterOpen(true), []);
   const startNewResearch = useCallback(() => {
+    if (reportsOpen) {
+      clearRunDetail();
+      setSelectedRunId(null);
+      setReportSessionRunId(null);
+      setSelectedReportId(null);
+      setSelectedReportDocument(null);
+    }
+    setReportsOpen(false);
     setNewResearchInitialGoal(null);
     setNewResearchOpen(true);
-  }, []);
+  }, [clearRunDetail, reportsOpen, setSelectedRunId]);
   const startNewResearchFromSuggestion = useCallback((goal: ResearchGoalSeed) => {
     setNewResearchInitialGoal(goal);
     setNewResearchOpen(true);
@@ -1043,6 +1148,7 @@ export function App(): JSX.Element {
   );
   const openWorkspaceDashboardSession = useCallback(
     (runId: string): void => {
+      setReportsOpen(false);
       clearRunDetail();
       setSelectedBreakoutRoomId(null);
       setSelectedRunId(runId);
@@ -1061,6 +1167,7 @@ export function App(): JSX.Element {
   }, [runAction]);
   const openSearchResult = useCallback(
     (result: SessionTranscriptSearchResult, query: string): void => {
+      setReportsOpen(false);
       setPendingSearchTarget(result);
       setTraceSearchHighlightQuery(query);
       const targetWorkspace = workspaceRegistry?.workspaces.find((workspace) => workspace.id === result.registryWorkspaceId) ?? null;
@@ -1099,10 +1206,14 @@ export function App(): JSX.Element {
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
-        rightSidenavAvailable={!settingsOpen && researchDetailsAvailable}
-        rightSidenavExpanded={rightSidenavExpanded && researchDetailsAvailable}
-        contextualTitleVisible={!settingsOpen}
-        staticContextTitle={settingsOpen ? { primary: 'Agent Settings', secondary: settingsSectionLabel(settingsSection) } : null}
+        rightSidenavAvailable={!settingsOpen && !reportsOpen && researchDetailsAvailable}
+        rightSidenavExpanded={!reportsOpen && rightSidenavExpanded && researchDetailsAvailable}
+        contextualTitleVisible={!settingsOpen && !reportsOpen}
+        staticContextTitle={settingsOpen
+          ? { primary: 'Agent Settings', secondary: settingsSectionLabel(settingsSection) }
+          : reportsOpen
+            ? { primary: 'Reports', secondary: selectedReport?.title ?? currentWorkspaceName }
+            : null}
         platform={windowControlPlatform}
         workspaceName={currentWorkspaceName}
         activeWorkspace={activeWorkspaceEntry}
@@ -1135,7 +1246,8 @@ export function App(): JSX.Element {
           openRegisteredWorkspaceMenuId={openRegisteredWorkspaceMenuId}
           workspaceRegistry={workspaceRegistry}
           workspaceRegistryLoading={startupPhase === 'shell' || startupPhase === 'registry'}
-          selectedRunId={selectedRunId}
+          selectedRunId={reportsOpen ? null : selectedRunId}
+          reportsActive={reportsOpen}
           selectedBreakoutRoomId={selectedBreakoutRoomId}
           selectedRunBreakoutRooms={activeRunDetail?.breakoutRooms}
           selectedRunBreakoutRoomsLoading={selectedRunId !== null && activeRunDetail === null}
@@ -1144,14 +1256,17 @@ export function App(): JSX.Element {
             addWorkspace();
           }}
           onOpenWorkspace={(workspace) => {
+            setReportsOpen(false);
             openRegisteredWorkspace(workspace);
           }}
           onOpenWorkspaceInfo={setWorkspaceInfo}
           onOpenResearchSession={(workspace, session) => {
+            setReportsOpen(false);
             setSelectedBreakoutRoomId(null);
             openResearchSession(workspace, session);
           }}
           onOpenBreakoutRoom={(workspace, session, roomId) => {
+            setReportsOpen(false);
             openResearchSession(workspace, session);
             setSelectedBreakoutRoomId(roomId);
           }}
@@ -1159,6 +1274,7 @@ export function App(): JSX.Element {
           onResizePointerDown={beginSidebarResize}
           onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
           onOpenAutomations={openAutomations}
+          onOpenReports={openReports}
           onOpenPlugins={openPlugins}
           onSearch={openSearch}
           onStartNewResearch={startNewResearch}
@@ -1200,7 +1316,36 @@ export function App(): JSX.Element {
           />
         ) : (
           <div className="workspace-page">
-            {snapshot ? <MainSessionWorkspace
+            {snapshot && reportsOpen ? (
+              selectedReport ? (
+                <ReportSessionWorkspace
+                  report={selectedReport}
+                  document={selectedReportDocument}
+                  loading={reportLoading}
+                  error={reportError}
+                  detail={activeRunDetail}
+                  events={mainSessionTraceEvents}
+                  providerModelCatalog={enabledResearchProviderModelCatalog}
+                  initialModelSelection={reportSessionInitialModelSelection}
+                  selectedRunId={reportSessionRunId}
+                  selectedTraceEventId={selectedTraceEventId}
+                  shellApproval={autoReviewOverrideApproval}
+                  shellApprovalBusy={Boolean(autoReviewOverrideApproval && (busy || shellApprovalDecisionInFlight === autoReviewOverrideApproval.id))}
+                  busy={busy}
+                  onInitialInstruction={(instruction, modelSelection, shellSafetyMode) => {
+                    void startReportTurn(instruction, modelSelection, shellSafetyMode).catch(() => undefined);
+                  }}
+                  onShellApprovalDecision={(decision) => {
+                    if (autoReviewOverrideApproval) handleShellApprovalDecision(autoReviewOverrideApproval, decision);
+                  }}
+                  onSessionAction={handleSessionAction}
+                  onReportChange={submitReportChange}
+                  onSteerInstruction={handleSteerInstruction}
+                />
+              ) : (
+                <ReportsIndex reports={snapshot.honeycrispMemory.reports} onOpenReport={openReportSession} />
+              )
+            ) : snapshot ? <MainSessionWorkspace
               chatView={chatView}
               detail={activeRunDetail}
               events={mainSessionTraceEvents}
@@ -1211,7 +1356,7 @@ export function App(): JSX.Element {
               researchProfile={selectedRunId ? activeRunDetail?.researchProfile?.profile ?? null : snapshot?.researchProfile.profile ?? null}
               sessionHeatPreferences={sessionHeatPreferences}
               workspaceName={snapshot?.activeScope.workspaceName ?? 'Workspace'}
-              runs={selectedRunId ? [] : snapshot?.runs ?? []}
+              runs={selectedRunId ? [] : workspaceDashboardRuns}
               selectedRunId={selectedRunId}
               selectedBreakoutRoomId={selectedBreakoutRoomId}
               researchDetailsOpen={rightSidenavExpanded && researchDetailsAvailable}

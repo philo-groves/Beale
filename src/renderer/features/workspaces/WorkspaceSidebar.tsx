@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { CalendarClock, ChevronDown, ChevronRight, Folder, FolderPlus, LoaderCircle, MoreVertical, Plug, RefreshCw, Search, SquarePen } from 'lucide-react';
+import { CalendarClock, ChevronDown, ChevronRight, FileText, Folder, FolderPlus, LoaderCircle, MoreVertical, Plug, RefreshCw, Search, SquarePen } from 'lucide-react';
 import type { BreakoutRoomStatus, BreakoutRoomSummary, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { useDevRenderProbe } from '../../devInstrumentation';
@@ -18,6 +18,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry,
   workspaceRegistryLoading = false,
   selectedRunId,
+  reportsActive = false,
   selectedBreakoutRoomId = null,
   selectedRunBreakoutRooms,
   selectedRunBreakoutRoomsLoading = false,
@@ -31,6 +32,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onResizePointerDown,
   onSetOpenWorkspaceMenuId,
   onOpenAutomations = () => undefined,
+  onOpenReports = () => undefined,
   onOpenPlugins = () => undefined,
   onSearch,
   onStartNewResearch
@@ -42,6 +44,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry: WorkspaceRegistryState | null;
   workspaceRegistryLoading?: boolean;
   selectedRunId: string | null;
+  reportsActive?: boolean;
   selectedBreakoutRoomId?: string | null;
   selectedRunBreakoutRooms?: readonly SidebarBreakoutRoom[];
   selectedRunBreakoutRoomsLoading?: boolean;
@@ -55,6 +58,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onSetOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
   onOpenAutomations?: () => void;
+  onOpenReports?: () => void;
   onOpenPlugins?: () => void;
   onSearch: () => void;
   onStartNewResearch: () => void;
@@ -93,6 +97,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           <CalendarClock size={15} />
           <span>Automations</span>
         </button>
+        <button type="button" className={`sidebar-utility-button${reportsActive ? ' active' : ''}`} title="Reporting" aria-current={reportsActive ? 'page' : undefined} disabled={!snapshot} onClick={onOpenReports}>
+          <FileText size={15} />
+          <span>Reporting</span>
+        </button>
         <button type="button" className="sidebar-utility-button" title="Plugins" onClick={onOpenPlugins}>
           <Plug size={15} />
           <span>Plugins</span>
@@ -122,7 +130,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             ) : null}
             {workspaces.map((workspace) => {
               const workspaceLoaded = snapshot?.workspace.workspacePath === workspace.workspacePath;
-              const dashboardActive = workspaceLoaded && selectedRunId === null;
+              const dashboardActive = workspaceLoaded && selectedRunId === null && !reportsActive;
               const menuOpen = openRegisteredWorkspaceMenuId === workspace.id;
               const sessions = workspaceRegistry ? researchSessionsForWorkspace(workspaceRegistry, workspace) : [];
               const sessionsExpanded = expandedWorkspaceIds.has(workspace.id);

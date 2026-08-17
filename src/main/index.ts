@@ -20,6 +20,7 @@ import type {
   ResearchModelProviderId,
   ProviderModelDefaults,
   ProviderAuthenticationMethod,
+  ReportSessionStartInput,
   RunDetailUpdateCursor,
   RunDetailProjection,
   RunMessageDetailRequest,
@@ -585,6 +586,11 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getHoneycrispReport, (_event, reportId: string) =>
     timedMainIpc('getHoneycrispReport', { report: shortMetricId(reportId) }, () =>
       workspaceService.getHoneycrispReport(reportId)
+    )
+  );
+  ipcMain.handle(IPC_CHANNELS.startReportSession, (_event, input: ReportSessionStartInput) =>
+    timedMainIpc('startReportSession', { report: shortMetricId(input.reportId) }, () =>
+      workspaceService.startReportSession(input)
     )
   );
   ipcMain.handle(IPC_CHANNELS.getWorkspaceDejunkSummary, (_event, workspaceId: string) =>

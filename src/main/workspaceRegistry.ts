@@ -317,6 +317,7 @@ export class WorkspaceRegistry {
       this.rememberLastKnownWorkspace(workspace);
     }
     for (const row of snapshot.runs) {
+      if (isUntrackedResourceSession(row)) continue;
       this.upsertResearchSession(
         researchProfileId,
         workspace.id,
@@ -751,6 +752,16 @@ export class WorkspaceRegistry {
       breakoutRooms: parseBreakoutRoomSummaries(row.breakout_rooms_json)
     };
   }
+}
+
+export function isUntrackedResourceSession(row: WorkspaceSnapshot['runs'][number]): boolean {
+  const context = row.run.budget.resourceContext;
+  return Boolean(
+    context
+    && typeof context === 'object'
+    && !Array.isArray(context)
+    && (context as Record<string, unknown>).kind === 'report'
+  );
 }
 
 function parseBreakoutRoomSummaries(value: unknown): BreakoutRoomSummary[] {

@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Opening a report now leaves its agent chat idle with a short, immediately visible Tab suggestion until the user sends a chat or inline request. Report views load provider settings and the model catalog before startup, so the idle composer remains enabled and uses the configured default provider's large model and reasoning effort instead of an empty “Off” selection or the first catalog model; its safety-mode selector is also available before the first message and applies the selected mode when creating the report run. Report identity, artifact file, revision, and editing requirements are supplied through model context rather than a synthetic visible prompt. Report refinement sessions split the workspace evenly with a lighter, divider-free report pane, compact content gutters, and a title-first header without redundant back or type labels. Inline editing supports Shift-joined ranges, Ctrl/Command-toggled highlights, and highlighted-only or report-wide edit scope; accepted changes refresh the transcript and launch a continuation unless Honeycrisp completes the requested revision and a following response turn.
 - Session summary sidenavs once again show Honeycrisp token totals, prompt-cache hit rate, and current context usage in Commentary mode; the compact renderer projection now preserves bounded usage telemetry and Honeycrisp model-session metadata updates are rehydrated from canonical protocol events.
 - New Research goal suggestions now regenerate after any selection that leaves a workflow below its configured count, retaining unused choices and buffering fresh replacements so the list returns to four without repeating consumed suggestions.
 - Workspace dashboards no longer expand inactive Honeycrisp session histories to assemble approval and notification UI; session summaries are reused and canonical approval/notification reads are limited to active host processes.
@@ -41,6 +42,7 @@
 
 ### Added
 
+- Reporting now has a dedicated workspace sidenav destination below Automations, uses the same active background as workspace rows, and opens a list of workspace reports. A user's first report request starts a report-scoped agent session that stays out of the workspace session list, presents the normal commentary and tool transcript beside the report, and accepts both chat-based and inline section change requests.
 - Moved Honeycrisp session creation, attempt state, live events, capture import, lifecycle state, list/detail queries, and transcript queries behind the versioned Honeycrisp CLI protocol. Backend selection is per-session and never dual-writes the legacy Beale session tables.
 - Added a versioned Honeycrisp CLI protocol client and an architecture ratchet that prevents direct Honeycrisp memory storage access from spreading beyond the explicitly recorded migration debt.
 - Auto-Review denials now offer an inline Approve Once question in the affected session composer, backed by Honeycrisp's correlated per-command human decision flow.

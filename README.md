@@ -73,6 +73,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - Session transcripts persisted separately from trace metadata
 - List-only Honeycrisp memory catalog with search, session/workspace/subject scope and type filters, inline details, references, and textual relationships
 - Workspace-scoped Jupyter-format runbooks with revisioned procedure cells, bounded recorded outputs, and dedicated Honeycrisp tools and Beale sidebar visibility
+- First-class workspace Reports with a dedicated sidenav catalog, revision/state visibility, on-demand report-focused agent chats, and inline section change requests routed through normal session commentary and tool traces; opening a report stays idle until the user sends a request, with report artifact details supplied as agent context
 - Steering for active sessions
 - Codex, Anthropic (Claude), and xAI (Grok/X) provider onboarding/status UI
 - Opt-in local profiling that writes structured JSONL reports

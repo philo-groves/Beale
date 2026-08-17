@@ -10,6 +10,7 @@ import type {
   ResearchProviderModel,
   ResearchProviderModelCatalog,
   RunDetail,
+  ShellSafetyMode,
   SteeringAction
 } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
@@ -563,10 +564,13 @@ export const MainSteerArea = memo(function MainSteerArea({
   busy,
   shellApproval = null,
   shellApprovalBusy = false,
+  initialModelSelection,
+  initialSuggestion,
   traceFilterCount,
   totalTraceFilterCount,
   showTraceFilters = true,
   onOpenTraceFilters,
+  onInitialInstruction,
   onShellApprovalDecision = () => undefined,
   onSessionAction,
   onSteerInstruction
@@ -577,10 +581,17 @@ export const MainSteerArea = memo(function MainSteerArea({
   busy: boolean;
   shellApproval?: ApprovalRecord | null;
   shellApprovalBusy?: boolean;
+  initialModelSelection?: ResearchModelSelection;
+  initialSuggestion?: string;
   traceFilterCount: number;
   totalTraceFilterCount: number;
   showTraceFilters?: boolean;
   onOpenTraceFilters: () => void;
+  onInitialInstruction?: (
+    instruction: string,
+    modelSelection: ResearchModelSelection,
+    shellSafetyMode: ShellSafetyMode
+  ) => void;
   onShellApprovalDecision?: (decision: PolicyReviewDecision) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
@@ -588,19 +599,36 @@ export const MainSteerArea = memo(function MainSteerArea({
   const [instruction, setInstruction] = useState('');
   const [tabSuggestionVisible, setTabSuggestionVisible] = useState(false);
   const runProviderId = runModelProvider(detail, providerModelCatalog);
-  const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId>(runProviderId);
-  const [selectedModelId, setSelectedModelId] = useState(detail?.run.model ?? '');
-  const [selectedEffort, setSelectedEffort] = useState<ResearchModelEffortLevel>(() => researchEffort(detail?.run.reasoningEffort));
+  const initialProviderId = detail ? runProviderId : initialModelSelection?.provider ?? runProviderId;
+  const initialProvider = providerModelCatalog.find((catalog) => catalog.providerId === initialProviderId)
+    ?? providerModelCatalog.find((catalog) => catalog.models.length > 0)
+    ?? null;
+  const initialModel = initialProvider?.models.find((model) => model.id === initialModelSelection?.model)
+    ?? initialProvider?.models[0]
+    ?? null;
+  const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId>(initialProvider?.providerId ?? runProviderId);
+  const [selectedModelId, setSelectedModelId] = useState(detail?.run.model ?? initialModel?.id ?? '');
+  const [selectedEffort, setSelectedEffort] = useState<ResearchModelEffortLevel>(() => detail
+    ? researchEffort(detail.run.reasoningEffort)
+    : preferredResearchEffort(initialModel?.effortLevels ?? [], initialModelSelection?.reasoningEffort ?? 'high'));
+  const [initialShellSafetyMode, setInitialShellSafetyMode] = useState<ShellSafetyMode>(() =>
+    normalizeShellSafetyMode(detail?.run.shellSafetyMode)
+  );
   const footerRef = useRef<HTMLElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const focusedRunIdRef = useRef<string | null>(null);
   const trimmedInstruction = instruction.trim();
-  const disabled = busy || !runId || !trimmedInstruction;
+  const disabled = busy || (!runId && !onInitialInstruction) || !trimmedInstruction || !selectedModelId;
   const status = detail?.run.status ?? null;
-  const steeringSuggestion = steeringInputSuggestion(detail);
-  const suggestionShowing = Boolean(steeringSuggestion && (tabSuggestionVisible || steeringSuggestionAutoVisible(status)));
-  const shellSafetyMode = normalizeShellSafetyMode(detail?.run.shellSafetyMode);
-  const controlsDisabled = busy || !runId;
+  const steeringSuggestion = initialSuggestion ?? steeringInputSuggestion(detail);
+  const suggestionShowing = Boolean(
+    steeringSuggestion && (initialSuggestion || tabSuggestionVisible || steeringSuggestionAutoVisible(status))
+  );
+  const shellSafetyMode = detail
+    ? normalizeShellSafetyMode(detail.run.shellSafetyMode)
+    : initialShellSafetyMode;
+  const sessionControlsDisabled = busy || !runId;
+  const composerControlsDisabled = busy || (!runId && !onInitialInstruction);
   const fallbackModel = detail ? fallbackResearchModel(detail.run.model, researchEffort(detail.run.reasoningEffort)) : null;
   const providerOptions = detail && !providerModelCatalog.some((catalog) => catalog.providerId === runProviderId)
     ? [
@@ -624,7 +652,20 @@ export const MainSteerArea = memo(function MainSteerArea({
   };
 
   useEffect(() => {
-    if (!detail) return;
+    if (!detail) {
+      const nextProvider = providerModelCatalog.find((catalog) => catalog.providerId === initialModelSelection?.provider)
+        ?? providerModelCatalog.find((catalog) => catalog.models.length > 0);
+      const nextModel = nextProvider?.models.find((model) => model.id === initialModelSelection?.model)
+        ?? nextProvider?.models[0];
+      if (!nextProvider || !nextModel) return;
+      setSelectedProviderId(nextProvider.providerId);
+      setSelectedModelId(nextModel.id);
+      setSelectedEffort((current) => preferredResearchEffort(
+        nextModel.effortLevels,
+        initialModelSelection?.reasoningEffort ?? (current === 'off' ? 'high' : current)
+      ));
+      return;
+    }
     const nextModel = providerModelCatalog
       .find((catalog) => catalog.providerId === runModelProvider(detail, providerModelCatalog))
       ?.models.find((model) => model.id === detail.run.model);
@@ -632,7 +673,15 @@ export const MainSteerArea = memo(function MainSteerArea({
     setSelectedProviderId(runModelProvider(detail, providerModelCatalog));
     setSelectedModelId(nextModel?.id ?? detail.run.model);
     setSelectedEffort(nextEffort);
-  }, [detail?.run.id, detail?.run.model, detail?.run.reasoningEffort, providerModelCatalog]);
+  }, [
+    detail?.run.id,
+    detail?.run.model,
+    detail?.run.reasoningEffort,
+    initialModelSelection?.model,
+    initialModelSelection?.provider,
+    initialModelSelection?.reasoningEffort,
+    providerModelCatalog
+  ]);
 
   useEffect(() => {
     setTabSuggestionVisible(false);
@@ -679,14 +728,15 @@ export const MainSteerArea = memo(function MainSteerArea({
   }, [runId]);
 
   const submit = (): void => {
-    if (disabled || !runId) return;
-    onSteerInstruction(runId, trimmedInstruction, modelSelection);
+    if (disabled) return;
+    if (runId) onSteerInstruction(runId, trimmedInstruction, modelSelection);
+    else onInitialInstruction?.(trimmedInstruction, modelSelection, shellSafetyMode);
     setInstruction('');
     setTabSuggestionVisible(false);
   };
 
   const stopSession = (): void => {
-    if (controlsDisabled || !runId) return;
+    if (sessionControlsDisabled || !runId) return;
     onSessionAction({ type: 'stop', runId, note: 'Stop requested from session composer.' });
   };
 
@@ -757,10 +807,14 @@ export const MainSteerArea = memo(function MainSteerArea({
           options={SHELL_SAFETY_MODE_OPTIONS}
           title="Shell safety mode"
           ariaLabel="Shell safety mode"
-          disabled={controlsDisabled || status === 'paused'}
+          disabled={busy || status === 'paused' || (!runId && !onInitialInstruction)}
           onChange={(value) => {
             const nextMode = normalizeShellSafetyMode(value);
-            if (!runId || nextMode === shellSafetyMode) return;
+            if (nextMode === shellSafetyMode) return;
+            if (!runId) {
+              setInitialShellSafetyMode(nextMode);
+              return;
+            }
             onSessionAction({ type: 'set_shell_safety_mode', runId, shellSafetyMode: nextMode });
           }}
         />
@@ -771,7 +825,7 @@ export const MainSteerArea = memo(function MainSteerArea({
           effortValue={selectedEffort}
           title="Model settings for the next agent turn"
           ariaLabel="Model settings for the next agent turn"
-          disabled={!selectedModel || controlsDisabled}
+          disabled={!selectedModel || composerControlsDisabled}
           providerOptions={providerOptions.map((provider) => ({
             value: provider.providerId,
             label: researchProviderLabel(provider.providerId, provider.providerName),
@@ -800,7 +854,7 @@ export const MainSteerArea = memo(function MainSteerArea({
           onSelectEffort={(value) => setSelectedEffort(value as ResearchModelEffortLevel)}
         />
         {sessionActive ? (
-          <button type="button" className="main-steer-send main-steer-stop" title="Stop session" aria-label="Stop session" disabled={controlsDisabled} onClick={stopSession}>
+          <button type="button" className="main-steer-send main-steer-stop" title="Stop session" aria-label="Stop session" disabled={sessionControlsDisabled} onClick={stopSession}>
             <Square size={11} fill="currentColor" />
           </button>
         ) : (

@@ -7,6 +7,7 @@ import type {
   ResearchModelSelection,
   ResearchProviderModelCatalog,
   RunDetail,
+  ShellSafetyMode,
   SteeringAction
 } from '@shared/types';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
@@ -53,7 +54,10 @@ export const CommentaryView = memo(function CommentaryView({
   shellApproval = null,
   shellApprovalBusy = false,
   postSessionContent,
+  initialModelSelection,
+  initialSuggestion,
   onBackToMain,
+  onInitialInstruction,
   onShellApprovalDecision = () => undefined,
   onSessionAction,
   onSteerInstruction
@@ -71,7 +75,14 @@ export const CommentaryView = memo(function CommentaryView({
   shellApproval?: ApprovalRecord | null;
   shellApprovalBusy?: boolean;
   postSessionContent?: ReactNode;
+  initialModelSelection?: ResearchModelSelection;
+  initialSuggestion?: string;
   onBackToMain: () => void;
+  onInitialInstruction?: (
+    instruction: string,
+    modelSelection: ResearchModelSelection,
+    shellSafetyMode: ShellSafetyMode
+  ) => void;
   onShellApprovalDecision?: (decision: PolicyReviewDecision) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
@@ -109,7 +120,7 @@ export const CommentaryView = memo(function CommentaryView({
   const scrollScopeKeyRef = useRef(scrollScopeKey);
   const detailRef = useRef(detail);
   detailRef.current = detail;
-  const loading = !detail;
+  const loading = Boolean(selectedRunId && !detail);
 
   const requestToolCallDetail = useCallback(async (toolCall: CommentaryToolCall): Promise<CommentaryToolCall> => {
     const currentDetail = detailRef.current;
@@ -339,7 +350,7 @@ export const CommentaryView = memo(function CommentaryView({
     }
   }, [activityMessages.length, maxWindowStart, messageIndexById, normalizedWindowStart, updateScrollEdges]);
 
-  if (!selectedRunId) return null;
+  if (!selectedRunId && !onInitialInstruction) return null;
 
   return (
     <section className={`main-trace-view main-commentary-view${showBackToMain ? ' is-subagent-trace' : ''}${loading ? ' is-loading' : ''}`} aria-label="Agent commentary">
@@ -355,6 +366,11 @@ export const CommentaryView = memo(function CommentaryView({
         </button>
       ) : null}
       {loading ? <SessionLoadingState label="Loading session." /> : null}
+      {!detail && onInitialInstruction ? (
+        <div className="main-commentary-scroll" aria-label="No report review started yet">
+          <div className="main-commentary-list" />
+        </div>
+      ) : null}
       {detail && showBackToMain && messages.length === 0 && !postSessionContent ? <div className="main-trace-empty">No commentary recorded yet.</div> : null}
       {detail && (!showBackToMain || messages.length > 0 || postSessionContent) ? (
         <div className="main-commentary-scroll" ref={scrollRef}>
@@ -444,13 +460,16 @@ export const CommentaryView = memo(function CommentaryView({
           busy={busy}
           detail={detail}
           providerModelCatalog={providerModelCatalog}
-          runId={detail?.run.id ?? null}
+          initialModelSelection={initialModelSelection}
+          runId={detail?.run.id ?? selectedRunId}
+          initialSuggestion={initialSuggestion}
           shellApproval={shellApproval}
           shellApprovalBusy={shellApprovalBusy}
           showTraceFilters={false}
           traceFilterCount={0}
           totalTraceFilterCount={0}
           onOpenTraceFilters={() => undefined}
+          onInitialInstruction={onInitialInstruction}
           onShellApprovalDecision={onShellApprovalDecision}
           onSessionAction={onSessionAction}
           onSteerInstruction={onSteerInstruction}

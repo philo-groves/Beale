@@ -12,6 +12,7 @@ import type {
   ResearchModelSelection,
   ProviderSettings,
   MemoryTypeDescriptions,
+  ReportResourceContext,
   ResearchProfile,
   ResearchProfileSnapshot,
   ResearchSubjectInput,
@@ -133,6 +134,9 @@ interface PendingHoneycrispControl {
   dispatched: boolean;
   timeout: NodeJS.Timeout | null;
   timedOut: boolean;
+  rootTurnAtDispatch?: number;
+  requiresReportRevision?: boolean;
+  reportRevisionCompleted?: boolean;
 }
 
 export interface HoneycrispControlDispatch {
@@ -344,6 +348,7 @@ export class HoneycrispRunEngine {
         goalEnabled: input.goalEnabled,
         goalObjective,
         researchWorkflowId: workflowId,
+        resourceContext: input.resourceContext ?? null,
         collaboration: normalizedInput.collaboration ?? null
       }
     });
@@ -518,7 +523,8 @@ export class HoneycrispRunEngine {
       this.db.getWorkspaceId(),
       researchProfile,
       workflowId,
-      this.getResearchSubject?.() ?? null
+      this.getResearchSubject?.() ?? null,
+      input.resourceContext
     );
     if (resumeFallbackPromptPath && resume) {
       writeFileSync(resumeFallbackPromptPath, resume.fallbackPrompt, { encoding: 'utf8', mode: 0o600 });
@@ -892,7 +898,15 @@ export class HoneycrispRunEngine {
       wireMessage,
       dispatched: false,
       timeout: null,
-      timedOut: false
+      timedOut: false,
+      ...(message.type === 'steer'
+        ? {
+            rootTurnAtDispatch: latestRootTurn(this.db.getRunDetail(active.context.run.id).traceEvents),
+            ...(isReportResourceContext(active.context.run.budget.resourceContext)
+              ? { requiresReportRevision: true }
+              : {})
+          }
+        : {})
     };
     active.pendingControls.set(requestId, pending);
     try {
@@ -959,7 +973,11 @@ export class HoneycrispRunEngine {
     const controlRequestId = pending?.requestId ?? reportedRequestId;
     const controlType = pending?.type ?? reportedType;
     if (active && pending) {
-      if (accepted) {
+      if (accepted && pending.type === 'steer' && !active.stopped) {
+        // control.received only means Honeycrisp queued the instruction. Retain a
+        // fallback until a later root model turn proves that it was consumed.
+        active.queuedContinuations.set(pending.requestId, pending);
+      } else if (accepted) {
         active.queuedContinuations.delete(pending.requestId);
       } else if (pending.type === 'steer' && !active.stopped) {
         active.queuedContinuations.set(pending.requestId, pending);
@@ -1166,6 +1184,42 @@ export class HoneycrispRunEngine {
     active.pendingControls.delete(pending.requestId);
   }
 
+  private clearConsumedSteeringContinuations(active: ActiveHoneycrispRun, completedRootTurn: number): void {
+    const consumedRequestIds: string[] = [];
+    for (const [requestId, control] of active.queuedContinuations) {
+      if (!steeringContinuationConsumed(
+        control.rootTurnAtDispatch,
+        completedRootTurn,
+        control.requiresReportRevision === true,
+        control.reportRevisionCompleted === true
+      )) continue;
+      active.queuedContinuations.delete(requestId);
+      consumedRequestIds.push(requestId);
+    }
+    if (consumedRequestIds.length === 0) return;
+    this.db.appendTraceEvent({
+      runId: active.context.run.id,
+      attemptId: active.context.attempt.id,
+      type: 'research_event',
+      source: 'executor',
+      summary: 'Honeycrisp consumed user steering in a model turn.',
+      payload: {
+        completedRootTurn,
+        controlRequestIds: consumedRequestIds
+      },
+      modelVisible: false
+    });
+  }
+
+  private markReportRevisionCompleted(active: ActiveHoneycrispRun, event: HoneycrispCaptureEvent): void {
+    const resourceContext = active.context.run.budget.resourceContext;
+    if (!isReportResourceContext(resourceContext)) return;
+    if (!isSuccessfulReportRevisionEvent(event, resourceContext.resourceId)) return;
+    for (const control of [...active.pendingControls.values(), ...active.queuedContinuations.values()]) {
+      if (control.requiresReportRevision) control.reportRevisionCompleted = true;
+    }
+  }
+
   private launchQueuedContinuation(active: ActiveHoneycrispRun): void {
     if (this.disposed || active.stopped || active.queuedContinuations.size === 0) return;
     const queued = [...active.queuedContinuations.values()]
@@ -1355,6 +1409,7 @@ export class HoneycrispRunEngine {
       if (!honeycrispEvent) return;
       if (honeycrispEvent.id && active?.liveHoneycrispEventIds.has(honeycrispEvent.id)) return;
       if (honeycrispEvent.id) active?.liveHoneycrispEventIds.add(honeycrispEvent.id);
+      if (active) this.markReportRevisionCompleted(active, honeycrispEvent);
       this.appendHoneycrispTimelineEvent(context, honeycrispEvent);
       this.recordLiveResearchSummary(context, honeycrispEvent);
       this.onChange();
@@ -1408,6 +1463,9 @@ export class HoneycrispRunEngine {
       const turn = numberPayload(event.payload ?? {}, 'turn');
       const agentPath = stringPayload(event.payload ?? {}, 'agentPath');
       const subagent = Boolean(agentPath && agentPath !== '/root');
+      if (active && turn && !subagent) {
+        this.clearConsumedSteeringContinuations(active, turn);
+      }
       const reportedUsage = normalizeTokenUsage(recordValue(event.payload?.usage) ?? {});
       const usage = reportedUsage ? reportedHoneycrispTraceUsage(reportedUsage) : null;
       this.db.appendTraceEvent({
@@ -2677,6 +2735,9 @@ function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunI
       : null,
     promptMarkdown,
     workflowId: researchWorkflowFromRun(run) || undefined,
+    ...(isReportResourceContext(run.budget.resourceContext)
+      ? { resourceContext: run.budget.resourceContext }
+      : {}),
     mode: run.mode,
     attemptStrategy: run.attemptStrategy,
     model: run.model,
@@ -2693,6 +2754,12 @@ function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunI
     },
     runEngine: 'honeycrisp'
   };
+}
+
+function isReportResourceContext(value: unknown): value is NonNullable<StartRunInput['resourceContext']> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const context = value as Record<string, unknown>;
+  return context.kind === 'report' && typeof context.resourceId === 'string' && Boolean(context.resourceId.trim());
 }
 
 function buildContinuationPrompt(
@@ -2837,6 +2904,27 @@ function latestRootTurn(events: readonly TraceEventRecord[]): number {
   return latest;
 }
 
+export function steeringContinuationConsumed(
+  rootTurnAtDispatch: number | undefined,
+  completedRootTurn: number,
+  requiresReportRevision = false,
+  reportRevisionCompleted = false
+): boolean {
+  return (!requiresReportRevision || reportRevisionCompleted)
+    && Number.isInteger(completedRootTurn)
+    && completedRootTurn > Math.max(0, rootTurnAtDispatch ?? 0);
+}
+
+function isSuccessfulReportRevisionEvent(event: HoneycrispCaptureEvent, reportId: string): boolean {
+  if (event.kind !== 'tool.observed') return false;
+  const payload = recordValue(event.payload);
+  if (!payload || stringPayload(payload, 'status') !== 'complete') return false;
+  const toolName = stringPayload(payload, 'toolName');
+  if (toolName !== 'report.revise' && toolName !== 'report_revise') return false;
+  const inputs = recordValue(payload.normalizedInputs);
+  return Boolean(inputs && stringPayload(inputs, 'id') === reportId);
+}
+
 function turnFromSummary(summary: string): number | null {
   const match = summary.match(/\bturn\s+(\d+)\b/i);
   return match ? Number(match[1]) : null;
@@ -2947,7 +3035,8 @@ function writeHoneycrispWorkspaceContext(
   workspaceId: string,
   researchProfile: ResearchProfileSnapshot | null,
   workflowId: string | null,
-  researchSubject: ResearchSubjectInput | null
+  researchSubject: ResearchSubjectInput | null,
+  resourceContext?: ReportResourceContext
 ): HoneycrispWorkspaceContextFile {
   const context = honeycrispWorkspaceContext(
     scope,
@@ -2956,7 +3045,8 @@ function writeHoneycrispWorkspaceContext(
     workspaceId,
     researchProfile,
     workflowId,
-    researchSubject
+    researchSubject,
+    resourceContext
   );
   mkdirSync(dirname(contextPath), { recursive: true });
   writeFileSync(contextPath, `${JSON.stringify(context, null, 2)}\n`, 'utf8');
@@ -2970,7 +3060,8 @@ function honeycrispWorkspaceContext(
   workspaceId: string,
   researchProfile: ResearchProfileSnapshot | null,
   workflowId: string | null,
-  researchSubject: ResearchSubjectInput | null
+  researchSubject: ResearchSubjectInput | null,
+  resourceContext?: ReportResourceContext
 ): HoneycrispWorkspaceContextFile {
   const materializedSourcePaths: string[] = [];
   const knownRepositories: HoneycrispWorkspaceRepositoryContext[] = [];
@@ -3022,8 +3113,24 @@ function honeycrispWorkspaceContext(
       : {}),
     knownRepositories,
     materializedSourcePaths,
-    projectNotes: honeycrispScopeNotes(scope, researchProfile, workflowId, subject)
+    projectNotes: [
+      ...honeycrispScopeNotes(scope, researchProfile, workflowId, subject),
+      ...reportResourceProjectNotes(resourceContext)
+    ]
   };
+}
+
+export function reportResourceProjectNotes(context?: ReportResourceContext): string[] {
+  if (!context || context.kind !== 'report' || !context.resourceId.trim()) return [];
+  const title = context.title?.trim();
+  const artifactId = context.artifactId?.trim();
+  const artifactRelativePath = context.artifactRelativePath?.trim();
+  const revision = Number.isSafeInteger(context.revision) ? context.revision : null;
+  return [
+    `Active report resource: ${title ? `"${redactForModelText(title)}"; ` : ''}resource ID ${context.resourceId}${revision === null ? '' : `; current revision ${revision}`}.`,
+    `Canonical report artifact: ${artifactId || 'resolve through report.get'}${artifactRelativePath ? `; file ${redactForModelText(artifactRelativePath)}` : ''}.`,
+    'Report refinement requirements: read the latest canonical document with report.get before evaluating or editing it; for requested changes, call report.revise with the current expected revision and the complete replacement Markdown; preserve evidence references; describe a revision only after the tool succeeds. The user does not need to supply the report name, resource ID, file, or these requirements.'
+  ];
 }
 
 const REPOSITORY_CONTENT_MARKERS = [

@@ -88,7 +88,7 @@ import { resolveGoalObjective } from '../shared/goalObjective';
 import { normalizeResearchCollaboration } from '../shared/collaboration';
 import { isResearchProfileId, RESEARCH_PROFILE_IDS } from '../shared/researchProfile';
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
-import { DEFAULT_SHELL_SAFETY_MODE } from '../shared/shellSafety';
+import { DEFAULT_SHELL_SAFETY_MODE, normalizeShellSafetyMode } from '../shared/shellSafety';
 import { isProviderModelEnabled } from '../shared/optionalProviderModels';
 import { isLiveResearchRunStatus } from '../shared/types';
 import { isHoneycrispToolTraceEvent, projectRunDetailForRenderer } from '../shared/runDetailProjection';
@@ -115,6 +115,8 @@ import type {
   NotificationRecord,
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
+  ReportSessionStartInput,
+  ReportSessionStartResult,
   HoneycrispToolingConfigSummary,
   HoneycrispToolingConfigUpdate,
   HoneycrispToolingMcpCapabilitySummary,
@@ -1074,6 +1076,52 @@ export class WorkspaceService {
     const runtime = this.getForegroundRuntime();
     if (!runtime) throw new Error('No Beale workspace is open');
     return getHoneycrispReportDocument(runtime.db.getWorkspaceId(), reportId, this.honeycrispStorage(runtime));
+  }
+
+  public startReportSession(input: ReportSessionStartInput): ReportSessionStartResult {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) throw new Error('No Beale workspace is open');
+    const normalizedReportId = input.reportId.trim();
+    const instruction = input.instruction.trim();
+    if (!instruction) throw new Error('Starting a report session requires an instruction.');
+    const report = this.memorySummaryForRuntime(runtime).reports.find((candidate) => candidate.id === normalizedReportId);
+    if (!report) throw new Error(`Report not found in the active workspace: ${normalizedReportId}`);
+    const artifact = resolveHoneycrispArtifact(report.artifactId, this.honeycrispStorage(runtime), 'report');
+    const reportingWorkflow = runtime.researchProfile.profile.workflows.find((workflow) => workflow.id === 'reporting');
+    const handle = this.beginRun({
+      runEngine: 'honeycrisp',
+      ...(input.modelSelection ? { provider: input.modelSelection.provider } : {}),
+      shellSafetyMode: normalizeShellSafetyMode(input.shellSafetyMode),
+      goalEnabled: false,
+      goalObjective: null,
+      promptMarkdown: instruction,
+      ...(reportingWorkflow ? { workflowId: reportingWorkflow.id } : {}),
+      resourceContext: {
+        kind: 'report',
+        resourceId: report.id,
+        title: report.title,
+        artifactId: report.artifactId,
+        artifactRelativePath: artifact.relativePath,
+        revision: report.revision
+      },
+      mode: reportingWorkflow?.id ?? 'reporting',
+      attemptStrategy: 'iterative_research',
+      model: input.modelSelection?.model ?? '',
+      reasoningEffort: input.modelSelection?.reasoningEffort ?? 'medium',
+      sandboxProfile: 'host',
+      budget: {
+        maxMinutes: UNBOUNDED_RUN_MINUTES,
+        maxAttempts: 1,
+        maxCostUsd: 0,
+        repeatSchedule: { type: 'none' }
+      }
+    });
+    this.emitChangeNow();
+    return {
+      reportId: report.id,
+      runId: handle.context.run.id,
+      snapshot: this.requireSnapshot()
+    };
   }
 
   public runWorkspaceDejunk(): WorkspaceSnapshot {

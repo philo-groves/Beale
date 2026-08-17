@@ -48,6 +48,7 @@ export const IPC_CHANNELS = {
   openHoneycrispMemoryDirectory: 'beale:open-honeycrisp-memory-directory',
   getHoneycrispRunbook: 'beale:get-honeycrisp-runbook',
   getHoneycrispReport: 'beale:get-honeycrisp-report',
+  startReportSession: 'beale:start-report-session',
   getWorkspaceDejunkSummary: 'beale:get-workspace-dejunk-summary',
   runWorkspaceDejunk: 'beale:run-workspace-dejunk',
   runMemoryDreaming: 'beale:run-memory-dreaming',
