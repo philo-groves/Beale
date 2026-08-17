@@ -182,7 +182,7 @@ describe('automation workspace', () => {
     expect(appSource).toContain('!newResearchOpen && !automationsOpen && !reportsOpen');
     expect(appSource).toContain('!newResearchOpen && !automationsOpen && !(settingsOpen');
     expect(appSource).toContain('setAutomationScopeWorkspaceId(snapshot?.workspace.workspaceId ?? null);');
-    expect(appSource).toContain("? { primary: 'Automations', secondary: selectedAutomation?.title ?? automationScopeName }");
+    expect(appSource).toContain("? { primary: 'Automations', secondary: selectedAutomation?.title ?? automationScopeName, icon: 'automations' }");
     expect(modalSource).not.toContain('AutomationsModal');
     expect(sidebarSource).toContain("sidebar-utility-button${automationsActive ? ' active' : ''}");
     expect(existsSync(new URL('../src/renderer/features/plugins/AutomationsModal.tsx', import.meta.url))).toBe(false);

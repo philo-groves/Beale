@@ -1327,13 +1327,13 @@ export function App(): JSX.Element {
         rightSidenavExpanded={!reportsOpen && !automationsOpen && !pluginsOpen && rightSidenavExpanded && researchDetailsAvailable}
         contextualTitleVisible={!settingsOpen && !reportsOpen && !automationsOpen && !pluginsOpen}
         staticContextTitle={settingsOpen
-          ? { primary: 'Agent Settings', secondary: settingsSectionLabel(settingsSection) }
+          ? { primary: 'Agent Settings', secondary: settingsSectionLabel(settingsSection), icon: 'settings' }
           : reportsOpen
-            ? { primary: 'Reporting', secondary: selectedReport?.title ?? reportingScopeName }
+            ? { primary: 'Reporting', secondary: selectedReport?.title ?? reportingScopeName, icon: 'reporting' }
             : automationsOpen
-              ? { primary: 'Automations', secondary: selectedAutomation?.title ?? automationScopeName }
+              ? { primary: 'Automations', secondary: selectedAutomation?.title ?? automationScopeName, icon: 'automations' }
               : pluginsOpen
-                ? { primary: 'Plugins', secondary: 'Installed Plugins' }
+                ? { primary: 'Plugins', secondary: 'Installed Plugins', icon: 'plugins' }
               : null}
         platform={windowControlPlatform}
         workspaceName={currentWorkspaceName}

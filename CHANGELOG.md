@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Header titles now carry the same workspace, settings, automation, reporting, or plugin icon used by their corresponding sidenav destination.
 - Reporting's aggregate scope is now labeled All Reports, and Plugins now opens as a main-content catalog with its existing install controls, counted list header, active navigation state, and divider-separated plugin rows instead of a popup dialog.
 - Compact session and workspace summary sidenavs now omit Runbooks, Reports, Rooms, and Subagents rows when their count is zero and use singular labels when exactly one resource is present.
 - Breakout rooms now live in the session right sidenav, with a stacked Rooms summary button, a status-grouped Rooms tab, and the existing room transcript layout in a nested detail view instead of workspace-sidebar rows.

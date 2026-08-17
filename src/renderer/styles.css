@@ -858,6 +858,7 @@ code {
   flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   overflow: hidden;
   border-color: transparent;
   background: transparent;
@@ -868,6 +869,11 @@ code {
   letter-spacing: 0;
   line-height: 1.5;
   -webkit-app-region: no-drag;
+}
+
+.app-header-view-icon {
+  flex: 0 0 auto;
+  color: var(--muted-strong);
 }
 
 .app-header-session-title,
