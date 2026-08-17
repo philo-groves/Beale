@@ -321,6 +321,44 @@ describe('research profile persistence', () => {
     service.close();
   });
 
+  it('persists ordered workspace directories while preserving a primary single-directory root', () => {
+    const root = tempDirectory();
+    const primary = join(root, 'primary');
+    const secondary = join(root, 'secondary');
+    mkdirSync(primary, { recursive: true });
+    mkdirSync(secondary, { recursive: true });
+    const options: WorkspaceServiceOptions = {
+      workspaceRegistryDirectory: join(root, 'registry'),
+      honeycrispDatabasePath: join(root, 'global', 'memory.sqlite'),
+      honeycrispArtifactDirectory: join(root, 'global', 'artifacts'),
+      researchProfileResolver: () => resolvedTestResearchProfile()
+    };
+    const service = new WorkspaceService(() => undefined, options);
+    const created = service.createScopedWorkspace({
+      workspacePath: primary,
+      workspaceDirectories: [primary, secondary],
+      workspaceName: 'Multi Root',
+      researchSubjectName: 'Multi Root',
+      scopeOwner: 'Multi Root',
+      descriptionMarkdown: '',
+      rulesMarkdown: '',
+      expiresAt: null,
+      assets: []
+    });
+    expect(created.workspace.workspacePath).toBe(resolve(primary));
+    expect(created.workspace.workspaceDirectories).toEqual([resolve(primary), resolve(secondary)]);
+    const registryWorkspaceId = service.getWorkspaceRegistryState().workspaces[0]?.id;
+    expect(registryWorkspaceId).toBeTruthy();
+    service.close();
+
+    const reopened = new WorkspaceService(() => undefined, options);
+    const snapshot = reopened.openRegisteredWorkspace(registryWorkspaceId as string);
+    expect(snapshot.workspace.workspaceDirectories).toEqual([resolve(primary), resolve(secondary)]);
+    expect(reopened.updateWorkspaceDirectories([primary]).workspace.workspaceDirectories).toEqual([resolve(primary)]);
+    expect(() => reopened.updateWorkspaceDirectories([])).toThrow('At least one workspace directory is required.');
+    reopened.close();
+  });
+
   it('adopts the legacy scope-owner subject id during migration 14', () => {
     const fixture = createDatabaseFixture();
     fixture.database.saveScope({

@@ -13,6 +13,7 @@ import {
   workspaceResearchSurfaceKinds,
   workspaceResearchSurfaceItems,
   workspaceScopeDraftForConfigurationUpdate,
+  workspaceCreationActivity,
   workspaceTokenActivity,
   WorkspaceHousekeepingPanel,
   WorkspaceResourceDialog,
@@ -24,12 +25,17 @@ import { testResearchProfile } from './researchProfileFixture';
 const NOW = Date.parse('2026-08-12T12:00:00.000Z');
 
 describe('workspace dashboard', () => {
-  it('centers workspace forms in a full-width dashboard with on-demand detail views', () => {
+  it('left-aligns bounded workspace forms in a full-width dashboard with on-demand detail views', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const dashboardStyles = styles.match(/\.workspace-dashboard\s*\{([^}]*)\}/)?.[1] ?? '';
     const tabsStyles = styles.match(/\.workspace-dashboard-tabs\s*\{([^}]*)\}/)?.[1] ?? '';
     const sharedPanelStyles = styles.match(/\.workspace-dashboard-panel\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewStyles = styles.match(/\.workspace-overview\s*\{([^}]*)\}/)?.[1] ?? '';
+    const overviewLayoutStyles = styles.match(/\.workspace-overview-layout\s*\{([^}]*)\}/)?.[1] ?? '';
+    const directoriesWidgetStyles = styles.match(/^\.workspace-directories-widget\s*\{([^}]*)\}/m)?.[1] ?? '';
+    const directoriesHeadingButtonStyles = styles.match(/\.workspace-directories-widget-heading\s*>\s*button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceHeadingStyles = styles.match(/\.workspace-overview-layout\s*>\s*\.workspace-overview-heading,\s*\.workspace-activity-form\s*>\s*:is\(\.settings-form-heading\),\s*\.workspace-cleaning-form\s*>\s*:is\(\.settings-form-heading\)\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceHeatmapStyles = styles.match(/\.workspace-activity-grid-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewDisabledStyles = styles.match(/\.workspace-overview-form :is\(input, textarea\):disabled\s*\{([^}]*)\}/)?.[1] ?? '';
     const timelinePanelStyles = styles.match(/\.workspace-timeline-card\s*\{([^}]*)\}/)?.[1] ?? '';
     const chartStyles = styles.match(/\.workspace-timeline-chart\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -60,6 +66,15 @@ describe('workspace dashboard', () => {
     expect(sharedPanelStyles).toContain('padding: 10px');
     expect(overviewStyles).toContain('overflow: auto');
     expect(overviewStyles).not.toContain('padding');
+    expect(overviewLayoutStyles).toContain('width: 100%');
+    expect(overviewLayoutStyles).not.toContain('max-width');
+    expect(overviewLayoutStyles).toContain('grid-template-columns: minmax(0, 3fr) minmax(0, 1fr)');
+    expect(overviewLayoutStyles).toContain("'heading .'\n    'form directories'");
+    expect(directoriesWidgetStyles).toContain('background: var(--panel-raised)');
+    expect(directoriesHeadingButtonStyles).toContain('top: -4px');
+    expect(workspaceHeadingStyles).toContain('padding-left: 0');
+    expect(workspaceHeatmapStyles).toContain('padding-left: 0');
+    expect(overviewLayoutStyles).not.toContain('margin-inline: auto');
     expect(overviewDisabledStyles).toContain('background: var(--panel-strong)');
     expect(overviewDisabledStyles).toContain('color: var(--muted)');
     expect(overviewDisabledStyles).toContain('cursor: not-allowed');
@@ -174,6 +189,7 @@ describe('workspace dashboard', () => {
       researchProfile: testResearchProfile(),
       researchSubjectName: 'Parser',
       workspacePath: '/workspaces/parser',
+      workspaceDirectories: ['/workspaces/parser', 'C:\\Users\\alice\\shared'],
       workspaceName: 'Parser Workspace',
       runs: [],
       selectedRunId: null,
@@ -213,16 +229,23 @@ describe('workspace dashboard', () => {
     expect(html).toContain('<span>Resources</span>');
     expect(html).toContain('<span>Memory</span>');
     expect(html).toContain('<span>Runbooks</span>');
-    expect(html).toContain('<span>Clean</span>');
+    expect(html).toContain('<span>Utilities</span>');
     expect(html).toContain('aria-controls="workspace-dashboard-overview-panel" aria-selected="true"');
     expect(html).toContain('id="workspace-dashboard-activity-panel" role="tabpanel"');
     expect(html).toContain('id="workspace-dashboard-resources-panel" role="tabpanel"');
     expect(html).toContain('id="workspace-dashboard-memory-panel" role="tabpanel"');
     expect(html).toContain('id="workspace-dashboard-runbooks-panel" role="tabpanel"');
-    expect(html).toContain('id="workspace-dashboard-clean-panel" role="tabpanel"');
+    expect(html).toContain('id="workspace-dashboard-utilities-panel" role="tabpanel"');
     expect(html).toContain('<h2 id="workspace-overview-heading">Parser Workspace Overview</h2>');
     expect(html).toContain('class="settings-form-squircle" aria-labelledby="workspace-overview-heading"');
-    expect(html).toMatch(/aria-label="Working Directory"[^>]*disabled=""[^>]*value="\/workspaces\/parser"/u);
+    expect(html).toContain('aria-label="Workspace directories"');
+    expect(html).toContain('title="/workspaces/parser"');
+    expect(html).toContain('title="C:\\Users\\alice\\shared"');
+    expect(html).toContain('<span>~/shared</span>');
+    expect(html).toContain('>Primary</small>');
+    expect(html).toContain('aria-label="Add workspace directory"');
+    expect(html).not.toContain('Local folders included in this workspace.');
+    expect(html).not.toContain('aria-label="Working Directory"');
     expect(html).toMatch(/aria-label="Workspace Name"[^>]*required=""[^>]*value="Parser Workspace"/u);
     expect(html).toMatch(/aria-label="Subject"[^>]*disabled=""[^>]*value="Parser"/u);
     expect(html).toMatch(/aria-label="Profile"[^>]*disabled=""[^>]*value="Security"/u);
@@ -252,8 +275,15 @@ describe('workspace dashboard', () => {
     expect(html).toContain('<h2>Parser Workspace Resources</h2>');
     expect(html).toContain('<h2>Parser Workspace Memory</h2>');
     expect(html).toContain('<h2>Parser Workspace Runbooks</h2>');
+    expect(html).toContain('<h2>Parser Workspace Utilities</h2>');
     expect(html).toContain('tokens used over the past year.');
+    expect(html).toContain('resources created over the past year.');
+    expect(html).toContain('memories created over the past year.');
+    expect(html).toContain('runbooks created over the past year.');
     expect(html).toContain('aria-label="Daily token usage over the past year"');
+    expect(html).toContain('aria-label="Daily resource creation over the past year"');
+    expect(html).toContain('aria-label="Daily memory creation over the past year"');
+    expect(html).toContain('aria-label="Daily runbook creation over the past year"');
     expect(html).not.toContain('workspace-activity-squircle');
     expect(html).not.toContain('workspace-activity-weekdays');
     expect(html).not.toContain('Token usage heat scale');
@@ -333,6 +363,18 @@ describe('workspace dashboard', () => {
     expect(activity.totalTokens).toBe(15_100);
     expect(lowDay).toMatchObject({ totalTokens: 100, heatLevel: 2 });
     expect(highDay).toMatchObject({ totalTokens: 15_000, heatLevel: 4 });
+  });
+
+  it('aggregates one year of daily creation activity', () => {
+    const activity = workspaceCreationActivity([
+      { createdAt: '2026-08-10T09:00:00.000Z' },
+      { createdAt: '2026-08-10T12:00:00.000Z' },
+      { createdAt: '2025-08-01T09:00:00.000Z' }
+    ], NOW);
+
+    expect(activity.days).toHaveLength(365);
+    expect(activity.total).toBe(2);
+    expect(activity.days.find((day) => day.dateKey === '2026-08-10')).toMatchObject({ value: 2, heatLevel: 4 });
   });
 
   it('renders split work intervals and per-memory-type timeline markers', () => {

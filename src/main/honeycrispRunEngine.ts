@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type {
   BreakoutRoomKind,
@@ -314,7 +314,8 @@ export class HoneycrispRunEngine {
     private readonly getMemoryTypeDescriptions?: () => MemoryTypeDescriptions,
     private readonly getResearchSubject?: () => ResearchSubjectInput | null,
     private readonly getProviderSettings?: () => ProviderSettings,
-    private readonly getAgentPluginHoneycrispRuntime?: () => AgentPluginHoneycrispRuntime
+    private readonly getAgentPluginHoneycrispRuntime?: () => AgentPluginHoneycrispRuntime,
+    private readonly getWorkspaceDirectories?: () => readonly string[]
   ) {}
 
   public startRun(input: StartRunInput, researchProfile: ResearchProfileSnapshot): HoneycrispRunHandle {
@@ -518,6 +519,7 @@ export class HoneycrispRunEngine {
     writeHoneycrispWorkspaceContext(
       scope,
       this.workspacePath,
+      this.getWorkspaceDirectories?.() ?? [this.workspacePath],
       workspaceContextPath,
       context.run.id,
       this.db.getWorkspaceId(),
@@ -3030,6 +3032,7 @@ function writeHoneycrispResearchProfile(profile: ResearchProfile, targetPath: st
 function writeHoneycrispWorkspaceContext(
   scope: WorkspaceScopeVersion,
   workspacePath: string,
+  workspaceDirectories: readonly string[],
   contextPath: string,
   sessionId: string,
   workspaceId: string,
@@ -3041,6 +3044,7 @@ function writeHoneycrispWorkspaceContext(
   const context = honeycrispWorkspaceContext(
     scope,
     workspacePath,
+    workspaceDirectories,
     sessionId,
     workspaceId,
     researchProfile,
@@ -3056,6 +3060,7 @@ function writeHoneycrispWorkspaceContext(
 function honeycrispWorkspaceContext(
   scope: WorkspaceScopeVersion,
   workspacePath: string,
+  workspaceDirectories: readonly string[],
   sessionId: string,
   workspaceId: string,
   researchProfile: ResearchProfileSnapshot | null,
@@ -3065,6 +3070,20 @@ function honeycrispWorkspaceContext(
 ): HoneycrispWorkspaceContextFile {
   const materializedSourcePaths: string[] = [];
   const knownRepositories: HoneycrispWorkspaceRepositoryContext[] = [];
+  for (const directory of workspaceDirectories) {
+    const root = resolve(directory);
+    if (!materializedSourcePaths.includes(root)) materializedSourcePaths.push(root);
+    if (!knownRepositories.some((repository) => repository.rootPath === root)) {
+      knownRepositories.push({
+        rootPath: root,
+        ...inferredRepositoryContentRoots(root),
+        label: basename(root),
+        role: root === resolve(workspacePath) ? 'workspace' : 'known_repository',
+        source: 'beale',
+        ...(root === resolve(workspacePath) ? {} : { notes: ['Additional directory included in this Beale workspace.'] })
+      });
+    }
+  }
   for (const asset of scope.assets) {
     if (asset.direction !== 'in_scope' || !isLocalResearchMaterialKind(asset.kind)) continue;
     const root = localRootForAsset(asset);

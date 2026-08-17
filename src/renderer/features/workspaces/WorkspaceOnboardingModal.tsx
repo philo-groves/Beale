@@ -4,11 +4,14 @@ import { Loader2, Plus, Trash2 } from 'lucide-react';
 import type { WorkspaceOnboardingProgressUpdate } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { errorMessage } from '../../lib/errors';
+import { WorkspaceDirectoriesWidget } from './WorkspaceDirectoriesWidget';
 import {
+  addDirectoryToOnboardingForm,
   addRepositoryToOnboardingForm,
   onboardingRepositories,
   workspaceOnboardingFormForProfile,
   removeRepositoryFromOnboardingForm,
+  removeDirectoryFromOnboardingForm,
   setOnboardingRepositorySelected,
   templateLabel,
   type OnboardingRepository,
@@ -43,7 +46,7 @@ export function WorkspaceOnboardingModal({
   const update = (key: keyof WorkspaceOnboardingFormState, value: string): void => {
     onChange({ ...form, [key]: value });
   };
-  const canSubmit = form.workspaceName.trim().length > 0;
+  const canSubmit = form.workspaceName.trim().length > 0 && form.workspaceDirectories.length > 0;
   const repositories = onboardingRepositories(form);
   const submitting = Boolean(progress);
   const progressComplete = progress?.phase === 'complete';
@@ -97,10 +100,18 @@ export function WorkspaceOnboardingModal({
             if (!submitting && canSubmit) onSubmit();
           }}
         >
-          <label>
-            Workspace directory
-            <input value={form.workspacePath} readOnly />
-          </label>
+          <WorkspaceDirectoriesWidget
+            directories={form.workspaceDirectories}
+            disabled={submitting}
+            onAdd={(selection) => {
+              if (!selection.path) return;
+              if (selection.knownWorkspace) {
+                throw new Error(`Directory already belongs to workspace ${selection.knownWorkspace.workspaceName}.`);
+              }
+              onChange(addDirectoryToOnboardingForm(form, selection.path, selection.defaults));
+            }}
+            onRemove={(directory) => onChange(removeDirectoryFromOnboardingForm(form, directory))}
+          />
           {form.researchProfileId === 'security-research' ? (
             <div className="template-toggle-row" role="group" aria-label="Workspace template">
               {(['manual', 'hackerone', 'apple', 'msrc'] as WorkspaceTemplateKind[]).map((templateKind) => (

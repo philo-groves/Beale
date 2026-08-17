@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkspaceOnboardingDefaults } from '@shared/types';
 import {
+  addDirectoryToOnboardingForm,
   addRepositoryToOnboardingForm,
   applyGitHubRepositoryCatalog,
   applyWorkspaceTemplate,
+  emptyWorkspaceOnboardingForm,
   onboardingFormFromDefaults,
   onboardingFormFromHackerOneLookup,
   onboardingInputFromForm,
   onboardingRepositories,
+  removeDirectoryFromOnboardingForm,
   setOnboardingRepositorySelected,
   workspaceOnboardingFormForProfile
 } from '../src/renderer/view-models/workspaceOnboarding';
@@ -18,6 +21,7 @@ describe('renderer workspace onboarding view model', () => {
 
     expect(form.templateKind).toBe('manual');
     expect(form.workspacePath).toBe('/bounty/example');
+    expect(form.workspaceDirectories).toEqual(['/bounty/example']);
     expect(form.researchProfileId).toBe('security-research');
     expect(form).not.toHaveProperty('expiresAt');
   });
@@ -28,6 +32,29 @@ describe('renderer workspace onboarding view model', () => {
     expect(input.expiresAt).toBeNull();
     expect(input.researchProfileId).toBe('security-research');
     expect(input.scopeOwner).toBe('Example');
+    expect(input.workspaceDirectories).toEqual(['/bounty/example']);
+  });
+
+  it('opens without a directory and supports ordered directory additions and removals', () => {
+    const empty = emptyWorkspaceOnboardingForm();
+    expect(empty.workspaceDirectories).toEqual([]);
+    expect(empty.workspacePath).toBe('');
+
+    const primary = addDirectoryToOnboardingForm(empty, '/workspaces/parser', {
+      ...defaults(),
+      workspacePath: '/workspaces/parser',
+      workspaceDirectories: ['/workspaces/parser'],
+      workspaceName: 'Parser'
+    });
+    const multiDirectory = addDirectoryToOnboardingForm(primary, '/workspaces/protocol');
+    expect(multiDirectory.workspacePath).toBe('/workspaces/parser');
+    expect(multiDirectory.workspaceDirectories).toEqual(['/workspaces/parser', '/workspaces/protocol']);
+    expect(multiDirectory.workspaceName).toBe('Parser');
+
+    const promoted = removeDirectoryFromOnboardingForm(multiDirectory, '/workspaces/parser');
+    expect(promoted.workspacePath).toBe('/workspaces/protocol');
+    expect(promoted.workspaceDirectories).toEqual(['/workspaces/protocol']);
+    expect(removeDirectoryFromOnboardingForm(promoted, '/workspaces/protocol')).toBe(promoted);
   });
 
   it('keeps repository additions as references when submitting', () => {

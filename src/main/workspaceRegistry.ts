@@ -254,7 +254,7 @@ export class WorkspaceRegistry {
 
   public inspectDirectory(path: string): WorkspaceDirectorySelection {
     const workspacePath = resolve(path);
-    const knownWorkspace = this.getWorkspaceByPath(workspacePath);
+    const knownWorkspace = this.getWorkspaceByDirectory(workspacePath);
     return {
       canceled: false,
       path: workspacePath,
@@ -272,6 +272,33 @@ export class WorkspaceRegistry {
   public getWorkspaceByPath(path: string): WorkspaceRegistryEntry | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM workspaces WHERE workspace_path = ?').get(resolve(path)));
     return row ? this.mapWorkspace(row) : null;
+  }
+
+  public getWorkspaceByDirectory(path: string): WorkspaceRegistryEntry | null {
+    const directory = resolve(path);
+    return this.listWorkspaces().find((workspace) => (
+      normalizeWorkspaceDirectories(workspace.workspacePath, workspace.workspaceDirectories).includes(directory)
+    )) ?? null;
+  }
+
+  public setWorkspaceDirectories(registryWorkspaceId: string, directories: readonly string[]): WorkspaceRegistryEntry {
+    const workspace = this.getWorkspace(registryWorkspaceId);
+    if (!workspace) throw new Error(`Workspace registry entry not found: ${registryWorkspaceId}`);
+    const normalized = normalizeWorkspaceDirectories(workspace.workspacePath, directories);
+    for (const directory of normalized) {
+      const owner = this.getWorkspaceByDirectory(directory);
+      if (owner && owner.id !== registryWorkspaceId) {
+        throw new Error(`Directory already belongs to workspace ${owner.workspaceName}: ${directory}`);
+      }
+    }
+    this.db.prepare(`
+      UPDATE workspaces
+      SET workspace_directories_json = ?, updated_at = ?
+      WHERE id = ?
+    `).run(JSON.stringify(normalized), nowIso(), registryWorkspaceId);
+    const updated = this.getWorkspace(registryWorkspaceId);
+    if (!updated) throw new Error(`Workspace registry update failed: ${registryWorkspaceId}`);
+    return updated;
   }
 
   public getLastKnownWorkspace(): WorkspaceRegistryEntry | null {
@@ -583,6 +610,20 @@ export class WorkspaceRegistry {
           }
         }
       }
+    }, {
+      version: 9,
+      name: 'multi_directory_workspaces',
+      up: (database) => {
+        const workspaceColumns = database.prepare('PRAGMA table_info(workspaces)').all() as Array<{ name?: unknown }>;
+        if (!workspaceColumns.some((column) => column.name === 'workspace_directories_json')) {
+          database.exec("ALTER TABLE workspaces ADD COLUMN workspace_directories_json TEXT NOT NULL DEFAULT '[]';");
+        }
+        database.exec(`
+          UPDATE workspaces
+          SET workspace_directories_json = json_array(workspace_path)
+          WHERE workspace_directories_json = '[]';
+        `);
+      }
     }]);
   }
 
@@ -640,6 +681,7 @@ export class WorkspaceRegistry {
         .prepare(
           `UPDATE workspaces SET
             workspace_id = ?,
+            workspace_directories_json = ?,
             workspace_name = ?,
             research_profile_id = ?,
             scope_owner = ?,
@@ -652,6 +694,7 @@ export class WorkspaceRegistry {
         )
         .run(
           snapshot.workspace.workspaceId,
+          JSON.stringify(normalizeWorkspaceDirectories(workspacePath, snapshot.workspace.workspaceDirectories)),
           scope.workspaceName,
           researchProfileId,
           scope.scopeOwner,
@@ -671,13 +714,14 @@ export class WorkspaceRegistry {
     this.db
       .prepare(
         `INSERT INTO workspaces (
-          id, workspace_path, workspace_id, workspace_name, research_profile_id, scope_owner,
+          id, workspace_path, workspace_directories_json, workspace_id, workspace_name, research_profile_id, scope_owner,
           description_markdown, rules_markdown, expires_at, created_at, updated_at, last_opened_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
         workspacePath,
+        JSON.stringify(normalizeWorkspaceDirectories(workspacePath, snapshot.workspace.workspaceDirectories)),
         snapshot.workspace.workspaceId,
         scope.workspaceName,
         researchProfileId,
@@ -783,6 +827,7 @@ export class WorkspaceRegistry {
     return {
       id: text(row, 'id'),
       workspacePath,
+      workspaceDirectories: normalizeWorkspaceDirectories(workspacePath, parseStringArray(row.workspace_directories_json)),
       workspaceId: text(row, 'workspace_id'),
       workspaceName: text(row, 'workspace_name'),
       scopeOwner: text(row, 'scope_owner'),
@@ -891,9 +936,11 @@ function parseSessionFinalDisposition(value: unknown): SessionFinalDisposition |
 }
 
 export function defaultsForWorkspaceDirectory(workspacePath: string): WorkspaceOnboardingDefaults {
+  const resolvedWorkspacePath = resolve(workspacePath);
   return {
-    workspacePath: resolve(workspacePath),
-    workspaceName: titleFromDirectoryName(basename(resolve(workspacePath))),
+    workspacePath: resolvedWorkspacePath,
+    workspaceDirectories: [resolvedWorkspacePath],
+    workspaceName: titleFromDirectoryName(basename(resolvedWorkspacePath)),
     scopeOwner: '',
     descriptionMarkdown: '',
     rulesMarkdown: '',
@@ -904,6 +951,31 @@ export function defaultsForWorkspaceDirectory(workspacePath: string): WorkspaceO
 
 function rows(value: unknown[]): SqlRow[] {
   return value as SqlRow[];
+}
+
+function parseStringArray(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeWorkspaceDirectories(primaryPath: string, directories: readonly string[] | undefined): string[] {
+  const primary = resolve(primaryPath);
+  const normalized = [primary];
+  const seen = new Set([process.platform === 'win32' ? primary.toLowerCase() : primary]);
+  for (const directory of directories ?? []) {
+    if (!directory.trim()) continue;
+    const resolvedDirectory = resolve(directory);
+    const key = process.platform === 'win32' ? resolvedDirectory.toLowerCase() : resolvedDirectory;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(resolvedDirectory);
+  }
+  return normalized;
 }
 
 function rowOrUndefined(value: unknown): SqlRow | undefined {

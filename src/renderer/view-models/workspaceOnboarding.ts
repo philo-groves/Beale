@@ -10,6 +10,7 @@ import type {
 export interface WorkspaceOnboardingFormState {
   templateKind: WorkspaceTemplateKind;
   workspacePath: string;
+  workspaceDirectories: string[];
   researchProfileId: ResearchProfileId;
   workspaceName: string;
   researchSubjectName: string;
@@ -121,10 +122,12 @@ const MSRC_SCOPE_AND_RULES = [
 ].join('\n');
 
 export function onboardingFormFromDefaults(defaults: WorkspaceOnboardingDefaults): WorkspaceOnboardingFormState {
+  const workspaceDirectories = uniqueWorkspaceDirectories(defaults.workspaceDirectories ?? [defaults.workspacePath]);
   return {
     templateKind: 'manual',
     researchProfileId: 'security-research',
-    workspacePath: defaults.workspacePath,
+    workspacePath: workspaceDirectories[0] ?? '',
+    workspaceDirectories,
     workspaceName: defaults.workspaceName,
     researchSubjectName: defaults.researchSubjectName ?? (defaults.scopeOwner || defaults.workspaceName),
     descriptionMarkdown: defaults.descriptionMarkdown,
@@ -139,6 +142,7 @@ export function onboardingFormFromDefaults(defaults: WorkspaceOnboardingDefaults
 export function onboardingInputFromForm(form: WorkspaceOnboardingFormState): WorkspaceOnboardingInput {
   return {
     workspacePath: form.workspacePath,
+    workspaceDirectories: [...form.workspaceDirectories],
     workspaceName: form.workspaceName,
     researchProfileId: form.researchProfileId,
     researchSubjectName: form.researchSubjectName,
@@ -148,6 +152,63 @@ export function onboardingInputFromForm(form: WorkspaceOnboardingFormState): Wor
     expiresAt: null,
     assets: selectedOnboardingAssets(form)
   };
+}
+
+export function emptyWorkspaceOnboardingForm(): WorkspaceOnboardingFormState {
+  return onboardingFormFromDefaults({
+    workspacePath: '',
+    workspaceDirectories: [],
+    workspaceName: '',
+    scopeOwner: '',
+    descriptionMarkdown: '',
+    rulesMarkdown: '',
+    expiresAt: null,
+    assets: []
+  });
+}
+
+export function addDirectoryToOnboardingForm(
+  form: WorkspaceOnboardingFormState,
+  path: string,
+  defaults: WorkspaceOnboardingDefaults | null = null
+): WorkspaceOnboardingFormState {
+  const workspaceDirectories = uniqueWorkspaceDirectories([...form.workspaceDirectories, path]);
+  const firstDirectory = form.workspaceDirectories.length === 0;
+  return {
+    ...form,
+    workspacePath: workspaceDirectories[0] ?? '',
+    workspaceDirectories,
+    workspaceName: firstDirectory && !form.workspaceName.trim() ? defaults?.workspaceName ?? form.workspaceName : form.workspaceName,
+    researchSubjectName: firstDirectory && !form.researchSubjectName.trim()
+      ? defaults?.researchSubjectName ?? defaults?.scopeOwner ?? defaults?.workspaceName ?? form.researchSubjectName
+      : form.researchSubjectName,
+    descriptionMarkdown: firstDirectory && !form.descriptionMarkdown.trim()
+      ? defaults?.descriptionMarkdown ?? form.descriptionMarkdown
+      : form.descriptionMarkdown,
+    rulesMarkdown: firstDirectory && !form.rulesMarkdown.trim() ? defaults?.rulesMarkdown ?? form.rulesMarkdown : form.rulesMarkdown
+  };
+}
+
+export function removeDirectoryFromOnboardingForm(form: WorkspaceOnboardingFormState, path: string): WorkspaceOnboardingFormState {
+  if (form.workspaceDirectories.length <= 1) return form;
+  const key = workspaceDirectoryKey(path);
+  const workspaceDirectories = form.workspaceDirectories.filter((directory) => workspaceDirectoryKey(directory) !== key);
+  return { ...form, workspacePath: workspaceDirectories[0] ?? '', workspaceDirectories };
+}
+
+function uniqueWorkspaceDirectories(directories: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return directories.filter((directory) => {
+    if (!directory.trim()) return false;
+    const key = workspaceDirectoryKey(directory);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function workspaceDirectoryKey(directory: string): string {
+  return directory.replace(/[\\/]+$/u, '').toLowerCase();
 }
 
 export function onboardingRepositories(form: WorkspaceOnboardingFormState): OnboardingRepository[] {

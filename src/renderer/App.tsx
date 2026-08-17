@@ -385,6 +385,17 @@ export function App(): JSX.Element {
     }
   }, [applySnapshot, snapshot?.activeScope]);
 
+  const changeWorkspaceDirectories = useCallback(async (directories: string[]): Promise<void> => {
+    setError(null);
+    try {
+      applySnapshot(await window.beale.updateWorkspaceDirectories(directories));
+    } catch (caught) {
+      const message = errorMessage(caught);
+      setError(message);
+      throw caught;
+    }
+  }, [applySnapshot]);
+
   const loadAgentPlugins = useCallback(async (): Promise<void> => {
     setAgentPluginsLoading(true);
     setAgentPluginsError(null);
@@ -1547,6 +1558,7 @@ export function App(): JSX.Element {
               researchSubjectName={selectedRunId ? '' : snapshot?.researchSubject.name ?? ''}
               sessionHeatPreferences={sessionHeatPreferences}
               workspacePath={selectedRunId ? '' : snapshot?.workspace.workspacePath ?? ''}
+              workspaceDirectories={selectedRunId ? [] : snapshot?.workspace.workspaceDirectories}
               workspaceName={snapshot?.activeScope.workspaceName ?? 'Workspace'}
               runs={selectedRunId ? [] : workspaceDashboardRuns}
               selectedRunId={selectedRunId}
@@ -1581,6 +1593,7 @@ export function App(): JSX.Element {
               onAddWorkspaceResource={addWorkspaceResource}
               onChangeWorkspaceResource={changeWorkspaceResource}
               onSaveWorkspaceConfiguration={saveWorkspaceConfiguration}
+              onChangeWorkspaceDirectories={changeWorkspaceDirectories}
               onOpenSession={openWorkspaceDashboardSession}
               onResearchDetailsOpenChange={(expanded) => setRightSidenavExpanded(researchDetailsAvailable && expanded)}
               onOpenHoneycrispRunbook={openHoneycrispRunbook}

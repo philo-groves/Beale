@@ -166,6 +166,7 @@ export interface WorkspaceScopeVersion {
 export interface WorkspaceSummary {
   workspaceId: string;
   workspacePath: string;
+  workspaceDirectories?: string[];
   databasePath: string;
   artifactRoot: string;
   openedAt: string;
@@ -261,6 +262,7 @@ export interface ProfilingState {
 export interface WorkspaceRegistryEntry {
   id: string;
   workspacePath: string;
+  workspaceDirectories?: string[];
   workspaceId: string;
   workspaceName: string;
   researchProfileId: ResearchProfileId;
@@ -891,6 +893,7 @@ export interface ShellOptions {
 
 export interface WorkspaceOnboardingDefaults {
   workspacePath: string;
+  workspaceDirectories?: string[];
   workspaceName: string;
   researchSubjectName?: string;
   scopeOwner: string;
@@ -1688,6 +1691,7 @@ export interface BealeApi {
   lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult>;
   listGitHubOrganizationRepositories(organization: string): Promise<GitHubRepositorySummary[]>;
   createScopedWorkspace(input: WorkspaceOnboardingInput): Promise<WorkspaceSnapshot>;
+  updateWorkspaceDirectories(directories: string[]): Promise<WorkspaceSnapshot>;
   skipWorkspaceOnboardingRepository(input: WorkspaceOnboardingSkipInput): Promise<WorkspaceOnboardingProgressUpdate | null>;
   onWorkspaceOnboardingUpdate(listener: (update: WorkspaceOnboardingProgressUpdate) => void): () => void;
   openRegisteredWorkspace(registryWorkspaceId: string): Promise<WorkspaceSnapshot>;

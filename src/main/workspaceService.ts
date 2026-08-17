@@ -1666,8 +1666,13 @@ export class WorkspaceService {
   }
 
   public createScopedWorkspace(input: WorkspaceOnboardingInput, onProgress: WorkspaceOnboardingProgressHandler | null = null): WorkspaceSnapshot {
-    this.getWorkspaceRegistry();
-    const workspacePath = resolve(input.workspacePath);
+    const registry = this.getWorkspaceRegistry();
+    if (!input.workspacePath.trim() && !(input.workspaceDirectories?.length)) {
+      throw new Error('At least one workspace directory is required.');
+    }
+    const workspaceDirectories = normalizedWorkspaceDirectories(input.workspacePath, input.workspaceDirectories);
+    const workspacePath = workspaceDirectories[0];
+    validateWorkspaceDirectories(workspaceDirectories);
     const workspaceName = input.workspaceName.trim();
     if (!workspaceName) {
       throw new Error('Workspace name is required.');
@@ -1694,6 +1699,25 @@ export class WorkspaceService {
     if (!runtime) throw new Error('Scoped workspace runtime was not created.');
     this.memorySummaryForRuntime(runtime);
     this.syncWorkspaceRegistry();
+    const registryWorkspace = registry.getWorkspaceByPath(workspacePath);
+    if (!registryWorkspace) throw new Error(`Workspace registry entry not found: ${workspacePath}`);
+    registry.setWorkspaceDirectories(registryWorkspace.id, workspaceDirectories);
+    this.snapshotCache.delete(workspacePath);
+    this.emitChange();
+    return this.requireSnapshot();
+  }
+
+  public updateWorkspaceDirectories(directories: readonly string[]): WorkspaceSnapshot {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) throw new Error('No Beale workspace is open');
+    if (directories.length === 0) throw new Error('At least one workspace directory is required.');
+    const normalized = normalizedWorkspaceDirectories(runtime.workspacePath, directories);
+    validateWorkspaceDirectories(normalized);
+    const registry = this.getWorkspaceRegistry();
+    const workspace = registry.getWorkspaceByPath(runtime.workspacePath);
+    if (!workspace) throw new Error(`Workspace registry entry not found: ${runtime.workspacePath}`);
+    registry.setWorkspaceDirectories(workspace.id, normalized);
+    this.snapshotCache.delete(runtime.workspacePath);
     this.emitChange();
     return this.requireSnapshot();
   }
@@ -3676,7 +3700,8 @@ export class WorkspaceService {
           () => this.getWorkspaceRegistry().getMemorySettings().typeDescriptions,
           () => this.options.researchSubjectResolver?.(workspacePath) ?? db.getResearchSubject(),
           () => this.getWorkspaceRegistry().getProviderSettings(),
-          () => this.getAgentPluginRegistry().getHoneycrispRuntime()
+          () => this.getAgentPluginRegistry().getHoneycrispRuntime(),
+          () => this.getWorkspaceRegistry().getWorkspaceByPath(workspacePath)?.workspaceDirectories ?? [workspacePath]
         )
       };
     } catch (error) {
@@ -3973,9 +3998,11 @@ export class WorkspaceService {
 
   private getWorkspaceSummary(runtime = this.getForegroundRuntime()): WorkspaceSummary {
     if (!runtime) throw new Error('No Beale workspace is open');
+    const registryWorkspace = this.getWorkspaceRegistry().getWorkspaceByPath(runtime.workspacePath);
     return {
       workspaceId: runtime.db.getWorkspaceId(),
       workspacePath: runtime.workspacePath,
+      workspaceDirectories: registryWorkspace?.workspaceDirectories ?? [runtime.workspacePath],
       databasePath: runtime.db.getDatabasePath(),
       artifactRoot: runtime.db.getArtifactRoot(),
       openedAt: runtime.openedAt,
@@ -6730,4 +6757,31 @@ function requireCollaborationPolicyAcknowledgements(
         ? 'xAI policy-use risk'
         : 'Z.ai policy-use risk');
   throw new Error(`Breakout-room collaboration requires acknowledgement for ${labels.join(', ')}. Accept it in Settings > Providers before continuing.`);
+}
+
+function normalizedWorkspaceDirectories(primaryPath: string, directories: readonly string[] | undefined): string[] {
+  const candidates = [primaryPath, ...(directories ?? [])].filter((directory) => directory.trim().length > 0);
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const directory of candidates) {
+    const resolvedDirectory = resolve(directory);
+    const key = process.platform === 'win32' ? resolvedDirectory.toLowerCase() : resolvedDirectory;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(resolvedDirectory);
+  }
+  return normalized;
+}
+
+function validateWorkspaceDirectories(directories: readonly string[]): void {
+  if (directories.length === 0) throw new Error('At least one workspace directory is required.');
+  for (const directory of directories) {
+    let stat;
+    try {
+      stat = statSync(directory);
+    } catch {
+      throw new Error(`Workspace directory is unavailable: ${directory}`);
+    }
+    if (!stat.isDirectory()) throw new Error(`Workspace path is not a directory: ${directory}`);
+  }
 }

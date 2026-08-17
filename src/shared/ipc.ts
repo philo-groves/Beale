@@ -24,6 +24,7 @@ export const IPC_CHANNELS = {
   lookupHackerOneScope: 'beale:lookup-hackerone-scope',
   listGitHubOrganizationRepositories: 'beale:list-github-organization-repositories',
   createScopedWorkspace: 'beale:create-scoped-workspace',
+  updateWorkspaceDirectories: 'beale:update-workspace-directories',
   workspaceOnboardingUpdated: 'beale:workspace-onboarding-updated',
   skipWorkspaceOnboardingRepository: 'beale:skip-workspace-onboarding-repository',
   openRegisteredWorkspace: 'beale:open-registered-workspace',

@@ -4,7 +4,7 @@ import type { WorkspaceOnboardingProgressUpdate, WorkspaceRegistryEntry, Researc
 import {
   applyGitHubRepositoryCatalog,
   applyWorkspaceTemplate,
-  onboardingFormFromDefaults,
+  emptyWorkspaceOnboardingForm,
   onboardingFormFromHackerOneLookup,
   workspaceOnboardingFormForProfile,
   onboardingInputFromForm,
@@ -52,22 +52,8 @@ export function useWorkspaceActions({
   setOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
 }): WorkspaceActions {
   const addWorkspace = useCallback((): void => {
-    void runWorkspaceAction(async () => {
-      const selection = await window.beale.selectWorkspaceDirectory();
-      if (selection.canceled) return;
-      if (selection.knownWorkspace) {
-        clearRunDetail();
-        setSelectedRunId(null);
-        const next = await window.beale.openRegisteredWorkspace(selection.knownWorkspace.id);
-        applySnapshot(next);
-        setSelectedRunId(null);
-        return;
-      }
-      if (selection.defaults) {
-        setWorkspaceDraft(onboardingFormFromDefaults(selection.defaults));
-      }
-    });
-  }, [applySnapshot, clearRunDetail, runWorkspaceAction, setWorkspaceDraft, setSelectedRunId]);
+    setWorkspaceDraft(emptyWorkspaceOnboardingForm());
+  }, [setWorkspaceDraft]);
 
   const openRegisteredWorkspace = useCallback(
     (workspace: WorkspaceRegistryEntry): void => {

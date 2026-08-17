@@ -10,7 +10,7 @@ import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sess
 import { SessionNextSteps, SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
 import { WorkspaceOnboardingModal } from '../src/renderer/features/workspaces/WorkspaceOnboardingModal';
 import { INSET_SCROLLBAR_SELECTOR } from '../src/renderer/hooks/useInsetScrollbarActivation';
-import { onboardingFormFromDefaults } from '../src/renderer/view-models/workspaceOnboarding';
+import { emptyWorkspaceOnboardingForm, onboardingFormFromDefaults } from '../src/renderer/view-models/workspaceOnboarding';
 
 describe('renderer dialog surfaces', () => {
   it('renders the reusable bottom-sheet presentation with shared dialog semantics', () => {
@@ -78,7 +78,21 @@ describe('renderer dialog surfaces', () => {
 
     const securityHtml = render('security-research');
     const mathematicsHtml = render('mathematics');
+    const emptyHtml = renderToStaticMarkup(createElement(WorkspaceOnboardingModal, {
+      form: emptyWorkspaceOnboardingForm(),
+      busy: false,
+      progress: null,
+      onChange: () => undefined,
+      onCancel: () => undefined,
+      onLookupHackerOne: async () => undefined,
+      onTemplate: () => undefined,
+      onSubmit: () => undefined
+    }));
     expect(securityHtml).toContain('aria-label="Workspace template"');
+    expect(securityHtml).toContain('aria-label="Workspace directories"');
+    expect(securityHtml).toContain('aria-label="Add workspace directory"');
+    expect(emptyHtml).toContain('Select at least one directory.');
+    expect(emptyHtml).toMatch(/<button class="primary-button" type="submit"[^>]*disabled=""/u);
     expect(securityHtml).toContain('start-run-dialog workspace-onboarding-modal');
     expect(securityHtml).toContain('<select');
     expect(securityHtml).toContain('<option value="security-research" selected="">Security</option>');

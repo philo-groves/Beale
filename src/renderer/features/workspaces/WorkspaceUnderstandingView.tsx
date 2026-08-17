@@ -25,12 +25,13 @@ import {
 import type { WorkspaceTimelineResult } from '../../view-models/workspaceTimeline';
 import type { SessionHeat } from '../../view-models/sessionHeat';
 import { errorMessage } from '../../lib/errors';
+import { WorkspaceDirectoriesWidget } from './WorkspaceDirectoriesWidget';
 
 const TIMELINE_WINDOW_HOURS = 4;
 const TIMELINE_TICK_HOURS = [0, 1, 2, 3, 4] as const;
 const WORKSPACE_ACTIVITY_DAY_COUNT = 365;
 const DAY_DURATION_MS = 24 * 60 * 60 * 1_000;
-const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources', 'memory', 'runbooks', 'clean'] as const;
+const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources', 'memory', 'runbooks', 'utilities'] as const;
 
 type WorkspaceDashboardView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
 
@@ -40,53 +41,83 @@ export interface WorkspaceConfigurationInput {
   rulesMarkdown: string;
 }
 
-export interface WorkspaceTokenActivityDay {
+export interface WorkspaceHeatmapDay {
   dateKey: string;
   timestamp: number;
-  totalTokens: number;
+  value: number;
   heatLevel: 0 | 1 | 2 | 3 | 4;
 }
 
-export interface WorkspaceTokenActivity {
-  days: WorkspaceTokenActivityDay[];
+export interface WorkspaceHeatmapActivity {
+  days: WorkspaceHeatmapDay[];
   leadingEmptyDays: number;
+  total: number;
+}
+
+export interface WorkspaceTokenActivityDay extends WorkspaceHeatmapDay {
+  totalTokens: number;
+}
+
+export interface WorkspaceTokenActivity extends WorkspaceHeatmapActivity {
+  days: WorkspaceTokenActivityDay[];
   totalTokens: number;
 }
 
 export function workspaceTokenActivity(runs: readonly RunRow[], nowMs: number): WorkspaceTokenActivity {
+  const activity = workspaceDailyActivity(runs.map(({ run, tokenUsage }) => ({
+    occurredAt: run.endedAt ?? run.startedAt ?? run.createdAt,
+    value: tokenUsage?.totalTokens ?? 0
+  })), nowMs);
+  return {
+    ...activity,
+    days: activity.days.map((day) => ({ ...day, totalTokens: day.value })),
+    totalTokens: activity.total
+  };
+}
+
+export function workspaceCreationActivity(
+  items: readonly { createdAt: string }[],
+  nowMs: number
+): WorkspaceHeatmapActivity {
+  return workspaceDailyActivity(items.map((item) => ({ occurredAt: item.createdAt, value: 1 })), nowMs);
+}
+
+function workspaceDailyActivity(
+  events: readonly { occurredAt: string; value: number }[],
+  nowMs: number
+): WorkspaceHeatmapActivity {
   const end = startOfUtcDay(nowMs);
   const start = end - ((WORKSPACE_ACTIVITY_DAY_COUNT - 1) * DAY_DURATION_MS);
   const totalsByDate = new Map<string, number>();
-  for (const { run, tokenUsage } of runs) {
-    const totalTokens = tokenUsage?.totalTokens ?? 0;
-    if (totalTokens <= 0) continue;
-    const activityAt = Date.parse(run.endedAt ?? run.startedAt ?? run.createdAt);
+  for (const event of events) {
+    if (event.value <= 0) continue;
+    const activityAt = Date.parse(event.occurredAt);
     if (!Number.isFinite(activityAt) || activityAt < start || activityAt >= end + DAY_DURATION_MS) continue;
     const dateKey = utcDateKey(activityAt);
-    totalsByDate.set(dateKey, (totalsByDate.get(dateKey) ?? 0) + totalTokens);
+    totalsByDate.set(dateKey, (totalsByDate.get(dateKey) ?? 0) + event.value);
   }
   const maximum = Math.max(0, ...totalsByDate.values());
-  const days = Array.from({ length: WORKSPACE_ACTIVITY_DAY_COUNT }, (_, index): WorkspaceTokenActivityDay => {
+  const days = Array.from({ length: WORKSPACE_ACTIVITY_DAY_COUNT }, (_, index): WorkspaceHeatmapDay => {
     const timestamp = start + (index * DAY_DURATION_MS);
     const dateKey = utcDateKey(timestamp);
-    const totalTokens = totalsByDate.get(dateKey) ?? 0;
+    const value = totalsByDate.get(dateKey) ?? 0;
     return {
       dateKey,
       timestamp,
-      totalTokens,
-      heatLevel: workspaceTokenHeatLevel(totalTokens, maximum)
+      value,
+      heatLevel: workspaceHeatLevel(value, maximum)
     };
   });
   return {
     days,
     leadingEmptyDays: new Date(start).getUTCDay(),
-    totalTokens: days.reduce((total, day) => total + day.totalTokens, 0)
+    total: days.reduce((total, day) => total + day.value, 0)
   };
 }
 
-function workspaceTokenHeatLevel(totalTokens: number, maximum: number): 0 | 1 | 2 | 3 | 4 {
-  if (totalTokens <= 0 || maximum <= 0) return 0;
-  return Math.max(1, Math.min(4, Math.ceil((Math.log1p(totalTokens) / Math.log1p(maximum)) * 4))) as 1 | 2 | 3 | 4;
+function workspaceHeatLevel(value: number, maximum: number): 0 | 1 | 2 | 3 | 4 {
+  if (value <= 0 || maximum <= 0) return 0;
+  return Math.max(1, Math.min(4, Math.ceil((Math.log1p(value) / Math.log1p(maximum)) * 4))) as 1 | 2 | 3 | 4;
 }
 
 function startOfUtcDay(timestamp: number): number {
@@ -125,6 +156,7 @@ export function WorkspaceUnderstandingView({
   researchProfile = null,
   researchSubjectName = '',
   workspacePath = '',
+  workspaceDirectories,
   workspaceName,
   runs,
   workspaceDejunk = null,
@@ -134,6 +166,7 @@ export function WorkspaceUnderstandingView({
   onAddResource = async () => undefined,
   onChangeResource = async () => undefined,
   onSaveConfiguration = async () => undefined,
+  onChangeWorkspaceDirectories = async () => undefined,
   onOpenSession = () => undefined,
   onOpenMemory = () => undefined,
   onOpenRunbook = () => undefined,
@@ -151,6 +184,7 @@ export function WorkspaceUnderstandingView({
   researchProfile?: ResearchProfile | null;
   researchSubjectName?: string;
   workspacePath?: string;
+  workspaceDirectories?: readonly string[];
   workspaceName: string;
   runs: RunRow[];
   onRunWorkspaceDejunk?: () => void;
@@ -158,6 +192,7 @@ export function WorkspaceUnderstandingView({
   onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onSaveConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
+  onChangeWorkspaceDirectories?: (directories: string[]) => Promise<void>;
   onOpenSession?: (runId: string) => void;
   onOpenMemory?: (nodeId: string) => void;
   onOpenRunbook?: (runbookId: string) => void;
@@ -214,6 +249,7 @@ export function WorkspaceUnderstandingView({
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     [honeycrispMemory?.runbooks, workspaceId]
   );
+  const tokenActivity = useMemo(() => workspaceTokenActivity(runs, timelineNowMs), [runs, timelineNowMs]);
   const axisWindowDurationMs = timeline.windowDurationMs || TIMELINE_WINDOW_HOURS * 60 * 60 * 1_000;
   const timelineAriaLabel = `${workspaceName.trim() || 'Workspace'} — most recent 4 hours of session activity`;
 
@@ -244,10 +280,12 @@ export function WorkspaceUnderstandingView({
         busy={busy}
         hidden={activeView !== 'overview'}
         onSave={onSaveConfiguration}
+        onChangeDirectories={onChangeWorkspaceDirectories}
         researchProfile={researchProfile}
         researchSubjectName={researchSubjectName}
         workspaceName={workspaceName}
         workspacePath={workspacePath}
+        workspaceDirectories={workspaceDirectories ?? (workspacePath ? [workspacePath] : [])}
       />
 
       <section
@@ -258,8 +296,8 @@ export function WorkspaceUnderstandingView({
         role="tabpanel"
       >
         <WorkspaceActivityForm
-          nowMs={timelineNowMs}
-          runs={runs}
+          activity={tokenActivity}
+          metric="tokens"
           viewLabel="Activity"
           workspaceName={activeScope?.workspaceName || workspaceName}
         />
@@ -385,7 +423,6 @@ export function WorkspaceUnderstandingView({
         nowMs={timelineNowMs}
         nodes={workspaceMemoryNodes}
         onOpen={onOpenMemory}
-        runs={runs}
         workspaceName={activeScope?.workspaceName || workspaceName}
       />
 
@@ -395,13 +432,12 @@ export function WorkspaceUnderstandingView({
         nowMs={timelineNowMs}
         runbooks={workspaceRunbooks}
         onOpen={onOpenRunbook}
-        runs={runs}
         workspaceName={activeScope?.workspaceName || workspaceName}
       />
 
-      <WorkspaceCleaningPanel
+      <WorkspaceUtilitiesPanel
         busy={busy}
-        hidden={activeView !== 'clean'}
+        hidden={activeView !== 'utilities'}
         honeycrispMemory={honeycrispMemory}
         memoryDreamingInProgress={memoryDreamingInProgress}
         memoryDreamingProgress={memoryDreamingProgress}
@@ -411,6 +447,7 @@ export function WorkspaceUnderstandingView({
         workspaceDejunkInProgress={workspaceDejunkInProgress}
         onRunMemoryDreaming={onRunMemoryDreaming}
         onRunWorkspaceDejunk={onRunWorkspaceDejunk}
+        workspaceName={activeScope?.workspaceName || workspaceName}
       />
     </main>
   );
@@ -424,20 +461,24 @@ function WorkspaceOverviewPanel({
   activeScope,
   busy,
   hidden,
+  onChangeDirectories,
   onSave,
   researchProfile,
   researchSubjectName,
   workspaceName,
-  workspacePath
+  workspacePath,
+  workspaceDirectories
 }: {
   activeScope: WorkspaceScopeVersion | null;
   busy: boolean;
   hidden: boolean;
+  onChangeDirectories: (directories: string[]) => Promise<void>;
   onSave: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   researchProfile: ResearchProfile | null;
   researchSubjectName: string;
   workspaceName: string;
   workspacePath: string;
+  workspaceDirectories: readonly string[];
 }): JSX.Element {
   const resolvedWorkspaceName = activeScope?.workspaceName || workspaceName;
   const resolvedDescription = activeScope?.descriptionMarkdown ?? '';
@@ -509,27 +550,14 @@ function WorkspaceOverviewPanel({
       id="workspace-dashboard-overview-panel"
       role="tabpanel"
     >
-      <div
-        className="workspace-overview-form settings-form"
-      >
-        <header className="settings-form-heading">
+      <div className="workspace-overview-layout settings-form">
+        <header className="settings-form-heading workspace-overview-heading">
           <h2 id="workspace-overview-heading">{workspaceNameDraft.trim() || resolvedWorkspaceName} Overview</h2>
           <p>Review the workspace context and authorized research boundary.</p>
         </header>
-        <div className="settings-form-squircle" aria-labelledby="workspace-overview-heading">
-          <div className="settings-form-control-list">
-            <label className="settings-form-control-row workspace-overview-control-row">
-              <span className="settings-form-control-copy">
-                <strong>Working Directory</strong>
-                <small>The local directory used for this workspace.</small>
-              </span>
-              <input
-                aria-label="Working Directory"
-                className="workspace-overview-input workspace-overview-directory-input"
-                disabled
-                value={workspacePath}
-              />
-            </label>
+        <div className="workspace-overview-form">
+          <div className="settings-form-squircle" aria-labelledby="workspace-overview-heading">
+            <div className="settings-form-control-list">
             <label className="settings-form-control-row workspace-overview-control-row">
               <span className="settings-form-control-copy">
                 <strong>Workspace Name</strong>
@@ -600,13 +628,32 @@ function WorkspaceOverviewPanel({
                 onBlur={saveInPlace}
               />
             </label>
+            </div>
           </div>
+          {saveError ? <p className="workspace-overview-error" role="alert">{saveError}</p> : null}
+          {saving ? <span className="workspace-overview-saving" role="status">Saving…</span> : null}
         </div>
-        {saveError ? <p className="workspace-overview-error" role="alert">{saveError}</p> : null}
-        {saving ? <span className="workspace-overview-saving" role="status">Saving…</span> : null}
+        <WorkspaceDirectoriesWidget
+          directories={workspaceDirectories}
+          disabled={busy}
+          lockedDirectory={workspacePath}
+          onAdd={async (selection) => {
+            const selectedPath = selection.path;
+            if (!selectedPath || workspaceDirectories.some((directory) => workspaceDirectoryKey(directory) === workspaceDirectoryKey(selectedPath))) return;
+            if (selection.knownWorkspace) {
+              throw new Error(`Directory already belongs to workspace ${selection.knownWorkspace.workspaceName}.`);
+            }
+            await onChangeDirectories([...workspaceDirectories, selectedPath]);
+          }}
+          onRemove={(directory) => onChangeDirectories(workspaceDirectories.filter((item) => workspaceDirectoryKey(item) !== workspaceDirectoryKey(directory)))}
+        />
       </div>
     </section>
   );
+}
+
+function workspaceDirectoryKey(directory: string): string {
+  return directory.replace(/[\\/]+$/u, '').toLowerCase();
 }
 
 function workspaceResearchProfileLabel(profile: ResearchProfile | null): string {
@@ -617,25 +664,25 @@ function workspaceResearchProfileLabel(profile: ResearchProfile | null): string 
 }
 
 function WorkspaceActivityForm({
-  nowMs,
-  runs,
+  activity,
+  metric,
   viewLabel,
   workspaceName
 }: {
-  nowMs: number;
-  runs: readonly RunRow[];
+  activity: WorkspaceHeatmapActivity;
+  metric: WorkspaceHeatmapMetric;
   viewLabel: string;
   workspaceName: string;
 }): JSX.Element {
-  const activity = useMemo(() => workspaceTokenActivity(runs, nowMs), [nowMs, runs]);
+  const metricCopy = workspaceHeatmapMetricCopy(metric);
   return (
-    <section className="settings-form workspace-activity-form" aria-label={`${workspaceName} ${viewLabel.toLowerCase()} yearly token activity`}>
+    <section className="settings-form workspace-activity-form" aria-label={`${workspaceName} ${viewLabel.toLowerCase()} yearly ${metricCopy.activityLabel}`}>
       <header className="settings-form-heading">
         <h2>{workspaceName} {viewLabel}</h2>
-        <p>{activity.totalTokens.toLocaleString()} tokens used over the past year.</p>
+        <p>{workspaceHeatmapValueLabel(activity.total, metric)} over the past year.</p>
       </header>
       <div className="workspace-activity-grid-scroll">
-        <div className="workspace-activity-grid" role="grid" aria-label="Daily token usage over the past year">
+        <div className="workspace-activity-grid" role="grid" aria-label={`Daily ${metricCopy.activityLabel} over the past year`}>
           {Array.from({ length: activity.leadingEmptyDays }, (_, index) => (
             <span aria-hidden="true" className="workspace-activity-cell is-empty" key={`empty-${index}`} />
           ))}
@@ -646,13 +693,14 @@ function WorkspaceActivityForm({
               year: 'numeric',
               timeZone: 'UTC'
             });
-            const label = `${dateLabel}: ${day.totalTokens.toLocaleString()} tokens`;
+            const label = `${dateLabel}: ${workspaceHeatmapValueLabel(day.value, metric)}`;
             return (
               <span
                 aria-label={label}
                 className={`workspace-activity-cell heat-${day.heatLevel}`}
+                data-activity-count={day.value}
                 data-date={day.dateKey}
-                data-token-count={day.totalTokens}
+                data-metric={metric}
                 key={day.dateKey}
                 role="gridcell"
                 title={label}
@@ -665,6 +713,27 @@ function WorkspaceActivityForm({
   );
 }
 
+type WorkspaceHeatmapMetric = 'tokens' | 'resources' | 'memories' | 'runbooks';
+
+function workspaceHeatmapMetricCopy(metric: WorkspaceHeatmapMetric): { activityLabel: string } {
+  switch (metric) {
+    case 'tokens': return { activityLabel: 'token usage' };
+    case 'resources': return { activityLabel: 'resource creation' };
+    case 'memories': return { activityLabel: 'memory creation' };
+    case 'runbooks': return { activityLabel: 'runbook creation' };
+  }
+}
+
+function workspaceHeatmapValueLabel(value: number, metric: WorkspaceHeatmapMetric): string {
+  const formattedValue = value.toLocaleString();
+  switch (metric) {
+    case 'tokens': return `${formattedValue} ${value === 1 ? 'token' : 'tokens'} used`;
+    case 'resources': return `${formattedValue} ${value === 1 ? 'resource' : 'resources'} created`;
+    case 'memories': return `${formattedValue} ${value === 1 ? 'memory' : 'memories'} created`;
+    case 'runbooks': return `${formattedValue} ${value === 1 ? 'runbook' : 'runbooks'} created`;
+  }
+}
+
 function WorkspaceMemoryPanel({
   hidden,
   loading,
@@ -672,7 +741,6 @@ function WorkspaceMemoryPanel({
   nowMs,
   nodes,
   onOpen,
-  runs,
   workspaceName
 }: {
   hidden: boolean;
@@ -681,9 +749,9 @@ function WorkspaceMemoryPanel({
   nowMs: number;
   nodes: HoneycrispMemorySummary['nodes'];
   onOpen: (nodeId: string) => void;
-  runs: readonly RunRow[];
   workspaceName: string;
 }): JSX.Element {
+  const activity = useMemo(() => workspaceCreationActivity(nodes, nowMs), [nodes, nowMs]);
   return (
     <section
       aria-label="Workspace memory"
@@ -692,7 +760,7 @@ function WorkspaceMemoryPanel({
       id="workspace-dashboard-memory-panel"
       role="tabpanel"
     >
-      <WorkspaceActivityForm nowMs={nowMs} runs={runs} viewLabel="Memory" workspaceName={workspaceName} />
+      <WorkspaceActivityForm activity={activity} metric="memories" viewLabel="Memory" workspaceName={workspaceName} />
       <div className="workspace-catalog-list memory-catalog-list">
         {nodes.map((node) => (
           <MemoryCatalogItem
@@ -717,7 +785,6 @@ function WorkspaceRunbooksPanel({
   nowMs,
   runbooks,
   onOpen,
-  runs,
   workspaceName
 }: {
   hidden: boolean;
@@ -725,9 +792,9 @@ function WorkspaceRunbooksPanel({
   nowMs: number;
   runbooks: HoneycrispMemorySummary['runbooks'];
   onOpen: (runbookId: string) => void;
-  runs: readonly RunRow[];
   workspaceName: string;
 }): JSX.Element {
+  const activity = useMemo(() => workspaceCreationActivity(runbooks, nowMs), [nowMs, runbooks]);
   return (
     <section
       aria-label="Workspace runbooks"
@@ -736,7 +803,7 @@ function WorkspaceRunbooksPanel({
       id="workspace-dashboard-runbooks-panel"
       role="tabpanel"
     >
-      <WorkspaceActivityForm nowMs={nowMs} runs={runs} viewLabel="Runbooks" workspaceName={workspaceName} />
+      <WorkspaceActivityForm activity={activity} metric="runbooks" viewLabel="Runbooks" workspaceName={workspaceName} />
       <div className="workspace-catalog-list runbook-catalog-list">
         {runbooks.map((runbook) => (
           <RunbookCatalogItem
@@ -754,7 +821,7 @@ function WorkspaceRunbooksPanel({
   );
 }
 
-function WorkspaceCleaningPanel({
+function WorkspaceUtilitiesPanel({
   busy,
   hidden,
   honeycrispMemory,
@@ -765,7 +832,8 @@ function WorkspaceCleaningPanel({
   workspaceDejunk,
   workspaceDejunkInProgress,
   onRunMemoryDreaming,
-  onRunWorkspaceDejunk
+  onRunWorkspaceDejunk,
+  workspaceName
 }: {
   busy: boolean;
   hidden: boolean;
@@ -778,6 +846,7 @@ function WorkspaceCleaningPanel({
   workspaceDejunkInProgress: boolean;
   onRunMemoryDreaming: () => void;
   onRunWorkspaceDejunk: () => void;
+  workspaceName: string;
 }): JSX.Element {
   const memoryEnabled = researchProfile?.capabilities.memoryEnabled !== false;
   const memoryLoading = honeycrispMemory?.loading === true;
@@ -792,15 +861,15 @@ function WorkspaceCleaningPanel({
   const dejunkStatus = workspaceDejunkInProgress ? 'Dejunking workspace files…' : dejunkLoading ? 'Checking workspace files…' : null;
   return (
     <section
-      aria-label="Workspace cleaning"
+      aria-label="Workspace utilities"
       className="workspace-dashboard-panel workspace-cleaning-view"
       hidden={hidden}
-      id="workspace-dashboard-clean-panel"
+      id="workspace-dashboard-utilities-panel"
       role="tabpanel"
     >
       <div className="settings-form workspace-cleaning-form">
         <header className="settings-form-heading">
-          <h2>Clean</h2>
+          <h2>{workspaceName} Utilities</h2>
           <p>Organize loose files and consolidate workspace memory.</p>
         </header>
         <div className="settings-form-squircle">
@@ -1081,6 +1150,10 @@ function WorkspaceResearchSurface({
     () => workspaceResearchSurfaceItems(activeScope?.assets ?? [], runs, honeycrispMemory),
     [activeScope?.assets, honeycrispMemory, runs]
   );
+  const resourceActivity = useMemo(
+    () => workspaceCreationActivity(items.map((item) => item.asset), nowMs),
+    [items, nowMs]
+  );
   const representedKinds = useMemo(() => workspaceResearchSurfaceKinds(items), [items]);
   const [activeKind, setActiveKind] = useState<ScopeAssetKind | null>(() => representedKinds[0] ?? null);
   const [dialogState, setDialogState] = useState<{ kind: ScopeAssetKind; item: WorkspaceResearchSurfaceItem | null } | null>(null);
@@ -1143,7 +1216,7 @@ function WorkspaceResearchSurface({
       id="workspace-dashboard-resources-panel"
       role="tabpanel"
     >
-      <WorkspaceActivityForm nowMs={nowMs} runs={runs} viewLabel="Resources" workspaceName={workspaceName} />
+      <WorkspaceActivityForm activity={resourceActivity} metric="resources" viewLabel="Resources" workspaceName={workspaceName} />
       <div className="workspace-resource-tabs-bar">
         <div className="research-side-view-tabs workspace-resource-tabs" role="tablist" aria-label="Workspace resource types">
           {representedKinds.map((kind) => (

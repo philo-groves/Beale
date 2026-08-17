@@ -539,6 +539,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.createScopedWorkspace, (event, input: WorkspaceOnboardingInput) =>
     workspaceService.createScopedWorkspace(input, (update) => event.sender.send(IPC_CHANNELS.workspaceOnboardingUpdated, update))
   );
+  ipcMain.handle(IPC_CHANNELS.updateWorkspaceDirectories, (_event, directories: string[]) =>
+    workspaceService.updateWorkspaceDirectories(directories)
+  );
   ipcMain.handle(IPC_CHANNELS.skipWorkspaceOnboardingRepository, (_event, input: WorkspaceOnboardingSkipInput) => workspaceService.skipWorkspaceOnboardingRepository(input));
   ipcMain.handle(IPC_CHANNELS.openRegisteredWorkspace, (_event, registryWorkspaceId: string) =>
     timedMainIpc('openRegisteredWorkspace', { workspace: shortMetricId(registryWorkspaceId) }, () => workspaceService.openRegisteredWorkspace(registryWorkspaceId))

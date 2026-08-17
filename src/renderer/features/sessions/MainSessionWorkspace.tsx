@@ -29,6 +29,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   researchSubjectName = '',
   workspacePath = '',
+  workspaceDirectories,
   workspaceName,
   runs,
   selectedRunId,
@@ -63,6 +64,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onAddWorkspaceResource = async () => undefined,
   onChangeWorkspaceResource = async () => undefined,
   onSaveWorkspaceConfiguration = async () => undefined,
+  onChangeWorkspaceDirectories = async () => undefined,
   onOpenSession = () => undefined,
   onResearchDetailsOpenChange,
   onOpenHoneycrispRunbook,
@@ -90,6 +92,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   sessionHeatPreferences?: SessionHeatPreferences;
   researchSubjectName?: string;
   workspacePath?: string;
+  workspaceDirectories?: readonly string[];
   workspaceName: string;
   runs: RunRow[];
   selectedRunId: string | null;
@@ -124,6 +127,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onAddWorkspaceResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeWorkspaceResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onSaveWorkspaceConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
+  onChangeWorkspaceDirectories?: (directories: string[]) => Promise<void>;
   onOpenSession?: (runId: string) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
@@ -213,6 +217,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           researchProfile={researchProfile}
           researchSubjectName={researchSubjectName}
           workspacePath={workspacePath}
+          workspaceDirectories={workspaceDirectories}
           workspaceName={workspaceName}
           runs={runs}
           onRunWorkspaceDejunk={onRunWorkspaceDejunk}
@@ -220,6 +225,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onAddResource={onAddWorkspaceResource}
           onChangeResource={onChangeWorkspaceResource}
           onSaveConfiguration={onSaveWorkspaceConfiguration}
+          onChangeWorkspaceDirectories={onChangeWorkspaceDirectories}
           onOpenSession={onOpenSession}
           onOpenMemory={openWorkspaceMemory}
           onOpenRunbook={openWorkspaceRunbook}
