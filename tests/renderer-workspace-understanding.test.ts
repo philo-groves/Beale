@@ -48,10 +48,16 @@ describe('workspace dashboard', () => {
     const surfaceListStyles = styles.match(/\.workspace-surface-list\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceItemStyles = styles.match(/\.workspace-surface-item\s*\{([^}]*)\}/)?.[1] ?? '';
     const mainOnlyStyles = styles.match(/\.main-session-grid\.workspace-main-only\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceDetailColumnStyles = styles.match(/\.main-session-grid\.workspace-context\s+\.research-side-column\s*\{([^}]*)\}/)?.[1] ?? '';
+    const hiddenWorkspaceDetailColumnStyles = styles.match(/\.main-session-grid\.workspace-context\.workspace-main-only\s+\.research-side-column\s*\{([^}]*)\}/)?.[1] ?? '';
     const catalogViewStyles = styles.match(/\.workspace-catalog-view\s*\{([^}]*)\}/)?.[1] ?? '';
     const catalogListStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.workspace-catalog-list\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceMemoryItemStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.memory-catalog-list\s+\.memory-catalog-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceMemoryDescriptionStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.memory-catalog-list\s+\.memory-catalog-item-description\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceRunbookItemStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.runbook-catalog-list\s+\.runbook-catalog-item\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceRunbookPurposeStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.runbook-catalog-list\s+\.runbook-catalog-purpose\s*\{([^}]*)\}/)?.[1] ?? '';
+    const runbookItemStyles = styles.match(/^\.runbook-catalog-item\s*\{([^}]*)\}/m)?.[1] ?? '';
+    const runbookIconStyles = styles.match(/^\.runbook-catalog-icon\s*\{([^}]*)\}/m)?.[1] ?? '';
     const workspaceMemorySectionStyles = styles.match(/\.workspace-memory-type-section\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceMemoryHeadingStyles = styles.match(/\.workspace-memory-type-section\s*>\s*h3\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceMemoryToggleStyles = styles.match(/\.workspace-memory-type-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -103,12 +109,23 @@ describe('workspace dashboard', () => {
     expect(surfaceListStyles).toContain('gap: 10px');
     expect(surfaceItemStyles).toContain('min-height: 86px');
     expect(mainOnlyStyles).toContain('grid-template-columns: minmax(0, 1fr)');
+    expect(mainOnlyStyles).toContain('0 0');
+    expect(workspaceDetailColumnStyles).toContain('transform: translateX(0)');
+    expect(workspaceDetailColumnStyles).toContain('transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)');
+    expect(hiddenWorkspaceDetailColumnStyles).toContain('transform: translateX(24px)');
+    expect(hiddenWorkspaceDetailColumnStyles).toContain('opacity: 0');
     expect(catalogViewStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
     expect(catalogViewStyles).toContain('overflow: hidden');
     expect(catalogListStyles).toContain('width: 100%');
     expect(catalogListStyles).toContain('height: 100%');
     expect(workspaceMemoryItemStyles).toContain('padding-block: 7px');
     expect(workspaceMemoryDescriptionStyles).toContain('color: var(--muted)');
+    expect(workspaceRunbookItemStyles).toContain('padding-block: 7px');
+    expect(workspaceRunbookPurposeStyles).toContain('color: var(--muted)');
+    expect(runbookItemStyles).toContain('grid-template-columns: minmax(0, 1fr)');
+    expect(runbookItemStyles).toContain('justify-content: stretch');
+    expect(runbookIconStyles).toContain('color: var(--muted)');
+    expect(runbookIconStyles).not.toContain('var(--runbook-status-color)');
     expect(workspaceMemorySectionStyles).not.toContain('border-top');
     expect(workspaceMemorySectionStyles).not.toContain('border-bottom');
     expect(workspaceMemoryHeadingStyles).toContain('padding: 8px var(--settings-form-inline-padding) 12px');
@@ -238,7 +255,7 @@ describe('workspace dashboard', () => {
       onSteerInstruction: () => undefined
     }));
 
-    expect(html).toContain('class="main-session-grid workspace-main-only"');
+    expect(html).toContain('class="main-session-grid workspace-context workspace-main-only"');
     expect(html).toContain('class="workspace-dashboard"');
     expect(html.match(/class="workspace-dashboard-panel/g)).toHaveLength(6);
     expect(html).toContain('aria-label="Workspace dashboard views"');

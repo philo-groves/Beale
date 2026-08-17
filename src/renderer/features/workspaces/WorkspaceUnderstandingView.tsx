@@ -172,6 +172,7 @@ export function WorkspaceUnderstandingView({
   onOpenSession = () => undefined,
   onOpenMemory = () => undefined,
   onOpenRunbook = () => undefined,
+  onActiveViewChange,
   onRunWorkspaceDejunk = () => undefined,
   onRunMemoryDreaming,
   nowMs
@@ -199,6 +200,7 @@ export function WorkspaceUnderstandingView({
   onOpenSession?: (runId: string) => void;
   onOpenMemory?: (nodeId: string) => void;
   onOpenRunbook?: (runbookId: string) => void;
+  onActiveViewChange?: (viewName: string) => void;
   nowMs?: number;
 }): JSX.Element {
   const [activeView, setActiveView] = useState<WorkspaceDashboardView>('overview');
@@ -225,6 +227,9 @@ export function WorkspaceUnderstandingView({
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [timelineLegendOpen]);
+  useEffect(() => {
+    onActiveViewChange?.(workspaceDashboardViewLabel(activeView));
+  }, [activeView, onActiveViewChange]);
   const timelineNowMs = nowMs ?? clockNowMs;
   const memoryTypes = researchProfile?.memory.types ?? [];
   const timeline = useMemo(

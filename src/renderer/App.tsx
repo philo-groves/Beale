@@ -148,6 +148,7 @@ export function App(): JSX.Element {
   const [workspaceOnboardingProgress, setWorkspaceOnboardingProgress] = useState<WorkspaceOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
+  const [workspaceDashboardViewName, setWorkspaceDashboardViewName] = useState('Overview');
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [newResearchInitialGoal, setNewResearchInitialGoal] = useState<ResearchGoalSeed | null>(null);
   const [pluginsOpen, setPluginsOpen] = useState(false);
@@ -1368,6 +1369,7 @@ export function App(): JSX.Element {
               : null}
         platform={windowControlPlatform}
         workspaceName={currentWorkspaceName}
+        workspaceViewTitle={snapshot && !selectedRunId ? workspaceDashboardViewName : null}
         activeRunDetail={activeRunDetail}
         activeBreakoutRoomTitle={activeBreakoutRoomTitle}
         profilingEnabled={profilingState?.enabled ?? false}
@@ -1595,6 +1597,7 @@ export function App(): JSX.Element {
               onSaveWorkspaceConfiguration={saveWorkspaceConfiguration}
               onChangeWorkspaceDirectories={changeWorkspaceDirectories}
               onOpenSession={openWorkspaceDashboardSession}
+              onWorkspaceViewChange={setWorkspaceDashboardViewName}
               onResearchDetailsOpenChange={(expanded) => setRightSidenavExpanded(researchDetailsAvailable && expanded)}
               onOpenHoneycrispRunbook={openHoneycrispRunbook}
               onBackToRunbooks={backToRunbooks}

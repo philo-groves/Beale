@@ -15,10 +15,13 @@ describe('renderer app shell view model', () => {
   it('matches header icons to workspace and sidenav destinations', () => {
     const workspaceHeader = renderToStaticMarkup(createElement(AppHeaderTitle, {
       workspaceName: 'Parser',
+      workspaceViewTitle: 'Memory',
       detail: null,
       breakoutRoomTitle: null
     }));
     expect(workspaceHeader).toContain('lucide-folder');
+    expect(workspaceHeader).toContain('aria-label="Parser, Memory"');
+    expect(workspaceHeader).toContain('title="Memory"><span>Memory</span>');
 
     const viewIcons: Array<[AppHeaderViewIcon, string]> = [
       ['settings', 'lucide-settings'],

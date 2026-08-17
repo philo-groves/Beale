@@ -17,6 +17,7 @@ export const TopBar = memo(function TopBar({
   staticContextTitle,
   platform,
   workspaceName,
+  workspaceViewTitle,
   activeRunDetail,
   activeBreakoutRoomTitle,
   profilingEnabled,
@@ -32,6 +33,7 @@ export const TopBar = memo(function TopBar({
   staticContextTitle: { primary: string; secondary: string; icon: AppHeaderViewIcon } | null;
   platform: HostEnvironment['platform'];
   workspaceName: string;
+  workspaceViewTitle?: string | null;
   activeRunDetail: RunDetail | null;
   activeBreakoutRoomTitle: string | null;
   profilingEnabled: boolean;
@@ -212,6 +214,7 @@ export const TopBar = memo(function TopBar({
       {contextualTitleVisible ? (
         <AppHeaderTitle
           workspaceName={workspaceName}
+          workspaceViewTitle={workspaceViewTitle}
           detail={activeRunDetail}
           breakoutRoomTitle={activeBreakoutRoomTitle}
         />

@@ -10,18 +10,22 @@ export type AppHeaderViewIcon = 'automations' | 'plugins' | 'reporting' | 'setti
 
 export const AppHeaderTitle = memo(function AppHeaderTitle({
   workspaceName,
+  workspaceViewTitle,
   detail,
   breakoutRoomTitle
 }: {
   workspaceName: string;
+  workspaceViewTitle?: string | null;
   detail: RunDetail | null;
   breakoutRoomTitle?: string | null;
 }): JSX.Element {
   const workspaceLabel = displayWorkspaceHeaderName(workspaceName);
   const sessionTitle = detail ? displaySessionTitle(detail.run.title, detail.run.promptMarkdown) : null;
+  const workspaceViewLabel = !detail && workspaceViewTitle?.trim() ? workspaceViewTitle.trim() : null;
   const breakoutRoomLabel = breakoutRoomTitle ? displayBreakoutRoomTitle(breakoutRoomTitle) : null;
   const headerSegments = [
     workspaceLabel,
+    ...(workspaceViewLabel ? [workspaceViewLabel] : []),
     ...(sessionTitle ? [sessionTitle] : []),
     ...(breakoutRoomLabel ? [breakoutRoomLabel] : [])
   ];
@@ -38,6 +42,14 @@ export const AppHeaderTitle = memo(function AppHeaderTitle({
           <Folder className="app-header-view-icon" size={15} aria-hidden="true" />
           <span>{workspaceLabel}</span>
         </span>
+        {workspaceViewLabel ? (
+          <>
+            <span className="app-header-divider" aria-hidden="true" />
+            <span className="app-header-session-title app-header-static-title" title={workspaceViewLabel}>
+              <span>{workspaceViewLabel}</span>
+            </span>
+          </>
+        ) : null}
         {detail && sessionTitle ? (
           <>
             <span className="app-header-divider" aria-hidden="true" />

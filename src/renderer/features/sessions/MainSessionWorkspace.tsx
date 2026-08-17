@@ -17,6 +17,8 @@ import {
   useResizableResearchSidePanel
 } from '../../hooks/useResizableResearchSidePanel';
 
+const WORKSPACE_DETAIL_TRANSITION_MS = 220;
+
 export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
   events,
@@ -66,6 +68,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSaveWorkspaceConfiguration = async () => undefined,
   onChangeWorkspaceDirectories = async () => undefined,
   onOpenSession = () => undefined,
+  onWorkspaceViewChange,
   onResearchDetailsOpenChange,
   onOpenHoneycrispRunbook,
   onBackToRunbooks,
@@ -129,6 +132,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSaveWorkspaceConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onChangeWorkspaceDirectories?: (directories: string[]) => Promise<void>;
   onOpenSession?: (runId: string) => void;
+  onWorkspaceViewChange?: (viewName: string) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
   onBackToRunbooks: () => void;
@@ -145,7 +149,13 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
   const [selectedWorkspaceMemoryId, setSelectedWorkspaceMemoryId] = useState<string | null>(null);
-  const showResearchSidePanel = selectedRunId !== null || researchDetailsOpen;
+  const workspaceView = selectedRunId === null;
+  const [workspaceSidePanelMounted, setWorkspaceSidePanelMounted] = useState(workspaceView && researchDetailsOpen);
+  const [workspaceSidePanelVisible, setWorkspaceSidePanelVisible] = useState(workspaceView && researchDetailsOpen);
+  const showResearchSidePanel = selectedRunId !== null || workspaceSidePanelMounted;
+  const visibleResearchDetails = selectedRunId !== null ? researchDetailsOpen : workspaceSidePanelVisible;
+  const expandedResearchSidePanel = selectedRunId !== null ? researchDetailsOpen : workspaceSidePanelMounted;
+  const researchSideResizeEnabled = selectedRunId !== null && !visibleResearchDetails;
   const {
     containerRef,
     panelWidth,
@@ -164,6 +174,29 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   useEffect(() => {
     setSelectedWorkspaceMemoryId(null);
   }, [honeycrispMemory?.contextWorkspaceId, selectedRunId]);
+  useEffect(() => {
+    if (!workspaceView) {
+      setWorkspaceSidePanelMounted(false);
+      setWorkspaceSidePanelVisible(false);
+      return;
+    }
+    let animationFrame: number | null = null;
+    let closeTimer: number | null = null;
+    if (researchDetailsOpen) {
+      setWorkspaceSidePanelMounted(true);
+      animationFrame = window.requestAnimationFrame(() => setWorkspaceSidePanelVisible(true));
+    } else {
+      setWorkspaceSidePanelVisible(false);
+      closeTimer = window.setTimeout(() => {
+        setWorkspaceSidePanelMounted(false);
+        setSelectedWorkspaceMemoryId(null);
+      }, WORKSPACE_DETAIL_TRANSITION_MS);
+    }
+    return () => {
+      if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
+      if (closeTimer !== null) window.clearTimeout(closeTimer);
+    };
+  }, [researchDetailsOpen, workspaceView]);
 
   const openWorkspaceMemory = (nodeId: string): void => {
     onBackToRunbooks();
@@ -176,7 +209,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     onResearchDetailsOpenChange(true);
   };
   const closeWorkspaceMemory = (): void => {
-    setSelectedWorkspaceMemoryId(null);
     onResearchDetailsOpenChange(false);
   };
   const closeWorkspaceRunbook = (): void => {
@@ -184,7 +216,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     onResearchDetailsOpenChange(false);
   };
   const changeResearchDetailsOpen = (expanded: boolean): void => {
-    if (!expanded && !selectedRunId) setSelectedWorkspaceMemoryId(null);
     onResearchDetailsOpenChange(expanded);
   };
 
@@ -202,7 +233,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   return (
     <div
       ref={containerRef}
-      className={`main-session-grid${researchDetailsOpen ? ' research-details-open' : ''}${showResearchSidePanel ? '' : ' workspace-main-only'}`}
+      className={`main-session-grid${workspaceView ? ' workspace-context' : ''}${visibleResearchDetails ? ' research-details-open' : ''}${workspaceView && !visibleResearchDetails ? ' workspace-main-only' : ''}`}
       style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
     >
       {!selectedRunId ? (
@@ -228,6 +259,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onSaveConfiguration={onSaveWorkspaceConfiguration}
           onChangeWorkspaceDirectories={onChangeWorkspaceDirectories}
           onOpenSession={onOpenSession}
+          onActiveViewChange={onWorkspaceViewChange}
           onOpenMemory={openWorkspaceMemory}
           onOpenRunbook={openWorkspaceRunbook}
         />
@@ -284,10 +316,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           aria-valuemin={MIN_RESEARCH_SIDE_PANEL_WIDTH}
           aria-valuemax={maximumPanelWidth}
           aria-valuenow={panelWidth}
-          aria-hidden={researchDetailsOpen}
-          tabIndex={researchDetailsOpen ? -1 : 0}
-          onKeyDown={researchDetailsOpen ? undefined : handleResizeKeyDown}
-          onPointerDown={researchDetailsOpen ? undefined : beginResize}
+          aria-hidden={!researchSideResizeEnabled}
+          tabIndex={researchSideResizeEnabled ? 0 : -1}
+          onKeyDown={researchSideResizeEnabled ? handleResizeKeyDown : undefined}
+          onPointerDown={researchSideResizeEnabled ? beginResize : undefined}
         />
       ) : null}
       {showResearchSidePanel ? <div className="research-side-column">
@@ -301,7 +333,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           providerModelCatalog={providerModelCatalog}
           runId={researchSidePanelKey}
           runStatus={detail?.run.status ?? null}
-          expanded={researchDetailsOpen}
+          expanded={expandedResearchSidePanel}
           selectedRunbook={selectedRunbook}
           selectedRunbookDocument={selectedRunbookDocument}
           selectedRunbookId={selectedRunbookId}
