@@ -569,38 +569,42 @@ export function GeneralSettingsView({
 }): JSX.Element {
   return (
     <div className="settings-page general-settings-page">
-      <fieldset className="provider-card chat-view-settings">
-        <legend>Chat View</legend>
-        <p>Choose how Beale presents agent activity in research sessions.</p>
-        <div className="chat-view-options">
-          <label className={`chat-view-option ${chatView === 'commentary' ? 'selected' : ''}`}>
-            <input
-              type="radio"
-              name="chat-view"
-              value="commentary"
-              checked={chatView === 'commentary'}
-              onChange={() => onChangeChatView('commentary')}
-            />
-            <span>
-              <strong>Commentary</strong>
-              <small>Follow concise research updates and agent responses.</small>
-            </span>
-          </label>
-          <label className={`chat-view-option ${chatView === 'traces' ? 'selected' : ''}`}>
-            <input
-              type="radio"
-              name="chat-view"
-              value="traces"
-              checked={chatView === 'traces'}
-              onChange={() => onChangeChatView('traces')}
-            />
-            <span>
-              <strong>Traces</strong>
-              <small>Inspect the detailed agent event timeline and tool activity.</small>
-            </span>
-          </label>
-        </div>
-      </fieldset>
+      <section className="settings-form chat-view-form">
+        <header className="settings-form-heading">
+          <h2 id="chat-view-settings-heading">Chat View</h2>
+          <p>Choose how Beale presents agent activity in research sessions.</p>
+        </header>
+        <fieldset className="settings-form-squircle chat-view-settings" aria-labelledby="chat-view-settings-heading">
+          <div className="settings-form-radio-list chat-view-options">
+            <label className={`chat-view-option ${chatView === 'commentary' ? 'selected' : ''}`}>
+              <span className="settings-form-radio-copy">
+                <strong>Commentary</strong>
+                <small>Follow concise research updates and agent responses.</small>
+              </span>
+              <input
+                type="radio"
+                name="chat-view"
+                value="commentary"
+                checked={chatView === 'commentary'}
+                onChange={() => onChangeChatView('commentary')}
+              />
+            </label>
+            <label className={`chat-view-option ${chatView === 'traces' ? 'selected' : ''}`}>
+              <span className="settings-form-radio-copy">
+                <strong>Traces</strong>
+                <small>Inspect the detailed agent event timeline and tool activity.</small>
+              </span>
+              <input
+                type="radio"
+                name="chat-view"
+                value="traces"
+                checked={chatView === 'traces'}
+                onChange={() => onChangeChatView('traces')}
+              />
+            </label>
+          </div>
+        </fieldset>
+      </section>
     </div>
   );
 }
