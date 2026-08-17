@@ -206,11 +206,13 @@ describe('Honeycrisp session persistence boundary', () => {
     try {
       expect(inspection.prepare('SELECT COUNT(*) AS count FROM honeycrisp_sessions').get()).toMatchObject({ count: 1 });
       expect(inspection.prepare('SELECT COUNT(*) AS count FROM runs').get()).toMatchObject({ count: 0 });
-      const row = inspection.prepare('SELECT document_json FROM honeycrisp_sessions WHERE id = ?').get(context.run.id) as {
-        document_json: string;
-      };
-      const stored = JSON.parse(row.document_json) as { events: Array<{ kind: string; payload?: { records?: unknown[] } }> };
-      const traceBatches = stored.events.filter((event) => event.kind === 'beale.trace_batch');
+      const storedEvents = inspection.prepare(`
+        SELECT event_json FROM honeycrisp_session_events
+        WHERE session_id = ? ORDER BY event_offset ASC
+      `).all(context.run.id) as Array<{ event_json: string }>;
+      const traceBatches = storedEvents
+        .map(({ event_json }) => JSON.parse(event_json) as { kind: string; payload?: { records?: unknown[] } })
+        .filter((event) => event.kind === 'beale.trace_batch');
       expect(traceBatches).toHaveLength(1);
       expect(traceBatches[0]?.payload?.records).toHaveLength(3);
     } finally {
@@ -465,13 +467,15 @@ describe('Honeycrisp session persistence boundary', () => {
 
       const inspection = new DatabaseSync(databasePath, { readOnly: true });
       try {
-        const row = inspection.prepare('SELECT document_json FROM honeycrisp_sessions WHERE id = ?').get(context.run.id) as {
-          document_json: string;
-        };
-        const stored = JSON.parse(row.document_json) as {
-          events: Array<{ id: string; kind: string; payload?: { record?: { id?: string } } }>;
-        };
-        const revisions = stored.events.filter((event) =>
+        const storedEvents = inspection.prepare(`
+          SELECT event_json FROM honeycrisp_session_events
+          WHERE session_id = ? ORDER BY event_offset ASC
+        `).all(context.run.id) as Array<{ event_json: string }>;
+        const revisions = storedEvents.map(({ event_json }) => JSON.parse(event_json) as {
+          id: string;
+          kind: string;
+          payload?: { record?: { id?: string } };
+        }).filter((event) =>
           event.kind === 'beale.approval' && event.payload?.record?.id === revised.id
         );
         expect(revisions).toHaveLength(2);
