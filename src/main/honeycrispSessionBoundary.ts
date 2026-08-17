@@ -22,7 +22,6 @@ import type {
 } from '@shared/types';
 import { createId, type CreatedRunContext, type WorkspaceDatabase } from './database';
 import {
-  appendHoneycrispSessionEvent,
   appendHoneycrispSessionEventAsync,
   beginHoneycrispSessionAttempt,
   createHoneycrispSession,
@@ -44,33 +43,54 @@ const BOUNDARY_CONTEXTS = new WeakMap<WorkspaceDatabase, {
   database: WorkspaceDatabase;
   ownedRunIds: ReadonlySet<string>;
   storage: HoneycrispSessionStorage;
-  traceWrites: HoneycrispTraceWriteQueue;
+  sessionWrites: HoneycrispSessionWriteQueue;
 }>();
 
-const TRACE_WRITE_BATCH_DELAY_MS = 40;
-const TRACE_WRITE_BATCH_SIZE = 256;
-const TRACE_WRITE_MAX_PENDING = 4_096;
-const TRACE_WRITE_RETRY_MAX_MS = 2_000;
+const SESSION_WRITE_BATCH_DELAY_MS = 40;
+const SESSION_TRACE_BATCH_SIZE = 256;
+const SESSION_TRACE_MAX_PENDING = 4_096;
+const SESSION_WRITE_RETRY_MAX_MS = 2_000;
 
-class HoneycrispTraceWriteQueue {
-  private readonly pending = new Map<string, TraceEventRecord[]>();
+type QueuedHoneycrispSessionWrite =
+  | { type: 'trace'; record: TraceEventRecord }
+  | { type: 'event'; event: HoneycrispSessionEvent };
+
+interface InFlightHoneycrispSessionWrite {
+  writes: QueuedHoneycrispSessionWrite[];
+  promise: Promise<void>;
+}
+
+class HoneycrispSessionWriteQueue {
+  private readonly pending = new Map<string, QueuedHoneycrispSessionWrite[]>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly inFlight = new Map<string, Promise<void>>();
+  private readonly inFlight = new Map<string, InFlightHoneycrispSessionWrite>();
   private readonly retryDelay = new Map<string, number>();
 
   public constructor(private readonly storage: HoneycrispSessionStorage) {}
 
-  public enqueue(runId: string, record: TraceEventRecord): void {
+  public enqueueTrace(runId: string, record: TraceEventRecord): void {
+    this.enqueue(runId, { type: 'trace', record });
+  }
+
+  public enqueueEvent(runId: string, event: HoneycrispSessionEvent): void {
+    this.enqueue(runId, { type: 'event', event });
+  }
+
+  public overlayEvents(runId: string): HoneycrispSessionEvent[] {
+    const inFlight = this.inFlight.get(runId)?.writes ?? [];
+    const pending = this.pending.get(runId) ?? [];
+    return [...inFlight, ...pending].flatMap((write) => write.type === 'event' ? [write.event] : []);
+  }
+
+  private enqueue(runId: string, write: QueuedHoneycrispSessionWrite): void {
     const queued = this.pending.get(runId) ?? [];
-    queued.push(record);
-    if (queued.length > TRACE_WRITE_MAX_PENDING) {
-      queued.splice(0, queued.length - TRACE_WRITE_MAX_PENDING);
-    }
+    queued.push(write);
+    trimQueuedTraces(queued);
     this.pending.set(runId, queued);
-    if (queued.length >= TRACE_WRITE_BATCH_SIZE) {
+    if (queued.length >= SESSION_TRACE_BATCH_SIZE) {
       this.schedule(runId, 0);
     } else if (!this.timers.has(runId) && !this.inFlight.has(runId)) {
-      this.schedule(runId, TRACE_WRITE_BATCH_DELAY_MS);
+      this.schedule(runId, SESSION_WRITE_BATCH_DELAY_MS);
     }
   }
 
@@ -82,7 +102,7 @@ class HoneycrispTraceWriteQueue {
       this.clearTimer(candidate);
       this.start(candidate);
       while (this.inFlight.has(candidate)) {
-        await this.inFlight.get(candidate);
+        await this.inFlight.get(candidate)?.promise;
         this.clearTimer(candidate);
         this.start(candidate);
       }
@@ -103,30 +123,33 @@ class HoneycrispTraceWriteQueue {
     if (this.inFlight.has(runId)) return;
     const queued = this.pending.get(runId);
     if (!queued?.length) return;
-    const records = queued.splice(0, TRACE_WRITE_BATCH_SIZE);
+    const writes = queued[0]?.type === 'event'
+      ? queued.splice(0, 1)
+      : queued.splice(0, consecutiveTraceWriteCount(queued));
     if (queued.length === 0) this.pending.delete(runId);
-    const eventId = createId('trace_batch');
-    const write = appendHoneycrispSessionEventAsync(runId, {
-      id: eventId,
-      kind: 'beale.trace_batch',
-      timestamp: records[0]?.createdAt ?? new Date().toISOString(),
-      summary: `Beale persisted ${records.length} trace event${records.length === 1 ? '' : 's'}.`,
-      payload: { records }
-    }, this.storage).then(() => {
+    const event = queuedHoneycrispEvent(writes);
+    let operation!: InFlightHoneycrispSessionWrite;
+    const promise = appendHoneycrispSessionEventAsync(runId, event, this.storage).then(() => {
       this.retryDelay.delete(runId);
     }).catch(() => {
       const current = this.pending.get(runId) ?? [];
-      this.pending.set(runId, [...records, ...current].slice(-TRACE_WRITE_MAX_PENDING));
-      const delay = Math.min((this.retryDelay.get(runId) ?? TRACE_WRITE_BATCH_DELAY_MS) * 2, TRACE_WRITE_RETRY_MAX_MS);
+      const retried = [...writes, ...current];
+      trimQueuedTraces(retried);
+      this.pending.set(runId, retried);
+      const delay = Math.min(
+        (this.retryDelay.get(runId) ?? SESSION_WRITE_BATCH_DELAY_MS) * 2,
+        SESSION_WRITE_RETRY_MAX_MS
+      );
       this.retryDelay.set(runId, delay);
       this.schedule(runId, delay);
     }).finally(() => {
-      this.inFlight.delete(runId);
+      if (this.inFlight.get(runId) === operation) this.inFlight.delete(runId);
       if ((this.pending.get(runId)?.length ?? 0) > 0 && !this.timers.has(runId)) {
         this.schedule(runId, this.retryDelay.get(runId) ?? 0);
       }
     });
-    this.inFlight.set(runId, write);
+    operation = { writes, promise };
+    this.inFlight.set(runId, operation);
   }
 
   private clearTimer(runId: string): void {
@@ -135,6 +158,46 @@ class HoneycrispTraceWriteQueue {
     clearTimeout(timer);
     this.timers.delete(runId);
   }
+}
+
+function consecutiveTraceWriteCount(writes: readonly QueuedHoneycrispSessionWrite[]): number {
+  let count = 0;
+  while (count < Math.min(writes.length, SESSION_TRACE_BATCH_SIZE) && writes[count]?.type === 'trace') count += 1;
+  return Math.max(1, count);
+}
+
+function queuedHoneycrispEvent(writes: readonly QueuedHoneycrispSessionWrite[]): HoneycrispSessionEvent {
+  const direct = writes[0];
+  if (writes.length === 1 && direct?.type === 'event') return direct.event;
+  const records = writes.flatMap((write) => write.type === 'trace' ? [write.record] : []);
+  return {
+    id: createId('trace_batch'),
+    kind: 'beale.trace_batch',
+    timestamp: records[0]?.createdAt ?? new Date().toISOString(),
+    summary: `Beale persisted ${records.length} trace event${records.length === 1 ? '' : 's'}.`,
+    payload: { records }
+  };
+}
+
+function trimQueuedTraces(writes: QueuedHoneycrispSessionWrite[]): void {
+  let traceCount = writes.reduce((count, write) => count + (write.type === 'trace' ? 1 : 0), 0);
+  while (traceCount > SESSION_TRACE_MAX_PENDING) {
+    const index = writes.findIndex((write) => write.type === 'trace');
+    if (index < 0) return;
+    writes.splice(index, 1);
+    traceCount -= 1;
+  }
+}
+
+function sessionWithQueuedEvents(
+  session: HoneycrispSessionRecord,
+  writes: HoneycrispSessionWriteQueue
+): HoneycrispSessionRecord {
+  const queued = writes.overlayEvents(session.id);
+  if (queued.length === 0) return session;
+  const eventIds = new Set(session.events.map((event) => event.id));
+  const overlay = queued.filter((event) => !eventIds.has(event.id));
+  return overlay.length > 0 ? { ...session, events: [...session.events, ...overlay] } : session;
 }
 
 export function createHoneycrispSessionBoundary(
@@ -151,15 +214,15 @@ export function createHoneycrispSessionBoundary(
   let prefetchedSessionSummaries: HoneycrispSessionSummary[] | null = sessionSummaries;
   const ownedRunIds = new Set(sessionSummaries.map((session) => session.id));
   const nextTraceSequence = new Map(sessionSummaries.map((session) => [session.id, session.revision]));
-  const traceWrites = new HoneycrispTraceWriteQueue(storage);
+  const sessionWrites = new HoneycrispSessionWriteQueue(storage);
   let boundary!: WorkspaceDatabase;
 
   const getSession = (runId: string): HoneycrispSessionRecord | null => {
     if (!ownedRunIds.has(runId)) return null;
-    return getHoneycrispSession(runId, storage);
+    return sessionWithQueuedEvents(getHoneycrispSession(runId, storage), sessionWrites);
   };
   const appendRecordEvent = (runId: string, kind: string, record: Record<string, unknown>): void => {
-    appendHoneycrispSessionEvent(runId, {
+    sessionWrites.enqueueEvent(runId, {
       // The session log is append-only and deduplicates by event ID. Record IDs
       // identify the entity being revised, so reusing them here would discard
       // every update after the entity's creation.
@@ -168,7 +231,7 @@ export function createHoneycrispSessionBoundary(
       timestamp: typeof record.createdAt === 'string' ? record.createdAt : new Date().toISOString(),
       summary: typeof record.summary === 'string' ? record.summary : kind,
       payload: { record }
-    }, storage);
+    });
   };
 
   const overrides: Partial<Record<keyof WorkspaceDatabase, unknown>> = {
@@ -337,7 +400,7 @@ export function createHoneycrispSessionBoundary(
         approvalId: input.approvalId ?? null
       };
       nextTraceSequence.set(input.runId, record.sequence);
-      traceWrites.enqueue(input.runId, record);
+      sessionWrites.enqueueTrace(input.runId, record);
       return record;
     }) as WorkspaceDatabase['appendTraceEvent'],
 
@@ -381,14 +444,16 @@ export function createHoneycrispSessionBoundary(
 
     updateRunTitle: ((runId: string, title: string): RunRecord => {
       if (!ownedRunIds.has(runId)) return database.updateRunTitle(runId, title);
-      appendHoneycrispSessionEvent(runId, {
+      sessionWrites.enqueueEvent(runId, {
         id: createId('title'),
         kind: 'session.title',
         timestamp: new Date().toISOString(),
         summary: 'Session title updated.',
         payload: { status: 'generated', title }
-      }, storage);
-      return sessionRun(getHoneycrispSession(runId, storage));
+      });
+      const current = getSession(runId);
+      if (!current) throw new Error(`Session not found after title update: ${runId}`);
+      return { ...sessionRun(current), title };
     }) as WorkspaceDatabase['updateRunTitle'],
 
     updateRunShellSafetyMode: ((runId: string, shellSafetyMode: Parameters<WorkspaceDatabase['updateRunShellSafetyMode']>[1]): RunRecord => {
@@ -525,14 +590,16 @@ export function createHoneycrispSessionBoundary(
 
     findBreakoutRoomMember: ((runId: string, attemptId: string | null, agentPath: string): BreakoutRoomMemberRecord | null => {
       if (!ownedRunIds.has(runId)) return database.findBreakoutRoomMember(runId, attemptId, agentPath);
-      return sessionDetail(getHoneycrispSession(runId, storage), database).breakoutRoomMembers
+      const session = getSession(runId);
+      return (session ? sessionDetail(session, database).breakoutRoomMembers : [])
         ?.filter((member) => member.attemptId === attemptId && member.agentPath === agentPath)
         .at(-1) ?? null;
     }) as WorkspaceDatabase['findBreakoutRoomMember'],
 
     refreshBreakoutRoomStatus: ((roomId: string): BreakoutRoomRecord | null => {
       for (const runId of ownedRunIds) {
-        const room = sessionDetail(getHoneycrispSession(runId, storage), database).breakoutRooms?.find((candidate) => candidate.id === roomId);
+        const session = getSession(runId);
+        const room = session ? sessionDetail(session, database).breakoutRooms?.find((candidate) => candidate.id === roomId) : null;
         if (room) return room;
       }
       return database.refreshBreakoutRoomStatus(roomId);
@@ -577,7 +644,8 @@ export function createHoneycrispSessionBoundary(
 
     updateApprovalDecision: ((approvalId: string, runId: string, decision: string, reason: string): ApprovalRecord => {
       if (!ownedRunIds.has(runId)) return database.updateApprovalDecision(approvalId, runId, decision, reason);
-      const existing = sessionDetail(getHoneycrispSession(runId, storage), database).policyEvents.find((approval) => approval.id === approvalId);
+      const current = getSession(runId);
+      const existing = current ? sessionDetail(current, database).policyEvents.find((approval) => approval.id === approvalId) : null;
       if (!existing) throw new Error(`Approval not found for run ${runId}: ${approvalId}`);
       const record = { ...existing, decision, reason, decidedAt: new Date().toISOString() };
       appendRecordEvent(runId, 'beale.approval', record as unknown as Record<string, unknown>);
@@ -610,22 +678,30 @@ export function createHoneycrispSessionBoundary(
 
     getFirstAttempt: ((runId: string): AttemptRecord | null => {
       if (!ownedRunIds.has(runId)) return database.getFirstAttempt(runId);
-      return sessionDetail(getHoneycrispSession(runId, storage), database).attempts[0] ?? null;
+      const session = getSession(runId);
+      return session ? sessionDetail(session, database).attempts[0] ?? null : null;
     }) as WorkspaceDatabase['getFirstAttempt'],
 
     getFirstArtifact: ((runId: string): ArtifactRecord | null => {
       if (!ownedRunIds.has(runId)) return database.getFirstArtifact(runId);
-      return sessionDetail(getHoneycrispSession(runId, storage), database).artifacts[0] ?? null;
+      const session = getSession(runId);
+      return session ? sessionDetail(session, database).artifacts[0] ?? null : null;
     }) as WorkspaceDatabase['getFirstArtifact'],
 
     listPendingShellApprovals: (() => {
-      const canonical = [...ownedRunIds].flatMap((runId) => sessionDetail(getHoneycrispSession(runId, storage), database).policyEvents)
+      const canonical = [...ownedRunIds].flatMap((runId) => {
+        const session = getSession(runId);
+        return session ? sessionDetail(session, database).policyEvents : [];
+      })
         .filter((approval) => approval.requestKind === 'shell_command' && approval.decision === 'pending');
       return [...canonical, ...database.listPendingShellApprovals()];
     }) as WorkspaceDatabase['listPendingShellApprovals'],
 
     listNotifications: ((status: Parameters<WorkspaceDatabase['listNotifications']>[0] = 'unread') => {
-      const canonical = [...ownedRunIds].flatMap((runId) => sessionNotifications(getHoneycrispSession(runId, storage)))
+      const canonical = [...ownedRunIds].flatMap((runId) => {
+        const session = getSession(runId);
+        return session ? sessionNotifications(session) : [];
+      })
         .filter((notification) => notification.status === status);
       return [...canonical, ...database.listNotifications(status)];
     }) as WorkspaceDatabase['listNotifications'],
@@ -665,7 +741,7 @@ export function createHoneycrispSessionBoundary(
     }
   });
   BOUNDARIES.add(boundary);
-  BOUNDARY_CONTEXTS.set(boundary, { database, ownedRunIds, storage, traceWrites });
+  BOUNDARY_CONTEXTS.set(boundary, { database, ownedRunIds, storage, sessionWrites });
   return boundary;
 }
 
@@ -681,7 +757,10 @@ export function listHoneycrispPendingApprovalsForRuns(
   if (!context) return database.listPendingShellApprovals();
   const canonical = runIds
     .filter((runId) => context.ownedRunIds.has(runId))
-    .flatMap((runId) => sessionDetail(getHoneycrispSession(runId, context.storage), context.database).policyEvents)
+    .flatMap((runId) => sessionDetail(
+      sessionWithQueuedEvents(getHoneycrispSession(runId, context.storage), context.sessionWrites),
+      context.database
+    ).policyEvents)
     .filter((approval) => approval.requestKind === 'shell_command' && approval.decision === 'pending');
   return [...canonical, ...context.database.listPendingShellApprovals()];
 }
@@ -695,7 +774,9 @@ export function listHoneycrispNotificationsForRuns(
   if (!context) return database.listNotifications(status);
   const canonical = runIds
     .filter((runId) => context.ownedRunIds.has(runId))
-    .flatMap((runId) => sessionNotifications(getHoneycrispSession(runId, context.storage)))
+    .flatMap((runId) => sessionNotifications(
+      sessionWithQueuedEvents(getHoneycrispSession(runId, context.storage), context.sessionWrites)
+    ))
     .filter((notification) => notification.status === status);
   return [...canonical, ...context.database.listNotifications(status)];
 }
@@ -726,7 +807,7 @@ export function markHoneycrispSessionInterrupted(
 }
 
 export async function flushHoneycrispSessionWrites(database: WorkspaceDatabase, runId?: string): Promise<void> {
-  await BOUNDARY_CONTEXTS.get(database)?.traceWrites.flush(runId);
+  await BOUNDARY_CONTEXTS.get(database)?.sessionWrites.flush(runId);
 }
 
 export async function getHoneycrispRunDetailForClient(
@@ -737,7 +818,7 @@ export async function getHoneycrispRunDetailForClient(
   const context = BOUNDARY_CONTEXTS.get(database);
   if (!context?.ownedRunIds.has(runId)) return null;
   const session = await getHoneycrispSessionAsync(runId, context.storage, signal);
-  return sessionDetail(session, context.database);
+  return sessionDetail(sessionWithQueuedEvents(session, context.sessionWrites), context.database);
 }
 
 export async function getHoneycrispRunDetailVersionForClient(
@@ -772,7 +853,11 @@ export async function getHoneycrispRunDetailUpdateForClient(
   );
   if (update.session.status !== 'active') {
     const session = await getHoneycrispSessionAsync(runId, context.storage, signal);
-    return runDetailUpdateFromSession(session, context.database, _cursor);
+    return runDetailUpdateFromSession(
+      sessionWithQueuedEvents(session, context.sessionWrites),
+      context.database,
+      _cursor
+    );
   }
   const session: HoneycrispSessionRecord = {
     ...update.session,
