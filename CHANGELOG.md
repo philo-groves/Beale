@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Live Honeycrisp approvals, transcripts, model metadata, collaboration records, notifications, and traces now share one ordered asynchronous session-write queue; SQLite lock contention is retried without escaping a WebSocket callback as an uncaught exception, while queued records remain immediately visible to Beale UI reads.
 - Session summary sidenavs once again show Honeycrisp token totals, prompt-cache hit rate, and current context usage in Commentary mode; the compact renderer projection now preserves bounded usage telemetry and Honeycrisp model-session metadata updates are rehydrated from canonical protocol events.
 - New Research goal suggestions now regenerate after any selection that leaves a workflow below its configured count, retaining unused choices and buffering fresh replacements so the list returns to four without repeating consumed suggestions.
 - Workspace dashboards no longer expand inactive Honeycrisp session histories to assemble approval and notification UI; session summaries are reused and canonical approval/notification reads are limited to active host processes.

@@ -326,6 +326,16 @@ describe('Honeycrisp session persistence boundary', () => {
     });
 
     try {
+      const lock = new DatabaseSync(databasePath);
+      lock.exec('BEGIN IMMEDIATE;');
+      const released = new Promise<void>((resolveReleased) => {
+        setTimeout(() => {
+          lock.exec('COMMIT;');
+          lock.close();
+          resolveReleased();
+        }, 100);
+      });
+      const writeStartedAt = performance.now();
       const revised = database.createApproval({
         runId: context.run.id,
         attemptId: context.attempt.id,
@@ -335,7 +345,9 @@ describe('Honeycrisp session persistence boundary', () => {
         reason: 'Waiting for the researcher.',
         pending: true
       });
+      expect(performance.now() - writeStartedAt).toBeLessThan(500);
       database.updateApprovalDecision(revised.id, context.run.id, 'approved', 'Approved once.');
+      await released;
 
       const reconciled = database.createApproval({
         runId: context.run.id,
