@@ -1,9 +1,8 @@
 import type { FormEvent, JSX } from 'react';
 import { FolderPlus, GitBranch, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react';
 import type { AgentPluginRecord, AgentPluginRegistryState } from '@shared/types';
-import { Modal } from '../../app/Modal';
 
-export function PluginManagerModal({
+export function PluginManagerWorkspace({
   state,
   loading,
   busy,
@@ -13,8 +12,7 @@ export function PluginManagerModal({
   onAddFilesystem,
   onAddRepository,
   onSetEnabled,
-  onRemove,
-  onClose
+  onRemove
 }: {
   state: AgentPluginRegistryState | null;
   loading: boolean;
@@ -26,9 +24,9 @@ export function PluginManagerModal({
   onAddRepository: () => void;
   onSetEnabled: (pluginId: string, enabled: boolean) => void;
   onRemove: (pluginId: string) => void;
-  onClose: () => void;
 }): JSX.Element {
   const plugins = state?.plugins ?? [];
+  const pluginCountLabel = `${plugins.length} ${plugins.length === 1 ? 'Plugin' : 'Plugins'}`;
   const submittingDisabled = busy || loading || repositoryUrl.trim().length === 0;
 
   const submitRepository = (event: FormEvent<HTMLFormElement>): void => {
@@ -37,7 +35,7 @@ export function PluginManagerModal({
   };
 
   return (
-    <Modal title="Plugins" className="start-run-dialog plugin-manager-dialog" wide onClose={onClose} closeDisabled={busy}>
+    <section className="plugin-manager-workspace" aria-label="Plugins" aria-busy={loading}>
       <div className="plugin-manager-body">
         <section className="plugin-manager-add">
           <button type="button" className="plugin-manager-file-button" disabled={busy || loading} onClick={onAddFilesystem}>
@@ -61,31 +59,34 @@ export function PluginManagerModal({
 
         {error ? <div className="plugin-manager-error">{error}</div> : null}
 
-        <section className="plugin-manager-list" aria-label="Installed plugins">
-          {loading ? (
-            <div className="plugin-manager-loading">
-              <span className="plugin-manager-spinner" />
-              <span>Loading plugins...</span>
-            </div>
-          ) : plugins.length > 0 ? (
-            plugins.map((plugin) => (
-              <PluginCard
-                key={plugin.id}
-                plugin={plugin}
-                busy={busy}
-                onSetEnabled={onSetEnabled}
-                onRemove={onRemove}
-              />
-            ))
-          ) : (
-            <div className="plugin-manager-empty">
-              <strong>No plugins installed</strong>
-              <span>Add an Agent Plugin directory or repository.</span>
-            </div>
-          )}
+        <section className="plugin-manager-catalog" aria-label="Installed plugins">
+          <h2>{pluginCountLabel}</h2>
+          <div className="plugin-manager-list">
+            {loading ? (
+              <div className="plugin-manager-loading">
+                <span className="plugin-manager-spinner" />
+                <span>Loading plugins...</span>
+              </div>
+            ) : plugins.length > 0 ? (
+              plugins.map((plugin) => (
+                <PluginCard
+                  key={plugin.id}
+                  plugin={plugin}
+                  busy={busy}
+                  onSetEnabled={onSetEnabled}
+                  onRemove={onRemove}
+                />
+              ))
+            ) : (
+              <div className="plugin-manager-empty">
+                <strong>No plugins installed</strong>
+                <span>Add an Agent Plugin directory or repository.</span>
+              </div>
+            )}
+          </div>
         </section>
       </div>
-    </Modal>
+    </section>
   );
 }
 
@@ -100,11 +101,14 @@ function PluginCard({
   onSetEnabled: (pluginId: string, enabled: boolean) => void;
   onRemove: (pluginId: string) => void;
 }): JSX.Element {
-  const sourceLabel = plugin.source.kind === 'repository'
-    ? plugin.source.repositoryUrl ?? plugin.source.path
-    : plugin.source.kind === 'builtin'
-      ? 'Bundled with Beale'
-    : plugin.source.path;
+  const sourceLabel = plugin.source.kind === 'builtin'
+    ? null
+    : plugin.source.kind === 'repository'
+      ? plugin.source.repositoryUrl ?? plugin.source.path
+      : plugin.source.path;
+  const visibleMcpServers = plugin.mcpServers.filter((server) => (
+    plugin.source.kind !== 'builtin' || server.name !== 'beale'
+  ));
   const skillCount = plugin.skills.length;
   const serverCount = plugin.mcpServers.length;
   const invalid = plugin.status === 'invalid';
@@ -145,7 +149,7 @@ function PluginCard({
         <span>{serverCount} MCP {serverCount === 1 ? 'server' : 'servers'}</span>
         <span>{plugin.source.kind}</span>
       </div>
-      <code title={sourceLabel}>{sourceLabel}</code>
+      {sourceLabel ? <code title={sourceLabel}>{sourceLabel}</code> : null}
       {plugin.skills.length > 0 ? (
         <div className="plugin-manager-component-list">
           {plugin.skills.map((skill) => (
@@ -153,9 +157,9 @@ function PluginCard({
           ))}
         </div>
       ) : null}
-      {plugin.mcpServers.length > 0 ? (
+      {visibleMcpServers.length > 0 ? (
         <div className="plugin-manager-component-list">
-          {plugin.mcpServers.map((server) => (
+          {visibleMcpServers.map((server) => (
             <span className={server.valid ? '' : 'invalid'} key={server.name}>{server.name}</span>
           ))}
         </div>

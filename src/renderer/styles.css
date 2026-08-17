@@ -858,6 +858,7 @@ code {
   flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   overflow: hidden;
   border-color: transparent;
   background: transparent;
@@ -868,6 +869,11 @@ code {
   letter-spacing: 0;
   line-height: 1.5;
   -webkit-app-region: no-drag;
+}
+
+.app-header-view-icon {
+  flex: 0 0 auto;
+  color: var(--muted-strong);
 }
 
 .app-header-session-title,
@@ -8733,14 +8739,20 @@ button.session-summary-item:hover:not(:disabled),
   margin: 0;
 }
 
-.modal-panel.plugin-manager-dialog {
-  width: min(980px, calc(100vw - 36px));
+.plugin-manager-workspace {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--panel);
+  padding: 10px;
 }
 
 .plugin-manager-body {
   min-width: 0;
   display: grid;
-  gap: 12px;
+  align-content: start;
+  gap: 18px;
   font-size: var(--steer-control-font-size, 13px);
 }
 
@@ -8812,10 +8824,31 @@ button.session-summary-item:hover:not(:disabled),
   line-height: 1.35;
 }
 
+.plugin-manager-catalog,
 .plugin-manager-list {
   min-width: 0;
   display: grid;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+}
+
+.plugin-manager-catalog {
+  gap: 0;
+}
+
+.plugin-manager-catalog > h2 {
+  margin: 0;
+  border-bottom: 1px solid var(--panel-border);
+  padding: 0 2px 7px;
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+.plugin-manager-list {
+  gap: 0;
+  border-bottom: 1px solid var(--panel-border);
 }
 
 .plugin-manager-loading,
@@ -8824,8 +8857,6 @@ button.session-summary-item:hover:not(:disabled),
   display: grid;
   place-content: center;
   gap: 7px;
-  border-radius: 8px;
-  background: #101010;
   color: var(--muted);
   text-align: center;
 }
@@ -8849,13 +8880,15 @@ button.session-summary-item:hover:not(:disabled),
   min-width: 0;
   display: grid;
   gap: 9px;
-  border-radius: 8px;
-  background: #101010;
-  padding: 12px;
+  padding: 12px 2px;
+}
+
+.plugin-manager-card:not(:last-child) {
+  border-bottom: 1px solid var(--panel-border);
 }
 
 .plugin-manager-card.invalid {
-  background: #120d0d;
+  background: transparent;
 }
 
 .plugin-manager-card-heading {

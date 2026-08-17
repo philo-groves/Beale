@@ -4,6 +4,7 @@ import { Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, 
 import type { HostEnvironment, RunDetail, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { AppHeaderTitle, StaticAppHeaderTitle } from './AppHeaderTitle';
+import type { AppHeaderViewIcon } from './AppHeaderTitle';
 import { viewMenuShortcut, zoomPercentLabel } from './menuActions';
 
 type OpenMenu = 'file' | 'view' | 'window' | null;
@@ -28,7 +29,7 @@ export const TopBar = memo(function TopBar({
   rightSidenavAvailable: boolean;
   rightSidenavExpanded: boolean;
   contextualTitleVisible: boolean;
-  staticContextTitle: { primary: string; secondary: string } | null;
+  staticContextTitle: { primary: string; secondary: string; icon: AppHeaderViewIcon } | null;
   platform: HostEnvironment['platform'];
   workspaceName: string;
   activeRunDetail: RunDetail | null;
@@ -215,7 +216,7 @@ export const TopBar = memo(function TopBar({
           breakoutRoomTitle={activeBreakoutRoomTitle}
         />
       ) : staticContextTitle ? (
-        <StaticAppHeaderTitle primaryTitle={staticContextTitle.primary} secondaryTitle={staticContextTitle.secondary} />
+        <StaticAppHeaderTitle primaryTitle={staticContextTitle.primary} secondaryTitle={staticContextTitle.secondary} icon={staticContextTitle.icon} />
       ) : null}
       {profilingEnabled || rightSidenavAvailable || !isMac ? (
         <div className="window-controls" aria-label="Header controls">

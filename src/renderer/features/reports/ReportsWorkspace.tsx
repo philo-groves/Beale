@@ -44,7 +44,7 @@ export function ReportsIndex({
 }): JSX.Element {
   const groups = useMemo(() => reportCatalogGroups(reports), [reports]);
   const scopeTabs = [
-    { id: null, key: 'all', label: 'All Workspaces' },
+    { id: null, key: 'all', label: 'All Reports' },
     ...workspaces
       .filter((workspace) => workspace.workspaceId.length > 0)
       .map((workspace) => ({ id: workspace.workspaceId, key: workspace.id, label: workspace.workspaceName }))

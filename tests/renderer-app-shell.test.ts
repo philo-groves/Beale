@@ -1,5 +1,8 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HostEnvironment, RunDetail, WorkspaceSnapshot } from '@shared/types';
+import { AppHeaderTitle, StaticAppHeaderTitle, type AppHeaderViewIcon } from '../src/renderer/app/AppHeaderTitle';
 import {
   activeRunDetailForSelection,
   appShellClassName,
@@ -9,6 +12,30 @@ import {
 } from '../src/renderer/view-models/appShell';
 
 describe('renderer app shell view model', () => {
+  it('matches header icons to workspace and sidenav destinations', () => {
+    const workspaceHeader = renderToStaticMarkup(createElement(AppHeaderTitle, {
+      workspaceName: 'Parser',
+      detail: null,
+      breakoutRoomTitle: null
+    }));
+    expect(workspaceHeader).toContain('lucide-folder');
+
+    const viewIcons: Array<[AppHeaderViewIcon, string]> = [
+      ['settings', 'lucide-settings'],
+      ['automations', 'lucide-calendar-clock'],
+      ['reporting', 'lucide-file-text'],
+      ['plugins', 'lucide-plug']
+    ];
+    for (const [icon, iconClass] of viewIcons) {
+      const header = renderToStaticMarkup(createElement(StaticAppHeaderTitle, {
+        primaryTitle: 'View',
+        secondaryTitle: 'Detail',
+        icon
+      }));
+      expect(header).toContain(iconClass);
+    }
+  });
+
   it('selects active run state and detail only when ids match', () => {
     const snapshot = workspaceSnapshot('run_active', 'active');
     const detail = runDetail('run_active');
