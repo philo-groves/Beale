@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase } from '../src/main/database';
+import { resolvedBreakoutRoomStatus } from '../src/main/breakoutRoomStatus';
 
 const directories: string[] = [];
 
@@ -31,6 +32,19 @@ function addRoomMember(
 }
 
 describe('breakout room persistence', () => {
+  it('ends a room when interrupted work is the only remaining non-completed member state', () => {
+    const room = { phase: 'response', status: 'active' } as const;
+
+    expect(resolvedBreakoutRoomStatus(room, [
+      { status: 'completed' },
+      { status: 'interrupted' }
+    ], 'active')).toBe('interrupted');
+    expect(resolvedBreakoutRoomStatus(room, [
+      { status: 'active' },
+      { status: 'completed' }
+    ], 'paused')).toBe('interrupted');
+  });
+
   it('loads room records and summaries newest-first by creation time', () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-breakout-order-'));
     directories.push(directory);

@@ -76,6 +76,10 @@ export class WorkspaceRegistry {
     };
   }
 
+  public markResearchSessionViewed(sessionId: string, viewedAt = nowIso()): void {
+    this.db.prepare('UPDATE research_sessions SET result_viewed_at = ? WHERE id = ?').run(viewedAt, sessionId);
+  }
+
   public getProfilingEnabled(): boolean {
     return this.getMeta('profiling_enabled') === '1';
   }
@@ -334,16 +338,26 @@ export class WorkspaceRegistry {
     workspaceId: string,
     sessions: readonly HoneycrispSessionSummary[]
   ): void {
+    const selectBreakoutRooms = this.db.prepare(`
+      SELECT breakout_rooms_json FROM research_sessions
+      WHERE research_profile_id = ? AND workspace_id = ? AND run_id = ? AND run_engine = 'honeycrisp'
+    `);
     const update = this.db.prepare(`
       UPDATE research_sessions SET
         title = ?,
+        result_viewed_at = CASE
+          WHEN status NOT IN ('blocked', 'completed', 'failed', 'stopped')
+            AND ? IN ('blocked', 'completed', 'failed', 'stopped') THEN NULL
+          ELSE result_viewed_at
+        END,
         status = ?,
         summary = ?,
         model = ?,
         reasoning_effort = ?,
         started_at = ?,
         ended_at = ?,
-        updated_at = ?
+        updated_at = ?,
+        breakout_rooms_json = ?
       WHERE research_profile_id = ?
         AND workspace_id = ?
         AND run_id = ?
@@ -352,8 +366,14 @@ export class WorkspaceRegistry {
     this.db.exec('BEGIN IMMEDIATE;');
     try {
       for (const session of sessions) {
+        const current = rowOrUndefined(selectBreakoutRooms.get(researchProfileId, workspaceId, session.id));
+        const breakoutRooms = breakoutRoomSummariesForRunStatus(
+          current ? parseBreakoutRoomSummaries(current.breakout_rooms_json) : [],
+          session.status
+        );
         update.run(
           session.title,
+          session.status,
           session.status,
           session.summary,
           session.model,
@@ -361,6 +381,7 @@ export class WorkspaceRegistry {
           session.startedAt,
           session.endedAt,
           session.updatedAt,
+          JSON.stringify(breakoutRooms),
           researchProfileId,
           workspaceId,
           session.id
@@ -379,12 +400,17 @@ export class WorkspaceRegistry {
     runIds: readonly string[],
     updatedAt = nowIso()
   ): void {
+    const selectBreakoutRooms = this.db.prepare(`
+      SELECT breakout_rooms_json FROM research_sessions
+      WHERE research_profile_id = ? AND workspace_id = ? AND run_id = ? AND run_engine = 'honeycrisp'
+    `);
     const update = this.db.prepare(`
       UPDATE research_sessions SET
         status = 'paused',
         summary = 'Paused because no active Beale runtime owns this session.',
         ended_at = NULL,
-        updated_at = ?
+        updated_at = ?,
+        breakout_rooms_json = ?
       WHERE research_profile_id = ?
         AND workspace_id = ?
         AND run_id = ?
@@ -393,7 +419,14 @@ export class WorkspaceRegistry {
     `);
     this.db.exec('BEGIN IMMEDIATE;');
     try {
-      for (const runId of runIds) update.run(updatedAt, researchProfileId, workspaceId, runId);
+      for (const runId of runIds) {
+        const current = rowOrUndefined(selectBreakoutRooms.get(researchProfileId, workspaceId, runId));
+        const breakoutRooms = breakoutRoomSummariesForRunStatus(
+          current ? parseBreakoutRoomSummaries(current.breakout_rooms_json) : [],
+          'paused'
+        );
+        update.run(updatedAt, JSON.stringify(breakoutRooms), researchProfileId, workspaceId, runId);
+      }
       this.db.exec('COMMIT;');
     } catch (error) {
       this.db.exec('ROLLBACK;');
@@ -448,6 +481,7 @@ export class WorkspaceRegistry {
         ended_at TEXT,
         updated_at TEXT NOT NULL,
         breakout_rooms_json TEXT NOT NULL DEFAULT '[]',
+        result_viewed_at TEXT,
         UNIQUE(workspace_path, run_id)
       );
 
@@ -517,6 +551,37 @@ export class WorkspaceRegistry {
           );
           DELETE FROM registry_meta WHERE key = 'active_research_profile_id';
         `);
+      }
+    }, {
+      version: 7,
+      name: 'session_result_view_state',
+      up: (database) => {
+        const sessionColumns = database.prepare('PRAGMA table_info(research_sessions)').all() as Array<{ name?: unknown }>;
+        if (!sessionColumns.some((column) => column.name === 'result_viewed_at')) {
+          database.exec('ALTER TABLE research_sessions ADD COLUMN result_viewed_at TEXT;');
+        }
+        database.exec(`
+          UPDATE research_sessions
+          SET result_viewed_at = updated_at
+          WHERE result_viewed_at IS NULL
+            AND status IN ('blocked', 'completed', 'failed', 'stopped');
+        `);
+      }
+    }, {
+      version: 8,
+      name: 'interrupt_terminal_session_breakout_rooms',
+      up: (database) => {
+        const sessions = rows(database.prepare(
+          "SELECT id, status, breakout_rooms_json FROM research_sessions WHERE status <> 'active'"
+        ).all());
+        const update = database.prepare('UPDATE research_sessions SET breakout_rooms_json = ? WHERE id = ?');
+        for (const session of sessions) {
+          const current = parseBreakoutRoomSummaries(session.breakout_rooms_json);
+          const reconciled = breakoutRoomSummariesForRunStatus(current, text(session, 'status') as RunStatus);
+          if (JSON.stringify(current) !== JSON.stringify(reconciled)) {
+            update.run(JSON.stringify(reconciled), text(session, 'id'));
+          }
+        }
       }
     }]);
   }
@@ -639,8 +704,11 @@ export class WorkspaceRegistry {
   ): void {
     const run = row.run;
     const existing = rowOrUndefined(this.db.prepare(
-      'SELECT id FROM research_sessions WHERE research_profile_id = ? AND workspace_path = ? AND run_id = ?'
+      'SELECT id, status, result_viewed_at FROM research_sessions WHERE research_profile_id = ? AND workspace_path = ? AND run_id = ?'
     ).get(researchProfileId, resolve(workspacePath), run.id));
+    const resultViewedAt = existing && !sessionBecameFinal(text(existing, 'status') as RunStatus, run.status)
+      ? nullableText(existing, 'result_viewed_at')
+      : null;
     const values = [
       researchProfileId,
       registryWorkspaceId,
@@ -661,7 +729,8 @@ export class WorkspaceRegistry {
       run.startedAt,
       run.endedAt,
       updatedAt,
-      JSON.stringify(row.breakoutRooms ?? [])
+      JSON.stringify(breakoutRoomSummariesForRunStatus(row.breakoutRooms ?? [], run.status)),
+      resultViewedAt
     ];
 
     if (existing) {
@@ -687,7 +756,8 @@ export class WorkspaceRegistry {
             started_at = ?,
             ended_at = ?,
             updated_at = ?,
-            breakout_rooms_json = ?
+            breakout_rooms_json = ?,
+            result_viewed_at = ?
            WHERE id = ?`
         )
         .run(...values, text(existing, 'id'));
@@ -699,8 +769,8 @@ export class WorkspaceRegistry {
         `INSERT INTO research_sessions (
           id, research_profile_id, registry_workspace_id, workspace_path, workspace_id, run_id, title, status, run_engine,
           mode, prompt_markdown, summary, final_disposition_json, model, reasoning_effort,
-          sandbox_profile, created_at, started_at, ended_at, updated_at, breakout_rooms_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          sandbox_profile, created_at, started_at, ended_at, updated_at, breakout_rooms_json, result_viewed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(`session_${randomUUID()}`, ...values);
   }
@@ -749,9 +819,29 @@ export class WorkspaceRegistry {
       startedAt: nullableText(row, 'started_at'),
       endedAt: nullableText(row, 'ended_at'),
       updatedAt: text(row, 'updated_at'),
-      breakoutRooms: parseBreakoutRoomSummaries(row.breakout_rooms_json)
+      resultViewedAt: nullableText(row, 'result_viewed_at'),
+      breakoutRooms: breakoutRoomSummariesForRunStatus(
+        parseBreakoutRoomSummaries(row.breakout_rooms_json),
+        text(row, 'status') as RunStatus
+      )
     };
   }
+}
+
+function sessionBecameFinal(previous: RunStatus, current: RunStatus): boolean {
+  return !isFinalRunStatus(previous) && isFinalRunStatus(current);
+}
+
+function isFinalRunStatus(status: RunStatus): boolean {
+  return status === 'blocked' || status === 'completed' || status === 'failed' || status === 'stopped';
+}
+
+function breakoutRoomSummariesForRunStatus(
+  rooms: readonly BreakoutRoomSummary[],
+  status: RunStatus
+): BreakoutRoomSummary[] {
+  if (status === 'active' || status === 'queued') return [...rooms];
+  return rooms.map((room) => room.status === 'active' ? { ...room, status: 'interrupted' } : room);
 }
 
 export function isUntrackedResourceSession(row: WorkspaceSnapshot['runs'][number]): boolean {

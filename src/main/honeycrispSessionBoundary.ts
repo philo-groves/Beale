@@ -21,6 +21,7 @@ import type {
   TranscriptMessageRecord
 } from '@shared/types';
 import { createId, type CreatedRunContext, type WorkspaceDatabase } from './database';
+import { resolvedBreakoutRoomStatus } from './breakoutRoomStatus';
 import {
   appendHoneycrispSessionEventAsync,
   beginHoneycrispSessionAttempt,
@@ -39,12 +40,13 @@ import {
 } from './honeycrispCliClient';
 
 const BOUNDARIES = new WeakSet<WorkspaceDatabase>();
-const BOUNDARY_CONTEXTS = new WeakMap<WorkspaceDatabase, {
+interface HoneycrispSessionBoundaryContext {
   database: WorkspaceDatabase;
   ownedRunIds: ReadonlySet<string>;
   storage: HoneycrispSessionStorage;
   sessionWrites: HoneycrispSessionWriteQueue;
-}>();
+}
+const BOUNDARY_CONTEXTS = new WeakMap<WorkspaceDatabase, HoneycrispSessionBoundaryContext>();
 
 const SESSION_WRITE_BATCH_DELAY_MS = 40;
 const SESSION_TRACE_BATCH_SIZE = 256;
@@ -728,7 +730,16 @@ export function createHoneycrispSessionBoundary(
     }) as WorkspaceDatabase['searchTranscriptMessagesAcrossWorkspaces'],
 
     interruptActiveBreakoutRooms: ((runId: string, attemptId?: string | null, endedAt?: string): void => {
-      if (!ownedRunIds.has(runId)) database.interruptActiveBreakoutRooms(runId, attemptId, endedAt);
+      if (!ownedRunIds.has(runId)) {
+        database.interruptActiveBreakoutRooms(runId, attemptId, endedAt);
+        return;
+      }
+      queueInterruptedHoneycrispBreakoutRooms(
+        { database, ownedRunIds, storage, sessionWrites },
+        runId,
+        attemptId,
+        endedAt ?? new Date().toISOString()
+      );
     }) as WorkspaceDatabase['interruptActiveBreakoutRooms']
   };
 
@@ -790,6 +801,7 @@ export function markHoneycrispSessionInterrupted(
   const context = BOUNDARY_CONTEXTS.get(database);
   if (!context?.ownedRunIds.has(runId)) return false;
   const recoveredAt = new Date().toISOString();
+  queueInterruptedHoneycrispBreakoutRooms(context, runId, attemptId, recoveredAt);
   transitionHoneycrispSession(runId, {
     status: 'paused',
     summary: 'Paused after Beale closed the active Honeycrisp process.',
@@ -804,6 +816,51 @@ export function markHoneycrispSessionInterrupted(
     }
   }, context.storage);
   return true;
+}
+
+function queueInterruptedHoneycrispBreakoutRooms(
+  context: HoneycrispSessionBoundaryContext,
+  runId: string,
+  attemptId: string | null | undefined,
+  endedAt: string
+): void {
+  const session = sessionWithQueuedEvents(getHoneycrispSession(runId, context.storage), context.sessionWrites);
+  const detail = sessionDetail(session, context.database);
+  const interruptedMembers = (detail.breakoutRoomMembers ?? []).filter((member) =>
+    (attemptId == null || member.attemptId === attemptId)
+    && (member.status === 'pending' || member.status === 'active')
+  );
+  const roomIds = new Set(interruptedMembers.map((member) => member.roomId));
+  for (const member of interruptedMembers) {
+    enqueueBoundaryRecordEvent(context.sessionWrites, runId, 'beale.breakout_member', {
+      ...member,
+      status: 'interrupted',
+      endedAt: member.endedAt ?? endedAt
+    }, endedAt);
+  }
+  for (const room of (detail.breakoutRooms ?? []).filter((candidate) => roomIds.has(candidate.id))) {
+    enqueueBoundaryRecordEvent(context.sessionWrites, runId, 'beale.breakout_room', {
+      ...room,
+      status: 'interrupted',
+      closedAt: room.closedAt ?? endedAt
+    }, endedAt);
+  }
+}
+
+function enqueueBoundaryRecordEvent(
+  writes: HoneycrispSessionWriteQueue,
+  runId: string,
+  kind: string,
+  record: Record<string, unknown>,
+  timestamp: string
+): void {
+  writes.enqueueEvent(runId, {
+    id: createId('event'),
+    kind,
+    timestamp,
+    summary: kind,
+    payload: { record }
+  });
 }
 
 export async function flushHoneycrispSessionWrites(database: WorkspaceDatabase, runId?: string): Promise<void> {
@@ -1002,6 +1059,30 @@ function sessionDetail(
     ...modelSession,
     status: session.status
   }));
+  const breakoutRoomMembers = latestRecords(events.flatMap((event) => event.kind === 'beale.breakout_member'
+    ? recordArrayValue<BreakoutRoomMemberRecord>(event.payload)
+    : []));
+  const breakoutRooms = latestRecords(events.flatMap((event) => event.kind === 'beale.breakout_room'
+    ? recordArrayValue<BreakoutRoomRecord>(event.payload)
+    : [])).map((room) => {
+      const roomMembers = breakoutRoomMembers.filter((member) => member.roomId === room.id);
+      const status = resolvedBreakoutRoomStatus(
+        room,
+        roomMembers,
+        sessionStatus(session.status)
+      );
+      const latestMemberEndedAt = roomMembers
+        .flatMap((member) => member.endedAt ? [member.endedAt] : [])
+        .sort()
+        .at(-1) ?? null;
+      return {
+        ...room,
+        status,
+        closedAt: status === 'active'
+          ? null
+          : room.closedAt ?? latestMemberEndedAt ?? session.endedAt ?? session.updatedAt
+      };
+    });
   const captureArtifacts: ArtifactRecord[] = session.attempts.flatMap((attempt) => {
     if (!attempt.capture) return [];
     const serialized = JSON.stringify(attempt.capture.raw);
@@ -1045,8 +1126,8 @@ function sessionDetail(
     }),
     traceEvents,
     transcriptMessages: transcripts,
-    breakoutRooms: latestRecords(events.flatMap((event) => event.kind === 'beale.breakout_room' ? recordArrayValue<BreakoutRoomRecord>(event.payload) : [])),
-    breakoutRoomMembers: latestRecords(events.flatMap((event) => event.kind === 'beale.breakout_member' ? recordArrayValue<BreakoutRoomMemberRecord>(event.payload) : [])),
+    breakoutRooms,
+    breakoutRoomMembers,
     breakoutRoomMessages: latestRecords(events.flatMap((event) => event.kind === 'beale.breakout_message' ? recordArrayValue<BreakoutRoomMessageRecord>(event.payload) : [])),
     artifacts: [...captureArtifacts, ...latestRecords(events.flatMap((event) => event.kind === 'beale.artifact' ? recordArrayValue<ArtifactRecord>(event.payload) : []))],
     verifierContracts: [],

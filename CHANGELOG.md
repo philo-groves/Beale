@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Breakout rooms no longer remain active after a subagent interruption or parent-session interruption; room state is reconciled from terminal member and session state across both Honeycrisp-owned and legacy persistence, including existing cached sidebar records.
 - Opening a report now leaves its agent chat idle with a short, immediately visible Tab suggestion until the user sends a chat or inline request. Report views load provider settings and the model catalog before startup, so the idle composer remains enabled and uses the configured default provider's large model and reasoning effort instead of an empty “Off” selection or the first catalog model; its safety-mode selector is also available before the first message and applies the selected mode when creating the report run. Report identity, artifact file, revision, and editing requirements are supplied through model context rather than a synthetic visible prompt. Report refinement sessions split the workspace evenly with a lighter, divider-free report pane, compact content gutters, and a title-first header without redundant back or type labels. Inline editing supports Shift-joined ranges, Ctrl/Command-toggled highlights, and highlighted-only or report-wide edit scope; accepted changes refresh the transcript and launch a continuation unless Honeycrisp completes the requested revision and a following response turn.
 - Live Honeycrisp approvals, transcripts, model metadata, collaboration records, notifications, and traces now share one ordered asynchronous session-write queue; SQLite lock contention is retried without escaping a WebSocket callback as an uncaught exception, while queued records remain immediately visible to Beale UI reads.
 - Session summary sidenavs once again show Honeycrisp token totals, prompt-cache hit rate, and current context usage in Commentary mode; the compact renderer projection now preserves bounded usage telemetry and Honeycrisp model-session metadata updates are rehydrated from canonical protocol events.
@@ -79,6 +80,7 @@
 
 ### Changed
 
+- Left-sidebar session rows now reserve their leading slot for active spinners or durable unviewed-result dots, keep relative time on the right during active work, and show only muted active spinners for breakout rooms instead of status dots.
 - Commentary session loads now transfer only renderable message content and compact event/tool scaffolding; full tool inputs and outputs load on demand when an individual call is expanded, while Trace mode retains complete detail.
 - App startup now leaves every workspace closed and presents the neutral No Workspace Selected view without loading copy; reopening a known workspace requires an explicit user action.
 - Startup now paints a lightweight no-workspace renderer before requesting the full workbench bundle, then loads the workspace registry without blocking the central workspace view; credential, provider, profiling, and icon work is deferred off the first-window path.

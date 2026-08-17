@@ -1493,17 +1493,25 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   white-space: nowrap;
 }
 
-.workspace-session-status {
-  width: 10px;
-  height: 10px;
+.workspace-session-leading-status {
+  width: 14px;
+  height: 14px;
   justify-self: center;
   display: inline-grid;
   place-items: center;
-  color: var(--muted-strong);
+  color: var(--muted);
 }
 
-.workspace-session-status svg {
+.workspace-session-leading-status svg,
+.workspace-breakout-room-leading-status svg {
   animation: beale-spin 900ms linear infinite;
+}
+
+.workspace-session-unviewed-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
 }
 
 .workspace-session-age {
@@ -1849,25 +1857,13 @@ body.is-resizing-research-side .main-session-grid {
   color: var(--breakout-room-title-emphasis-color) !important;
 }
 
-.workspace-breakout-room-status {
-  width: 6px;
-  height: 6px;
+.workspace-breakout-room-leading-status {
+  width: 14px;
+  height: 14px;
   justify-self: center;
-  border-radius: 50%;
-  background: var(--muted);
-}
-
-.workspace-breakout-room-status.status-active {
-  background: var(--green);
-  box-shadow: 0 0 0 2px var(--green-soft);
-}
-
-.workspace-breakout-room-status.status-errored {
-  background: var(--red);
-}
-
-.workspace-breakout-room-status.status-interrupted {
-  background: var(--amber);
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted);
 }
 
 .workspace-dashboard {

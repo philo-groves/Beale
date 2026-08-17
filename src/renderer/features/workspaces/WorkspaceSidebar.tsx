@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { CalendarClock, ChevronDown, ChevronRight, FileText, Folder, FolderPlus, LoaderCircle, MoreVertical, Plug, RefreshCw, Search, SquarePen } from 'lucide-react';
+import { CalendarClock, FileText, Folder, FolderPlus, LoaderCircle, MoreVertical, Plug, RefreshCw, Search, SquarePen } from 'lucide-react';
 import type { BreakoutRoomStatus, BreakoutRoomSummary, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { useDevRenderProbe } from '../../devInstrumentation';
@@ -21,7 +21,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   reportsActive = false,
   selectedBreakoutRoomId = null,
   selectedRunBreakoutRooms,
-  selectedRunBreakoutRoomsLoading = false,
   snapshot,
   onAddWorkspace,
   onOpenWorkspace,
@@ -47,7 +46,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   reportsActive?: boolean;
   selectedBreakoutRoomId?: string | null;
   selectedRunBreakoutRooms?: readonly SidebarBreakoutRoom[];
-  selectedRunBreakoutRoomsLoading?: boolean;
   snapshot: WorkspaceSnapshot | null;
   onAddWorkspace: () => void;
   onOpenWorkspace: (workspace: WorkspaceRegistryEntry) => void;
@@ -151,14 +149,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                       title={promptSessionTitle(session)}
                       onClick={() => onOpenResearchSession(workspace, session)}
                     >
-                      {selectedRunId === session.runId
-                        ? <ChevronDown size={14} aria-hidden="true" />
-                        : <ChevronRight size={14} aria-hidden="true" />}
+                      <SessionLeadingIndicator session={session} />
                       <span className="workspace-session-title">{promptSessionTitle(session)}</span>
-                      {session.status !== 'active'
-                        ? <span className="workspace-session-age">{shortRelativeAge(session.updatedAt)}</span>
-                        : null}
-                      <SessionActiveIndicator status={session.status} />
+                      <span className="workspace-session-age">{shortRelativeAge(session.updatedAt)}</span>
                     </button>
                     {rooms.length > 0 ? (
                       <div
@@ -180,9 +173,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                                 key={room.id}
                               >
                                 <span
-                                  className={`workspace-breakout-room-status ${selectedRunId === session.runId && selectedRunBreakoutRoomsLoading ? 'status-loading' : `status-${room.status}`}`}
-                                  aria-label={selectedRunId === session.runId && selectedRunBreakoutRoomsLoading ? 'Loading room status' : breakoutRoomStatusLabel(room.status)}
-                                />
+                                  className="workspace-breakout-room-leading-status"
+                                  title={room.status === 'active' ? 'Active' : undefined}
+                                  aria-label={room.status === 'active' ? 'Breakout room status: Active' : undefined}
+                                  aria-hidden={room.status === 'active' ? undefined : 'true'}
+                                >
+                                  {room.status === 'active' ? <RefreshCw size={10} aria-hidden="true" /> : null}
+                                </span>
                                 <span className="workspace-breakout-room-title">{roomTitle}</span>
                               </button>
                             );
@@ -276,13 +273,28 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   );
 });
 
-function SessionActiveIndicator({ status }: { status: RunStatus }): JSX.Element | null {
-  if (status !== 'active') return null;
+function SessionLeadingIndicator({ session }: { session: ResearchSessionSummary }): JSX.Element {
+  if (session.status === 'active') {
+    return (
+      <span className="workspace-session-leading-status" title="Active" aria-label="Session status: Active">
+        <RefreshCw size={10} aria-hidden="true" />
+      </span>
+    );
+  }
+  if (isEndedResearchRunStatus(session.status) && session.resultViewedAt === null) {
+    return (
+      <span className="workspace-session-leading-status" title="Unviewed result" aria-label="Session result not viewed">
+        <span className="workspace-session-unviewed-dot" aria-hidden="true" />
+      </span>
+    );
+  }
   return (
-    <span className="workspace-session-status" title={sessionStatusLabel(status)} aria-label={`Session status: ${sessionStatusLabel(status)}`}>
-      <RefreshCw size={10} />
-    </span>
+    <span className="workspace-session-leading-status" aria-hidden="true" />
   );
+}
+
+function isEndedResearchRunStatus(status: RunStatus): boolean {
+  return status === 'blocked' || status === 'completed' || status === 'failed' || status === 'stopped';
 }
 
 function breakoutRoomStatusLabel(status: BreakoutRoomStatus): string {
@@ -290,11 +302,4 @@ function breakoutRoomStatusLabel(status: BreakoutRoomStatus): string {
   if (status === 'completed') return 'Completed';
   if (status === 'interrupted') return 'Interrupted';
   return 'Error';
-}
-
-function sessionStatusLabel(value: string): string {
-  return value
-    .split('_')
-    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
-    .join(' ');
 }

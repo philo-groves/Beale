@@ -211,12 +211,13 @@ describe('renderer workspace display view models', () => {
     expect(html).toContain('class="workspace-breakout-room-item" data-room-status="active"');
     expect(html).toContain('class="workspace-breakout-room-reveal" data-state="open" aria-hidden="false"');
     expect(html).toContain('class="lucide lucide-folder"');
-    expect(html).toContain('class="lucide lucide-chevron-down"');
+    expect(html).not.toContain('lucide-chevron');
     expect(html).not.toContain('class="lucide lucide-messages-square"');
-    const statusIndex = html.indexOf('workspace-breakout-room-status status-active');
+    const statusIndex = html.indexOf('workspace-breakout-room-leading-status');
     const titleIndex = html.indexOf('class="workspace-breakout-room-title">Live Provider Challenge');
     expect(statusIndex).toBeGreaterThanOrEqual(0);
     expect(titleIndex).toBeGreaterThan(statusIndex);
+    expect(html).toContain('class="lucide lucide-refresh-cw"');
     expect(html).not.toMatch(/class="workspace-item-row active\b/u);
     expect(html).toContain('class="workspace-session-item active"');
   });
@@ -316,11 +317,10 @@ describe('renderer workspace display view models', () => {
 
     expect(html).toContain('Previous Provider Challenge');
     expect(html).toContain('class="workspace-breakout-room-reveal" data-state="closed" aria-hidden="true" inert=""');
-    expect(html).toContain('class="lucide lucide-chevron-down"');
-    expect(html).toContain('class="lucide lucide-chevron-right"');
+    expect(html).not.toContain('lucide-chevron');
   });
 
-  it('replaces an active session timestamp with its in-progress indicator', () => {
+  it('moves an active session spinner to the leading slot and keeps its timestamp on the right', () => {
     const profile = testResearchProfile();
     const registeredWorkspace = workspace('workspace_test', '/workspace/test');
     const activeSession = session({ status: 'active', registryWorkspaceId: registeredWorkspace.id });
@@ -352,11 +352,14 @@ describe('renderer workspace display view models', () => {
       onStartNewResearch: () => undefined
     }));
 
-    expect(html).toContain('class="workspace-session-status"');
-    expect(html).not.toContain('class="workspace-session-age"');
+    expect(html).toContain('class="workspace-session-leading-status" title="Active"');
+    expect(html).toContain('class="lucide lucide-refresh-cw"');
+    expect(html).toContain('class="workspace-session-age"');
+    expect(html.indexOf('workspace-session-leading-status')).toBeLessThan(html.indexOf('workspace-session-title'));
+    expect(html.indexOf('workspace-session-age')).toBeGreaterThan(html.indexOf('workspace-session-title'));
   });
 
-  it('renders neutral room status markers while selected-session detail is loading', () => {
+  it('uses only a muted leading spinner for active breakout rooms', () => {
     const profile = testResearchProfile();
     const registeredWorkspace = workspace('workspace_test', '/workspace/test');
     const selectedSession = session({ registryWorkspaceId: registeredWorkspace.id });
@@ -373,7 +376,6 @@ describe('renderer workspace display view models', () => {
       workspaceRegistry: registry,
       selectedRunId: selectedSession.runId,
       selectedBreakoutRoomId: 'room_loading',
-      selectedRunBreakoutRoomsLoading: true,
       snapshot: {
         workspace: { workspacePath: registeredWorkspace.workspacePath },
         researchProfile: { profile },
@@ -394,9 +396,42 @@ describe('renderer workspace display view models', () => {
       onStartNewResearch: () => undefined
     }));
 
-    expect(html).toContain('workspace-breakout-room-status status-loading');
-    expect(html).toContain('aria-label="Loading room status"');
-    expect(html).not.toContain('workspace-breakout-room-status status-active');
+    expect(html).toContain('class="workspace-breakout-room-leading-status" title="Active" aria-label="Breakout room status: Active"');
+    expect(html).toContain('class="lucide lucide-refresh-cw"');
+    expect(html).not.toContain('workspace-breakout-room-status');
+  });
+
+  it('uses the leading slot for an unviewed result dot and leaves viewed results blank', () => {
+    const registeredWorkspace = workspace('workspace_test', '/workspace/test');
+    const registry: WorkspaceRegistryState = {
+      registryPath: '/home/user/.beale/workspaces.json',
+      workspaces: [registeredWorkspace],
+      researchSessions: [
+        session({ id: 'session_unviewed', runId: 'run_unviewed', resultViewedAt: null }),
+        session({ id: 'session_viewed', runId: 'run_viewed', resultViewedAt: '2026-04-30T02:00:00.000Z' })
+      ]
+    };
+    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
+      busy: false,
+      collapsed: false,
+      error: null,
+      openRegisteredWorkspaceMenuId: null,
+      workspaceRegistry: registry,
+      selectedRunId: null,
+      snapshot: null,
+      onAddWorkspace: () => undefined,
+      onOpenWorkspace: () => undefined,
+      onOpenWorkspaceInfo: () => undefined,
+      onOpenResearchSession: () => undefined,
+      onRemoveWorkspace: () => undefined,
+      onResizePointerDown: () => undefined,
+      onSetOpenWorkspaceMenuId: () => undefined,
+      onSearch: () => undefined,
+      onStartNewResearch: () => undefined
+    }));
+
+    expect(html.match(/workspace-session-unviewed-dot/gu)).toHaveLength(1);
+    expect(html).toContain('aria-label="Session result not viewed"');
   });
 });
 
@@ -439,6 +474,7 @@ function session(input: Partial<ResearchSessionSummary>): ResearchSessionSummary
     startedAt: '2026-04-30T00:00:00.000Z',
     endedAt: '2026-04-30T01:00:00.000Z',
     updatedAt: '2026-04-30T01:00:00.000Z',
+    resultViewedAt: null,
     ...input,
     finalDisposition: input.finalDisposition ?? null
   };

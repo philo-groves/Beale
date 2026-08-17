@@ -679,6 +679,14 @@ export class WorkspaceService {
     return this.getWorkspaceRegistry().getState();
   }
 
+  public markResearchSessionViewed(sessionId: string): WorkspaceRegistryState {
+    const registry = this.getWorkspaceRegistry();
+    registry.markResearchSessionViewed(sessionId);
+    const state = registry.getState();
+    this.emitChange({ syncWorkspaceRegistry: false, workspaceRegistryChanged: true });
+    return state;
+  }
+
 
   public getDeveloperSettings(): DeveloperSettings {
     return this.getWorkspaceRegistry().getDeveloperSettings();

@@ -479,6 +479,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getWorkspaceRegistry, () =>
     timedMainIpcAsync('getWorkspaceRegistry', {}, () => workspaceService.getWorkspaceRegistryStateForClient())
   );
+  ipcMain.handle(IPC_CHANNELS.markResearchSessionViewed, (_event, sessionId: string) =>
+    workspaceService.markResearchSessionViewed(sessionId)
+  );
   ipcMain.handle(IPC_CHANNELS.getDeveloperSettings, () => workspaceService.getDeveloperSettings());
   ipcMain.handle(IPC_CHANNELS.setDeveloperModeEnabled, (_event, enabled: boolean) => workspaceService.setDeveloperModeEnabled(enabled));
   ipcMain.handle(IPC_CHANNELS.getProviderSettings, () => workspaceService.getProviderSettings());

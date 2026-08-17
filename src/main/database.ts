@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import ts from 'typescript';
 import { applyDatabaseMigrations } from './databaseMigrations';
+import { resolvedBreakoutRoomStatus } from './breakoutRoomStatus';
 import { decodeResearchProfileJson, decodeResolvedResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
 import { normalizeShellSafetyMode } from '../shared/shellSafety';
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
@@ -3654,15 +3655,7 @@ export class WorkspaceDatabase {
     if (!room) return null;
     const statuses = rows(this.db.prepare('SELECT status FROM breakout_room_members WHERE room_id = ?').all(roomId))
       .map((row) => text(row, 'status') as BreakoutRoomMemberStatus);
-    const status: BreakoutRoomStatus = room.phase === 'completed'
-      ? 'completed'
-      : statuses.some((value) => value === 'active' || value === 'pending')
-        ? 'active'
-        : statuses.some((value) => value === 'errored')
-          ? 'errored'
-          : statuses.length > 0 && statuses.every((value) => value === 'interrupted')
-            ? 'interrupted'
-            : 'active';
+    const status = resolvedBreakoutRoomStatus(room, statuses.map((value) => ({ status: value })));
     const closedAt = status === 'active' ? null : nowIso();
     this.db.prepare('UPDATE breakout_rooms SET status = ?, closed_at = ? WHERE id = ?').run(status, closedAt, roomId);
     return this.getBreakoutRoom(roomId);

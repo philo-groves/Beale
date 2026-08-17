@@ -81,6 +81,9 @@ const api: BealeApi = {
   getWorkspaceRegistry() {
     return ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceRegistry);
   },
+  markResearchSessionViewed(sessionId: string): Promise<WorkspaceRegistryState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.markResearchSessionViewed, sessionId);
+  },
   getDeveloperSettings(): Promise<DeveloperSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.getDeveloperSettings);
   },

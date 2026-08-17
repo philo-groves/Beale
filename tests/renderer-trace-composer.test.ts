@@ -110,6 +110,31 @@ describe('renderer trace composer', () => {
     })).toBe('none');
   });
 
+  it('shows an explicit initial suggestion immediately so the first Tab accepts it', () => {
+    const html = renderToStaticMarkup(createElement(MainSteerArea, {
+      runId: null,
+      detail: null,
+      providerModelCatalog: providerModelCatalog(),
+      busy: false,
+      initialSuggestion: 'Review this report.',
+      traceFilterCount: 0,
+      totalTraceFilterCount: 0,
+      showTraceFilters: false,
+      onOpenTraceFilters: () => undefined,
+      onInitialInstruction: () => undefined,
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+
+    expect(html).toContain('placeholder="Review this report."');
+    expect(html).toContain('aria-label="Shell safety mode" aria-haspopup="listbox" aria-expanded="false"><span');
+    expect(steeringInputTabAction({
+      instruction: '',
+      suggestion: 'Review this report.',
+      suggestionShowing: true
+    })).toBe('accept_suggestion');
+  });
+
   it('keeps steering suggestions under fifteen words', () => {
     const suggestion = shortSteeringSuggestion(
       'Continue by validating the parser crash with saved artifacts and then compare adjacent bounds checks carefully.'

@@ -27,6 +27,84 @@ afterEach(() => {
 });
 
 describe('Honeycrisp session persistence boundary', () => {
+  it('derives and persists interrupted canonical breakout-room state', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-breakout-interruption-'));
+    createdDirectories.push(directory);
+    const databasePath = join(directory, 'memory.sqlite');
+    const artifactRoot = join(directory, '.beale', 'artifacts');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    configureRealHoneycrisp();
+
+    const rawDatabase = new WorkspaceDatabase(databasePath, artifactRoot, {
+      workspacePath: directory,
+      workspaceId: 'workspace_breakout_interruption'
+    });
+    rawDatabase.initialize();
+    const database = createHoneycrispSessionBoundary(rawDatabase);
+    try {
+      const context = database.createRun({
+        scopeVersionId: database.getActiveScope().id,
+        title: 'Interrupted collaboration room',
+        promptMarkdown: 'Run a two-agent review.',
+        shellSafetyMode: 'auto_review',
+        mode: 'open_discovery',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+        attemptStrategy: 'iterative_research',
+        sandboxProfile: 'host',
+        budget: { runEngine: 'honeycrisp' }
+      });
+      database.upsertBreakoutRoom({
+        id: 'room_interrupted',
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        name: 'interrupted_review',
+        title: 'Interrupted review',
+        phase: 'response'
+      });
+      for (const [id, status] of [['completed', 'completed'], ['worker', 'active']] as const) {
+        database.upsertBreakoutRoomMember({
+          id: `member_${id}`,
+          roomId: 'room_interrupted',
+          runId: context.run.id,
+          attemptId: context.attempt.id,
+          agentId: `agent_${id}`,
+          agentPath: `/root/${id}`,
+          provider: 'openai-codex',
+          model: 'gpt-5.6-sol',
+          role: 'researcher',
+          status,
+          startedAt: '2026-08-16T12:00:00.000Z',
+          endedAt: status === 'completed' ? '2026-08-16T12:01:00.000Z' : null
+        });
+      }
+      database.upsertBreakoutRoomMember({
+        id: 'member_worker',
+        roomId: 'room_interrupted',
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        agentId: 'agent_worker',
+        agentPath: '/root/worker',
+        provider: 'openai-codex',
+        model: 'gpt-5.6-sol',
+        role: 'researcher',
+        status: 'interrupted',
+        endedAt: '2026-08-16T12:02:00.000Z'
+      });
+      database.refreshBreakoutRoomStatus('room_interrupted');
+
+      expect(database.getRunDetail(context.run.id).breakoutRooms).toEqual([
+        expect.objectContaining({ id: 'room_interrupted', status: 'interrupted' })
+      ]);
+      await flushHoneycrispSessionWrites(database, context.run.id);
+      expect((await getHoneycrispRunDetailForClient(database, context.run.id))?.breakoutRooms).toEqual([
+        expect.objectContaining({ id: 'room_interrupted', status: 'interrupted' })
+      ]);
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
   it('uses Honeycrisp as the only writer and batches live trace mirrors off the caller path', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-session-boundary-'));
     createdDirectories.push(directory);

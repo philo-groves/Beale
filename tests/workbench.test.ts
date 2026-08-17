@@ -149,8 +149,8 @@ describe('Beale workbench skeleton', () => {
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
     const registry = new DatabaseSync(join(process.env.BEALE_WORKSPACE_REGISTRY_DIR ?? '', 'workspace-registry.sqlite'));
     expect(registry.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_registry' ORDER BY version DESC LIMIT 1").get()).toEqual({
-      version: 6,
-      name: 'workspace_local_research_profiles'
+      version: 8,
+      name: 'interrupt_terminal_session_breakout_rooms'
     });
     expect(registry.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_registry' AND version = 2").get()).toEqual({
       name: 'structured_session_final_disposition'
@@ -883,16 +883,69 @@ describe('Beale workbench skeleton', () => {
       title: latestRun?.title,
       promptMarkdown: '# Test run\nExercise the fixture workbench path.',
       status: latestRun?.status,
-      runEngine: 'fixture'
+      runEngine: 'fixture',
+      resultViewedAt: null
     });
+    const viewed = service.markResearchSessionViewed(withRun.researchSessions[0].id);
+    expect(viewed.researchSessions[0].resultViewedAt).toBeTruthy();
     service.close();
 
     const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
     const persisted = reopened.getWorkspaceRegistryState();
     expect(persisted.workspaces[0].workspaceName).toBe('Acme Bug Bounty');
     expect(persisted.researchSessions[0].runId).toBe(latestRun?.id);
+    expect(persisted.researchSessions[0].resultViewedAt).toBe(viewed.researchSessions[0].resultViewedAt);
     expect(reopened.openRegisteredWorkspace(persisted.workspaces[0].id).activeScope.workspaceName).toBe('Acme Bug Bounty');
     reopened.close();
+  });
+
+  it('migrates cached active breakout rooms to interrupted for paused sessions', () => {
+    const workspace = tempWorkspace();
+    const registryDir = tempWorkspace();
+    const initial = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    initial.createWorkspace(workspace);
+    const snapshot = startRunForTest(initial, runInput('verifier_pass'));
+    const runId = snapshot.runs[0].run.id;
+    expect(initial.getWorkspaceRegistryState().researchSessions).toHaveLength(1);
+    initial.close();
+
+    const registryPath = join(registryDir, 'workspace-registry.sqlite');
+    const staleRegistry = new DatabaseSync(registryPath);
+    staleRegistry.prepare(`
+      UPDATE research_sessions SET status = 'paused', breakout_rooms_json = ? WHERE run_id = ?
+    `).run(JSON.stringify([{
+      id: 'room_stale',
+      runId,
+      name: 'stale_room',
+      title: 'Stale room',
+      kind: 'exploration',
+      status: 'active',
+      providers: ['openai-codex', 'anthropic'],
+      memberCount: 2,
+      unreadCount: 0,
+      updatedAt: '2026-08-16T12:00:00.000Z'
+    }]), runId);
+    staleRegistry.prepare("DELETE FROM schema_migrations WHERE component = 'beale_registry' AND version = 8").run();
+    staleRegistry.close();
+
+    const migrated = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    try {
+      const state = migrated.getWorkspaceRegistryState();
+      expect(state.researchSessions[0].breakoutRooms).toEqual([
+        expect.objectContaining({ id: 'room_stale', status: 'interrupted' })
+      ]);
+    } finally {
+      migrated.close();
+    }
+
+    const verified = new DatabaseSync(registryPath, { readOnly: true });
+    const row = verified.prepare('SELECT breakout_rooms_json FROM research_sessions WHERE run_id = ?').get(runId) as {
+      breakout_rooms_json: string;
+    };
+    expect(JSON.parse(row.breakout_rooms_json)).toEqual([
+      expect.objectContaining({ id: 'room_stale', status: 'interrupted' })
+    ]);
+    verified.close();
   });
 
   it('keeps research profiles workspace-local without clearing the workspace or session lists', async () => {

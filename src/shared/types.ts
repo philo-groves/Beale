@@ -295,6 +295,7 @@ export interface ResearchSessionSummary {
   startedAt: string | null;
   endedAt: string | null;
   updatedAt: string;
+  resultViewedAt: string | null;
   breakoutRooms?: BreakoutRoomSummary[];
 }
 
@@ -517,6 +518,28 @@ export interface HoneycrispReportSummary {
 export interface HoneycrispReportDocument {
   reportId: string;
   content: string;
+}
+
+export interface ReportResourceContext {
+  kind: 'report';
+  resourceId: string;
+  title?: string;
+  artifactId?: string;
+  artifactRelativePath?: string;
+  revision?: number;
+}
+
+export interface ReportSessionStartInput {
+  reportId: string;
+  instruction: string;
+  modelSelection?: ResearchModelSelection;
+  shellSafetyMode?: ShellSafetyMode;
+}
+
+export interface ReportSessionStartResult {
+  reportId: string;
+  runId: string;
+  snapshot: WorkspaceSnapshot;
 }
 
 export interface HoneycrispArtifactRevisionSummary {
@@ -1084,6 +1107,7 @@ export interface StartRunInput {
   goalObjective: string | null;
   promptMarkdown: string;
   workflowId?: string;
+  resourceContext?: ReportResourceContext;
   mode: string;
   attemptStrategy: string;
   model: string;
@@ -1603,6 +1627,7 @@ export interface BealeApi {
   selectWorkspace(mode: WorkspacePickerMode): Promise<WorkspacePickerResult>;
   selectWorkspaceDirectory(): Promise<WorkspaceDirectorySelection>;
   getWorkspaceRegistry(): Promise<WorkspaceRegistryState>;
+  markResearchSessionViewed(sessionId: string): Promise<WorkspaceRegistryState>;
   getDeveloperSettings(): Promise<DeveloperSettings>;
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings>;
   getProviderSettings(): Promise<ProviderSettings>;
@@ -1649,6 +1674,7 @@ export interface BealeApi {
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
   getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument>;
   getHoneycrispReport(reportId: string): Promise<HoneycrispReportDocument>;
+  startReportSession(input: ReportSessionStartInput): Promise<ReportSessionStartResult>;
   getWorkspaceDejunkSummary(workspaceId: string): Promise<WorkspaceDejunkSummary>;
   runWorkspaceDejunk(): Promise<WorkspaceSnapshot>;
   runMemoryDreaming(): Promise<WorkspaceSnapshot>;

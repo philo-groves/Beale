@@ -23,6 +23,7 @@ import type {
   ResearchProviderModelCatalog,
   ResolvedResearchProfile,
   ResearchProviderStatus,
+  RunStatus,
   ScopeAssetInput,
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
@@ -101,6 +102,18 @@ export function App(): JSX.Element {
     loadSnapshot,
     loadWorkspaceRegistry
   } = useWorkspaceRuntime(handleError);
+  const pendingViewedSessionIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!selectedRunId || !workspaceRegistry) return;
+    const selectedSession = workspaceRegistry.researchSessions.find((session) => session.runId === selectedRunId);
+    if (!selectedSession || selectedSession.resultViewedAt !== null || !isEndedResearchRunStatus(selectedSession.status)) return;
+    if (pendingViewedSessionIdsRef.current.has(selectedSession.id)) return;
+    pendingViewedSessionIdsRef.current.add(selectedSession.id);
+    void window.beale.markResearchSessionViewed(selectedSession.id)
+      .then(setWorkspaceRegistry)
+      .catch((caught: unknown) => setError(errorMessage(caught)))
+      .finally(() => pendingViewedSessionIdsRef.current.delete(selectedSession.id));
+  }, [selectedRunId, setWorkspaceRegistry, workspaceRegistry]);
   const researchGoalSuggestionState = useResearchGoalSuggestions(
     snapshot,
     openAiStatus?.configured ?? snapshot?.openAi.configured ?? false
@@ -1250,7 +1263,6 @@ export function App(): JSX.Element {
           reportsActive={reportsOpen}
           selectedBreakoutRoomId={selectedBreakoutRoomId}
           selectedRunBreakoutRooms={activeRunDetail?.breakoutRooms}
-          selectedRunBreakoutRoomsLoading={selectedRunId !== null && activeRunDetail === null}
           snapshot={snapshot}
           onAddWorkspace={() => {
             addWorkspace();
@@ -1503,6 +1515,10 @@ export function App(): JSX.Element {
       ) : null}
     </div>
   );
+}
+
+function isEndedResearchRunStatus(status: RunStatus): boolean {
+  return status === 'blocked' || status === 'completed' || status === 'failed' || status === 'stopped';
 }
 
 function shellApprovalWorkspacePath(approval: ApprovalRecord): string {
