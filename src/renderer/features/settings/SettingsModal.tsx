@@ -22,7 +22,8 @@ import type {
   ResearchProviderModelCatalog,
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
-  ResearchProviderStatus
+  ResearchProviderStatus,
+  ShellSafetyMode
 } from '@shared/types';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import type { FloatingTextPickerOption } from '../../app/FloatingTextPicker';
@@ -34,6 +35,8 @@ import {
   OPTIONAL_PROVIDER_MODELS
 } from '../../../shared/optionalProviderModels';
 import type { ChatView } from '../../view-models/chatView';
+import { normalizeShellSafetyMode } from '../../../shared/shellSafety';
+import { permissionModeOptions } from '../../view-models/permissionSettings';
 import {
   EMPTY_SESSION_HEAT_PREFERENCES,
   SESSION_HEAT_COLOR_LEVELS,
@@ -107,6 +110,8 @@ export function SettingsView({
   section,
   researchProfile,
   chatView,
+  dangerModeEnabled,
+  defaultShellSafetyMode,
   researchProfiles,
   researchProfilesLoading,
   openAiStatus,
@@ -119,6 +124,8 @@ export function SettingsView({
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   busy,
   onChangeChatView,
+  onChangeDangerModeEnabled,
+  onChangeDefaultShellSafetyMode,
   onRefreshOpenAi,
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
@@ -139,6 +146,8 @@ export function SettingsView({
   researchProfiles: ResolvedResearchProfile[];
   researchProfilesLoading: boolean;
   chatView: ChatView;
+  dangerModeEnabled: boolean;
+  defaultShellSafetyMode: ShellSafetyMode;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
@@ -149,6 +158,8 @@ export function SettingsView({
   sessionHeatPreferences?: SessionHeatPreferences;
   busy: boolean;
   onChangeChatView: (chatView: ChatView) => void;
+  onChangeDangerModeEnabled: (enabled: boolean) => void;
+  onChangeDefaultShellSafetyMode: (mode: ShellSafetyMode) => void;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
@@ -187,7 +198,11 @@ export function SettingsView({
         {activeSection === 'general' ? (
           <GeneralSettingsView
             chatView={chatView}
+            dangerModeEnabled={dangerModeEnabled}
+            defaultShellSafetyMode={defaultShellSafetyMode}
             onChangeChatView={onChangeChatView}
+            onChangeDangerModeEnabled={onChangeDangerModeEnabled}
+            onChangeDefaultShellSafetyMode={onChangeDefaultShellSafetyMode}
           />
         ) : activeSection === 'providers' ? (
           <ProvidersSettingsView
@@ -562,16 +577,25 @@ function sessionHeatLabel(heat: SessionHeat): string {
 
 export function GeneralSettingsView({
   chatView,
-  onChangeChatView
+  dangerModeEnabled,
+  defaultShellSafetyMode,
+  onChangeChatView,
+  onChangeDangerModeEnabled,
+  onChangeDefaultShellSafetyMode
 }: {
   chatView: ChatView;
+  dangerModeEnabled: boolean;
+  defaultShellSafetyMode: ShellSafetyMode;
   onChangeChatView: (chatView: ChatView) => void;
+  onChangeDangerModeEnabled: (enabled: boolean) => void;
+  onChangeDefaultShellSafetyMode: (mode: ShellSafetyMode) => void;
 }): JSX.Element {
+  const permissionOptions = permissionModeOptions({ dangerModeEnabled, defaultShellSafetyMode });
   return (
     <div className="settings-page general-settings-page">
       <section className="settings-form chat-view-form">
         <header className="settings-form-heading">
-          <h2 id="chat-view-settings-heading">Chat View</h2>
+          <h2 id="chat-view-settings-heading">Session View</h2>
           <p>Choose how Beale presents agent activity in research sessions.</p>
         </header>
         <fieldset className="settings-form-squircle chat-view-settings" aria-labelledby="chat-view-settings-heading">
@@ -601,6 +625,43 @@ export function GeneralSettingsView({
                 checked={chatView === 'traces'}
                 onChange={() => onChangeChatView('traces')}
               />
+            </label>
+          </div>
+        </fieldset>
+      </section>
+      <section className="settings-form permissions-settings-form">
+        <header className="settings-form-heading">
+          <h2 id="permissions-settings-heading">Permissions</h2>
+          <p>Set the default permission behavior for new research sessions.</p>
+        </header>
+        <fieldset className="settings-form-squircle permissions-settings" aria-labelledby="permissions-settings-heading">
+          <div className="settings-form-control-list">
+            <label className="settings-form-control-row">
+              <span className="settings-form-control-copy">
+                <strong>Enable Danger Mode</strong>
+                <small>Allow sessions to run shell commands without approval or automatic review.</small>
+              </span>
+              <input
+                aria-label="Enable Danger Mode"
+                type="checkbox"
+                checked={dangerModeEnabled}
+                onChange={(event) => onChangeDangerModeEnabled(event.currentTarget.checked)}
+              />
+            </label>
+            <label className="settings-form-control-row">
+              <span className="settings-form-control-copy">
+                <strong>Default Permissions</strong>
+                <small>Choose the permission mode applied when a research session starts.</small>
+              </span>
+              <select
+                aria-label="Default Permissions"
+                value={defaultShellSafetyMode}
+                onChange={(event) => onChangeDefaultShellSafetyMode(normalizeShellSafetyMode(event.currentTarget.value))}
+              >
+                {permissionOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
             </label>
           </div>
         </fieldset>

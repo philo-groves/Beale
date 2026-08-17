@@ -4,7 +4,7 @@
 
 ### Changed
 
-- General settings now uses a centered session-width form layout with regular-weight typography, a larger evenly padded heading outside the raised squircle surface, and flat vertically stacked, right-aligned radio controls.
+- General settings now uses a centered session-width form layout with regular-weight typography, a larger evenly padded heading outside the raised squircle surface, and flat vertically stacked, right-aligned controls. Session View replaces Chat View, and a persisted Permissions form sets the default safety mode for new sessions while gating Danger Mode behind an explicit enablement checkbox.
 - Session loading text no longer ends in a period, and Commentary now shows lone shell commands and file reads as directly expandable `Running <command>` and `Reading <path>` rows with hover-revealed animated chevrons while retaining the existing grouped-call behavior. Singular file labels abbreviate recognizable user-home prefixes to `~/` without changing the full path in tool details.
 - Commentary repository searches now read `Querying <repository> for "<query>"` for one call and each expanded inner item, preferring configured display names and repository URL metadata over materialized checkout directories such as `default` or `app`, while consecutive grouped calls read `Searching X repositories with Y queries` using resolved result roots for the repository count.
 - Commentary memory searches now read `Searching memory for "<query>"` for a singular call and `Searching memory with X queries` for consecutive grouped calls, with long summary text ellipsized at narrow widths.

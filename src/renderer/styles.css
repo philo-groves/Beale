@@ -10138,6 +10138,7 @@ button.research-goal-choice:focus-visible {
 .general-settings-page {
   width: 100%;
   max-width: var(--session-content-max-width);
+  gap: 14px;
   margin-inline: auto;
 }
 
@@ -10187,12 +10188,14 @@ button.research-goal-choice:focus-visible {
   padding: 3px var(--settings-form-inline-padding);
 }
 
-.settings-form-radio-list {
+.settings-form-radio-list,
+.settings-form-control-list {
   min-width: 0;
   display: grid;
 }
 
-.settings-form-radio-list > label + label {
+.settings-form-radio-list > label + label,
+.settings-form-control-list > label + label {
   border-top: 1px solid var(--line);
 }
 
@@ -10490,7 +10493,8 @@ button.research-goal-choice:focus-visible {
   display: grid;
 }
 
-.chat-view-option {
+.chat-view-option,
+.settings-form-control-row {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -10508,23 +10512,47 @@ button.research-goal-choice:focus-visible {
   cursor: pointer;
 }
 
-.settings-form-radio-copy {
+.settings-form-radio-copy,
+.settings-form-control-copy {
   min-width: 0;
   display: grid;
   gap: 3px;
 }
 
-.chat-view-option strong {
+.chat-view-option strong,
+.settings-form-control-row strong {
   color: var(--text);
   font-size: inherit;
   font-weight: 400;
 }
 
-.chat-view-option small {
+.chat-view-option small,
+.settings-form-control-row small {
   color: var(--muted);
   font-size: inherit;
   font-weight: 400;
   line-height: 1.4;
+}
+
+.settings-form-control-row input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.settings-form-control-row select {
+  width: 150px;
+  max-width: 150px;
+  min-height: 32px;
+  border: 0;
+  background-color: var(--panel-strong);
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.settings-form-control-row select:focus {
+  border-color: transparent;
 }
 
 .shell-approval-modal {

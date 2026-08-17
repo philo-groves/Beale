@@ -103,10 +103,13 @@ function render(selectedAutomation: AutomationSummary | null = null): string {
 describe('automation workspace', () => {
   it('keeps New Research defaults uninflated and preserves stored automation choices when inflated', () => {
     const defaults = researchSettingsInput(undefined, 'discovery', null);
+    const dangerDefaults = researchSettingsInput(undefined, 'discovery', null, 'danger');
     const inflated = researchSettingsInput(activeAutomation.settings, 'longshot', null);
 
     expect(defaults.promptMarkdown).toBe('');
     expect(defaults.model).toBe('');
+    expect(defaults.shellSafetyMode).toBe('auto_review');
+    expect(dangerDefaults.shellSafetyMode).toBe('danger');
     expect(defaults.budget.repeatSchedule).toEqual({ type: 'none' });
     expect(inflated).toMatchObject({
       provider: 'openai-codex',

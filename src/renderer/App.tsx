@@ -66,6 +66,7 @@ import { useResearchGoalSuggestions } from './hooks/useResearchGoalSuggestions';
 import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
 import { useTraceSelection } from './hooks/useTraceSelection';
 import { useChatViewPreference } from './hooks/useChatViewPreference';
+import { usePermissionSettings } from './hooks/usePermissionSettings';
 import { useSessionHeatPreferences } from './hooks/useSessionHeatPreferences';
 import { filterEnabledProviderModelCatalogs } from '../shared/optionalProviderModels';
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
@@ -141,6 +142,7 @@ export function App(): JSX.Element {
     [enabledResearchProviderModelCatalog, providerSettings]
   );
   const [chatView, setChatView] = useChatViewPreference();
+  const [permissionSettings, setDangerModeEnabled, setDefaultShellSafetyMode] = usePermissionSettings();
   const [sessionHeatPreferences, setSessionHeatPreference, setSessionHeatPalettePreference] = useSessionHeatPreferences();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
   const [workspaceOnboardingProgress, setWorkspaceOnboardingProgress] = useState<WorkspaceOnboardingProgressUpdate | null>(null);
@@ -1424,6 +1426,8 @@ export function App(): JSX.Element {
             researchProfilesLoading={researchProfilesLoading}
             researchProfile={snapshot?.researchProfile ?? null}
             chatView={chatView}
+            dangerModeEnabled={permissionSettings.dangerModeEnabled}
+            defaultShellSafetyMode={permissionSettings.defaultShellSafetyMode}
             openAiOAuthResult={openAiOAuthResult}
             openAiStatus={openAiStatus ?? snapshot?.openAi ?? null}
             researchProviderOAuthResults={researchProviderOAuthResults}
@@ -1434,6 +1438,8 @@ export function App(): JSX.Element {
             sessionHeatPreferences={sessionHeatPreferences}
             busy={busy}
             onChangeChatView={setChatView}
+            onChangeDangerModeEnabled={setDangerModeEnabled}
+            onChangeDefaultShellSafetyMode={setDefaultShellSafetyMode}
             onRefreshOpenAi={refreshOpenAiProvider}
             onStartOpenAiOAuth={startOpenAiOAuth}
             onStartResearchProviderOAuth={startResearchProviderOAuth}
@@ -1616,6 +1622,8 @@ export function App(): JSX.Element {
         newResearchInitialGoal={newResearchInitialGoal}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
         defaultProviderId={providerSettings?.defaultProviderId}
+        dangerModeEnabled={permissionSettings.dangerModeEnabled}
+        defaultShellSafetyMode={permissionSettings.defaultShellSafetyMode}
         providerModelDefaults={providerSettings?.modelDefaults}
         providerPolicyRiskAcknowledgements={providerSettings?.cyberPolicyRiskAcknowledgements}
         researchProviderModelCatalog={enabledResearchProviderModelCatalog}

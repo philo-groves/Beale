@@ -14,6 +14,7 @@ import type {
   ProfilingState,
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
+  ShellSafetyMode,
   WorkspaceSnapshot
 } from '@shared/types';
 import type { TraceCategoryId } from '../traceClassification';
@@ -35,6 +36,8 @@ export function AppModals({
   newResearchInitialGoal,
   openAiStatus,
   defaultProviderId,
+  dangerModeEnabled,
+  defaultShellSafetyMode,
   providerModelDefaults,
   providerPolicyRiskAcknowledgements,
   researchProviderModelCatalog,
@@ -78,6 +81,8 @@ export function AppModals({
   newResearchInitialGoal: ResearchGoalSeed | null;
   openAiStatus: OpenAiAccountStatus | null;
   defaultProviderId: ResearchModelProviderId | null | undefined;
+  dangerModeEnabled: boolean;
+  defaultShellSafetyMode: ShellSafetyMode;
   providerModelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> | undefined;
   providerPolicyRiskAcknowledgements: ProviderSettings['cyberPolicyRiskAcknowledgements'];
   researchProviderModelCatalog: ResearchProviderModelCatalog[];
@@ -133,6 +138,8 @@ export function AppModals({
           snapshot={snapshot}
           openAiStatus={openAiStatus}
           defaultProviderId={defaultProviderId}
+          dangerModeEnabled={dangerModeEnabled}
+          defaultShellSafetyMode={defaultShellSafetyMode}
           providerModelDefaults={providerModelDefaults}
           providerPolicyRiskAcknowledgements={providerPolicyRiskAcknowledgements}
           researchProviderStatuses={researchProviderStatuses}

@@ -18,6 +18,7 @@ import type {
   ResearchProviderModelCatalog,
   ResearchProviderStatus,
   RepeatSchedule,
+  ShellSafetyMode,
   StartRunInput,
   WorkspaceSnapshot
 } from '@shared/types';
@@ -112,6 +113,8 @@ interface StartRunFormProps {
   snapshot: WorkspaceSnapshot;
   openAiStatus: OpenAiAccountStatus | null;
   defaultProviderId: ResearchModelProviderId | null | undefined;
+  dangerModeEnabled?: boolean;
+  defaultShellSafetyMode?: ShellSafetyMode;
   providerModelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> | undefined;
   providerPolicyRiskAcknowledgements?: ProviderSettings['cyberPolicyRiskAcknowledgements'];
   researchProviderStatuses: ResearchProviderStatus[];
@@ -134,6 +137,8 @@ export interface ResearchSettingsFormProps {
   formIdentity: string;
   openAiStatus: OpenAiAccountStatus | null;
   defaultProviderId: ResearchModelProviderId | null | undefined;
+  dangerModeEnabled?: boolean;
+  defaultShellSafetyMode?: ShellSafetyMode;
   providerModelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> | undefined;
   providerPolicyRiskAcknowledgements?: ProviderSettings['cyberPolicyRiskAcknowledgements'];
   researchProviderStatuses: ResearchProviderStatus[];
@@ -186,6 +191,8 @@ export function ResearchSettingsForm({
   formIdentity,
   openAiStatus,
   defaultProviderId,
+  dangerModeEnabled = false,
+  defaultShellSafetyMode = DEFAULT_SHELL_SAFETY_MODE,
   providerModelDefaults,
   providerPolicyRiskAcknowledgements = undefined,
   researchProviderStatuses,
@@ -213,7 +220,9 @@ export function ResearchSettingsForm({
   const defaultWorkflowId = defaultResearchWorkflowId(workflows);
   const profilePresentation = profile?.presentation;
   const initialWorkflowId = initialGoal?.phase ?? defaultWorkflowId;
-  const [input, setInput] = useState<StartRunInput>(() => researchSettingsInput(initialInput, initialWorkflowId, initialGoal));
+  const [input, setInput] = useState<StartRunInput>(() => (
+    researchSettingsInput(initialInput, initialWorkflowId, initialGoal, defaultShellSafetyMode)
+  ));
   const [startingRun, setStartingRun] = useState(false);
   const [editorStage, setEditorStage] = useState<PromptEditorStage>(initialInput ? 'prompt' : 'goal');
   const [generateEnabled, setGenerateEnabled] = useState(false);
@@ -224,6 +233,9 @@ export function ResearchSettingsForm({
   );
   const providerSelectionInitializedRef = useRef(Boolean(initialInput?.provider));
   const modelSelectionInitializedRef = useRef(Boolean(initialInput?.model));
+  const shellSafetyModeOptions = SHELL_SAFETY_MODE_OPTIONS.filter((option) => (
+    option.value !== 'danger' || dangerModeEnabled || input.shellSafetyMode === 'danger'
+  ));
   const promptBoxRef = useRef<HTMLTextAreaElement | null>(null);
   const inputRef = useRef(input);
   const mountedRef = useRef(true);
@@ -372,7 +384,12 @@ export function ResearchSettingsForm({
 
   useEffect(() => {
     cancelPromptGeneration();
-    const next = researchSettingsInput(initialInput, initialGoal?.phase ?? defaultWorkflowId, initialGoal);
+    const next = researchSettingsInput(
+      initialInput,
+      initialGoal?.phase ?? defaultWorkflowId,
+      initialGoal,
+      defaultShellSafetyMode
+    );
     inputRef.current = next;
     setInput(next);
     const inflatedProvider = researchProviderId(initialInput?.provider);
@@ -381,7 +398,7 @@ export function ResearchSettingsForm({
     modelSelectionInitializedRef.current = Boolean(initialInput?.model);
     setEditorStage(initialInput ? 'prompt' : 'goal');
     setGenerationError(null);
-  }, [defaultProviderId, defaultWorkflowId, formIdentity, initialGoal, initialInput]);
+  }, [defaultProviderId, defaultShellSafetyMode, defaultWorkflowId, formIdentity, initialGoal, initialInput]);
 
   useEffect(() => {
     inputRef.current = input;
@@ -753,7 +770,7 @@ export function ResearchSettingsForm({
               <FloatingTextPicker
                 className={`new-research-safety-picker main-steer-safety-mode-picker mode-${input.shellSafetyMode}`}
                 value={input.shellSafetyMode}
-                options={SHELL_SAFETY_MODE_OPTIONS}
+                options={shellSafetyModeOptions}
                 title="Shell safety mode"
                 ariaLabel="Shell safety mode"
                 disabled={generatingPrompt}
@@ -1221,7 +1238,8 @@ export function defaultResearchWorkflowId(workflows: readonly ResearchProfileWor
 export function researchSettingsInput(
   initialInput: StartRunInput | undefined,
   initialWorkflowId: string,
-  initialGoal: ResearchGoalSeed | null
+  initialGoal: ResearchGoalSeed | null,
+  defaultShellSafetyMode: ShellSafetyMode = DEFAULT_SHELL_SAFETY_MODE
 ): StartRunInput {
   if (initialInput) {
     return {
@@ -1241,6 +1259,7 @@ export function researchSettingsInput(
   }
   return {
     ...defaultRunInput,
+    shellSafetyMode: defaultShellSafetyMode,
     workflowId: initialGoal?.phase ?? initialWorkflowId,
     goalObjective: initialGoal?.sentence ?? null,
     promptMarkdown: initialGoal?.sentence ?? '',
