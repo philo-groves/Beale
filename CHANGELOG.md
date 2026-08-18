@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Workspace Overview form labels, descriptions, fields, and save status now use the same 14px typography as the General and Profile settings views.
 - General, Profiles, and Computer Use settings now use the application's normal font size instead of their previous compact typography.
 - Provider Settings, Automations, Reporting, Plugins, and session views now share the Plugins-style centered loading indicator with regular-weight text.
 - Runbook detail now provides whole-run and per-cell execution controls for the owning live Honeycrisp session, records Localhost, Device, VM, Web, or Other as the proof target plus the target OS for Device runs, persists each cell's latest status, duration, exit code, and bounded output, and surfaces healthy-runbook guidance. Auto-Review classifies proofing and denies proof commands outside a trusted runbook cell; `runbook.run` is the canonical model-facing proof execution path.

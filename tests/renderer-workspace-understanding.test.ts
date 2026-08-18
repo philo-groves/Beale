@@ -33,6 +33,10 @@ describe('workspace dashboard', () => {
     const sharedPanelStyles = styles.match(/\.workspace-dashboard-panel\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewStyles = styles.match(/\.workspace-overview\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewLayoutStyles = styles.match(/\.workspace-overview-layout\s*\{([^}]*)\}/)?.[1] ?? '';
+    const overviewFormStyles = styles.match(/\.workspace-overview-form\s*\{([^}]*)\}/)?.[1] ?? '';
+    const overviewControlStyles = styles.match(/\.workspace-overview-control-row\s*\{([^}]*)\}/)?.[1] ?? '';
+    const overviewFieldStyles = styles.match(/\.workspace-overview-form :is\(input, textarea\)\s*\{([^}]*)\}/)?.[1] ?? '';
+    const overviewStatusStyles = styles.match(/\.workspace-overview-error,\s*\.workspace-overview-saving\s*\{([^}]*)\}/)?.[1] ?? '';
     const directoriesWidgetStyles = styles.match(/^\.workspace-directories-widget\s*\{([^}]*)\}/m)?.[1] ?? '';
     const directoriesHeadingButtonStyles = styles.match(/\.workspace-directories-widget-heading\s*>\s*button\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceHeadingStyles = styles.match(/\.workspace-overview-layout\s*>\s*\.workspace-overview-heading,\s*\.workspace-activity-form\s*>\s*:is\(\.settings-form-heading\),\s*\.workspace-cleaning-form\s*>\s*:is\(\.settings-form-heading\)\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -79,9 +83,14 @@ describe('workspace dashboard', () => {
     expect(overviewStyles).toContain('overflow: auto');
     expect(overviewStyles).not.toContain('padding');
     expect(overviewLayoutStyles).toContain('width: 100%');
+    expect(overviewLayoutStyles).toContain('--settings-view-font-size: 14px');
     expect(overviewLayoutStyles).not.toContain('max-width');
     expect(overviewLayoutStyles).toContain('grid-template-columns: minmax(0, 3fr) minmax(0, 1fr)');
     expect(overviewLayoutStyles).toContain("'heading .'\n    'form directories'");
+    expect(overviewFormStyles).toContain('font-size: var(--settings-view-font-size)');
+    expect(overviewControlStyles).toContain('font-size: var(--settings-view-font-size)');
+    expect(overviewFieldStyles).toContain('font-size: var(--settings-view-font-size)');
+    expect(overviewStatusStyles).toContain('font-size: var(--settings-view-font-size)');
     expect(directoriesWidgetStyles).toContain('background: var(--panel-raised)');
     expect(directoriesHeadingButtonStyles).toContain('top: -4px');
     expect(workspaceHeadingStyles).toContain('padding-left: 0');

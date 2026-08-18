@@ -2115,6 +2115,7 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-overview-layout {
+  --settings-view-font-size: 14px;
   width: 100%;
   min-width: 0;
   display: grid;
@@ -2130,6 +2131,10 @@ body.is-resizing-research-side .main-session-grid {
   grid-area: heading;
 }
 
+.workspace-overview-heading p {
+  font-size: var(--settings-view-font-size);
+}
+
 .workspace-overview-layout > .workspace-overview-heading,
 .workspace-activity-form > :is(.settings-form-heading),
 .workspace-cleaning-form > :is(.settings-form-heading) {
@@ -2139,6 +2144,7 @@ body.is-resizing-research-side .main-session-grid {
 .workspace-overview-form {
   grid-area: form;
   min-width: 0;
+  font-size: var(--settings-view-font-size);
 }
 
 .workspace-overview-layout > .workspace-directories-widget {
@@ -2147,6 +2153,7 @@ body.is-resizing-research-side .main-session-grid {
 
 .workspace-overview-control-row {
   cursor: text;
+  font-size: var(--settings-view-font-size);
 }
 
 .workspace-overview-form :is(input, textarea) {
@@ -2155,6 +2162,7 @@ body.is-resizing-research-side .main-session-grid {
   background: var(--panel-strong);
   color: var(--text);
   font: inherit;
+  font-size: var(--settings-view-font-size);
   font-weight: 400;
 }
 
@@ -2187,7 +2195,7 @@ body.is-resizing-research-side .main-session-grid {
 .workspace-overview-saving {
   margin: 0;
   padding: 2px var(--settings-form-inline-padding) 0;
-  font-size: 0.78rem;
+  font-size: var(--settings-view-font-size);
 }
 
 .workspace-overview-error {
