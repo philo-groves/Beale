@@ -1115,7 +1115,8 @@ function memorySummary(input: {
       revisions: [],
       createdAt: new Date(NOW).toISOString(),
       updatedAt: new Date(NOW).toISOString(),
-      ...report
+      ...report,
+      submissionPacket: report.submissionPacket ?? null
     })),
     directories: [],
     lastError: null,

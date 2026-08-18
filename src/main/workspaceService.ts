@@ -1259,6 +1259,27 @@ export class WorkspaceService {
     });
   }
 
+  public async resolveReportSubmissionPacketPath(locator: HoneycrispReportLocator): Promise<string> {
+    const workspaceId = locator.workspaceId.trim();
+    const reportId = locator.reportId.trim();
+    const workspace = this.getWorkspaceRegistry().getState().workspaces.find((candidate) => candidate.workspaceId === workspaceId);
+    if (!workspace) throw new Error(`Report workspace is not registered: ${workspaceId}`);
+    const runtime = this.runtimeForWorkspacePath(workspace.workspacePath);
+    const summary = runtime
+      ? await this.memorySummaryForRuntimeAsync(runtime)
+      : await getHoneycrispMemorySummaryAsync({ workspaceId, subjectId: null }, {
+          databasePath: this.globalHoneycrispDatabasePath(workspace.researchProfileId),
+          artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(workspace.researchProfileId)
+        });
+    const report = summary.reports.find((candidate) => candidate.id === reportId && candidate.workspaceId === workspaceId);
+    if (!report) throw new Error(`Report not found in this workspace: ${reportId}`);
+    if (!report.submissionPacket) throw new Error(`Report does not have an attached submission packet: ${reportId}`);
+    return resolveHoneycrispArtifact(report.submissionPacket.artifactId, {
+      databasePath: this.globalHoneycrispDatabasePath(workspace.researchProfileId),
+      artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(workspace.researchProfileId)
+    }, 'submission-packet').path;
+  }
+
   public startReportSession(input: ReportSessionStartInput): ReportSessionStartResult {
     const workspaceId = input.workspaceId.trim();
     const workspace = this.getWorkspaceRegistry().getState().workspaces.find((candidate) => candidate.workspaceId === workspaceId);

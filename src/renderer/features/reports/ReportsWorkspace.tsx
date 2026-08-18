@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { CircleAlert, FileText, LoaderCircle } from 'lucide-react';
+import { CircleAlert, FileArchive, FileText, LoaderCircle } from 'lucide-react';
 import type {
   ApprovalRecord,
   HoneycrispReportDocument,
@@ -151,6 +151,7 @@ export function ReportSessionWorkspace({
   onShellApprovalDecision,
   onSessionAction,
   onReportChange,
+  onOpenSubmissionPacket,
   onSteerInstruction
 }: {
   report: HoneycrispReportSummary;
@@ -174,6 +175,7 @@ export function ReportSessionWorkspace({
   onShellApprovalDecision: (decision: PolicyReviewDecision) => void;
   onSessionAction: (action: SteeringAction) => void;
   onReportChange: (instruction: string) => Promise<void>;
+  onOpenSubmissionPacket: () => Promise<void>;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element {
   return (
@@ -206,17 +208,19 @@ export function ReportSessionWorkspace({
         loading={loading}
         error={error}
         onChange={onReportChange}
+        onOpenSubmissionPacket={onOpenSubmissionPacket}
       />
     </div>
   );
 }
 
-export function EditableReport({ report, document, loading, error, onChange }: {
+export function EditableReport({ report, document, loading, error, onChange, onOpenSubmissionPacket }: {
   report: HoneycrispReportSummary;
   document: HoneycrispReportDocument | null;
   loading: boolean;
   error: string | null;
   onChange: (instruction: string) => Promise<void>;
+  onOpenSubmissionPacket: () => Promise<void>;
 }): JSX.Element {
   const blocks = useMemo(() => reportMarkdownBlocks(document?.content ?? ''), [document?.content]);
   const blockIds = useMemo(() => blocks.map((block) => block.id), [blocks]);
@@ -227,6 +231,8 @@ export function EditableReport({ report, document, loading, error, onChange }: {
   const [changeRequest, setChangeRequest] = useState('');
   const [changePending, setChangePending] = useState(false);
   const [changeError, setChangeError] = useState<string | null>(null);
+  const [packetOpening, setPacketOpening] = useState(false);
+  const [packetError, setPacketError] = useState<string | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     if (editingBlockId) editorRef.current?.focus();
@@ -239,6 +245,8 @@ export function EditableReport({ report, document, loading, error, onChange }: {
     setChangeRequest('');
     setChangePending(false);
     setChangeError(null);
+    setPacketOpening(false);
+    setPacketError(null);
   }, [document?.content, report.id]);
 
   const selectBlock = (blockIndex: number, shiftKey: boolean, toggleKey: boolean): void => {
@@ -270,6 +278,28 @@ export function EditableReport({ report, document, loading, error, onChange }: {
           <h1>{report.title}</h1>
           {report.summary ? <p>{report.summary}</p> : null}
           <div className="report-session-meta"><span>{traceLabel(report.status)}</span><span>Update {report.revision}</span></div>
+          {report.submissionPacket ? (
+            <div className="report-submission-packet">
+              <FileArchive size={19} aria-hidden="true" />
+              <div className="report-submission-packet-copy">
+                <strong>{report.submissionPacket.filename}</strong>
+                <span>{formatFileSize(report.submissionPacket.sizeBytes)}</span>
+                <code>{report.submissionPacket.contentHash}</code>
+              </div>
+              <button type="button" disabled={packetOpening} onClick={async () => {
+                setPacketOpening(true);
+                setPacketError(null);
+                try {
+                  await onOpenSubmissionPacket();
+                } catch (caught: unknown) {
+                  setPacketError(caught instanceof Error ? caught.message : String(caught));
+                } finally {
+                  setPacketOpening(false);
+                }
+              }}>{packetOpening ? 'Opening…' : 'Open packet'}</button>
+              {packetError ? <p role="alert">{packetError}</p> : null}
+            </div>
+          ) : null}
         </header>
         {loading && !document ? (
           <div className="report-session-state"><LoaderCircle className="runbook-view-spinner" size={18} /> Loading report.</div>
@@ -383,4 +413,10 @@ export function EditableReport({ report, document, loading, error, onChange }: {
       </div>
     </section>
   );
+}
+
+function formatFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1_024) return `${sizeBytes} B`;
+  if (sizeBytes < 1_048_576) return `${(sizeBytes / 1_024).toFixed(1)} KB`;
+  return `${(sizeBytes / 1_048_576).toFixed(1)} MB`;
 }

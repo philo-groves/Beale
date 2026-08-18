@@ -53,6 +53,7 @@ export const IPC_CHANNELS = {
   updateAutomation: 'beale:update-automation',
   listReportingReports: 'beale:list-reporting-reports',
   getHoneycrispReport: 'beale:get-honeycrisp-report',
+  openReportSubmissionPacket: 'beale:open-report-submission-packet',
   startReportSession: 'beale:start-report-session',
   getWorkspaceDejunkSummary: 'beale:get-workspace-dejunk-summary',
   runWorkspaceDejunk: 'beale:run-workspace-dejunk',

@@ -247,6 +247,9 @@ const api: BealeApi = {
   getHoneycrispReport(locator: HoneycrispReportLocator): Promise<HoneycrispReportDocument> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispReport, locator);
   },
+  openReportSubmissionPacket(locator: HoneycrispReportLocator): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openReportSubmissionPacket, locator);
+  },
   startReportSession(input: ReportSessionStartInput): Promise<ReportSessionStartResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.startReportSession, input);
   },

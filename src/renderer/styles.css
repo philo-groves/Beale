@@ -3237,6 +3237,39 @@ body.is-resizing-research-side .main-session-grid {
   margin-top: 14px;
 }
 
+.report-submission-packet {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+}
+
+.report-submission-packet-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.report-submission-packet-copy strong { color: var(--text); }
+.report-submission-packet-copy span { color: var(--muted); font-size: 0.75rem; }
+.report-submission-packet-copy code {
+  overflow-wrap: anywhere;
+  color: var(--muted-strong);
+  font-size: 0.7rem;
+}
+
+.report-submission-packet > p {
+  grid-column: 2 / -1;
+  margin: 0;
+  color: var(--red);
+  font-size: 0.75rem;
+}
+
 .report-session-content { padding-top: 22px; }
 
 .report-session-edit-hint {

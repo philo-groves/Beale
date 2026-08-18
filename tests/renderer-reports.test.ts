@@ -25,6 +25,7 @@ const report: HoneycrispReportSummary = {
   summary: 'A verified parser boundary issue.',
   status: 'complete',
   artifactId: 'artifact_report',
+  submissionPacket: null,
   revision: 3,
   revisions: [],
   createdAt: '2026-08-10T12:00:00.000Z',
@@ -227,12 +228,18 @@ describe('reports resource views', () => {
   it('loads reporting data and report documents through workspace-independent host contracts', () => {
     const apiSource = readFileSync(new URL('../src/shared/types.ts', import.meta.url), 'utf8');
     const serviceSource = readFileSync(new URL('../src/main/workspaceService.ts', import.meta.url), 'utf8');
+    const mainSource = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8');
 
     expect(apiSource).toContain('listReportingReports(): Promise<HoneycrispReportSummary[]>;');
     expect(apiSource).toContain('getHoneycrispReport(locator: HoneycrispReportLocator)');
+    expect(apiSource).toContain('openReportSubmissionPacket(locator: HoneycrispReportLocator)');
     expect(serviceSource).toContain('public async listReportingReports(): Promise<HoneycrispReportSummary[]>');
     expect(serviceSource).toContain('workspaceId: workspace.workspaceId');
     expect(serviceSource).toContain('Report workspace is not registered');
+    expect(serviceSource).toContain("resolveHoneycrispArtifact(report.submissionPacket.artifactId");
+    expect(serviceSource).toContain("'submission-packet'");
+    expect(mainSource).toContain('IPC_CHANNELS.openReportSubmissionPacket');
+    expect(mainSource).toContain('workspaceService.resolveReportSubmissionPacketPath(locator)');
   });
 
   it('makes report blocks targetable for inline change requests', () => {
@@ -241,7 +248,8 @@ describe('reports resource views', () => {
       document: { reportId: report.id, content: '# Summary\n\nVerified impact.\n\n## Evidence\n\n- verifier:pass' },
       loading: false,
       error: null,
-      onChange: async () => undefined
+      onChange: async () => undefined,
+      onOpenSubmissionPacket: async () => undefined
     }));
 
     expect(html).toContain(`<header class="report-session-document-header"><h1>${report.title}</h1>`);
@@ -250,6 +258,31 @@ describe('reports resource views', () => {
     expect(html).toContain('Editable report content');
     expect(html).toContain('Highlight report lines 1 through 1');
     expect(html).toContain('Shift-click joins a range; Ctrl-click adds or removes sections.');
+  });
+
+  it('shows the durable submission packet metadata and open action', () => {
+    const packetReport: HoneycrispReportSummary = {
+      ...report,
+      submissionPacket: {
+        artifactId: 'report_parser_submission_packet',
+        filename: 'submission.zip',
+        sizeBytes: 12_288,
+        contentHash: 'sha256:0123456789abcdef'
+      }
+    };
+    const html = renderToStaticMarkup(createElement(EditableReport, {
+      report: packetReport,
+      document: { reportId: report.id, content: '# Impact summary\n\nVerified impact.' },
+      loading: false,
+      error: null,
+      onChange: async () => undefined,
+      onOpenSubmissionPacket: async () => undefined
+    }));
+
+    expect(html).toContain('submission.zip');
+    expect(html).toContain('12.0 KB');
+    expect(html).toContain('sha256:0123456789abcdef');
+    expect(html).toContain('Open packet');
   });
 
   it('joins report highlights with Shift and toggles them with Control', () => {

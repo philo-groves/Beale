@@ -1529,6 +1529,18 @@ export function App(): JSX.Element {
                   }}
                   onSessionAction={handleSessionAction}
                   onReportChange={submitReportChange}
+                  onOpenSubmissionPacket={async () => {
+                    try {
+                      await window.beale.openReportSubmissionPacket({
+                        workspaceId: selectedReport.workspaceId,
+                        reportId: selectedReport.id
+                      });
+                    } catch (caught: unknown) {
+                      const message = errorMessage(caught);
+                      setReportError(message);
+                      throw new Error(message);
+                    }
+                  }}
                   onSteerInstruction={handleSteerInstruction}
                 />
               ) : (

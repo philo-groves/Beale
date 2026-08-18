@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Report summaries now carry typed submission-packet metadata from the Honeycrisp report catalog.
 - Workspace model context now deduplicates scope assets already represented by the bounded Rules and Constraints text or by known local repository roots, while retaining asset-specific instructions, direction-mismatched assets, exclusions, credentials, and entries beyond the visible rules budget.
 - The bundled default profile is consistently named Security in selectors and editable defaults. Security and Mathematics now present eight active memory types; Security combines new Source and Sink records into Flow Endpoint while retaining existing retired memory in resource views, and Profile settings hides retired type tabs.
 - General settings now uses a centered session-width form layout with regular-weight typography, a larger evenly padded heading outside the raised squircle surface, and flat vertically stacked, right-aligned controls. Session View replaces Chat View, and a persisted Permissions form sets the default safety mode for new sessions while gating Danger Mode behind an explicit enablement checkbox.
@@ -69,6 +70,7 @@
 
 ### Added
 
+- Reports display attached Honeycrisp `submission.zip` metadata and can open the exact durable packet through a workspace-validated IPC boundary.
 - Added an installed-but-disabled built-in Terminator computer-use Agent Plugin for Windows, pinned to `@mediar-ai/terminator` 0.24.32 and limited to a curated UI Automation surface with screenshot support.
 - Reporting now has a dedicated workspace sidenav destination below Automations, uses the same active background as workspace rows, and opens a list of workspace reports. A user's first report request starts a report-scoped agent session that stays out of the workspace session list, presents the normal commentary and tool transcript beside the report, and accepts both chat-based and inline section change requests.
 - Moved Honeycrisp session creation, attempt state, live events, capture import, lifecycle state, list/detail queries, and transcript queries behind the versioned Honeycrisp CLI protocol. Backend selection is per-session and never dual-writes the legacy Beale session tables.

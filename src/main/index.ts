@@ -605,6 +605,13 @@ function registerIpc(): void {
       workspaceService.getHoneycrispReport(locator)
     )
   );
+  ipcMain.handle(IPC_CHANNELS.openReportSubmissionPacket, async (_event, locator: HoneycrispReportLocator) =>
+    timedMainIpcAsync('openReportSubmissionPacket', { report: shortMetricId(locator.reportId) }, async () => {
+      const path = await workspaceService.resolveReportSubmissionPacketPath(locator);
+      const error = await shell.openPath(path);
+      if (error) throw new Error(error);
+    })
+  );
   ipcMain.handle(IPC_CHANNELS.startReportSession, (_event, input: ReportSessionStartInput) =>
     timedMainIpc('startReportSession', { report: shortMetricId(input.reportId) }, () =>
       workspaceService.startReportSession(input)

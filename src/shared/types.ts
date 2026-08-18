@@ -511,6 +511,7 @@ export interface HoneycrispReportSummary {
   summary: string;
   status: 'complete' | 'stale';
   artifactId: string;
+  submissionPacket: HoneycrispReportSubmissionPacket | null;
   revision: number;
   revisions: HoneycrispArtifactRevisionSummary[];
   createdAt: string;
@@ -520,6 +521,13 @@ export interface HoneycrispReportSummary {
 export interface HoneycrispReportDocument {
   reportId: string;
   content: string;
+}
+
+export interface HoneycrispReportSubmissionPacket {
+  artifactId: string;
+  filename: string;
+  sizeBytes: number;
+  contentHash: string;
 }
 
 export interface HoneycrispReportLocator {
@@ -1720,6 +1728,7 @@ export interface BealeApi {
   updateAutomation(input: AutomationUpdateInput): Promise<AutomationSummary>;
   listReportingReports(): Promise<HoneycrispReportSummary[]>;
   getHoneycrispReport(locator: HoneycrispReportLocator): Promise<HoneycrispReportDocument>;
+  openReportSubmissionPacket(locator: HoneycrispReportLocator): Promise<void>;
   startReportSession(input: ReportSessionStartInput): Promise<ReportSessionStartResult>;
   getWorkspaceDejunkSummary(workspaceId: string): Promise<WorkspaceDejunkSummary>;
   runWorkspaceDejunk(): Promise<WorkspaceSnapshot>;
