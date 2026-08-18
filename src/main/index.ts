@@ -41,11 +41,13 @@ import { ProviderCredentialStore } from './providerCredentialStore';
 import { restoreAndFocusWindow } from './windowLifecycle';
 import { IosDeviceCaptureService } from './iosDeviceCaptureService';
 import { getWorkspaceEditorCatalogForHost, openWorkspaceInEditor } from './workspaceEditors';
+import { WorkspaceTerminalService } from './workspaceTerminalService';
 
 const APP_NAME = 'Beale';
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
 let iosDeviceCaptureService: IosDeviceCaptureService;
+let workspaceTerminalService: WorkspaceTerminalService;
 const runDetailRequestControllers = new Map<number, AbortController>();
 const smokeTestMode = process.argv.includes('--smoke-test');
 const NATIVE_WINDOW_SHAPE_RADIUS_PX = 8;
@@ -95,6 +97,8 @@ function createWindow(): void {
     }
   });
   mainWindow = window;
+  const webContentsId = window.webContents.id;
+  window.webContents.on('destroyed', () => workspaceTerminalService?.closeOwner(webContentsId));
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = null;
   });
@@ -582,6 +586,33 @@ function registerIpc(): void {
     if (!workspacePath) throw new Error('No Beale workspace is open.');
     await openWorkspaceInEditor(editorId, workspacePath);
   });
+  ipcMain.handle(IPC_CHANNELS.startWorkspaceTerminal, (event, sessionId: string, columns: number, rows: number) => {
+    const workspacePath = workspaceService.getSnapshot()?.workspace.workspacePath;
+    if (!workspacePath) throw new Error('No Beale workspace is open.');
+    const sender = event.sender;
+    return workspaceTerminalService.start(
+      sender.id,
+      sessionId,
+      workspacePath,
+      columns,
+      rows,
+      (terminalEvent) => {
+        if (!sender.isDestroyed()) sender.send(IPC_CHANNELS.workspaceTerminalData, terminalEvent);
+      },
+      (terminalEvent) => {
+        if (!sender.isDestroyed()) sender.send(IPC_CHANNELS.workspaceTerminalExit, terminalEvent);
+      }
+    );
+  });
+  ipcMain.handle(IPC_CHANNELS.writeWorkspaceTerminal, (event, sessionId: string, data: string) =>
+    workspaceTerminalService.write(event.sender.id, sessionId, data)
+  );
+  ipcMain.handle(IPC_CHANNELS.resizeWorkspaceTerminal, (event, sessionId: string, columns: number, rows: number) =>
+    workspaceTerminalService.resize(event.sender.id, sessionId, columns, rows)
+  );
+  ipcMain.handle(IPC_CHANNELS.closeWorkspaceTerminal, (event, sessionId: string) =>
+    workspaceTerminalService.close(event.sender.id, sessionId)
+  );
   ipcMain.handle(IPC_CHANNELS.getIosDeviceCaptureState, () => iosDeviceCaptureService.getState());
   ipcMain.handle(IPC_CHANNELS.startIosDeviceCapture, () => iosDeviceCaptureService.start());
   ipcMain.handle(IPC_CHANNELS.stopIosDeviceCapture, () => iosDeviceCaptureService.stop());
@@ -790,6 +821,7 @@ if (!hasSingleInstanceLock) {
       broadcastIosDeviceCaptureState,
       broadcastIosDeviceCaptureFrame
     );
+    workspaceTerminalService = new WorkspaceTerminalService();
     registerIpc();
     createWindow();
     if (smokeTestMode) {
@@ -806,6 +838,7 @@ if (!hasSingleInstanceLock) {
   });
 
   app.on('before-quit', () => {
+    workspaceTerminalService?.dispose();
     iosDeviceCaptureService?.dispose();
     workspaceService?.dispose();
   });

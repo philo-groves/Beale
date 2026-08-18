@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { JSX, MouseEvent } from 'react';
-import { ChevronDown, Code2, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, X } from 'lucide-react';
+import { ChevronDown, Code2, Minus, PanelBottomClose, PanelBottomOpen, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, X } from 'lucide-react';
 import type { HostEnvironment, RunDetail, WorkspaceEditorCatalog, WorkspaceEditorId, WorkspaceEditorSummary, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { AppHeaderTitle, StaticAppHeaderTitle } from './AppHeaderTitle';
@@ -36,8 +36,10 @@ export const TopBar = memo(function TopBar({
   activeRunDetail,
   activeBreakoutRoomTitle,
   profilingEnabled,
+  bottomPanelOpen,
   workspaceEditors,
   onOpenProfiling,
+  onToggleBottomPanel,
   onOpenWorkspaceInEditor,
   onAddWorkspace,
   onToggleRightSidenav,
@@ -54,8 +56,10 @@ export const TopBar = memo(function TopBar({
   activeRunDetail: RunDetail | null;
   activeBreakoutRoomTitle: string | null;
   profilingEnabled: boolean;
+  bottomPanelOpen: boolean;
   workspaceEditors: WorkspaceEditorCatalog | null;
   onOpenProfiling: () => void;
+  onToggleBottomPanel: () => void;
   onOpenWorkspaceInEditor: (editorId: WorkspaceEditorId) => void;
   onAddWorkspace: () => void;
   onToggleRightSidenav: () => void;
@@ -64,6 +68,7 @@ export const TopBar = memo(function TopBar({
   useDevRenderProbe('topBar', () => ({ platform, sidebarCollapsed, profilingEnabled, workspaceName, run: activeRunDetail?.run.id ?? 'none' }));
   const SidebarToggleIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
   const RightSidenavToggleIcon = rightSidenavExpanded ? PanelRightClose : PanelRightOpen;
+  const BottomPanelToggleIcon = bottomPanelOpen ? PanelBottomClose : PanelBottomOpen;
   const isMac = platform === 'darwin';
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const [editorMenuOpen, setEditorMenuOpen] = useState(false);
@@ -338,16 +343,28 @@ export const TopBar = memo(function TopBar({
             </div>
           ) : null}
           {rightSidenavAvailable ? (
-            <button
-              type="button"
-              className="window-control-button right-sidenav-toggle-button"
-              title={rightSidenavExpanded ? 'Show summary sidebar' : 'Show detailed sidebar'}
-              aria-label={rightSidenavExpanded ? 'Show summary sidebar' : 'Show detailed sidebar'}
-              aria-pressed={rightSidenavExpanded}
-              onClick={onToggleRightSidenav}
-            >
-              <RightSidenavToggleIcon size={14} aria-hidden="true" />
-            </button>
+            <>
+              <button
+                type="button"
+                className="window-control-button bottom-panel-toggle-button"
+                title={bottomPanelOpen ? 'Hide bottom panel' : 'Show bottom panel'}
+                aria-label={bottomPanelOpen ? 'Hide bottom panel' : 'Show bottom panel'}
+                aria-pressed={bottomPanelOpen}
+                onClick={onToggleBottomPanel}
+              >
+                <BottomPanelToggleIcon size={14} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="window-control-button right-sidenav-toggle-button"
+                title={rightSidenavExpanded ? 'Show summary sidebar' : 'Show detailed sidebar'}
+                aria-label={rightSidenavExpanded ? 'Show summary sidebar' : 'Show detailed sidebar'}
+                aria-pressed={rightSidenavExpanded}
+                onClick={onToggleRightSidenav}
+              >
+                <RightSidenavToggleIcon size={14} aria-hidden="true" />
+              </button>
+            </>
           ) : null}
           {!isMac ? (
             <>

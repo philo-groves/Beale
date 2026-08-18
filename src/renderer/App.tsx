@@ -39,6 +39,7 @@ import type {
 } from '@shared/types';
 import { AppModals } from './app/AppModals';
 import { AppBackgroundPulses } from './app/AppBackgroundPulses';
+import { BottomPanel, DEFAULT_BOTTOM_PANEL_OPEN } from './app/BottomPanel';
 import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
@@ -98,6 +99,7 @@ export function App(): JSX.Element {
   const appShellRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [workspaceEditors, setWorkspaceEditors] = useState<WorkspaceEditorCatalog | null>(null);
+  const [bottomPanelOpen, setBottomPanelOpen] = useState(DEFAULT_BOTTOM_PANEL_OPEN);
   const handleError = useCallback((message: string) => setError(message), []);
   const {
     snapshot,
@@ -1357,13 +1359,17 @@ export function App(): JSX.Element {
     automationsOpen,
     pluginsOpen
   });
+  const bottomPanelVisible = bottomPanelOpen && headerResearchControlsAvailable;
+  useEffect(() => {
+    if (!headerResearchControlsAvailable) setBottomPanelOpen(false);
+  }, [headerResearchControlsAvailable]);
   const shellClassName = `${appShellClassName({
     sessionHeat,
     sessionActive: workspaceHasLiveResearchRun(snapshot),
     platform: windowControlPlatform,
     windowChromeState,
     sidebarCollapsed
-  })}${settingsOpen ? ' settings-open' : ''}`;
+  })}${settingsOpen ? ' settings-open' : ''}${bottomPanelVisible ? ' bottom-panel-open' : ''}`;
   const currentWorkspaceName = snapshot?.activeScope.workspaceName ?? 'No Workspace Selected';
   const reportingScopeName = reportingScopeWorkspaceId
     ? workspaceRegistry?.workspaces.find((workspace) => workspace.workspaceId === reportingScopeWorkspaceId)?.workspaceName ?? 'Workspace'
@@ -1472,8 +1478,10 @@ export function App(): JSX.Element {
         activeRunDetail={activeRunDetail}
         activeBreakoutRoomTitle={activeBreakoutRoomTitle}
         profilingEnabled={profilingState?.enabled ?? false}
+        bottomPanelOpen={bottomPanelVisible}
         workspaceEditors={headerResearchControlsAvailable ? workspaceEditors : null}
         onOpenProfiling={openProfiling}
+        onToggleBottomPanel={() => setBottomPanelOpen((current) => !current)}
         onOpenWorkspaceInEditor={openWorkspaceInEditor}
         onAddWorkspace={() => {
           addWorkspace();
@@ -1740,6 +1748,11 @@ export function App(): JSX.Element {
           </div>
         )}
       </main>
+      <BottomPanel
+        open={bottomPanelVisible}
+        workspacePath={snapshot?.workspace.workspacePath ?? null}
+        onClose={() => setBottomPanelOpen(false)}
+      />
       {!settingsOpen ? <StatusBar onOpenSettings={openSettings} /> : null}
       <NotificationStack
         notifications={snapshot?.notifications ?? []}

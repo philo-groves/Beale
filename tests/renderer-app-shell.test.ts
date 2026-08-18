@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HostEnvironment, RunDetail, WorkspaceSnapshot } from '@shared/types';
 import { AppHeaderTitle, StaticAppHeaderTitle, type AppHeaderViewIcon } from '../src/renderer/app/AppHeaderTitle';
+import { BottomPanel, DEFAULT_BOTTOM_PANEL_OPEN } from '../src/renderer/app/BottomPanel';
 import { headerMenuInlineEnd, rightmostHeaderMenuControl, TopBar } from '../src/renderer/app/TopBar';
 import {
   activeRunDetailForSelection,
@@ -69,6 +70,7 @@ describe('renderer app shell view model', () => {
       activeRunDetail: null,
       activeBreakoutRoomTitle: null,
       profilingEnabled: false,
+      bottomPanelOpen: true,
       workspaceEditors: {
         editors: [
           { id: 'vscode', name: 'Visual Studio Code', iconDataUrl: 'data:image/png;base64,dnNjb2Rl' },
@@ -77,6 +79,7 @@ describe('renderer app shell view model', () => {
         defaultEditorId: 'cursor'
       },
       onOpenProfiling: () => undefined,
+      onToggleBottomPanel: () => undefined,
       onOpenWorkspaceInEditor: () => undefined,
       onAddWorkspace: () => undefined,
       onToggleRightSidenav: () => undefined,
@@ -88,6 +91,8 @@ describe('renderer app shell view model', () => {
     expect(header).toContain('class="workspace-editor-icon"');
     expect(header).toContain('data:image/png;base64,Y3Vyc29y');
     expect(header.indexOf('workspace-editor-control')).toBeLessThan(header.indexOf('right-sidenav-toggle-button'));
+    expect(header).toContain('aria-label="Hide bottom panel"');
+    expect(header.indexOf('bottom-panel-toggle-button')).toBeLessThan(header.indexOf('right-sidenav-toggle-button'));
   });
 
   it('limits both header research controls to workspace and session views', () => {
@@ -106,9 +111,63 @@ describe('renderer app shell view model', () => {
     expect(shouldShowHeaderResearchControls({ ...base, researchDetailsAvailable: false })).toBe(false);
 
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
-    expect(styles).toContain('.workspace-editor-control + .window-control-button.right-sidenav-toggle-button');
-    expect(styles).toMatch(/\.workspace-editor-control\s*\{[^}]*margin: 0;/u);
+    expect(styles).toMatch(/\.workspace-editor-control\s*\{[^}]*margin: 0 16px 0 0;/u);
+    expect(styles).toMatch(/\.window-control-button\.right-sidenav-toggle-button\s*\{[^}]*margin: 0;/u);
     expect(styles).toMatch(/\.workspace-editor-open-button,\s*\.workspace-editor-menu-button\s*\{[^}]*background: rgba\(255, 255, 255, 0\.045\);/u);
+  });
+
+  it('renders a separate fixed-height terminal panel below the workbench', () => {
+    expect(DEFAULT_BOTTOM_PANEL_OPEN).toBe(false);
+    const panel = renderToStaticMarkup(createElement(BottomPanel, {
+      open: true,
+      workspacePath: 'C:\\research\\parser',
+      onClose: () => undefined
+    }));
+    expect(panel).toContain('aria-label="Bottom panel"');
+    expect(panel).toContain('lucide-square-terminal');
+    expect(panel).toContain('role="tab"');
+    expect(panel).toContain('aria-selected="true"');
+    expect(panel).toContain('<span>Terminal</span>');
+    expect(panel).toContain('class="research-side-view-tab-close"');
+    expect(panel).toContain('aria-label="Close Terminal"');
+    expect(panel).toContain('lucide-x');
+    expect(panel).toContain('class="bottom-panel-terminal"');
+
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    expect(styles).toContain('grid-template-rows: 38px minmax(0, 1fr) 8px 250px 8px;');
+    expect(styles).toContain('grid-template-rows: 38px minmax(0, 1fr) 0 0 8px;');
+    expect(styles).toMatch(/\.workbench\s*\{[^}]*margin: 0 8px 0 0;[^}]*padding: 0 12px;/u);
+    expect(styles).toMatch(/\.bottom-panel\s*\{[^}]*grid-column: 2;[^}]*grid-row: 4;[^}]*height: 0;/u);
+    expect(styles).toMatch(/\.bottom-panel\s*\{[^}]*margin: 0 8px 0 0;[^}]*padding: 0;/u);
+    expect(styles).toMatch(/\.app-shell\.bottom-panel-open \.bottom-panel\s*\{[^}]*height: 250px;/u);
+    expect(styles).toMatch(/\.bottom-panel-terminal\s*\{[^}]*padding-inline: 10px;/u);
+    expect(styles).toMatch(/\.sidebar\s*\{[^}]*grid-row: 2 \/ 5;/u);
+  });
+
+  it('hides the bottom-panel toggle wherever the right-sidenav toggle is unavailable', () => {
+    const header = renderToStaticMarkup(createElement(TopBar, {
+      sidebarCollapsed: false,
+      rightSidenavAvailable: false,
+      rightSidenavExpanded: false,
+      contextualTitleVisible: false,
+      staticContextTitle: null,
+      platform: 'win32',
+      workspaceName: 'Parser',
+      workspaceViewTitle: null,
+      activeRunDetail: null,
+      activeBreakoutRoomTitle: null,
+      profilingEnabled: false,
+      bottomPanelOpen: false,
+      workspaceEditors: null,
+      onOpenProfiling: () => undefined,
+      onToggleBottomPanel: () => undefined,
+      onOpenWorkspaceInEditor: () => undefined,
+      onAddWorkspace: () => undefined,
+      onToggleRightSidenav: () => undefined,
+      onToggleSidebar: () => undefined
+    }));
+    expect(header).not.toContain('bottom-panel-toggle-button');
+    expect(header).not.toContain('right-sidenav-toggle-button');
   });
 
   it('selects active run state and detail only when ids match', () => {

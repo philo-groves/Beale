@@ -227,6 +227,23 @@ export interface WorkspaceEditorCatalog {
   defaultEditorId: WorkspaceEditorId | null;
 }
 
+export interface WorkspaceTerminalStartResult {
+  sessionId: string;
+  cwd: string;
+  shell: string;
+}
+
+export interface WorkspaceTerminalDataEvent {
+  sessionId: string;
+  data: string;
+}
+
+export interface WorkspaceTerminalExitEvent {
+  sessionId: string;
+  exitCode: number;
+  signal: number | null;
+}
+
 export interface WindowChromeState {
   isMaximized: boolean;
   isFullScreen: boolean;
@@ -1788,6 +1805,12 @@ export interface BealeApi {
   getHostEnvironment(): Promise<HostEnvironment>;
   getWorkspaceEditors(): Promise<WorkspaceEditorCatalog>;
   openWorkspaceInEditor(editorId: WorkspaceEditorId): Promise<void>;
+  startWorkspaceTerminal(sessionId: string, columns: number, rows: number): Promise<WorkspaceTerminalStartResult>;
+  writeWorkspaceTerminal(sessionId: string, data: string): Promise<void>;
+  resizeWorkspaceTerminal(sessionId: string, columns: number, rows: number): Promise<void>;
+  closeWorkspaceTerminal(sessionId: string): Promise<void>;
+  onWorkspaceTerminalData(listener: (event: WorkspaceTerminalDataEvent) => void): () => void;
+  onWorkspaceTerminalExit(listener: (event: WorkspaceTerminalExitEvent) => void): () => void;
   getIosDeviceCaptureState(): Promise<IosDeviceCaptureState>;
   startIosDeviceCapture(): Promise<IosDeviceCaptureState>;
   stopIosDeviceCapture(): Promise<IosDeviceCaptureState>;

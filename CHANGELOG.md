@@ -81,6 +81,7 @@
 
 ### Added
 
+- Workspace and session views now provide a real interactive PTY terminal in a separate 250px bottom panel. The terminal opens in the active workspace's primary directory, streams through a typed host boundary, closes with its owning window or panel, and defaults to collapsed behind a context-matched header toggle with animated vertical transitions.
 - Workspace and session headers now open the active workspace's primary directory in a detected local editor. The compact control sits directly beside the details-sidenav button, prefers the system-configured editor when identifiable, falls back to Visual Studio Code, and lists only available editors with their native installed-app icons.
 - Agent Settings now includes a Computer Use view where Windows users can enable the built-in Terminator integration; other operating systems receive an availability notice instead of a feature toggle.
 

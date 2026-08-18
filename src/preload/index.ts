@@ -15,6 +15,9 @@ import type {
   HostEnvironment,
   WorkspaceEditorCatalog,
   WorkspaceEditorId,
+  WorkspaceTerminalDataEvent,
+  WorkspaceTerminalExitEvent,
+  WorkspaceTerminalStartResult,
   IosDeviceCaptureFrame,
   IosDeviceCaptureState,
   HackerOneScopeLookupResult,
@@ -202,6 +205,28 @@ const api: BealeApi = {
   },
   openWorkspaceInEditor(editorId: WorkspaceEditorId): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.openWorkspaceInEditor, editorId);
+  },
+  startWorkspaceTerminal(sessionId: string, columns: number, rows: number): Promise<WorkspaceTerminalStartResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.startWorkspaceTerminal, sessionId, columns, rows);
+  },
+  writeWorkspaceTerminal(sessionId: string, data: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.writeWorkspaceTerminal, sessionId, data);
+  },
+  resizeWorkspaceTerminal(sessionId: string, columns: number, rows: number): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.resizeWorkspaceTerminal, sessionId, columns, rows);
+  },
+  closeWorkspaceTerminal(sessionId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.closeWorkspaceTerminal, sessionId);
+  },
+  onWorkspaceTerminalData(listener: (event: WorkspaceTerminalDataEvent) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, terminalEvent: WorkspaceTerminalDataEvent): void => listener(terminalEvent);
+    ipcRenderer.on(IPC_CHANNELS.workspaceTerminalData, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.workspaceTerminalData, wrapped);
+  },
+  onWorkspaceTerminalExit(listener: (event: WorkspaceTerminalExitEvent) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, terminalEvent: WorkspaceTerminalExitEvent): void => listener(terminalEvent);
+    ipcRenderer.on(IPC_CHANNELS.workspaceTerminalExit, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.workspaceTerminalExit, wrapped);
   },
   getIosDeviceCaptureState(): Promise<IosDeviceCaptureState> {
     return ipcRenderer.invoke(IPC_CHANNELS.getIosDeviceCaptureState);
