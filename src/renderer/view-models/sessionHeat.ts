@@ -6,10 +6,11 @@ import type {
   RunDetail
 } from '@shared/types';
 import { stateClass } from '../lib/formatting';
+import type { AppearanceTheme } from './appearance';
 
 export type SessionHeat = ResearchProfileSessionHeat;
 export type SessionHeatColorLevel = Exclude<SessionHeat, 'none'>;
-export type SessionHeatTheme = 'light' | 'dark';
+export type SessionHeatTheme = AppearanceTheme;
 export type SessionHeatPreferenceOverrides = Record<string, Record<string, Record<string, SessionHeat>>>;
 export type SessionHeatPalettePreferenceOverrides = Record<
   string,
@@ -23,7 +24,7 @@ export interface SessionHeatPreferences {
 
 export const SESSION_HEAT_LEVELS: readonly SessionHeat[] = ['none', 'low', 'medium', 'high', 'critical'];
 export const SESSION_HEAT_COLOR_LEVELS: readonly SessionHeatColorLevel[] = ['low', 'medium', 'high', 'critical'];
-export const SESSION_HEAT_THEMES: readonly SessionHeatTheme[] = ['light', 'dark'];
+export const SESSION_HEAT_THEMES: readonly SessionHeatTheme[] = ['light', 'dark', 'cream', 'midnight'];
 export const SESSION_HEAT_STORAGE_KEY = 'beale.sessionHeatOverrides';
 export const DEFAULT_SESSION_HEAT_PALETTE: ResearchProfileSessionHeatPalette = {
   low: '#45b8d8',
@@ -36,6 +37,18 @@ export const SECURITY_RESEARCH_DARK_SESSION_HEAT_PALETTE: ResearchProfileSession
   medium: '#703400',
   high: '#7f1a1f',
   critical: '#610006'
+};
+export const CREAM_SESSION_HEAT_PALETTE: ResearchProfileSessionHeatPalette = {
+  low: '#b58a3c',
+  medium: '#bf6b32',
+  high: '#ad4638',
+  critical: '#812f3b'
+};
+export const MIDNIGHT_SESSION_HEAT_PALETTE: ResearchProfileSessionHeatPalette = {
+  low: '#3e8aaa',
+  medium: '#4771c4',
+  high: '#6b5fc7',
+  critical: '#a34fa6'
 };
 
 export const EMPTY_SESSION_HEAT_PREFERENCES: SessionHeatPreferences = {
@@ -102,6 +115,8 @@ export function sessionHeatPaletteForProfile(
     ...DEFAULT_SESSION_HEAT_PALETTE,
     ...profile?.presentation.sessionHeatPalette,
     ...(profile?.id === 'security-research' && theme === 'dark' ? SECURITY_RESEARCH_DARK_SESSION_HEAT_PALETTE : {}),
+    ...(theme === 'cream' ? CREAM_SESSION_HEAT_PALETTE : {}),
+    ...(theme === 'midnight' ? MIDNIGHT_SESSION_HEAT_PALETTE : {}),
     ...paletteOverrides[profile?.id ?? '']?.[theme]
   };
 }

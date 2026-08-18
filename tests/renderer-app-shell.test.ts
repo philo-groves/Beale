@@ -113,7 +113,7 @@ describe('renderer app shell view model', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     expect(styles).toMatch(/\.workspace-editor-control\s*\{[^}]*margin: 0 16px 0 0;/u);
     expect(styles).toMatch(/\.window-control-button\.right-sidenav-toggle-button\s*\{[^}]*margin: 0;/u);
-    expect(styles).toMatch(/\.workspace-editor-open-button,\s*\.workspace-editor-menu-button\s*\{[^}]*background: rgba\(255, 255, 255, 0\.045\);/u);
+    expect(styles).toMatch(/\.workspace-editor-open-button,\s*\.workspace-editor-menu-button\s*\{[^}]*background: color-mix\(in srgb, var\(--text\) 4\.5%, transparent\);/u);
   });
 
   it('renders a separate fixed-height terminal panel below the workbench', () => {

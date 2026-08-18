@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Agent Settings now includes a persisted Appearance view with Light, Dark, warm Cream, and dark-blue Midnight themes; Dark remains the default, and profile Session Heat palettes provide customizable variants with theme-appropriate defaults.
 - Removed the session trace timeline, filters, and detail UI. Commentary is now always on, while General settings exposes a Debugging > Traces checkbox that defaults off and controls retention of optional diagnostic trace mirrors; functional, evidence, policy, and session-history records remain retained, and enabled traces stay available through run-detail queries.
 - Workspace Overview now matches its Directories column to the session summary sidenav width, presents directories as a flat divided list, and lets users promote any directory to the persisted primary position while keeping the workspace storage root protected.
 - Workspace Overview form labels, descriptions, fields, and save status now use the same 14px typography as the General and Profile settings views.

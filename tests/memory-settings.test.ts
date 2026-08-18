@@ -69,6 +69,8 @@ describe('memory settings', () => {
     expect(html).not.toContain('aria-label="Finding memory definition"');
     expect(html).not.toContain('class="profile-memory-type-view"');
     expect(html).toContain(`aria-label="${resolved.profile.name} session heat colors"`);
+    expect(html).toContain('>Cream</button>');
+    expect(html).toContain('>Midnight</button>');
     expect(profileTabsIndex).toBeLessThan(profileDescriptionIndex);
     expect(profileTabsIndex).toBeLessThan(profileViewsIndex);
     expect(profileViewsIndex).toBeLessThan(profileDescriptionIndex);

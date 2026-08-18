@@ -68,6 +68,7 @@ import { useRunDetailPolling } from './hooks/useRunDetailPolling';
 import { useResearchGoalSuggestions } from './hooks/useResearchGoalSuggestions';
 import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
 import { usePermissionSettings } from './hooks/usePermissionSettings';
+import { useAppearanceTheme } from './hooks/useAppearanceTheme';
 import { useSessionHeatPreferences } from './hooks/useSessionHeatPreferences';
 import { filterEnabledProviderModelCatalogs } from '../shared/optionalProviderModels';
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
@@ -185,6 +186,7 @@ export function App(): JSX.Element {
     [enabledResearchProviderModelCatalog, providerSettings]
   );
   const [tracesEnabled, setTracesEnabled] = useState(false);
+  const [appearanceTheme, setAppearanceTheme] = useAppearanceTheme();
   const [permissionSettings, setDangerModeEnabled, setDefaultShellSafetyMode] = usePermissionSettings();
   const [sessionHeatPreferences, setSessionHeatPreference, setSessionHeatPalettePreference] = useSessionHeatPreferences();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
@@ -1352,7 +1354,7 @@ export function App(): JSX.Element {
   const sessionHeatProfile = activeRunDetail?.researchProfile?.profile ?? snapshot?.researchProfile.profile ?? null;
   const shellStyle = {
     '--sidebar-width': `${sidebarWidth}px`,
-    ...sessionHeatPaletteStyle(sessionHeatPaletteForProfile(sessionHeatProfile, sessionHeatPreferences, 'dark'))
+    ...sessionHeatPaletteStyle(sessionHeatPaletteForProfile(sessionHeatProfile, sessionHeatPreferences, appearanceTheme))
   } as CSSProperties;
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const headerResearchControlsAvailable = shouldShowHeaderResearchControls({
@@ -1458,7 +1460,7 @@ export function App(): JSX.Element {
     return updated;
   }, []);
   return (
-    <div ref={appShellRef} className={shellClassName} style={shellStyle}>
+    <div ref={appShellRef} className={shellClassName} data-theme={appearanceTheme} style={shellStyle}>
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
@@ -1543,6 +1545,7 @@ export function App(): JSX.Element {
         {settingsOpen ? (
           <SettingsView
             section={settingsSection}
+            appearanceTheme={appearanceTheme}
             researchProfiles={researchProfiles}
             researchProfilesLoading={researchProfilesLoading}
             researchProfile={snapshot?.researchProfile ?? null}
@@ -1563,6 +1566,7 @@ export function App(): JSX.Element {
             agentPluginsError={agentPluginsError}
             sessionHeatPreferences={sessionHeatPreferences}
             busy={busy}
+            onChangeAppearanceTheme={setAppearanceTheme}
             onChangeTracesEnabled={changeTracesEnabled}
             onChangeDangerModeEnabled={setDangerModeEnabled}
             onChangeDefaultShellSafetyMode={setDefaultShellSafetyMode}

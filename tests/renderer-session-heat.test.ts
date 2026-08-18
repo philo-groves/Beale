@@ -108,6 +108,46 @@ describe('renderer session heat view models', () => {
     expect(sessionHeatPaletteForProfile(cyberProfile, undefined, 'light')).toEqual(cyberProfile.presentation.sessionHeatPalette);
     expect(sessionHeatPaletteForProfile(mathematicsProfile, undefined, 'dark')).toEqual(mathematicsProfile.presentation.sessionHeatPalette);
   });
+
+  it('uses warm Cream defaults and stores Cream overrides independently', () => {
+    const profile = mathematicsHeatProfile();
+    const preferences = withSessionHeatPalettePreference(
+      { heatOverrides: {}, paletteOverrides: {} },
+      profile.id,
+      'cream',
+      'high',
+      '#9f3d2f'
+    );
+
+    expect(sessionHeatPaletteForProfile(profile, undefined, 'cream')).toEqual({
+      low: '#b58a3c',
+      medium: '#bf6b32',
+      high: '#ad4638',
+      critical: '#812f3b'
+    });
+    expect(sessionHeatPaletteForProfile(profile, preferences, 'cream').high).toBe('#9f3d2f');
+    expect(sessionHeatPaletteForProfile(profile, preferences, 'dark').high).toBe('#7768e8');
+  });
+
+  it('uses cool Midnight defaults and stores Midnight overrides independently', () => {
+    const profile = mathematicsHeatProfile();
+    const preferences = withSessionHeatPalettePreference(
+      { heatOverrides: {}, paletteOverrides: {} },
+      profile.id,
+      'midnight',
+      'critical',
+      '#bd58b8'
+    );
+
+    expect(sessionHeatPaletteForProfile(profile, undefined, 'midnight')).toEqual({
+      low: '#3e8aaa',
+      medium: '#4771c4',
+      high: '#6b5fc7',
+      critical: '#a34fa6'
+    });
+    expect(sessionHeatPaletteForProfile(profile, preferences, 'midnight').critical).toBe('#bd58b8');
+    expect(sessionHeatPaletteForProfile(profile, preferences, 'dark').critical).toBe('#b14ee8');
+  });
 });
 
 function runDetail(

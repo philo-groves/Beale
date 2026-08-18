@@ -22,6 +22,10 @@ describe('renderer Computer Use settings', () => {
     expect(settingsSectionLabel('computer-use')).toBe('Computer Use');
     expect(html).toContain('<span>Computer Use</span>');
     expect(html).toContain('aria-current="page"');
+    expect(html).toContain('lucide-settings');
+    expect(html).toContain('lucide-palette');
+    expect(html).toContain('lucide-server-cog');
+    expect(html).toContain('lucide-user-round-cog');
     expect(html).toContain('lucide-monitor');
   });
 

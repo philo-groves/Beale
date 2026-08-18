@@ -254,7 +254,7 @@ describe('renderer dialog surfaces', () => {
     expect(selectStyles).toContain('border: 0');
     expect(selectStyles).toContain('background-color: var(--panel-column)');
     expect(selectStyles).toContain('font-weight: 400');
-    expect(selectHoverStyles).toContain('box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.09)');
+    expect(selectHoverStyles).toContain('box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--text) 9%, transparent)');
     expect(teamLabelStyles).toContain('color: var(--muted)');
     expect(teamLabelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
     expect(teamLabelStyles).toContain('font-weight: 400');
@@ -290,9 +290,9 @@ describe('renderer dialog surfaces', () => {
     expect(researchGoalChoiceHoverStyles).toContain('background: transparent');
     expect(researchGoalChoiceHoverStyles).toContain('color: var(--text)');
     expect(styles).toContain('.research-collaborator-squircle:has(.research-collaborator-picker .model-selection-picker-trigger:hover:not(:disabled))');
-    expect(styles).toContain('box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.09)');
+    expect(styles).toContain('box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--text) 9%, transparent)');
     expect(styles).toContain('.research-collaborator-squircle .research-collaborator-picker .model-selection-picker-trigger:hover:not(:disabled)');
-    expect(styles).toMatch(/\.research-collaborator-add:hover:not\(:disabled\),[\s\S]*?box-shadow: inset 0 0 0 999px rgba\(255, 255, 255, 0\.09\)/);
+    expect(styles).toMatch(/\.research-collaborator-add:hover:not\(:disabled\),[\s\S]*?box-shadow: inset 0 0 0 999px color-mix\(in srgb, var\(--text\) 9%, transparent\)/);
   });
 
   it('keeps the terminal-session next-step widget structurally stable while suggestions load', () => {

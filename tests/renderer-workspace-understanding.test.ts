@@ -778,11 +778,11 @@ describe('workspace dashboard', () => {
     const revisionMarkerStyles = styles.match(/\.workspace-timeline-runbook-marker,\s*\.workspace-timeline-report-marker\s*\{([^}]*)\}/)?.[1] ?? '';
     const resultMarkerStyles = styles.match(/\.workspace-timeline-result-symbol\s*\{([^}]*)\}/)?.[1] ?? '';
 
-    expect(memoryMarkerStyles).toContain('border: 1px solid color-mix(in srgb, var(--memory-type-color) 62%, #050505)');
+    expect(memoryMarkerStyles).toContain('border: 1px solid color-mix(in srgb, var(--memory-type-color) 62%, var(--gray-05))');
     expect(memoryMarkerStyles).not.toContain('box-shadow:');
-    expect(revisionMarkerStyles).toContain('border: 1px solid color-mix(in srgb, var(--workspace-timeline-artifact-color) 58%, #050505)');
+    expect(revisionMarkerStyles).toContain('border: 1px solid color-mix(in srgb, var(--workspace-timeline-artifact-color) 58%, var(--gray-05))');
     expect(revisionMarkerStyles).not.toContain('box-shadow:');
-    expect(resultMarkerStyles).toContain('border: 1px solid color-mix(in srgb, var(--workspace-timeline-result-color) 58%, #050505)');
+    expect(resultMarkerStyles).toContain('border: 1px solid color-mix(in srgb, var(--workspace-timeline-result-color) 58%, var(--gray-05))');
     expect(resultMarkerStyles).toContain('border-radius: 2px');
     expect(resultMarkerStyles).not.toContain('box-shadow:');
   });

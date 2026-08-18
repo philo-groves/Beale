@@ -5,7 +5,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   DEFAULT_RESEARCH_REASONING_EFFORT
 } from '../../../shared/modelDefaults';
-import { ArrowLeft, KeyRound, Monitor, Plus, RefreshCw, Settings, X } from 'lucide-react';
+import { ArrowLeft, KeyRound, Monitor, Palette, Plus, RefreshCw, ServerCog, Settings, UserRoundCog, X } from 'lucide-react';
 import type {
   AgentPluginRegistryState,
   HostEnvironment,
@@ -42,9 +42,11 @@ import {
 } from '../../../shared/optionalProviderModels';
 import { normalizeShellSafetyMode } from '../../../shared/shellSafety';
 import { permissionModeOptions } from '../../view-models/permissionSettings';
+import { APPEARANCE_THEMES, type AppearanceTheme } from '../../view-models/appearance';
 import {
   EMPTY_SESSION_HEAT_PREFERENCES,
   SESSION_HEAT_COLOR_LEVELS,
+  SESSION_HEAT_THEMES,
   normalizeHexColor,
   sessionHeatPaletteForProfile,
   type SessionHeat,
@@ -53,9 +55,9 @@ import {
   type SessionHeatTheme
 } from '../../view-models/sessionHeat';
 
-export type SettingsSection = 'general' | 'providers' | 'profile' | 'computer-use';
+export type SettingsSection = 'general' | 'appearance' | 'providers' | 'profile' | 'computer-use';
 
-const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'profile', 'computer-use'];
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'appearance', 'providers', 'profile', 'computer-use'];
 
 export function SettingsSidebar({
   collapsed,
@@ -96,9 +98,17 @@ export function SettingsSidebar({
                   aria-current={activeSection === item ? 'page' : undefined}
                   onClick={() => onChangeSection(item)}
                 >
-                  {item === 'computer-use'
-                    ? <Monitor size={15} aria-hidden="true" />
-                    : <Settings size={15} aria-hidden="true" />}
+                  {item === 'computer-use' ? (
+                    <Monitor size={15} aria-hidden="true" />
+                  ) : item === 'appearance' ? (
+                    <Palette size={15} aria-hidden="true" />
+                  ) : item === 'providers' ? (
+                    <ServerCog size={15} aria-hidden="true" />
+                  ) : item === 'profile' ? (
+                    <UserRoundCog size={15} aria-hidden="true" />
+                  ) : (
+                    <Settings size={15} aria-hidden="true" />
+                  )}
                   <span>{settingsSectionLabel(item)}</span>
                 </button>
               </div>
@@ -114,6 +124,7 @@ export function SettingsSidebar({
 
 export function SettingsView({
   section,
+  appearanceTheme,
   researchProfile,
   tracesEnabled,
   dangerModeEnabled,
@@ -134,6 +145,7 @@ export function SettingsView({
   agentPluginsError,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   busy,
+  onChangeAppearanceTheme,
   onChangeTracesEnabled,
   onChangeDangerModeEnabled,
   onChangeDefaultShellSafetyMode,
@@ -154,6 +166,7 @@ export function SettingsView({
   onSetSessionHeatPalettePreference = () => undefined
 }: {
   section: SettingsSection;
+  appearanceTheme: AppearanceTheme;
   researchProfile: ResearchProfileSnapshot | null;
   researchProfiles: ResolvedResearchProfile[];
   researchProfilesLoading: boolean;
@@ -174,6 +187,7 @@ export function SettingsView({
   agentPluginsError: string | null;
   sessionHeatPreferences?: SessionHeatPreferences;
   busy: boolean;
+  onChangeAppearanceTheme: (theme: AppearanceTheme) => void;
   onChangeTracesEnabled: (enabled: boolean) => void;
   onChangeDangerModeEnabled: (enabled: boolean) => void;
   onChangeDefaultShellSafetyMode: (mode: ShellSafetyMode) => void;
@@ -222,6 +236,11 @@ export function SettingsView({
             onChangeDangerModeEnabled={onChangeDangerModeEnabled}
             onChangeDefaultShellSafetyMode={onChangeDefaultShellSafetyMode}
           />
+        ) : activeSection === 'appearance' ? (
+          <AppearanceSettingsView
+            theme={appearanceTheme}
+            onChangeTheme={onChangeAppearanceTheme}
+          />
         ) : activeSection === 'providers' ? (
           <ProvidersSettingsView
             busy={busy}
@@ -251,6 +270,7 @@ export function SettingsView({
             researchProfiles={researchProfiles}
             loading={researchProfilesLoading}
             sessionHeatPreferences={sessionHeatPreferences}
+            appearanceTheme={appearanceTheme}
             onSetSessionHeatPreference={onSetSessionHeatPreference}
             onSetSessionHeatPalettePreference={onSetSessionHeatPalettePreference}
           />
@@ -275,7 +295,28 @@ function activeSettingsSection(section: SettingsSection): SettingsSection {
 
 const SESSION_HEAT_THEME_LABELS: Record<SessionHeatTheme, string> = {
   light: 'Light Heat',
-  dark: 'Dark Heat'
+  dark: 'Dark Heat',
+  cream: 'Cream Heat',
+  midnight: 'Midnight Heat'
+};
+
+const APPEARANCE_THEME_DETAILS: Record<AppearanceTheme, { name: string; description: string }> = {
+  light: {
+    name: 'Light',
+    description: 'A bright interface with cool neutral surfaces.'
+  },
+  dark: {
+    name: 'Dark',
+    description: 'The default low-light Beale interface.'
+  },
+  cream: {
+    name: 'Cream',
+    description: 'A warm light interface with soft brown surfaces.'
+  },
+  midnight: {
+    name: 'Midnight',
+    description: 'A dark interface with deep blue surfaces.'
+  }
 };
 
 const SESSION_HEAT_LEVEL_DESCRIPTIONS: Record<SessionHeatColorLevel, string> = {
@@ -285,16 +326,70 @@ const SESSION_HEAT_LEVEL_DESCRIPTIONS: Record<SessionHeatColorLevel, string> = {
   critical: 'The strongest signal for sessions with exceptional activity.'
 };
 
+export function AppearanceSettingsView({
+  theme,
+  onChangeTheme
+}: {
+  theme: AppearanceTheme;
+  onChangeTheme: (theme: AppearanceTheme) => void;
+}): JSX.Element {
+  return (
+    <div className="settings-page general-settings-page appearance-settings-page">
+      <section className="settings-form appearance-settings-form">
+        <header className="settings-form-heading">
+          <h2 id="appearance-theme-heading">Theme</h2>
+          <p>Choose the color theme used throughout Beale.</p>
+        </header>
+        <fieldset className="settings-form-squircle appearance-theme-settings" aria-labelledby="appearance-theme-heading">
+          <div className="settings-form-control-list appearance-theme-list">
+            {APPEARANCE_THEMES.map((candidate) => {
+              const details = APPEARANCE_THEME_DETAILS[candidate];
+              return (
+                <label
+                  className="settings-form-control-row appearance-theme-row"
+                  data-appearance-theme={candidate}
+                  key={candidate}
+                >
+                  <span className="settings-form-control-copy">
+                    <strong>{details.name}</strong>
+                    <small>{details.description}</small>
+                  </span>
+                  <span className="appearance-theme-control">
+                    <span className="appearance-theme-preview" aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                    <input
+                      type="radio"
+                      name="appearance-theme"
+                      aria-label={`${details.name} theme`}
+                      checked={theme === candidate}
+                      onChange={() => onChangeTheme(candidate)}
+                    />
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+      </section>
+    </div>
+  );
+}
+
 export function ProfileSettingsView({
   researchProfile,
   researchProfiles,
   loading = false,
+  appearanceTheme = 'dark',
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   onSetSessionHeatPalettePreference = () => undefined
 }: {
   researchProfile: ResearchProfileSnapshot | null;
   researchProfiles: readonly ResolvedResearchProfile[];
   loading?: boolean;
+  appearanceTheme?: AppearanceTheme;
   sessionHeatPreferences?: SessionHeatPreferences;
   onSetSessionHeatPreference?: (profileId: string, memoryTypeId: string, status: string, heat: SessionHeat | null) => void;
   onSetSessionHeatPalettePreference?: (
@@ -437,6 +532,7 @@ export function ProfileSettingsView({
             profile={selectedProfile.profile}
             memoryType={selectedMemoryType}
             sessionHeatPreferences={sessionHeatPreferences}
+            appearanceTheme={appearanceTheme}
           />
         ) : (
           <article
@@ -481,6 +577,7 @@ export function ProfileSettingsView({
             </section>
             <SessionHeatPaletteSettings
               profile={selectedProfile.profile}
+              appearanceTheme={appearanceTheme}
               sessionHeatPreferences={sessionHeatPreferences}
               onSetColor={onSetSessionHeatPalettePreference}
             />
@@ -555,12 +652,14 @@ export function MemoryTypeSettingsView({
   labelledBy,
   profile,
   memoryType,
+  appearanceTheme = 'dark',
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES
 }: {
   id: string;
   labelledBy: string;
   profile: ResearchProfile;
   memoryType: ResearchProfileMemoryType;
+  appearanceTheme?: AppearanceTheme;
   sessionHeatPreferences?: SessionHeatPreferences;
 }): JSX.Element {
   const [draft, setDraft] = useState(() => ({
@@ -578,7 +677,7 @@ export function MemoryTypeSettingsView({
     } as Record<SessionHeatColorLevel, string[]>
   }));
   const statuses = [...profile.memory.statuses].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
-  const darkPalette = sessionHeatPaletteForProfile(profile, sessionHeatPreferences, 'dark');
+  const activePalette = sessionHeatPaletteForProfile(profile, sessionHeatPreferences, appearanceTheme);
   const toggleAllowedStatus = (statusId: string): void => {
     setDraft((current) => {
       const allowedStatuses = toggleStringValue(current.allowedStatuses, statusId);
@@ -701,7 +800,7 @@ export function MemoryTypeSettingsView({
                     <span
                       className="profile-memory-heat-preview"
                       data-heat-level={level}
-                      style={{ '--profile-session-heat-color': darkPalette[level] } as CSSProperties}
+                      style={{ '--profile-session-heat-color': activePalette[level] } as CSSProperties}
                       aria-hidden="true"
                     />
                     <MemoryHeatStatePicker
@@ -796,19 +895,21 @@ function MemoryHeatStatePicker({
 
 function SessionHeatPaletteSettings({
   profile,
+  appearanceTheme,
   sessionHeatPreferences,
   onSetColor
 }: {
   profile: ResearchProfile;
+  appearanceTheme: AppearanceTheme;
   sessionHeatPreferences: SessionHeatPreferences;
   onSetColor: (profileId: string, theme: SessionHeatTheme, level: SessionHeatColorLevel, color: string | null) => void;
 }): JSX.Element {
-  const [theme, setTheme] = useState<SessionHeatTheme>('dark');
+  const [theme, setTheme] = useState<SessionHeatTheme>(appearanceTheme);
   const palette: ResearchProfileSessionHeatPalette = sessionHeatPaletteForProfile(profile, sessionHeatPreferences, theme);
 
   useEffect(() => {
-    setTheme('dark');
-  }, [profile.id]);
+    setTheme(appearanceTheme);
+  }, [appearanceTheme, profile.id]);
 
   return (
     <section className="settings-form profile-heat-form" aria-label={`${profile.name} session heat colors`}>
@@ -826,7 +927,7 @@ function SessionHeatPaletteSettings({
               <RefreshCw size={13} aria-hidden="true" />
             </button>
             <div className="profile-heat-theme-toggle" role="group" aria-label="Heat variant">
-              {(['light', 'dark'] as const).map((candidate) => (
+              {SESSION_HEAT_THEMES.map((candidate) => (
                 <button
                   className={candidate === theme ? 'active' : ''}
                   type="button"
@@ -834,7 +935,7 @@ function SessionHeatPaletteSettings({
                   onClick={() => setTheme(candidate)}
                   key={candidate}
                 >
-                  {candidate === 'light' ? 'Light' : 'Dark'}
+                  {APPEARANCE_THEME_DETAILS[candidate].name}
                 </button>
               ))}
             </div>
@@ -2308,6 +2409,8 @@ function ProviderOAuthResult({ result }: { result: OpenAiOAuthStartResult | Rese
 
 export function settingsSectionLabel(section: SettingsSection): string {
   switch (section) {
+    case 'appearance':
+      return 'Appearance';
     case 'computer-use':
       return 'Computer Use';
     case 'providers':
