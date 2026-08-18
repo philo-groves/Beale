@@ -26,7 +26,7 @@ import type { WorkspaceTimelineResult } from '../../view-models/workspaceTimelin
 import { EMPTY_SESSION_HEAT_PREFERENCES, SESSION_HEAT_LEVELS } from '../../view-models/sessionHeat';
 import type { SessionHeat, SessionHeatPreferences } from '../../view-models/sessionHeat';
 import { errorMessage } from '../../lib/errors';
-import { WorkspaceDirectoriesWidget } from './WorkspaceDirectoriesWidget';
+import { promoteWorkspaceDirectory, WorkspaceDirectoriesWidget } from './WorkspaceDirectoriesWidget';
 
 const TIMELINE_WINDOW_HOURS = 4;
 const TIMELINE_TICK_HOURS = [0, 1, 2, 3, 4] as const;
@@ -674,6 +674,7 @@ function WorkspaceOverviewPanel({
             }
             await onChangeDirectories([...workspaceDirectories, selectedPath]);
           }}
+          onMakePrimary={(directory) => onChangeDirectories(promoteWorkspaceDirectory(workspaceDirectories, directory))}
           onRemove={(directory) => onChangeDirectories(workspaceDirectories.filter((item) => workspaceDirectoryKey(item) !== workspaceDirectoryKey(directory)))}
         />
       </div>

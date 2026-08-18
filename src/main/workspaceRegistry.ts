@@ -971,10 +971,9 @@ function parseStringArray(value: unknown): string[] {
 }
 
 function normalizeWorkspaceDirectories(primaryPath: string, directories: readonly string[] | undefined): string[] {
-  const primary = resolve(primaryPath);
-  const normalized = [primary];
-  const seen = new Set([process.platform === 'win32' ? primary.toLowerCase() : primary]);
-  for (const directory of directories ?? []) {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const directory of [...(directories ?? []), primaryPath]) {
     if (!directory.trim()) continue;
     const resolvedDirectory = resolve(directory);
     const key = process.platform === 'win32' ? resolvedDirectory.toLowerCase() : resolvedDirectory;

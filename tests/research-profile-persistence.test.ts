@@ -355,10 +355,21 @@ describe('research profile persistence', () => {
     const reopened = new WorkspaceService(() => undefined, options);
     const snapshot = reopened.openRegisteredWorkspace(registryWorkspaceId as string);
     expect(snapshot.workspace.workspaceDirectories).toEqual([resolve(primary), resolve(secondary)]);
-    expect(reopened.updateWorkspaceDirectories([primary]).workspace.workspaceDirectories).toEqual([resolve(primary)]);
-    expect(() => reopened.updateWorkspaceDirectories([])).toThrow('At least one workspace directory is required.');
+    expect(reopened.updateWorkspaceDirectories([secondary, primary]).workspace.workspaceDirectories).toEqual([
+      resolve(secondary),
+      resolve(primary)
+    ]);
     reopened.close();
-  });
+
+    const promotedReopened = new WorkspaceService(() => undefined, options);
+    expect(promotedReopened.openRegisteredWorkspace(registryWorkspaceId as string).workspace.workspaceDirectories).toEqual([
+      resolve(secondary),
+      resolve(primary)
+    ]);
+    expect(promotedReopened.updateWorkspaceDirectories([primary]).workspace.workspaceDirectories).toEqual([resolve(primary)]);
+    expect(() => promotedReopened.updateWorkspaceDirectories([])).toThrow('At least one workspace directory is required.');
+    promotedReopened.close();
+  }, 10_000);
 
   it('clones an in-scope repository resource and records its managed checkout once', async () => {
     const root = tempDirectory();

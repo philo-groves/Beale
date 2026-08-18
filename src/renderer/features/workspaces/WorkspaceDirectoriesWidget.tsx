@@ -1,5 +1,5 @@
 import { useState, type JSX } from 'react';
-import { Folder, Plus, Trash2 } from 'lucide-react';
+import { CircleDot, Folder, Plus, Trash2 } from 'lucide-react';
 import type { WorkspaceDirectorySelection } from '@shared/types';
 import { errorMessage } from '../../lib/errors';
 import { compactUserPath } from '../../lib/paths';
@@ -9,12 +9,14 @@ export function WorkspaceDirectoriesWidget({
   disabled = false,
   lockedDirectory = null,
   onAdd,
+  onMakePrimary,
   onRemove
 }: {
   directories: readonly string[];
   disabled?: boolean;
   lockedDirectory?: string | null;
   onAdd: (selection: WorkspaceDirectorySelection) => Promise<void> | void;
+  onMakePrimary?: (directory: string) => Promise<void> | void;
   onRemove: (directory: string) => Promise<void> | void;
 }): JSX.Element {
   const [adding, setAdding] = useState(false);
@@ -32,6 +34,10 @@ export function WorkspaceDirectoriesWidget({
   const removeDirectory = (directory: string): void => {
     setError(null);
     void Promise.resolve(onRemove(directory)).catch((caught: unknown) => setError(errorMessage(caught)));
+  };
+  const makePrimary = (directory: string): void => {
+    setError(null);
+    void Promise.resolve(onMakePrimary?.(directory)).catch((caught: unknown) => setError(errorMessage(caught)));
   };
 
   return (
@@ -56,16 +62,38 @@ export function WorkspaceDirectoriesWidget({
             <div className="workspace-directory-item" key={directoryKey(directory)} title={directory}>
               <Folder aria-hidden="true" size={14} />
               <span>{compactUserPath(directory)}</span>
-              {index === 0 ? <small>Primary</small> : null}
-              <button
-                aria-label={`Remove workspace directory ${directory}`}
-                disabled={disabled || !removable}
-                onClick={() => removeDirectory(directory)}
-                title={locked ? 'The primary storage directory cannot be removed.' : removable ? 'Remove directory' : 'A workspace requires at least one directory.'}
-                type="button"
-              >
-                <Trash2 aria-hidden="true" size={13} />
-              </button>
+              <span className="workspace-directory-actions">
+                {index === 0 ? (
+                  <span
+                    aria-label="Primary directory"
+                    className="workspace-directory-primary-indicator"
+                    role="img"
+                    title="Primary directory"
+                  />
+                ) : onMakePrimary ? (
+                  <button
+                    aria-label={`Make workspace directory primary ${directory}`}
+                    className="workspace-directory-primary-button"
+                    disabled={disabled}
+                    onClick={() => makePrimary(directory)}
+                    title="Make primary directory"
+                    type="button"
+                  >
+                    <CircleDot aria-hidden="true" size={13} />
+                  </button>
+                ) : (
+                  <span aria-hidden="true" className="workspace-directory-action-spacer" />
+                )}
+                <button
+                  aria-label={`Remove workspace directory ${directory}`}
+                  disabled={disabled || !removable}
+                  onClick={() => removeDirectory(directory)}
+                  title={locked ? 'The workspace storage directory cannot be removed.' : removable ? 'Remove directory' : 'A workspace requires at least one directory.'}
+                  type="button"
+                >
+                  <Trash2 aria-hidden="true" size={13} />
+                </button>
+              </span>
             </div>
           );
         })}
@@ -74,6 +102,14 @@ export function WorkspaceDirectoriesWidget({
       {error ? <p className="workspace-directories-error" role="alert">{error}</p> : null}
     </section>
   );
+}
+
+export function promoteWorkspaceDirectory(directories: readonly string[], directory: string): string[] {
+  const promotedKey = directoryKey(directory);
+  return [
+    ...directories.filter((candidate) => directoryKey(candidate) === promotedKey),
+    ...directories.filter((candidate) => directoryKey(candidate) !== promotedKey)
+  ];
 }
 
 function directoryKey(directory: string): string {

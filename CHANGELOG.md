@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Workspace Overview now matches its Directories column to the session summary sidenav width, presents directories as a flat divided list, and lets users promote any directory to the persisted primary position while keeping the workspace storage root protected.
 - Workspace Overview form labels, descriptions, fields, and save status now use the same 14px typography as the General and Profile settings views.
 - General, Profiles, and Computer Use settings now use the application's normal font size instead of their previous compact typography.
 - Provider Settings, Automations, Reporting, Plugins, and session views now share the Plugins-style centered loading indicator with regular-weight text.

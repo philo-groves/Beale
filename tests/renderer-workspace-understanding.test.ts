@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { isLiveResearchRunStatus } from '../src/shared/types';
 import type { HoneycrispMemorySummary, RunRow, ScopeAsset, SessionRunActivity } from '../src/shared/types';
 import { MainSessionWorkspace } from '../src/renderer/features/sessions/MainSessionWorkspace';
+import { promoteWorkspaceDirectory } from '../src/renderer/features/workspaces/WorkspaceDirectoriesWidget';
 import {
   memoryCountSinceLastDream,
   memoryDreamHeat,
@@ -38,7 +39,10 @@ describe('workspace dashboard', () => {
     const overviewFieldStyles = styles.match(/\.workspace-overview-form :is\(input, textarea\)\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewStatusStyles = styles.match(/\.workspace-overview-error,\s*\.workspace-overview-saving\s*\{([^}]*)\}/)?.[1] ?? '';
     const directoriesWidgetStyles = styles.match(/^\.workspace-directories-widget\s*\{([^}]*)\}/m)?.[1] ?? '';
-    const directoriesHeadingButtonStyles = styles.match(/\.workspace-directories-widget-heading\s*>\s*button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const directoriesHeadingStyles = styles.match(/\.workspace-directories-widget-heading\s*\{([^}]*)\}/)?.[1] ?? '';
+    const directoryItemStyles = styles.match(/\.workspace-directory-item\s*\{([^}]*)\}/)?.[1] ?? '';
+    const dividedDirectoryItemStyles = styles.match(/\.workspace-directory-item \+ \.workspace-directory-item\s*\{([^}]*)\}/)?.[1] ?? '';
+    const primaryDirectoryIndicatorStyles = styles.match(/\.workspace-directory-primary-indicator::before\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceHeadingStyles = styles.match(/\.workspace-overview-layout\s*>\s*\.workspace-overview-heading,\s*\.workspace-activity-form\s*>\s*:is\(\.settings-form-heading\),\s*\.workspace-cleaning-form\s*>\s*:is\(\.settings-form-heading\)\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceHeatmapStyles = styles.match(/\.workspace-activity-grid-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewDisabledStyles = styles.match(/\.workspace-overview-form :is\(input, textarea\):disabled\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -85,14 +89,18 @@ describe('workspace dashboard', () => {
     expect(overviewLayoutStyles).toContain('width: 100%');
     expect(overviewLayoutStyles).toContain('--settings-view-font-size: 14px');
     expect(overviewLayoutStyles).not.toContain('max-width');
-    expect(overviewLayoutStyles).toContain('grid-template-columns: minmax(0, 3fr) minmax(0, 1fr)');
+    expect(overviewLayoutStyles).toContain('grid-template-columns: minmax(0, 1fr) minmax(280px, var(--research-side-panel-width, 360px))');
     expect(overviewLayoutStyles).toContain("'heading .'\n    'form directories'");
     expect(overviewFormStyles).toContain('font-size: var(--settings-view-font-size)');
     expect(overviewControlStyles).toContain('font-size: var(--settings-view-font-size)');
     expect(overviewFieldStyles).toContain('font-size: var(--settings-view-font-size)');
     expect(overviewStatusStyles).toContain('font-size: var(--settings-view-font-size)');
-    expect(directoriesWidgetStyles).toContain('background: var(--panel-raised)');
-    expect(directoriesHeadingButtonStyles).toContain('top: -4px');
+    expect(directoriesWidgetStyles).toContain('background: transparent');
+    expect(directoriesWidgetStyles).toContain('padding: 0');
+    expect(directoriesHeadingStyles).toContain('border-bottom: 1px solid var(--line)');
+    expect(directoryItemStyles).toContain('background: transparent');
+    expect(dividedDirectoryItemStyles).toContain('border-top: 1px solid var(--line)');
+    expect(primaryDirectoryIndicatorStyles).toContain('background: var(--green)');
     expect(workspaceHeadingStyles).toContain('padding-left: 0');
     expect(workspaceHeatmapStyles).toContain('padding-left: 0');
     expect(overviewLayoutStyles).not.toContain('margin-inline: auto');
@@ -286,7 +294,11 @@ describe('workspace dashboard', () => {
     expect(html).toContain('title="/workspaces/parser"');
     expect(html).toContain('title="C:\\Users\\alice\\shared"');
     expect(html).toContain('<span>~/shared</span>');
-    expect(html).toContain('>Primary</small>');
+    expect(html).toContain('aria-label="Primary directory"');
+    expect(html).toContain('title="Primary directory"');
+    expect(html).toContain('aria-label="Make workspace directory primary C:\\Users\\alice\\shared"');
+    expect(html).toContain('title="Make primary directory"');
+    expect(html).not.toContain('>Primary</small>');
     expect(html).toContain('aria-label="Add workspace directory"');
     expect(html).not.toContain('Local folders included in this workspace.');
     expect(html).not.toContain('aria-label="Working Directory"');
@@ -311,6 +323,13 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('class="workspace-catalog-list runbook-catalog-list');
     expect(html).not.toContain('>Dejunk Now</button>');
     expect(html).not.toContain('>Dream Now</button>');
+  });
+
+  it('promotes a workspace directory without dropping the storage root', () => {
+    expect(promoteWorkspaceDirectory(
+      ['/workspaces/parser', 'C:\\Users\\alice\\shared'],
+      'C:\\Users\\alice\\shared\\'
+    )).toEqual(['C:\\Users\\alice\\shared', '/workspaces/parser']);
   });
 
   it('preserves non-editable authorization and resource data when saving overview configuration', () => {

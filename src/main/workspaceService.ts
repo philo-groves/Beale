@@ -6933,7 +6933,7 @@ function requireCollaborationPolicyAcknowledgements(
 }
 
 function normalizedWorkspaceDirectories(primaryPath: string, directories: readonly string[] | undefined): string[] {
-  const candidates = [primaryPath, ...(directories ?? [])].filter((directory) => directory.trim().length > 0);
+  const candidates = [...(directories ?? []), primaryPath].filter((directory) => directory.trim().length > 0);
   const normalized: string[] = [];
   const seen = new Set<string>();
   for (const directory of candidates) {
