@@ -2,10 +2,10 @@ import { createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { HoneycrispMemoryNodeSummary, ResearchGoalSuggestionsByPhase, RunDetail, WorkspaceSnapshot } from '@shared/types';
+import type { HoneycrispMemoryNodeSummary, ResearchGoalSuggestionsByPhase, RunDetail, TraceEventRecord, WorkspaceSnapshot } from '@shared/types';
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePanel';
-import { shouldAutoGenerateSessionNextSteps } from '../src/renderer/features/sessions/MainSessionWorkspace';
+import { expandedDeviceCapturePanelWidth, isIosDeviceOs, latestOverallRunbookExecution, shouldAutoGenerateSessionNextSteps } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
 import { SessionNextSteps, SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
 import { WorkspaceOnboardingModal } from '../src/renderer/features/workspaces/WorkspaceOnboardingModal';
@@ -13,6 +13,34 @@ import { INSET_SCROLLBAR_SELECTOR } from '../src/renderer/hooks/useInsetScrollba
 import { emptyWorkspaceOnboardingForm, onboardingFormFromDefaults } from '../src/renderer/view-models/workspaceOnboarding';
 
 describe('renderer dialog surfaces', () => {
+  it('sizes expanded device capture from the available height instead of half the workspace', () => {
+    expect(expandedDeviceCapturePanelWidth(1440, 900, 1290 / 2796)).toBe(423);
+    expect(expandedDeviceCapturePanelWidth(1000, 900, 2)).toBe(634);
+    expect(expandedDeviceCapturePanelWidth(0, 900, 1290 / 2796)).toBe(0);
+  });
+
+  it('recognizes iOS proof-run lifecycle events for connected-device presentation', () => {
+    const event = {
+      payload: {
+        eventType: 'runbook_execution',
+        runbookRunId: 'runbook-run-1',
+        cellId: null,
+        status: 'running',
+        proofTarget: 'device',
+        deviceOs: 'iOS 27.0'
+      }
+    } as unknown as TraceEventRecord;
+
+    expect(latestOverallRunbookExecution([event])).toEqual({
+      runId: 'runbook-run-1',
+      status: 'running',
+      proofTarget: 'device',
+      deviceOs: 'iOS 27.0'
+    });
+    expect(isIosDeviceOs('iOS 27.0')).toBe(true);
+    expect(isIosDeviceOs('Android 18')).toBe(false);
+  });
+
   it('renders the reusable bottom-sheet presentation with shared dialog semantics', () => {
     const html = renderToStaticMarkup(
       createElement(

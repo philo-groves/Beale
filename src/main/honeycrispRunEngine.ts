@@ -17,6 +17,7 @@ import type {
   ResearchProfileSnapshot,
   ResearchSubjectInput,
   RunRecord,
+  RunbookProofTarget,
   ShellSafetyMode,
   TranscriptMessageRecord,
   WorkspaceScopeVersion,
@@ -822,7 +823,13 @@ export class HoneycrispRunEngine {
     return this.sendControl(active, { schemaVersion: 1, type: 'configure_shell_safety', shellSafetyMode });
   }
 
-  public executeRunbook(runId: string, runbookId: string, cellId?: string): HoneycrispControlDispatch | null {
+  public executeRunbook(
+    runId: string,
+    runbookId: string,
+    proofTarget: RunbookProofTarget,
+    cellId?: string,
+    deviceOs?: string
+  ): HoneycrispControlDispatch | null {
     const active = this.activeRuns.get(runId);
     if (!active) return null;
     if (active.paused) throw new Error('Resume the Honeycrisp process before running a runbook.');
@@ -830,7 +837,9 @@ export class HoneycrispRunEngine {
       schemaVersion: 1,
       type: 'runbook_execute',
       runbookId,
-      ...(cellId ? { cellId } : {})
+      ...(cellId ? { cellId } : {}),
+      proofTarget,
+      ...(deviceOs ? { deviceOs } : {})
     });
   }
 
@@ -1449,6 +1458,10 @@ export class HoneycrispRunEngine {
     }
 
     if (event.kind === 'agent.event') {
+      if (stringPayload(event.payload ?? {}, 'eventType') === 'runbook.execution') {
+        this.recordRunbookExecution(context, event);
+        return;
+      }
       if (stringPayload(event.payload ?? {}, 'eventType') === 'control.received') {
         this.recordControlAcknowledgement(context, event);
         return;
@@ -1550,6 +1563,41 @@ export class HoneycrispRunEngine {
       });
       this.onChange();
     }
+  }
+
+  private recordRunbookExecution(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
+    const payload = event.payload ?? {};
+    const runbookId = stringPayload(payload, 'runbookId');
+    const runbookRunId = stringPayload(payload, 'runId');
+    const status = stringPayload(payload, 'status');
+    const proofTarget = stringPayload(payload, 'proofTarget');
+    if (!runbookId || !runbookRunId || !status || !proofTarget) return;
+    const cellId = stringPayload(payload, 'cellId');
+    const deviceOs = stringPayload(payload, 'deviceOs');
+    const durationMs = numberPayload(payload, 'durationMs');
+    const error = stringPayload(payload, 'error');
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'research_event',
+      source: 'executor',
+      summary: cellId
+        ? `Runbook cell ${status}.`
+        : `Runbook ${status}.`,
+      payload: {
+        eventType: 'runbook_execution',
+        runbookId,
+        runbookRunId,
+        cellId,
+        status,
+        durationMs,
+        error,
+        proofTarget,
+        deviceOs
+      },
+      modelVisible: false
+    });
+    this.onChange();
   }
 
   private recordShellAuthorizationRequested(

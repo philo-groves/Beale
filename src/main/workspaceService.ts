@@ -154,6 +154,7 @@ import type {
   RunRecord,
   RunStatus,
   RunRow,
+  RunbookProofTarget,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   SessionTranscriptSearchResult,
@@ -3332,13 +3333,18 @@ export class WorkspaceService {
         if (runbookId.length > 200) throw new Error('Runbook execution ID exceeds 200 characters.');
         if (action.cellId !== undefined && !cellId) throw new Error('Runbook cell execution requires a cell ID.');
         if (cellId && cellId.length > 200) throw new Error('Runbook cell ID exceeds 200 characters.');
+        if (!isRunbookProofTarget(action.proofTarget)) throw new Error(`Unsupported runbook proof target: ${String(action.proofTarget)}`);
+        const deviceOs = action.deviceOs?.trim();
+        if (action.proofTarget === 'device' && !deviceOs) throw new Error('Device proof runs require a target device OS.');
+        if (deviceOs && deviceOs.length > 120) throw new Error('Target device OS exceeds 120 characters.');
+        if (action.proofTarget !== 'device' && deviceOs) throw new Error('Target device OS is valid only for Device proof runs.');
         if (runEngine !== 'honeycrisp') throw new Error('Runbook execution requires a Honeycrisp session.');
         if (run.status !== 'active') throw new Error('Runbooks can execute only while their Honeycrisp session is active.');
         const runbook = this.memorySummaryForRuntime(foregroundRuntime).runbooks.find((candidate) => candidate.id === runbookId);
         if (!runbook || runbook.sessionId !== action.runId) {
           throw new Error('Runbook execution must use the live Honeycrisp session that owns the runbook.');
         }
-        const dispatch = this.honeycrispEngine?.executeRunbook(action.runId, runbookId, cellId) ?? null;
+        const dispatch = this.honeycrispEngine?.executeRunbook(action.runId, runbookId, action.proofTarget, cellId, deviceOs) ?? null;
         if (!dispatch) throw new Error(`Active Honeycrisp process not found for run ${action.runId}.`);
         db.appendTraceEvent({
           runId: action.runId,
@@ -3350,7 +3356,9 @@ export class WorkspaceService {
             runbookId,
             cellId: cellId ?? null,
             controlRequestId: dispatch.requestId,
-            deliveryStatus: dispatch.deliveryStatus
+            deliveryStatus: dispatch.deliveryStatus,
+            proofTarget: action.proofTarget,
+            deviceOs: deviceOs ?? null
           },
           modelVisible: false
         });
@@ -6892,6 +6900,10 @@ function toolNumber(record: Record<string, unknown>, key: string, fallback: numb
 
 function isShellSafetyMode(value: unknown): value is StartRunInput['shellSafetyMode'] {
   return value === 'manual_approval' || value === 'auto_review' || value === 'danger';
+}
+
+function isRunbookProofTarget(value: unknown): value is RunbookProofTarget {
+  return value === 'localhost' || value === 'device' || value === 'vm' || value === 'web' || value === 'other';
 }
 
 function requireEnabledProviderModel(

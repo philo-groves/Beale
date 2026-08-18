@@ -27,6 +27,7 @@ import type {
   ResolvedResearchProfile,
   ResearchProviderStatus,
   RunStatus,
+  RunbookProofTargetSelection,
   ScopeAssetInput,
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
@@ -1196,7 +1197,11 @@ export function App(): JSX.Element {
     };
   }, [selectedRunbook?.revision, selectedRunbookDocument?.runbookId, selectedRunbookId]);
 
-  const runHoneycrispRunbook = useCallback(async (runbookId: string, cellId?: string): Promise<void> => {
+  const runHoneycrispRunbook = useCallback(async (
+    runbookId: string,
+    cellId: string | undefined,
+    target: RunbookProofTargetSelection
+  ): Promise<void> => {
     const runbook = researchPanelMemory?.runbooks.find((candidate) => candidate.id === runbookId);
     if (!runbook?.sessionId) throw new Error('This runbook is not attached to an executable Honeycrisp session.');
     const previousRunId = selectedRunbookDocument?.runbookId === runbookId
@@ -1210,6 +1215,8 @@ export function App(): JSX.Element {
         type: 'run_runbook',
         runId: runbook.sessionId,
         runbookId,
+        proofTarget: target.proofTarget,
+        ...(target.deviceOs ? { deviceOs: target.deviceOs } : {}),
         ...(cellId ? { cellId } : {})
       });
       applySnapshot(next);

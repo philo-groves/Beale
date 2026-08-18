@@ -491,6 +491,15 @@ export interface HoneycrispRunbookExecutionSummary {
   durationMs: number | null;
   exitCode: number | null;
   error: string | null;
+  proofTarget: RunbookProofTarget;
+  deviceOs: string | null;
+}
+
+export type RunbookProofTarget = 'localhost' | 'device' | 'vm' | 'web' | 'other';
+
+export interface RunbookProofTargetSelection {
+  proofTarget: RunbookProofTarget;
+  deviceOs?: string;
 }
 
 export interface HoneycrispRunbookCell {
@@ -1668,7 +1677,7 @@ export type SteeringAction =
   | { type: 'stop'; runId: string; note?: string }
   | { type: 'steer'; runId: string; instruction: string; modelSelection?: ResearchModelSelection }
   | { type: 'set_shell_safety_mode'; runId: string; shellSafetyMode: ShellSafetyMode }
-  | { type: 'run_runbook'; runId: string; runbookId: string; cellId?: string }
+  | { type: 'run_runbook'; runId: string; runbookId: string; cellId?: string; proofTarget: RunbookProofTarget; deviceOs?: string }
   | {
       type: 'review_shell_command';
       workspacePath: string;

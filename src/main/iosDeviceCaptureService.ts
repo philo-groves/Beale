@@ -19,7 +19,7 @@ function isActiveCapturePhase(phase: IosDeviceCaptureState['phase']): boolean {
 interface DeviceCtlRecord {
   identifier?: unknown;
   properties?: {
-    connection?: { state?: unknown; transportType?: unknown };
+    connection?: { state?: unknown; transportType?: unknown; pairingState?: unknown };
     hardware?: { deviceType?: unknown; marketingName?: unknown; reality?: unknown; udid?: unknown };
     software?: { osVersionNumber?: { stringValue?: unknown } };
     state?: { name?: unknown };
@@ -45,7 +45,11 @@ export function parseConnectedIosDevice(stdout: string): IosDeviceCaptureDevice 
     const connection = candidate.properties?.connection;
     const hardware = candidate.properties?.hardware;
     const software = candidate.properties?.software;
-    if (connection?.state !== 'connected' || connection.transportType !== 'wired') continue;
+    const reachableWiredDevice = connection?.transportType === 'wired' && (
+      connection.state === 'connected'
+      || (connection.state === 'disconnected' && connection.pairingState === 'paired')
+    );
+    if (!reachableWiredDevice) continue;
     if (hardware?.deviceType !== 'iPhone' || hardware.reality !== 'physical') continue;
     if (typeof hardware.udid !== 'string' || typeof candidate.identifier !== 'string') continue;
     const osVersion = software?.osVersionNumber?.stringValue;

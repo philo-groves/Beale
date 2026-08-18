@@ -5,7 +5,9 @@ import type {
   HoneycrispRunbookCell,
   HoneycrispRunbookDocument,
   HoneycrispRunbookOutput,
-  HoneycrispRunbookSummary
+  HoneycrispRunbookSummary,
+  RunbookProofTarget,
+  RunbookProofTargetSelection
 } from '@shared/types';
 import { traceLabel } from '../../lib/formatting';
 import { runbookDescriptionText } from '../../view-models/runbooks';
@@ -19,6 +21,7 @@ export const RunbookView = memo(function RunbookView({
   onBackToMain,
   onRun,
   executionAvailable = false,
+  connectedDeviceOs = null,
   showBackButton = true,
   followLatest = false
 }: {
@@ -27,8 +30,9 @@ export const RunbookView = memo(function RunbookView({
   loading: boolean;
   error: string | null;
   onBackToMain: () => void;
-  onRun?: (cellId?: string) => Promise<void>;
+  onRun?: (cellId: string | undefined, target: RunbookProofTargetSelection) => Promise<void>;
   executionAvailable?: boolean;
+  connectedDeviceOs?: string | null;
   showBackButton?: boolean;
   followLatest?: boolean;
 }): JSX.Element {
@@ -36,10 +40,13 @@ export const RunbookView = memo(function RunbookView({
   const followLatestRef = useRef(true);
   const runbookIdRef = useRef(runbook.id);
   const [requestedCellId, setRequestedCellId] = useState<string | null | undefined>(undefined);
+  const [proofTarget, setProofTarget] = useState<RunbookProofTarget>('localhost');
+  const [deviceOs, setDeviceOs] = useState('');
   const executionRunning = document?.latestRun?.status === 'running';
   const executableCells = document?.cells.filter((cell) => cell.type === 'code') ?? [];
   const unhealthyCells = executableCells.filter((cell) => !isSupportedRunbookLanguage(cell.language));
-  const canRun = executionAvailable && Boolean(onRun) && executableCells.length > 0 && unhealthyCells.length === 0 && !executionRunning && requestedCellId === undefined;
+  const targetValid = proofTarget !== 'device' || deviceOs.trim().length > 0;
+  const canRun = executionAvailable && Boolean(onRun) && executableCells.length > 0 && unhealthyCells.length === 0 && targetValid && !executionRunning && requestedCellId === undefined;
   const updateKey = useMemo(
     () => runbookViewUpdateKey(runbook, document, loading, error),
     [document, error, loading, runbook]
@@ -49,17 +56,24 @@ export const RunbookView = memo(function RunbookView({
     if (executionRunning) setRequestedCellId(undefined);
   }, [document?.latestRun?.runId, executionRunning]);
 
+  useEffect(() => {
+    if (proofTarget === 'device' && !deviceOs.trim() && connectedDeviceOs) setDeviceOs(connectedDeviceOs);
+  }, [connectedDeviceOs, deviceOs, proofTarget]);
+
   const requestExecution = useCallback(async (cellId?: string): Promise<void> => {
     if (!onRun) return;
     setRequestedCellId(cellId ?? null);
     try {
-      await onRun(cellId);
+      await onRun(cellId, {
+        proofTarget,
+        ...(proofTarget === 'device' ? { deviceOs: deviceOs.trim() } : {})
+      });
     } catch {
       setRequestedCellId(undefined);
       return;
     }
     setRequestedCellId(undefined);
-  }, [onRun]);
+  }, [deviceOs, onRun, proofTarget]);
 
   const scrollToLatest = useCallback((): void => {
     const scroll = scrollRef.current;
@@ -108,16 +122,46 @@ export const RunbookView = memo(function RunbookView({
         <header className="runbook-view-header">
           <div className="runbook-view-heading-row">
             <span className="runbook-view-eyebrow"><BookOpen size={15} aria-hidden="true" /> Runbook</span>
-            <button
-              type="button"
-              className="runbook-run-button"
-              disabled={!canRun}
-              title={!executionAvailable ? 'Runbooks execute only in their active Honeycrisp session.' : unhealthyCells.length > 0 ? 'Every code cell needs a supported language.' : undefined}
-              onClick={() => void requestExecution()}
-            >
-              {executionRunning || requestedCellId === null ? <LoaderCircle className="runbook-view-spinner" size={13} aria-hidden="true" /> : <Play size={13} aria-hidden="true" />}
-              {executionRunning || requestedCellId === null ? 'Running' : 'Run'}
-            </button>
+            <div className="runbook-run-controls">
+              <label className="runbook-target-field">
+                <span>Proof target</span>
+                <select
+                  aria-label="Proof target"
+                  disabled={executionRunning || requestedCellId !== undefined}
+                  value={proofTarget}
+                  onChange={(event) => setProofTarget(event.currentTarget.value as RunbookProofTarget)}
+                >
+                  <option value="localhost">Localhost</option>
+                  <option value="device">Device</option>
+                  <option value="vm">VM</option>
+                  <option value="web">Web</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              {proofTarget === 'device' ? (
+                <label className="runbook-target-field runbook-device-os-field">
+                  <span>Device OS</span>
+                  <input
+                    aria-label="Target device OS"
+                    disabled={executionRunning || requestedCellId !== undefined}
+                    maxLength={120}
+                    placeholder="iOS 27.0"
+                    value={deviceOs}
+                    onChange={(event) => setDeviceOs(event.currentTarget.value)}
+                  />
+                </label>
+              ) : null}
+              <button
+                type="button"
+                className="runbook-run-button"
+                disabled={!canRun}
+                title={!executionAvailable ? 'Runbooks execute only in their active Honeycrisp session.' : unhealthyCells.length > 0 ? 'Every code cell needs a supported language.' : !targetValid ? 'Enter the target device OS.' : undefined}
+                onClick={() => void requestExecution()}
+              >
+                {executionRunning || requestedCellId === null ? <LoaderCircle className="runbook-view-spinner" size={13} aria-hidden="true" /> : <Play size={13} aria-hidden="true" />}
+                {executionRunning || requestedCellId === null ? 'Running' : 'Run'}
+              </button>
+            </div>
           </div>
           <h2>{runbook.title}</h2>
           {runbook.purpose ? <p>{runbookDescriptionText(runbook.purpose)}</p> : null}
@@ -143,7 +187,7 @@ export const RunbookView = memo(function RunbookView({
               <RunbookCellView
                 cell={cell}
                 executionAvailable={executionAvailable}
-                executionRunning={executionRunning || requestedCellId !== undefined}
+                executionRunning={executionRunning || requestedCellId !== undefined || !targetValid}
                 index={index}
                 key={`${cell.id}:${index}`}
                 requested={requestedCellId === cell.id}
@@ -173,9 +217,11 @@ export function runbookViewUpdateKey(
     cell.latestRun?.runId ?? '',
     cell.latestRun?.status ?? '',
     cell.latestRun?.durationMs ?? '',
+    cell.latestRun?.proofTarget ?? '',
+    cell.latestRun?.deviceOs ?? '',
     ...cell.outputs.flatMap((output) => [output.kind, output.streamName ?? '', output.mimeType ?? '', output.text.length])
   ].join(':')).join('|') ?? '';
-  return `${runbook.id}:${document?.revision ?? runbook.revision}:${document?.latestRun?.status ?? ''}:${loading ? 'loading' : 'ready'}:${error ?? ''}:${cells}`;
+  return `${runbook.id}:${document?.revision ?? runbook.revision}:${document?.latestRun?.status ?? ''}:${document?.latestRun?.proofTarget ?? ''}:${document?.latestRun?.deviceOs ?? ''}:${loading ? 'loading' : 'ready'}:${error ?? ''}:${cells}`;
 }
 
 function RunbookCellView({ cell, index, executionAvailable, executionRunning, requested, onRun }: {
@@ -242,14 +288,21 @@ function RunStatus({ state, compact = false }: {
   const liveDuration = state.status === 'running' && Number.isFinite(startedAt) ? Math.max(0, now - startedAt) : null;
   const durationMs = state.durationMs ?? liveDuration;
   const duration = durationMs === null ? null : formatDuration(durationMs);
+  const target = state.proofTarget === 'device' && state.deviceOs
+    ? `Device · ${state.deviceOs}`
+    : proofTargetLabel(state.proofTarget);
   return (
     <span className={`runbook-run-status status-${state.status}`} title={state.error ?? undefined}>
       {state.status === 'running' || state.status === 'queued'
         ? <LoaderCircle className="runbook-view-spinner" size={12} aria-hidden="true" />
         : <Clock3 size={12} aria-hidden="true" />}
-      {compact ? traceLabel(state.status) : `Last run ${traceLabel(state.status)}`}{duration ? ` · ${duration}` : ''}
+      {compact ? traceLabel(state.status) : `Last run ${traceLabel(state.status)}`}{duration ? ` · ${duration}` : ''}{` · ${target}`}
     </span>
   );
+}
+
+function proofTargetLabel(target: RunbookProofTarget): string {
+  return target === 'localhost' ? 'Localhost' : target === 'device' ? 'Device' : target === 'vm' ? 'VM' : target === 'web' ? 'Web' : 'Other';
 }
 
 export function isSupportedRunbookLanguage(language: string | null): boolean {

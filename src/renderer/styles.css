@@ -2989,11 +2989,6 @@ body.is-resizing-research-side .main-session-grid {
   display: none;
 }
 
-.research-side-column.device-capture-expanded .connected-device-summary-capture {
-  margin: 0;
-  border-radius: 0;
-}
-
 .connected-device-summary-frame {
   position: absolute;
   inset: 0;
@@ -3002,10 +2997,6 @@ body.is-resizing-research-side .main-session-grid {
   display: grid;
   place-items: end;
   overflow: hidden;
-}
-
-.connected-device-summary-capture.is-expanded .connected-device-summary-frame {
-  place-items: center;
 }
 
 .connected-device-summary-frame img {
@@ -3017,10 +3008,6 @@ body.is-resizing-research-side .main-session-grid {
   min-height: 0;
   display: block;
   border-radius: var(--content-surface-radius);
-}
-
-.connected-device-summary-capture.is-expanded .connected-device-summary-frame img {
-  border-radius: 0;
 }
 
 .connected-device-summary-expand {
@@ -5075,6 +5062,52 @@ button.session-summary-item:hover:not(:disabled),
 .runbook-view-heading-row {
   justify-content: space-between;
   gap: 12px;
+}
+
+.runbook-run-controls {
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.runbook-target-field {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  color: #777;
+  font-size: 0.62rem;
+  font-weight: 650;
+}
+
+.runbook-target-field select,
+.runbook-target-field input {
+  height: 28px;
+  min-width: 100px;
+  border: 1px solid #383838;
+  border-radius: 7px;
+  outline: none;
+  padding: 0 8px;
+  color: #d8d8d8;
+  background: #1a1a1a;
+  font: inherit;
+  font-size: 0.7rem;
+}
+
+.runbook-device-os-field input {
+  width: 112px;
+}
+
+.runbook-target-field select:focus,
+.runbook-target-field input:focus {
+  border-color: #5f7f9e;
+}
+
+.runbook-target-field select:disabled,
+.runbook-target-field input:disabled {
+  opacity: 0.54;
 }
 
 .runbook-run-button,

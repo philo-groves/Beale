@@ -1,6 +1,6 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, ScopeAssetInput, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
+import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
@@ -14,11 +14,16 @@ import { EMPTY_SESSION_HEAT_PREFERENCES } from '../../view-models/sessionHeat';
 import type { SessionHeatPreferences } from '../../view-models/sessionHeat';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import {
+  MIN_TRACE_PANEL_WIDTH,
+  RESEARCH_SIDE_RESIZE_HANDLE_WIDTH,
   MIN_RESEARCH_SIDE_PANEL_WIDTH,
   useResizableResearchSidePanel
 } from '../../hooks/useResizableResearchSidePanel';
 
 const WORKSPACE_DETAIL_TRANSITION_MS = 220;
+const CONNECTED_DEVICE_DEFAULT_ASPECT_RATIO = 1290 / 2796;
+const CONNECTED_DEVICE_CAPTURE_HORIZONTAL_INSET = 18;
+const CONNECTED_DEVICE_CAPTURE_VERTICAL_INSET = 22;
 
 export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
@@ -141,7 +146,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onWorkspaceViewChange?: (viewName: string) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
-  onRunHoneycrispRunbook?: (runbookId: string, cellId?: string) => Promise<void>;
+  onRunHoneycrispRunbook?: (runbookId: string, cellId: string | undefined, target: RunbookProofTargetSelection) => Promise<void>;
   onBackToRunbooks: () => void;
   onOpenHoneycrispReport?: (reportId: string) => void;
   onBackToReports?: () => void;
@@ -158,6 +163,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   const [selectedWorkspaceMemoryId, setSelectedWorkspaceMemoryId] = useState<string | null>(null);
   const [connectedDeviceCaptureVisible, setConnectedDeviceCaptureVisible] = useState(false);
   const [connectedDeviceCaptureExpanded, setConnectedDeviceCaptureExpanded] = useState(false);
+  const [connectedDeviceOs, setConnectedDeviceOs] = useState<string | null>(null);
+  const [connectedDeviceAspectRatio, setConnectedDeviceAspectRatio] = useState(CONNECTED_DEVICE_DEFAULT_ASPECT_RATIO);
+  const [mainSessionSize, setMainSessionSize] = useState({ width: 0, height: 0 });
+  const autoExpandedRunbookRunIdRef = useRef<string | null>(null);
   const workspaceView = selectedRunId === null;
   const [workspaceSidePanelMounted, setWorkspaceSidePanelMounted] = useState(workspaceView && researchDetailsOpen);
   const [workspaceSidePanelVisible, setWorkspaceSidePanelVisible] = useState(workspaceView && researchDetailsOpen);
@@ -172,6 +181,20 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     beginResize,
     handleResizeKeyDown
   } = useResizableResearchSidePanel(showResearchSidePanel);
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return undefined;
+    const updateSize = (): void => {
+      const bounds = container.getBoundingClientRect();
+      setMainSessionSize((current) => current.width === bounds.width && current.height === bounds.height
+        ? current
+        : { width: bounds.width, height: bounds.height });
+    };
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [containerRef]);
   const viewSpace = selectedRunId ? 'session' : 'workspace';
   const researchSidePanelKey = selectedRunId ?? `workspace:${honeycrispMemory?.contextWorkspaceId ?? 'current'}`;
   const previousRunRef = useRef<{ id: string; status: RunDetail['run']['status'] } | null>(null);
@@ -228,11 +251,52 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     onResearchDetailsOpenChange(expanded);
   };
   useEffect(() => {
-    if (researchDetailsOpen) setConnectedDeviceCaptureExpanded(false);
+    if (researchDetailsOpen) {
+      autoExpandedRunbookRunIdRef.current = null;
+      setConnectedDeviceCaptureExpanded(false);
+    }
   }, [researchDetailsOpen]);
   useEffect(() => {
-    if (!connectedDeviceCaptureVisible) setConnectedDeviceCaptureExpanded(false);
+    if (!connectedDeviceCaptureVisible) {
+      autoExpandedRunbookRunIdRef.current = null;
+      setConnectedDeviceCaptureExpanded(false);
+    }
   }, [connectedDeviceCaptureVisible]);
+  const latestRunbookExecution = latestOverallRunbookExecution(detail?.traceEvents ?? []);
+  useEffect(() => {
+    if (!latestRunbookExecution) {
+      if (autoExpandedRunbookRunIdRef.current) {
+        autoExpandedRunbookRunIdRef.current = null;
+        setConnectedDeviceCaptureExpanded(false);
+      }
+      return;
+    }
+    const running = latestRunbookExecution.status === 'queued' || latestRunbookExecution.status === 'running';
+    if (
+      running
+      && !connectedDeviceCaptureExpanded
+      && !researchDetailsOpen
+      && connectedDeviceCaptureVisible
+      && latestRunbookExecution.proofTarget === 'device'
+      && isIosDeviceOs(latestRunbookExecution.deviceOs)
+    ) {
+      autoExpandedRunbookRunIdRef.current = latestRunbookExecution.runId;
+      setConnectedDeviceCaptureExpanded(true);
+      return;
+    }
+    if (!running && autoExpandedRunbookRunIdRef.current === latestRunbookExecution.runId) {
+      autoExpandedRunbookRunIdRef.current = null;
+      setConnectedDeviceCaptureExpanded(false);
+    }
+  }, [connectedDeviceCaptureVisible, latestRunbookExecution?.deviceOs, latestRunbookExecution?.proofTarget, latestRunbookExecution?.runId, latestRunbookExecution?.status, researchDetailsOpen]);
+
+  const changeConnectedDeviceCaptureExpanded = (expanded: boolean): void => {
+    autoExpandedRunbookRunIdRef.current = null;
+    setConnectedDeviceCaptureExpanded(expanded);
+  };
+  const expandedDeviceCaptureWidth = useMemo(() => connectedDeviceCaptureExpanded
+    ? expandedDeviceCapturePanelWidth(mainSessionSize.width, mainSessionSize.height, connectedDeviceAspectRatio)
+    : null, [connectedDeviceAspectRatio, connectedDeviceCaptureExpanded, mainSessionSize.height, mainSessionSize.width]);
 
   const postSessionContent = detail && isEndedResearchRunStatus(detail.run.status)
     ? (
@@ -249,7 +313,12 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     <div
       ref={containerRef}
       className={`main-session-grid${workspaceView ? ' workspace-context' : ''}${visibleResearchDetails || connectedDeviceCaptureExpanded ? ' research-details-open' : ''}${workspaceView && !visibleResearchDetails ? ' workspace-main-only' : ''}`}
-      style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
+      style={{
+        '--research-side-panel-width': `${panelWidth}px`,
+        ...(expandedDeviceCaptureWidth !== null && expandedDeviceCaptureWidth > 0
+          ? { '--research-side-panel-active-width': `${expandedDeviceCaptureWidth}px` }
+          : {})
+      } as CSSProperties}
     >
       {!selectedRunId ? (
         <WorkspaceUnderstandingView
@@ -356,6 +425,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           selectedMemoryNodeId={!selectedRunId ? selectedWorkspaceMemoryId : undefined}
           runbookLoading={runbookLoading}
           runbookError={runbookError}
+          connectedDeviceOs={connectedDeviceOs}
           selectedReport={selectedReport}
           selectedReportDocument={selectedReportDocument}
           selectedReportId={selectedReportId}
@@ -384,7 +454,9 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           <ConnectedDeviceCapture
             active={connectedDeviceCaptureEnabled}
             expanded={connectedDeviceCaptureExpanded}
-            onExpandedChange={setConnectedDeviceCaptureExpanded}
+            onAspectRatioChange={setConnectedDeviceAspectRatio}
+            onDeviceOsChange={setConnectedDeviceOs}
+            onExpandedChange={changeConnectedDeviceCaptureExpanded}
             onVisibilityChange={setConnectedDeviceCaptureVisible}
           />
         ) : null}
@@ -392,6 +464,51 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     </div>
   );
 });
+
+export interface RunbookExecutionLifecycle {
+  runId: string;
+  status: string;
+  proofTarget: RunbookProofTarget;
+  deviceOs: string | null;
+}
+
+export function expandedDeviceCapturePanelWidth(
+  containerWidth: number,
+  containerHeight: number,
+  aspectRatio: number
+): number {
+  if (containerWidth <= 0 || containerHeight <= 0 || !Number.isFinite(aspectRatio) || aspectRatio <= 0) return 0;
+  const desiredWidth = Math.max(0, containerHeight - CONNECTED_DEVICE_CAPTURE_VERTICAL_INSET) * aspectRatio
+    + CONNECTED_DEVICE_CAPTURE_HORIZONTAL_INSET;
+  const maximumWidth = Math.max(0, containerWidth - MIN_TRACE_PANEL_WIDTH - RESEARCH_SIDE_RESIZE_HANDLE_WIDTH);
+  return Math.round(Math.min(desiredWidth, maximumWidth));
+}
+
+export function latestOverallRunbookExecution(events: readonly TraceEventRecord[]): RunbookExecutionLifecycle | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const payload = events[index]?.payload;
+    if (!payload || payload.eventType !== 'runbook_execution' || payload.cellId !== null) continue;
+    const runId = typeof payload.runbookRunId === 'string' ? payload.runbookRunId : '';
+    const status = typeof payload.status === 'string' ? payload.status : '';
+    const proofTarget = payload.proofTarget;
+    if (!runId || !status || !isRunbookProofTarget(proofTarget)) continue;
+    return {
+      runId,
+      status,
+      proofTarget,
+      deviceOs: typeof payload.deviceOs === 'string' ? payload.deviceOs : null
+    };
+  }
+  return null;
+}
+
+export function isIosDeviceOs(deviceOs: string | null): boolean {
+  return Boolean(deviceOs && /^(?:ios|iphone os)(?:\s|\d|$)/i.test(deviceOs.trim()));
+}
+
+function isRunbookProofTarget(value: unknown): value is RunbookProofTarget {
+  return value === 'localhost' || value === 'device' || value === 'vm' || value === 'web' || value === 'other';
+}
 
 export function shouldAutoGenerateSessionNextSteps(
   previous: { id: string; status: RunDetail['run']['status'] } | null,

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { IosFrameProtocolParser, parseConnectedIosDevice } from '../src/main/iosDeviceCaptureService';
 
 describe('iOS device capture service boundaries', () => {
-  it('selects only a wired, connected, physical iOS 27 iPhone', () => {
+  it('selects a wired, connected, physical iOS 27 iPhone', () => {
     const stdout = `diagnostic prefix\n${JSON.stringify({
       result: {
         devices: [
@@ -33,6 +33,24 @@ describe('iOS device capture service boundaries', () => {
     });
   });
 
+  it('accepts Xcode 27 wired paired devices while their CoreDevice tunnel is idle', () => {
+    const stdout = JSON.stringify({
+      result: {
+        devices: [{
+          identifier: 'core-device-id',
+          properties: {
+            connection: { state: 'disconnected', transportType: 'wired', pairingState: 'paired' },
+            hardware: { deviceType: 'iPhone', reality: 'physical', marketingName: 'iPhone 15 Pro Max', udid: 'device-udid' },
+            software: { osVersionNumber: { stringValue: '27.0' } },
+            state: { name: 'Research iPhone' }
+          }
+        }]
+      }
+    });
+
+    expect(parseConnectedIosDevice(stdout)?.udid).toBe('device-udid');
+  });
+
   it('rejects network-connected and pre-iOS 27 devices', () => {
     const document = (transportType: string, version: string): string => JSON.stringify({
       result: {
@@ -48,6 +66,18 @@ describe('iOS device capture service boundaries', () => {
     });
     expect(parseConnectedIosDevice(document('network', '27.0'))).toBeNull();
     expect(parseConnectedIosDevice(document('wired', '26.6'))).toBeNull();
+    expect(parseConnectedIosDevice(JSON.stringify({
+      result: {
+        devices: [{
+          identifier: 'id',
+          properties: {
+            connection: { state: 'disconnected', transportType: 'wired', pairingState: 'unpaired' },
+            hardware: { deviceType: 'iPhone', reality: 'physical', udid: 'udid' },
+            software: { osVersionNumber: { stringValue: '27.0' } }
+          }
+        }]
+      }
+    }))).toBeNull();
   });
 
   it('parses authenticated length-prefixed JPEG frames across chunks', () => {

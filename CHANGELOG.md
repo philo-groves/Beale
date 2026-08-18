@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Runbook detail now provides whole-run and per-cell execution controls for the owning live Honeycrisp session, persists each cell's latest status, duration, exit code, and bounded output, and surfaces healthy-runbook guidance. Auto-Review classifies proofing and denies proof commands outside a trusted runbook cell; `runbook.run` is the canonical model-facing proof execution path.
+- Runbook detail now provides whole-run and per-cell execution controls for the owning live Honeycrisp session, records Localhost, Device, VM, Web, or Other as the proof target plus the target OS for Device runs, persists each cell's latest status, duration, exit code, and bounded output, and surfaces healthy-runbook guidance. Auto-Review classifies proofing and denies proof commands outside a trusted runbook cell; `runbook.run` is the canonical model-facing proof execution path.
 - Workspace repository resources now show whether a managed checkout exists and offer an in-place Clone action when it does not. Clone requests stay scope-bound, deduplicate concurrent acquisition, and use Honeycrisp's large-repository-safe asynchronous materialization path.
 - Report summaries now carry typed submission-packet metadata from the Honeycrisp report catalog.
 - Workspace model context now deduplicates scope assets already represented by the bounded Rules and Constraints text or by known local repository roots, while retaining asset-specific instructions, direction-mismatched assets, exclusions, credentials, and entries beyond the visible rules budget.
@@ -28,6 +28,8 @@
 
 ### Fixed
 
+- Connected iPhones reported by Xcode 27 as wired and paired with an idle CoreDevice tunnel are now discovered and launch the capture companion when a session opens; transient companion or USB-tunnel start failures clear the renderer attempt latch so discovery can retry.
+- iOS Device proof runs now expand an active connected-iPhone stream while the runbook is running and restore it when the run ends; expanded capture derives its column width from the available height and frame aspect ratio, with equal left and right sidebar gutters.
 - Connected iPhone pixels now preserve their intrinsic aspect ratio while resolving both maximum width and maximum height against the measured remaining summary-sidebar row, preventing portrait frames from overflowing the dock.
 - Kept an approved iOS 27 full-display ScreenCaptureKit stream active when the Beale Capture companion moves to the background by declaring the required `screen-capture` background mode.
 - Honeycrisp session events and capture bodies now migrate out of repeatedly rewritten aggregate JSON into individually verified rows. Normal research appends update only bounded lifecycle state plus the new event, while corruption failures report an explicit preservation and restore/recovery path instead of the generic session-operation error.

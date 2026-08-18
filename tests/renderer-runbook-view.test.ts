@@ -51,7 +51,9 @@ const document: HoneycrispRunbookDocument = {
         completedAt: '2026-07-23T11:00:00.000Z',
         durationMs: 1250,
         exitCode: 0,
-        error: null
+        error: null,
+        proofTarget: 'device',
+        deviceOs: 'iOS 27.0'
       },
       outputs: [
         { kind: 'stream', text: 'verified\n', streamName: 'stdout', mimeType: 'text/plain' },
@@ -89,6 +91,7 @@ describe('RunbookView', () => {
     expect(html).toContain('<strong>Result:</strong> pass');
     expect(html).toContain('Keep this note visible.');
     expect(html).toContain('Succeeded · 1.3s');
+    expect(html).toContain('Device · iOS 27.0');
     expect(html).toContain('aria-label="Run cell 2"');
     expect((html.match(/class="runbook-cell /g) ?? []).length).toBe(3);
   });
@@ -114,6 +117,8 @@ describe('RunbookView', () => {
 
     expect(html).toContain('Healthy runbook: run cells are bounded and repeatable');
     expect(html).toContain('class="runbook-run-button"');
+    expect(html).toContain('aria-label="Proof target"');
+    expect(html).toContain('<option value="localhost" selected="">Localhost</option>');
     expect(html).toContain('aria-label="Run cell 2"');
     expect(html).not.toContain('class="runbook-run-button" disabled=""');
   });
