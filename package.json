@@ -24,6 +24,7 @@
     "build": "npm run typecheck && electron-vite build"
   },
   "dependencies": {
+    "@mediar-ai/terminator": "0.24.32",
     "katex": "^0.18.4",
     "lucide-react": "^0.554.0",
     "react": "^19.2.0",
@@ -35,7 +36,7 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "typescript": "^5.9.3",
-    "ws": "^8.20.0"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

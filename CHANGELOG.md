@@ -69,6 +69,7 @@
 
 ### Added
 
+- Added an installed-but-disabled built-in Terminator computer-use Agent Plugin for Windows, pinned to `@mediar-ai/terminator` 0.24.32 and limited to a curated UI Automation surface with screenshot support.
 - Reporting now has a dedicated workspace sidenav destination below Automations, uses the same active background as workspace rows, and opens a list of workspace reports. A user's first report request starts a report-scoped agent session that stays out of the workspace session list, presents the normal commentary and tool transcript beside the report, and accepts both chat-based and inline section change requests.
 - Moved Honeycrisp session creation, attempt state, live events, capture import, lifecycle state, list/detail queries, and transcript queries behind the versioned Honeycrisp CLI protocol. Backend selection is per-session and never dual-writes the legacy Beale session tables.
 - Added a versioned Honeycrisp CLI protocol client and an architecture ratchet that prevents direct Honeycrisp memory storage access from spreading beyond the explicitly recorded migration debt.
@@ -493,6 +494,8 @@
 
 ### Security
 
+- Terminator UI mutations now require a correlated host decision, a fresh single-use target observation, exact window/element revalidation, and post-mutation lease invalidation. Sensitive Windows and agent surfaces and dangerous shortcuts are denied, and MCP screenshot bytes are omitted from model-invisible research audit events.
+- Updated the production WebSocket dependency to 8.21.x to include the upstream memory-disclosure and fragmented-message exhaustion fixes.
 - Honeycrisp-backed cybersecurity sessions and forks now require a recorded workspace authorization boundary before execution can begin.
 - Kept Auto-Review routing host-owned by always overriding profile-supplied shell-review models and effort at the Beale-to-Honeycrisp launch boundary.
 - Research profiles cannot independently grant tool families, side effects, network access, skills, MCP servers, credentials, or authorization; Beale's host-owned policy remains the authority ceiling.

@@ -4637,7 +4637,7 @@ export class WorkspaceDatabase {
            JOIN runs r ON r.id = p.run_id
            JOIN scope_versions s ON s.id = r.scope_version_id
            WHERE s.workspace_id = ?
-             AND p.request_kind = 'shell_command'
+             AND p.request_kind IN ('shell_command', 'computer_use')
              AND p.decision = 'pending'
              AND p.decided_at IS NULL
            ORDER BY p.created_at ASC`

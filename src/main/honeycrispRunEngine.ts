@@ -112,6 +112,7 @@ interface ActiveHoneycrispRun {
     resolutionTimeout: NodeJS.Timeout | null;
   }>;
   resolvedShellApprovalRequestIds: Set<string>;
+  toolApprovalRequestIds: Set<string>;
   automaticWebSocketRetryCount: number;
   transportToken: string;
   transportMode: 'pending' | 'websocket';
@@ -123,7 +124,7 @@ interface ActiveHoneycrispRun {
 
 interface PendingHoneycrispControl {
   requestId: string;
-  type: 'pause' | 'resume' | 'stop' | 'configure' | 'steer' | 'configure_shell_safety' | 'resolve_shell_approval';
+  type: 'pause' | 'resume' | 'stop' | 'configure' | 'steer' | 'configure_shell_safety' | 'resolve_shell_approval' | 'resolve_tool_approval';
   sentAt: string;
   instruction?: string;
   modelSelection?: ResearchModelSelection;
@@ -635,6 +636,7 @@ export class HoneycrispRunEngine {
       shellApprovalRecords: new Map(),
       shellApprovalDecisionsInFlight: new Map(),
       resolvedShellApprovalRequestIds: new Set(),
+      toolApprovalRequestIds: new Set(),
       automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0,
       transportToken,
       transportMode: 'pending',
@@ -836,7 +838,9 @@ export class HoneycrispRunEngine {
     }
     const dispatch = this.sendControl(active, {
       schemaVersion: 1,
-      type: 'resolve_shell_approval',
+      type: active.toolApprovalRequestIds.has(approvalRequestId)
+        ? 'resolve_tool_approval'
+        : 'resolve_shell_approval',
       approvalRequestId,
       decision
     });
@@ -984,7 +988,7 @@ export class HoneycrispRunEngine {
       } else if (pending.type === 'steer' && !active.stopped) {
         active.queuedContinuations.set(pending.requestId, pending);
       }
-      if (pending.type === 'resolve_shell_approval' && pending.approvalRequestId) {
+      if ((pending.type === 'resolve_shell_approval' || pending.type === 'resolve_tool_approval') && pending.approvalRequestId) {
         if (accepted) {
           this.armShellApprovalResolutionTimeout(active, pending.approvalRequestId);
         } else {
@@ -1155,26 +1159,30 @@ export class HoneycrispRunEngine {
     active.pendingControls.clear();
     if (reason === 'engine_disposed' || active.stopped) active.queuedContinuations.clear();
     for (const [approvalRequestId, approvalId] of active.shellApprovalRecords) {
+      const computerUse = active.toolApprovalRequestIds.has(approvalRequestId);
       this.db.updateApprovalDecision(
         approvalId,
         active.context.run.id,
         'denied',
         reason === 'engine_disposed'
-          ? 'Shell approval was denied because the Honeycrisp engine closed.'
-          : 'Shell approval was denied because the Honeycrisp process exited.'
+          ? `${computerUse ? 'Computer-use' : 'Shell'} approval was denied because the Honeycrisp engine closed.`
+          : `${computerUse ? 'Computer-use' : 'Shell'} approval was denied because the Honeycrisp process exited.`
       );
       this.db.appendTraceEvent({
         runId: active.context.run.id,
         attemptId: active.context.attempt.id,
         type: 'approval_event',
         source: 'policy',
-        summary: 'Pending shell command denied when Honeycrisp closed.',
+        summary: computerUse
+          ? 'Pending computer-use action denied when Honeycrisp closed.'
+          : 'Pending shell command denied when Honeycrisp closed.',
         payload: { approvalId, approvalRequestId, decision: 'denied', reason },
         approvalId,
         modelVisible: false
       });
     }
     active.shellApprovalRecords.clear();
+    active.toolApprovalRequestIds.clear();
     for (const approvalRequestId of active.shellApprovalDecisionsInFlight.keys()) {
       this.clearShellApprovalDecisionInFlight(active, approvalRequestId);
     }
@@ -1442,6 +1450,14 @@ export class HoneycrispRunEngine {
         this.recordShellAuthorizationResolved(context, event, active);
         return;
       }
+      if (eventType === 'tool_authorization_requested') {
+        this.recordToolAuthorizationRequested(context, event, active);
+        return;
+      }
+      if (eventType === 'tool_authorization_resolved') {
+        this.recordToolAuthorizationResolved(context, event, active);
+        return;
+      }
       if (eventType === 'subagent.activity') {
         this.recordSubagentActivity(context, event);
         return;
@@ -1639,6 +1655,103 @@ export class HoneycrispRunEngine {
         reason,
         ...requestedAction
       },
+      approvalId: approval.id,
+      modelVisible: false
+    });
+    this.onChange({ forceSnapshot: Boolean(existingApprovalId) });
+  }
+
+  private recordToolAuthorizationRequested(
+    context: CreatedRunContext,
+    event: HoneycrispLiveEvent,
+    active: ActiveHoneycrispRun | undefined
+  ): void {
+    const payload = event.payload ?? {};
+    const approvalRequestId = stringPayload(payload, 'approvalRequestId');
+    if (
+      !active
+      || !approvalRequestId
+      || approvalRequestId.length > 200
+      || active.shellApprovalRecords.has(approvalRequestId)
+      || active.resolvedShellApprovalRequestIds.has(approvalRequestId)
+    ) return;
+    const requestedAction = toolAuthorizationAuditPayload(payload);
+    if (!toolAuthorizationAuditMatches(payload) || !toolAuthorizationProjectionMatches(payload, requestedAction)) {
+      active.resolvedShellApprovalRequestIds.add(approvalRequestId);
+      this.db.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'approval_event',
+        source: 'policy',
+        summary: 'Computer-use approval was denied because its argument audit did not match.',
+        payload: { approvalRequestId, decision: 'denied', reason: 'tool_argument_audit_mismatch' },
+        modelVisible: false
+      });
+      this.onChange({ forceSnapshot: true });
+      this.stopActiveRun(active, 'safety_control');
+      return;
+    }
+    const runTitle = (this.db.getRun(context.run.id)?.title ?? context.run.title).slice(0, 240);
+    const approval = this.db.createApproval({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      requestKind: 'computer_use',
+      requestedAction: { approvalRequestId, runTitle, ...requestedAction },
+      decision: 'pending',
+      reason: 'Waiting for researcher approval before changing a Windows application.',
+      pending: true
+    });
+    active.shellApprovalRecords.set(approvalRequestId, approval.id);
+    active.toolApprovalRequestIds.add(approvalRequestId);
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'approval_event',
+      source: 'policy',
+      summary: 'Computer-use action is waiting for host approval.',
+      payload: { approvalId: approval.id, approvalRequestId, decision: 'pending', ...requestedAction },
+      approvalId: approval.id,
+      modelVisible: false
+    });
+    this.onChange({ forceSnapshot: true });
+  }
+
+  private recordToolAuthorizationResolved(
+    context: CreatedRunContext,
+    event: HoneycrispLiveEvent,
+    active: ActiveHoneycrispRun | undefined
+  ): void {
+    const payload = event.payload ?? {};
+    const approvalRequestId = stringPayload(payload, 'approvalRequestId');
+    const decision = stringPayload(payload, 'decision');
+    if (!approvalRequestId || approvalRequestId.length > 200 || (decision !== 'approved' && decision !== 'denied')) return;
+    if (active?.resolvedShellApprovalRequestIds.has(approvalRequestId)) return;
+    const source = stringPayload(payload, 'source') === 'human' ? 'human' : 'policy';
+    const reason = redactForModelText(stringPayload(payload, 'reason') ?? `${source} ${decision} the computer-use action.`).slice(0, 1_000);
+    const requestedAction = toolAuthorizationAuditPayload(payload);
+    const runTitle = (this.db.getRun(context.run.id)?.title ?? context.run.title).slice(0, 240);
+    const existingApprovalId = active?.shellApprovalRecords.get(approvalRequestId) ?? null;
+    const approval = existingApprovalId
+      ? this.db.updateApprovalDecision(existingApprovalId, context.run.id, decision, reason)
+      : this.db.createApproval({
+          runId: context.run.id,
+          attemptId: context.attempt.id,
+          requestKind: 'computer_use',
+          requestedAction: { approvalRequestId, runTitle, ...requestedAction },
+          decision,
+          reason
+        });
+    active?.shellApprovalRecords.delete(approvalRequestId);
+    active?.toolApprovalRequestIds.delete(approvalRequestId);
+    if (active) this.clearShellApprovalDecisionInFlight(active, approvalRequestId);
+    active?.resolvedShellApprovalRequestIds.add(approvalRequestId);
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'approval_event',
+      source: 'policy',
+      summary: `Computer-use action ${decision} by ${source === 'human' ? 'the researcher' : 'policy'}.`,
+      payload: { approvalId: approval.id, approvalRequestId, decision, source, reason, ...requestedAction },
       approvalId: approval.id,
       modelVisible: false
     });
@@ -3423,8 +3536,41 @@ function isShellApprovalDecision(value: unknown): value is 'approved' | 'denied'
   return value === 'approved' || value === 'denied';
 }
 
-function isSafetyControlType(value: string): value is 'configure_shell_safety' | 'resolve_shell_approval' {
-  return value === 'configure_shell_safety' || value === 'resolve_shell_approval';
+function isSafetyControlType(value: string): value is 'configure_shell_safety' | 'resolve_shell_approval' | 'resolve_tool_approval' {
+  return value === 'configure_shell_safety' || value === 'resolve_shell_approval' || value === 'resolve_tool_approval';
+}
+
+function toolAuthorizationAuditPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const audit = {
+    actionId: boundedAuditString(payload.actionId, 256),
+    serverName: boundedAuditString(payload.serverName, 256),
+    toolName: boundedAuditString(payload.toolName, 256),
+    description: boundedAuditString(payload.description, 1_000),
+    argumentsHash: boundedAuditString(payload.argumentsHash, 128),
+    arguments: recordValue(payload.arguments) ?? {}
+  };
+  const redacted = redactJsonForModel(audit);
+  return recordValue(redacted) ?? {};
+}
+
+function toolAuthorizationAuditMatches(payload: Record<string, unknown>): boolean {
+  const argumentsValue = recordValue(payload.arguments);
+  const argumentsHash = stringPayload(payload, 'argumentsHash');
+  if (!argumentsValue || !argumentsHash || !/^[a-f0-9]{64}$/u.test(argumentsHash)) return false;
+  return createHash('sha256').update(JSON.stringify(argumentsValue)).digest('hex') === argumentsHash;
+}
+
+function toolAuthorizationProjectionMatches(
+  payload: Record<string, unknown>,
+  projected: Record<string, unknown>
+): boolean {
+  const argumentsValue = recordValue(payload.arguments);
+  const projectedArguments = recordValue(projected.arguments);
+  return Boolean(
+    argumentsValue
+    && projectedArguments
+    && JSON.stringify(argumentsValue) === JSON.stringify(projectedArguments)
+  );
 }
 
 function shellAuthorizationAuditPayload(payload: Record<string, unknown>): Record<string, unknown> {

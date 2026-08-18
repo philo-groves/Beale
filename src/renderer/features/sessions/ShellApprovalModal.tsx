@@ -6,7 +6,9 @@ import { Modal } from '../../app/Modal';
 export function pendingShellApproval(detail: RunDetail | null): ApprovalRecord | null {
   if (detail?.run.status !== 'active') return null;
   return detail?.policyEvents.find(
-    (approval) => approval.requestKind === 'shell_command' && approval.decision === 'pending' && approval.decidedAt === null
+    (approval) => ['shell_command', 'computer_use'].includes(approval.requestKind)
+      && approval.decision === 'pending'
+      && approval.decidedAt === null
   ) ?? null;
 }
 
@@ -64,6 +66,7 @@ export function ShellApprovalModal({
   busy: boolean;
   onDecision: (decision: PolicyReviewDecision) => void;
 }): JSX.Element {
+  const computerUse = approval.requestKind === 'computer_use';
   const command = approval.requestedAction.command && typeof approval.requestedAction.command === 'object'
     ? approval.requestedAction.command
     : approval.requestedAction;
@@ -78,7 +81,7 @@ export function ShellApprovalModal({
 
   return (
     <Modal
-      title="Approve shell command?"
+      title={computerUse ? 'Approve computer-use action?' : 'Approve shell command?'}
       className="shell-approval-modal"
       closeDisabled={busy}
       onClose={() => {
@@ -91,7 +94,9 @@ export function ShellApprovalModal({
         </>
       )}
     >
-      <p>Manual Approval pauses every shell command until you approve or deny it. Closing this dialog denies the command.</p>
+      <p>{computerUse
+        ? 'This Windows UI mutation runs only after one explicit approval. Closing this dialog denies the action.'
+        : 'Manual Approval pauses every shell command until you approve or deny it. Closing this dialog denies the command.'}</p>
       {workspaceName ? <p className="shell-approval-workspace">Workspace: {workspaceName}</p> : null}
       <p className="shell-approval-session">Session: {runTitle}</p>
       {agentPath ? <p className="shell-approval-agent">Requested by {agentPath}</p> : null}

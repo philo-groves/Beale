@@ -258,6 +258,7 @@ export interface HoneycrispBuiltinPlugin {
   id: string;
   path: string;
   installedAt: string;
+  enabledByDefault?: boolean;
 }
 
 export function getHoneycrispProtocolDescriptor(): HoneycrispProtocolDescriptor {

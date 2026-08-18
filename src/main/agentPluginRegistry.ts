@@ -63,11 +63,19 @@ export class AgentPluginRegistry {
 }
 
 function defaultBuiltinPlugins(): HoneycrispBuiltinPlugin[] {
-  return [{
-    id: 'beale-introspection-builtin',
-    path: defaultBuiltinPluginPath('beale-introspection'),
-    installedAt: '2026-08-14T00:00:00.000Z'
-  }];
+  return [
+    {
+      id: 'beale-introspection-builtin',
+      path: defaultBuiltinPluginPath('beale-introspection'),
+      installedAt: '2026-08-14T00:00:00.000Z'
+    },
+    {
+      id: 'beale-terminator-builtin',
+      path: defaultBuiltinPluginPath('beale-terminator'),
+      installedAt: '2026-08-17T00:00:00.000Z',
+      enabledByDefault: false
+    }
+  ];
 }
 
 function defaultBuiltinPluginPath(directoryName: string): string {

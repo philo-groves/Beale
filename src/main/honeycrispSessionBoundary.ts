@@ -731,7 +731,7 @@ export function createHoneycrispSessionBoundary(
         const session = getSession(runId);
         return session ? sessionDetail(session, database).policyEvents : [];
       })
-        .filter((approval) => approval.requestKind === 'shell_command' && approval.decision === 'pending');
+        .filter((approval) => ['shell_command', 'computer_use'].includes(approval.requestKind) && approval.decision === 'pending');
       return [...canonical, ...database.listPendingShellApprovals()];
     }) as WorkspaceDatabase['listPendingShellApprovals'],
 
@@ -808,7 +808,7 @@ export function listHoneycrispPendingApprovalsForRuns(
       sessionWithQueuedEvents(getHoneycrispSession(runId, context.storage), context.sessionWrites),
       context.database
     ).policyEvents)
-    .filter((approval) => approval.requestKind === 'shell_command' && approval.decision === 'pending');
+    .filter((approval) => ['shell_command', 'computer_use'].includes(approval.requestKind) && approval.decision === 'pending');
   return [...canonical, ...context.database.listPendingShellApprovals()];
 }
 

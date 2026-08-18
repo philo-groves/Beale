@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, release, tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
+import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
@@ -193,6 +194,7 @@ import type {
   ShellSafetyMode
 } from '@shared/types';
 
+const requireFromWorkspaceService = createRequire(import.meta.url);
 const EXECUTION_POSTURE_LABEL = 'Honeycrisp host-process execution. Use an external VM or container when OS isolation is required.';
 const UNBOUNDED_RUN_MINUTES = 999_999;
 const UNBOUNDED_RUN_ATTEMPTS = 999_999;
@@ -3491,8 +3493,8 @@ export class WorkspaceService {
     const approval = runtime.db
       .getRunDetail(action.runId)
       .policyEvents.find((candidate) => candidate.id === action.approvalId);
-    if (!approval || approval.runId !== action.runId || approval.requestKind !== 'shell_command') {
-      throw new Error(`Pending shell approval not found for run ${action.runId}.`);
+    if (!approval || approval.runId !== action.runId || !['shell_command', 'computer_use'].includes(approval.requestKind)) {
+      throw new Error(`Pending action approval not found for run ${action.runId}.`);
     }
     if (approval.decision !== 'pending' || approval.decidedAt !== null) {
       throw new Error(`Shell approval ${action.approvalId} has already been decided.`);
@@ -3874,6 +3876,11 @@ export class WorkspaceService {
     if (!this.agentPluginRegistry) {
       this.agentPluginRegistry = new AgentPluginRegistry(dirname(this.getWorkspaceRegistry().registryPath), {
         runtimeEnvironment: (plugin) => {
+          if (plugin.source.kind === 'builtin' && plugin.name === 'beale-terminator') {
+            return {
+              BEALE_TERMINATOR_MODULE_PATH: requireFromWorkspaceService.resolve('@mediar-ai/terminator')
+            };
+          }
           if (plugin.source.kind !== 'builtin' || plugin.name !== 'beale-introspection') {
             return {} as Record<string, string>;
           }

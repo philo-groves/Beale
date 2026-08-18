@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "beale-terminator",
+  "version": "0.1.0",
+  "description": "Optional Windows computer-use tools for Beale, backed by the pinned Terminator UI Automation SDK.",
+  "author": "Beale",
+  "homepage": "https://github.com/mediar-ai/terminator",
+  "repository": "https://github.com/mediar-ai/terminator",
+  "license": "MIT",
+  "keywords": [
+    "beale",
+    "computer-use",
+    "windows",
+    "terminator",
+    "uia"
+  ]
+}

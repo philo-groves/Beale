@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "computer-use": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "./server.mjs"
+      ],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": {
+        "BEALE_TERMINATOR_MODULE_PATH": "${BEALE_TERMINATOR_MODULE_PATH}"
+      }
+    }
+  }
+}

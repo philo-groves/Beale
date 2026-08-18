@@ -133,9 +133,13 @@ describe('AgentPluginRegistry', () => {
     });
 
     const plugin = registry.getState().plugins.find((candidate) => candidate.name === 'beale-introspection');
+    const terminator = registry.getState().plugins.find((candidate) => candidate.name === 'beale-terminator');
     expect(plugin).toBeTruthy();
     expect(plugin?.enabled).toBe(true);
     expect(plugin?.source.kind).toBe('builtin');
+    expect(terminator).toBeTruthy();
+    expect(terminator?.enabled).toBe(false);
+    expect(terminator?.source.kind).toBe('builtin');
     expect(plugin?.mcpServers).toMatchObject([
       {
         name: 'beale',
@@ -161,6 +165,11 @@ describe('AgentPluginRegistry', () => {
     const reloaded = new AgentPluginRegistry(dirname(disabled.registryPath));
     expect(reloaded.getState().plugins.find((candidate) => candidate.id === plugin!.id)?.enabled).toBe(false);
     expect(() => registry.remove(plugin!.id)).toThrow('Built-in plugins cannot be removed.');
+
+    const terminatorEnabled = registry.setEnabled(terminator!.id, true);
+    expect(terminatorEnabled.plugins.find((candidate) => candidate.id === terminator!.id)?.enabled).toBe(true);
+    const computerRuntime = registry.getHoneycrispRuntime();
+    expect(computerRuntime.allowedMcpServers).toContain('beale-terminator.computer-use');
   });
 
   it('speaks Honeycrisp newline-delimited JSON-RPC over stdio', () => {
@@ -198,6 +207,40 @@ describe('AgentPluginRegistry', () => {
       'run_dreaming'
     ]));
     expect(tools.map((tool) => tool.name)).not.toContain('create_workspace');
+  });
+
+  it('exposes only the curated Terminator surface and denies blocked Windows processes', () => {
+    const serverPath = join(process.cwd(), 'resources', 'agent-plugins', 'beale-terminator', 'server.mjs');
+    const input = [
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } },
+      { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+      {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'capture', arguments: { process: 'cmd.exe', title: 'Command Prompt' } }
+      }
+    ].map((message) => JSON.stringify(message)).join('\n') + '\n';
+    const result = spawnSync(process.execPath, [serverPath], { input, encoding: 'utf8', timeout: 5_000 });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    const responses = result.stdout.trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+    const tools = ((responses[1].result as { tools: Array<{
+      name: string;
+      annotations: Record<string, unknown>;
+    }> }).tools);
+    expect(tools.map((tool) => tool.name)).toEqual([
+      'observe', 'find', 'click', 'type', 'key', 'scroll', 'wait_for', 'capture'
+    ]);
+    expect(tools.map((tool) => tool.name)).not.toContain('run_command');
+    expect((tools.find((tool) => tool.name === 'click')?.annotations['beale.io/tool'] as Record<string, unknown>).confirmation).toBe('always');
+    expect(responses[2]).toMatchObject({
+      id: 3,
+      result: {
+        isError: true,
+        content: [{ type: 'text', text: expect.stringContaining('denies process') }]
+      }
+    });
   });
 });
 
