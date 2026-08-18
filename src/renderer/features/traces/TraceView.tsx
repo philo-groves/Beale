@@ -1,6 +1,6 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, LoaderCircle, SlidersHorizontal, Square } from 'lucide-react';
+import { ArrowLeft, ArrowRight, SlidersHorizontal, Square } from 'lucide-react';
 import type {
   ApprovalRecord,
   PolicyReviewDecision,
@@ -16,6 +16,7 @@ import type {
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
 import { ModelSelectionPicker } from '../../app/ModelSelectionPicker';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
+import { CenteredLoadingState } from '../../app/CenteredLoadingState';
 import { researchModelNameLabel, traceLabel } from '../../lib/formatting';
 import { normalizeShellSafetyMode, SHELL_SAFETY_MODE_OPTIONS } from '../../../shared/shellSafety';
 export { SHELL_SAFETY_MODE_OPTIONS } from '../../../shared/shellSafety';
@@ -549,12 +550,7 @@ export const TraceView = memo(function TraceView({
 });
 
 export function SessionLoadingState({ label }: { label: string }): JSX.Element {
-  return (
-    <div className="main-session-loading" role="status" aria-live="polite">
-      <LoaderCircle size={18} aria-hidden="true" />
-      <span>{label}</span>
-    </div>
-  );
+  return <CenteredLoadingState className="main-session-loading" label={label} />;
 }
 
 export const MainSteerArea = memo(function MainSteerArea({

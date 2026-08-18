@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { CircleAlert, LoaderCircle } from 'lucide-react';
+import { CircleAlert } from 'lucide-react';
 import type {
   AutomationSummary,
   AutomationUpdateInput,
@@ -13,6 +13,7 @@ import type {
   WorkspaceRegistryEntry
 } from '@shared/types';
 import { repeatScheduleLabel } from '../../../shared/repeatSchedule';
+import { CenteredLoadingState } from '../../app/CenteredLoadingState';
 import { ResearchSettingsForm } from '../sessions/StartRunForm';
 
 export function AutomationsWorkspace({
@@ -62,7 +63,7 @@ export function AutomationsWorkspace({
   ];
 
   return (
-    <section className="automations-workspace" aria-label="Automations">
+    <section className="automations-workspace" aria-label="Automations" aria-busy={loading}>
       <div className="automations-workspace-tabs research-side-view-tabs research-side-view-tabs-scrollable" role="tablist" aria-label="Automation workspace scope">
         {scopeTabs.map((scope) => {
           const selected = selectedWorkspaceId === scope.id;
@@ -85,7 +86,7 @@ export function AutomationsWorkspace({
       <div className={`automations-workspace-content ${selectedAutomation ? 'has-editor' : ''}`} id="automations-workspace-panel" role="tabpanel">
         <div className="automations-workspace-catalog">
           {loading ? (
-            <AutomationEmptyState label="Loading automations" loading />
+            <CenteredLoadingState label="Loading automations…" />
           ) : error ? (
             <AutomationEmptyState label="Automations could not be loaded" detail={error} error />
           ) : scoped.length === 0 ? (
@@ -256,15 +257,14 @@ function AutomationEditor({
   );
 }
 
-function AutomationEmptyState({ label, detail, loading = false, error = false }: {
+function AutomationEmptyState({ label, detail, error = false }: {
   label: string;
   detail?: string;
-  loading?: boolean;
   error?: boolean;
 }): JSX.Element {
   return (
     <div className={`automations-workspace-empty ${error ? 'is-error' : ''}`.trim()} role={error ? 'alert' : 'status'}>
-      {loading ? <LoaderCircle className="runbook-view-spinner" size={20} aria-hidden="true" /> : error ? <CircleAlert size={20} aria-hidden="true" /> : null}
+      {error ? <CircleAlert size={20} aria-hidden="true" /> : null}
       <strong>{label}</strong>
       {detail ? <span>{detail}</span> : null}
     </div>

@@ -5,6 +5,30 @@ import { describe, expect, it } from 'vitest';
 import { PluginManagerWorkspace } from '../src/renderer/features/plugins/PluginManagerWorkspace';
 
 describe('plugin manager workspace', () => {
+  it('uses the shared centered regular-weight loading state', () => {
+    const html = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
+      state: null,
+      loading: true,
+      busy: false,
+      error: null,
+      repositoryUrl: '',
+      onRepositoryUrlChange: () => undefined,
+      onAddFilesystem: () => undefined,
+      onAddRepository: () => undefined,
+      onSetEnabled: () => undefined,
+      onRemove: () => undefined
+    }));
+
+    expect(html).toContain('class="centered-loading-state"');
+    expect(html).toContain('class="centered-loading-state-spinner"');
+    expect(html).toContain('<span>Loading plugins…</span>');
+    expect(html).not.toContain('<strong>Loading plugins');
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const loadingStyles = styles.match(/\.centered-loading-state\s*\{([^}]*)\}/u)?.[1] ?? '';
+    expect(loadingStyles).toContain('place-content: center');
+    expect(loadingStyles).toContain('font-weight: 400');
+  });
+
   it('renders the install controls and counted flat catalog in main content', () => {
     const html = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
       state: null,

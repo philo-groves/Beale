@@ -1148,10 +1148,33 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .workspace-list-title {
   min-width: 0;
   flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   color: var(--muted);
   font-size: 1rem;
   font-weight: 400;
   line-height: 1.3;
+}
+
+.workspace-list-title > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-list-title-loading {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-list-title-loading svg {
+  animation: workspace-startup-spin 900ms linear infinite;
 }
 
 .workspace-list-header {
@@ -1772,20 +1795,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   align-items: center;
   gap: 7px;
   margin-top: 4px;
-}
-
-.workspace-list-loading {
-  min-height: 30px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 8px;
-  color: var(--muted);
-  font-size: 1rem;
-}
-
-.workspace-list-loading svg {
-  animation: workspace-startup-spin 900ms linear infinite;
 }
 
 @keyframes workspace-startup-spin {
@@ -4476,27 +4485,13 @@ button.session-summary-item:hover:not(:disabled),
   background: var(--panel);
 }
 
-.main-session-loading {
+.centered-loading-state.main-session-loading {
   min-width: 0;
   min-height: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
   margin: 0;
   padding: 48px;
   border-radius: 0 var(--content-surface-radius) var(--content-surface-radius) 0;
   background: var(--panel);
-  color: var(--muted-strong);
-  font-size: 0.95rem;
-  font-weight: 650;
-  line-height: 1.3;
-}
-
-.main-session-loading svg {
-  flex: 0 0 auto;
-  color: var(--muted-strong);
-  animation: beale-spin 900ms linear infinite;
 }
 
 .main-commentary-scroll {
@@ -9610,7 +9605,6 @@ button.session-summary-item:hover:not(:disabled),
   border-bottom: 1px solid var(--panel-border);
 }
 
-.plugin-manager-loading,
 .plugin-manager-empty {
   min-height: 96px;
   display: grid;
@@ -9625,7 +9619,17 @@ button.session-summary-item:hover:not(:disabled),
   font-weight: 400;
 }
 
-.plugin-manager-spinner {
+.centered-loading-state {
+  min-height: 96px;
+  display: grid;
+  place-content: center;
+  gap: 7px;
+  color: var(--muted);
+  font-weight: 400;
+  text-align: center;
+}
+
+.centered-loading-state-spinner {
   width: 14px;
   height: 14px;
   justify-self: center;
@@ -10840,26 +10844,6 @@ button.research-goal-choice:focus-visible {
 .provider-settings-empty p {
   margin-top: 3px;
   line-height: 1.4;
-}
-
-.provider-settings-loading {
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 1rem;
-}
-
-.provider-settings-loading-indicator {
-  width: 10px;
-  height: 10px;
-  box-sizing: border-box;
-  flex: 0 0 auto;
-  border: 1.5px solid rgba(255, 255, 255, 0.28);
-  border-top-color: #a8a8a8;
-  border-radius: 50%;
-  animation: provider-health-spin 800ms linear infinite;
 }
 
 .general-settings-page {
@@ -13390,9 +13374,8 @@ button.research-goal-choice:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .provider-health-indicator.state-authenticating,
-  .provider-settings-loading-indicator,
-  .plugin-manager-spinner,
-  .workspace-list-loading svg {
+  .centered-loading-state-spinner,
+  .workspace-list-title-loading svg {
     animation: none;
   }
 

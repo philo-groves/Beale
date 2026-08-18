@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Provider Settings, Automations, Reporting, Plugins, and session views now share the Plugins-style centered loading indicator with regular-weight text.
 - Runbook detail now provides whole-run and per-cell execution controls for the owning live Honeycrisp session, records Localhost, Device, VM, Web, or Other as the proof target plus the target OS for Device runs, persists each cell's latest status, duration, exit code, and bounded output, and surfaces healthy-runbook guidance. Auto-Review classifies proofing and denies proof commands outside a trusted runbook cell; `runbook.run` is the canonical model-facing proof execution path.
 - Workspace repository resources now show whether a managed checkout exists and offer an in-place Clone action when it does not. Clone requests stay scope-bound, deduplicate concurrent acquisition, and use Honeycrisp's large-repository-safe asynchronous materialization path.
 - Report summaries now carry typed submission-packet metadata from the Honeycrisp report catalog.
@@ -28,6 +29,7 @@
 
 ### Fixed
 
+- Workspace registry loading now shows a compact spinner beside the Workspaces sidenav heading instead of adding a separate loading-text row to the workspace list.
 - Header context labels now follow the main content edge when the left sidenav resizes or collapses, while clamping after the measured application-menu controls so narrow windows and display zoom cannot overlap the labels.
 - Workspace opening now batches registry updates in one SQLite transaction, avoids re-synchronizing cached background workspaces or immediately reloading the just-updated registry, and mounts only the visible dashboard tab instead of eagerly building all hidden activity, resource, memory, runbook, and utility views.
 - Connected iPhones reported by Xcode 27 as wired and paired with an idle CoreDevice tunnel are now discovered and launch the capture companion when a session opens; transient companion or USB-tunnel start failures clear the renderer attempt latch so discovery can retry.

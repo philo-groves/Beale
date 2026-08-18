@@ -29,6 +29,7 @@ import type {
   ShellSafetyMode
 } from '@shared/types';
 import { ProviderIcon } from '../../app/ProviderIcon';
+import { CenteredLoadingState } from '../../app/CenteredLoadingState';
 import type { FloatingTextPickerOption } from '../../app/FloatingTextPicker';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { researchModelNameLabel, stateClass } from '../../lib/formatting';
@@ -1479,10 +1480,7 @@ export function ProvidersSettingsView({
   if (!providerSelectionReady) {
     return (
       <div className="settings-page provider-settings-page" aria-busy="true">
-        <section className="provider-settings-loading" role="status" aria-live="polite">
-          <span className="provider-settings-loading-indicator" aria-hidden="true" />
-          <span>Loading providers…</span>
-        </section>
+        <CenteredLoadingState label="Loading providers…" />
       </div>
     );
   }

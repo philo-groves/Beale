@@ -43,8 +43,9 @@ describe('renderer commentary projection', () => {
     );
 
     expect(html).toContain('main-trace-view main-commentary-view is-loading');
-    expect(html).toContain('class="main-session-loading"');
-    expect(html).toContain('lucide-loader-circle');
+    expect(html).toContain('class="centered-loading-state main-session-loading"');
+    expect(html).toContain('class="centered-loading-state-spinner"');
+    expect(html).not.toContain('lucide-loader-circle');
     expect(html).toContain('Loading session');
     expect(html).not.toContain('Loading session.');
     expect(html).not.toContain('class="main-trace-footer"');

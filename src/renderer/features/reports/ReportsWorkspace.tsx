@@ -13,6 +13,7 @@ import type {
   SteeringAction,
   WorkspaceRegistryEntry
 } from '@shared/types';
+import { CenteredLoadingState } from '../../app/CenteredLoadingState';
 import { traceLabel } from '../../lib/formatting';
 import {
   joinReportBlockSelection,
@@ -72,10 +73,7 @@ export function ReportsIndex({
       </div>
       <div id="reports-index-panel" role="tabpanel">
         {loading ? (
-          <div className="reports-index-empty" role="status">
-            <LoaderCircle className="runbook-view-spinner" size={20} aria-hidden="true" />
-            <strong>Loading reports</strong>
-          </div>
+          <CenteredLoadingState label="Loading reports…" />
         ) : error ? (
           <div className="reports-index-empty is-error" role="alert">
             <CircleAlert size={20} aria-hidden="true" />

@@ -129,7 +129,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                 <X size={13} />
               </button>
             </div>
-          ) : <div className="workspace-list-title">Workspaces</div>}
+          ) : (
+            <div className="workspace-list-title">
+              <span>Workspaces</span>
+              {workspaceRegistryLoading ? (
+                <span className="workspace-list-title-loading" role="status" aria-label="Loading workspaces">
+                  <LoaderCircle aria-hidden="true" size={13} />
+                </span>
+              ) : null}
+            </div>
+          )}
           <div className="workspace-list-header-actions">
             {!sessionSearchOpen ? (
               <button type="button" title="Search sessions" aria-label="Search sessions" onClick={() => setSessionSearchOpen(true)}>
@@ -147,12 +156,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           updateKey={listUpdateKey}
         >
           <div className="sidebar-list-scroll-content">
-            {workspaceRegistryLoading ? (
-              <div className="workspace-list-loading" role="status">
-                <LoaderCircle aria-hidden="true" size={13} />
-                <span>Loading workspaces…</span>
-              </div>
-            ) : null}
             {!workspaceRegistryLoading && workspaces.length === 0 ? (
               <span className="workspace-session-empty">No Workspaces Yet...</span>
             ) : null}

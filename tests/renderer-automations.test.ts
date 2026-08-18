@@ -70,7 +70,7 @@ const inactiveAutomation: AutomationSummary = {
   }
 };
 
-function render(selectedAutomation: AutomationSummary | null = null): string {
+function render(selectedAutomation: AutomationSummary | null = null, loading = false): string {
   return renderToStaticMarkup(createElement(AutomationsWorkspace, {
     automations: [activeAutomation, inactiveAutomation],
     workspaces: [workspace],
@@ -92,7 +92,7 @@ function render(selectedAutomation: AutomationSummary | null = null): string {
         maxTokens: 128_000
       }]
     }],
-    loading: false,
+    loading,
     error: null,
     onScopeChange: () => undefined,
     onSelectAutomation: () => undefined,
@@ -101,6 +101,16 @@ function render(selectedAutomation: AutomationSummary | null = null): string {
 }
 
 describe('automation workspace', () => {
+  it('uses the shared centered regular-weight loading state', () => {
+    const html = render(null, true);
+
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain('class="centered-loading-state"');
+    expect(html).toContain('class="centered-loading-state-spinner"');
+    expect(html).toContain('<span>Loading automations…</span>');
+    expect(html).not.toContain('<strong>Loading automations');
+  });
+
   it('keeps New Research defaults uninflated and preserves stored automation choices when inflated', () => {
     const defaults = researchSettingsInput(undefined, 'discovery', null);
     const dangerDefaults = researchSettingsInput(undefined, 'discovery', null, 'danger');

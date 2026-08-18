@@ -1,6 +1,7 @@
 import type { FormEvent, JSX } from 'react';
 import { FolderPlus, GitBranch, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react';
 import type { AgentPluginRecord, AgentPluginRegistryState } from '@shared/types';
+import { CenteredLoadingState } from '../../app/CenteredLoadingState';
 
 export function PluginManagerWorkspace({
   state,
@@ -63,10 +64,7 @@ export function PluginManagerWorkspace({
           <h2>{pluginCountLabel}</h2>
           <div className="plugin-manager-list">
             {loading ? (
-              <div className="plugin-manager-loading">
-                <span className="plugin-manager-spinner" />
-                <span>Loading plugins...</span>
-              </div>
+              <CenteredLoadingState label="Loading plugins…" />
             ) : plugins.length > 0 ? (
               plugins.map((plugin) => (
                 <PluginCard

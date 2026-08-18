@@ -719,7 +719,10 @@ describe('renderer provider settings', () => {
 
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain('role="status"');
+    expect(html).toContain('class="centered-loading-state"');
+    expect(html).toContain('class="centered-loading-state-spinner"');
     expect(html).toContain('Loading providers…');
+    expect(html).not.toContain('provider-settings-loading');
     expect(html).not.toContain('No providers configured');
     expect(html).not.toContain('aria-label="Add provider"');
   });

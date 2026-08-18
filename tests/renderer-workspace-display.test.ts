@@ -100,7 +100,7 @@ describe('renderer workspace display view models', () => {
       onStartNewResearch: () => undefined
     }));
 
-    expect(html).toContain('<div class="workspace-list-title">Workspaces</div>');
+    expect(html).toContain('<div class="workspace-list-title"><span>Workspaces</span></div>');
     expect(html).toContain('<div class="main-side-scroll sidebar-list-scroll-region">');
     expect(html).toContain('<div class="sidebar-list-scroll workspace-list-items">');
     expect(html).toContain('<div class="sidebar-list-scroll-content">');
@@ -177,8 +177,10 @@ describe('renderer workspace display view models', () => {
       onStartNewResearch: () => undefined
     }));
 
-    expect(html).toContain('Loading workspaces');
+    expect(html).toContain('<div class="workspace-list-title"><span>Workspaces</span><span class="workspace-list-title-loading" role="status" aria-label="Loading workspaces">');
     expect(html).toContain('lucide-loader-circle');
+    expect(html).not.toContain('workspace-list-loading');
+    expect(html).not.toContain('<span>Loading workspaces…</span>');
     expect(html).not.toContain('No Workspaces Yet');
   });
 

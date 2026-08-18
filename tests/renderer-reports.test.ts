@@ -50,6 +50,23 @@ const workspace: WorkspaceRegistryEntry = {
 };
 
 describe('reports resource views', () => {
+  it('uses the shared centered regular-weight loading state', () => {
+    const html = renderToStaticMarkup(createElement(ReportsIndex, {
+      reports: [],
+      workspaces: [workspace],
+      selectedWorkspaceId: null,
+      loading: true,
+      error: null,
+      onScopeChange: () => undefined,
+      onOpenReport: () => undefined
+    }));
+
+    expect(html).toContain('class="centered-loading-state"');
+    expect(html).toContain('class="centered-loading-state-spinner"');
+    expect(html).toContain('<span>Loading reports…</span>');
+    expect(html).not.toContain('<strong>Loading reports');
+  });
+
   it('gives the report session and report equal workspace width', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     expect(styles).toContain('grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);');
