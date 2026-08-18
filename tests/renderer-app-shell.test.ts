@@ -1,8 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HostEnvironment, RunDetail, WorkspaceSnapshot } from '@shared/types';
 import { AppHeaderTitle, StaticAppHeaderTitle, type AppHeaderViewIcon } from '../src/renderer/app/AppHeaderTitle';
+import { headerMenuInlineEnd, rightmostHeaderMenuControl } from '../src/renderer/app/TopBar';
 import {
   activeRunDetailForSelection,
   appShellClassName,
@@ -37,6 +39,20 @@ describe('renderer app shell view model', () => {
       }));
       expect(header).toContain(iconClass);
     }
+  });
+
+  it('aligns header labels with content without crossing the menu controls', () => {
+    expect(rightmostHeaderMenuControl(8, [42, 83, 128, 194])).toBe(194);
+    expect(rightmostHeaderMenuControl(8, [])).toBe(8);
+    expect(headerMenuInlineEnd(10.2, 201.1)).toBe(199);
+    expect(headerMenuInlineEnd(220, 180)).toBe(0);
+
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    expect(styles).toContain('--main-content-inline-start: var(--sidebar-width)');
+    expect(styles).toMatch(/\.app-shell\.sidebar-collapsed\s*\{\s*--main-content-inline-start: 0px;/u);
+    expect(styles).toContain('left: max(calc(var(--main-content-inline-start) + 12px), var(--header-menu-inline-end));');
+    expect(styles).toMatch(/@media \(max-width: 820px\)[\s\S]*?\.app-shell\s*\{\s*--main-content-inline-start: 0px;/u);
+    expect(styles).not.toContain('left: 180px;');
   });
 
   it('selects active run state and detail only when ids match', () => {

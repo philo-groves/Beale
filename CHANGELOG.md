@@ -28,6 +28,7 @@
 
 ### Fixed
 
+- Header context labels now follow the main content edge when the left sidenav resizes or collapses, while clamping after the measured application-menu controls so narrow windows and display zoom cannot overlap the labels.
 - Workspace opening now batches registry updates in one SQLite transaction, avoids re-synchronizing cached background workspaces or immediately reloading the just-updated registry, and mounts only the visible dashboard tab instead of eagerly building all hidden activity, resource, memory, runbook, and utility views.
 - Connected iPhones reported by Xcode 27 as wired and paired with an idle CoreDevice tunnel are now discovered and launch the capture companion when a session opens; transient companion or USB-tunnel start failures clear the renderer attempt latch so discovery can retry.
 - iOS Device proof runs now expand an active connected-iPhone stream while the runbook is running and restore it when the run ends; expanded capture derives its column width from the available height and frame aspect ratio, with equal left and right sidebar gutters.

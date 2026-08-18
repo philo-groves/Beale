@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { JSX, MouseEvent } from 'react';
 import { Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, X } from 'lucide-react';
 import type { HostEnvironment, RunDetail, ZoomState } from '@shared/types';
@@ -8,6 +8,15 @@ import type { AppHeaderViewIcon } from './AppHeaderTitle';
 import { viewMenuShortcut, zoomPercentLabel } from './menuActions';
 
 type OpenMenu = 'file' | 'view' | 'window' | null;
+const HEADER_MENU_GAP_PX = 8;
+
+export function headerMenuInlineEnd(topBarLeft: number, menuRight: number): number {
+  return Math.max(0, Math.ceil(menuRight - topBarLeft + HEADER_MENU_GAP_PX));
+}
+
+export function rightmostHeaderMenuControl(menuLeft: number, controlRights: readonly number[]): number {
+  return Math.max(menuLeft, ...controlRights);
+}
 
 export const TopBar = memo(function TopBar({
   sidebarCollapsed,
@@ -48,9 +57,35 @@ export const TopBar = memo(function TopBar({
   const isMac = platform === 'darwin';
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const [zoomState, setZoomState] = useState<ZoomState>(() => ({ level: 0, percent: 100 }));
+  const topBarRef = useRef<HTMLElement | null>(null);
   const menuRef = useRef<HTMLElement | null>(null);
   const zoomOutShortcut = viewMenuShortcut(platform, 'zoom_out');
   const zoomInShortcut = viewMenuShortcut(platform, 'zoom_in');
+
+  useLayoutEffect(() => {
+    const topBar = topBarRef.current;
+    const menu = menuRef.current;
+    if (!topBar || !menu) return undefined;
+    const menuControls = Array.from(menu.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+    const updateMenuEdge = (): void => {
+      const menuRight = rightmostHeaderMenuControl(
+        menu.getBoundingClientRect().left,
+        menuControls.map((control) => control.getBoundingClientRect().right)
+      );
+      const menuEdge = headerMenuInlineEnd(topBar.getBoundingClientRect().left, menuRight);
+      topBar.style.setProperty('--header-menu-inline-end', `${menuEdge}px`);
+    };
+    updateMenuEdge();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateMenuEdge);
+    observer?.observe(topBar);
+    observer?.observe(menu);
+    for (const control of menuControls) observer?.observe(control);
+    window.addEventListener('resize', updateMenuEdge);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateMenuEdge);
+    };
+  }, [platform]);
 
   useEffect(() => {
     const closeFromPointer = (event: PointerEvent): void => {
@@ -123,7 +158,7 @@ export const TopBar = memo(function TopBar({
   }, [onAddWorkspace]);
 
   return (
-    <header className={`top-bar ${isMac ? 'top-bar-darwin' : 'top-bar-custom-controls'} ${profilingEnabled ? 'profiling-enabled' : ''} ${rightSidenavAvailable ? 'right-sidenav-available' : ''} ${openMenu ? 'menu-open' : ''}`}>
+    <header ref={topBarRef} className={`top-bar ${isMac ? 'top-bar-darwin' : 'top-bar-custom-controls'} ${profilingEnabled ? 'profiling-enabled' : ''} ${rightSidenavAvailable ? 'right-sidenav-available' : ''} ${openMenu ? 'menu-open' : ''}`}>
       {isMac ? <div className="mac-window-control-spacer" aria-hidden="true" /> : null}
       <nav className="window-menu" aria-label={isMac ? 'Sidebar controls' : 'Application menu'} ref={menuRef}>
         <button

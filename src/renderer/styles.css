@@ -381,6 +381,7 @@ code {
 .app-shell {
   --session-heat-edge: var(--panel-border);
   --session-heat-window-surface: var(--chrome-soft);
+  --main-content-inline-start: var(--sidebar-width);
   height: 100%;
   position: relative;
   isolation: isolate;
@@ -608,10 +609,12 @@ code {
 }
 
 .app-shell.sidebar-collapsed {
+  --main-content-inline-start: 0px;
   grid-template-columns: 0 minmax(0, 1fr);
 }
 
 .top-bar {
+  --header-menu-inline-end: 210px;
   grid-column: 1 / -1;
   grid-row: 1;
   min-width: 0;
@@ -629,6 +632,7 @@ code {
 }
 
 .top-bar-darwin {
+  --header-menu-inline-end: 118px;
   grid-template-columns: 76px minmax(0, 1fr) auto;
 }
 
@@ -786,12 +790,13 @@ code {
   top: 0;
   right: 132px;
   bottom: 0;
-  left: max(calc(var(--sidebar-width) + 12px), 210px);
+  left: max(calc(var(--main-content-inline-start) + 12px), var(--header-menu-inline-end));
   display: inline-flex;
   align-items: center;
   gap: 14px;
   overflow: hidden;
   color: var(--muted-strong);
+  transition: left 180ms ease;
   -webkit-app-region: drag;
 }
 
@@ -13558,6 +13563,7 @@ button.research-goal-choice:focus-visible {
   }
 
   .app-shell {
+    --main-content-inline-start: 272px;
     height: auto;
     min-height: 100%;
     grid-template-columns: 272px minmax(0, 1fr);
@@ -13566,6 +13572,7 @@ button.research-goal-choice:focus-visible {
   }
 
   .app-shell.sidebar-collapsed {
+    --main-content-inline-start: 0px;
     grid-template-columns: 0 minmax(0, 1fr);
   }
 
@@ -13615,6 +13622,7 @@ button.research-goal-choice:focus-visible {
 
 @media (max-width: 820px) {
   .app-shell {
+    --main-content-inline-start: 0px;
     grid-template-columns: 1fr;
   }
 
@@ -13728,7 +13736,6 @@ button.research-goal-choice:focus-visible {
 
   .app-header-title {
     right: 92px;
-    left: 180px;
   }
 
   .top-bar-darwin .app-header-title {
