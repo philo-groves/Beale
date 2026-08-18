@@ -35,6 +35,8 @@
 
 ### Fixed
 
+- Completed sessions resumed after app recovery now show the successful terminal response instead of letting the historical recovery marker suppress an otherwise empty result area.
+- Detailed Windows computer-use observations no longer let Terminator SDK diagnostics corrupt the MCP JSON-RPC stdout stream and terminate the active research session.
 - Workspace registry loading now shows a compact spinner beside the Workspaces sidenav heading instead of adding a separate loading-text row to the workspace list.
 - Header context labels now follow the main content edge when the left sidenav resizes or collapses, while clamping after the measured application-menu controls so narrow windows and display zoom cannot overlap the labels.
 - Workspace opening now batches registry updates in one SQLite transaction, avoids re-synchronizing cached background workspaces or immediately reloading the just-updated registry, and mounts only the visible dashboard tab instead of eagerly building all hidden activity, resource, memory, runbook, and utility views.

@@ -987,10 +987,20 @@ function runDetailUpdateFromSession(
   const afterTranscriptCount = Number.isFinite(cursor.afterTranscriptCount)
     ? Math.max(0, Math.floor(cursor.afterTranscriptCount))
     : 0;
+  const transcriptMessages = detail.transcriptMessages.slice(afterTranscriptCount);
+  const latestAttemptId = session.attempts.at(-1)?.id ?? null;
+  const terminalRootResponse = detail.transcriptMessages.findLast((message) =>
+    isRootFinalResponse(message, latestAttemptId)
+  );
+  if (terminalRootResponse && !transcriptMessages.some((message) => message.id === terminalRootResponse.id)) {
+    // Synthetic recovery messages can disappear when a paused session resumes,
+    // so a count-only cursor may otherwise skip the successful terminal answer.
+    transcriptMessages.push(terminalRootResponse);
+  }
   return runDetailUpdateFromDetail({
     ...detail,
     traceEvents: detail.traceEvents.filter((event) => event.sequence > afterTraceSequence),
-    transcriptMessages: detail.transcriptMessages.slice(afterTranscriptCount)
+    transcriptMessages
   }, session.revision);
 }
 
@@ -1043,10 +1053,10 @@ function sessionRun(session: HoneycrispSessionRecord | HoneycrispSessionSummary)
   };
 }
 
-function isRootFinalResponse(message: TranscriptMessageRecord): boolean {
+function isRootFinalResponse(message: TranscriptMessageRecord, attemptId: string | null): boolean {
   if (message.role !== 'assistant' || message.phase !== 'final_answer') return false;
   const agentPath = stringValue(message.metadata.agentPath);
-  return !agentPath || agentPath === '/root';
+  return (!agentPath || agentPath === '/root') && message.attemptId === attemptId;
 }
 
 function sessionDetail(
@@ -1065,7 +1075,11 @@ function sessionDetail(
     ? recordArrayValue<TranscriptMessageRecord>(event.payload)
     : []));
   const recovery = sessionRecovery(session);
-  if (recovery && !transcripts.some((message) => message.metadata.interruptedByRecovery === true)) {
+  if (
+    session.status === 'paused' &&
+    recovery &&
+    !transcripts.some((message) => message.metadata.interruptedByRecovery === true)
+  ) {
     transcripts.push({
       id: `transcript_recovery_${session.id}_${recovery.recoveredAt}`,
       runId: session.id,
@@ -1089,12 +1103,13 @@ function sessionDetail(
   if (
     session.status !== 'active' &&
     session.finalResponse &&
-    !transcripts.some(isRootFinalResponse)
+    !transcripts.some((message) => isRootFinalResponse(message, session.attempts.at(-1)?.id ?? null))
   ) {
+    const finalAttemptId = session.attempts.at(-1)?.id ?? null;
     transcripts.push({
-      id: `transcript_final_${session.id}_${session.revision}`,
+      id: `transcript_final_${session.id}_${finalAttemptId ?? 'session'}`,
       runId: session.id,
-      attemptId: session.attempts.at(-1)?.id ?? null,
+      attemptId: finalAttemptId,
       traceEventId: null,
       role: 'assistant',
       phase: 'final_answer',

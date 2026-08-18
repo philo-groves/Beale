@@ -211,6 +211,7 @@ describe('AgentPluginRegistry', () => {
 
   it('exposes only the curated Terminator surface and denies blocked Windows processes', () => {
     const serverPath = join(process.cwd(), 'resources', 'agent-plugins', 'beale-terminator', 'server.mjs');
+    const serverSource = readFileSync(serverPath, 'utf8');
     const input = [
       { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } },
       { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
@@ -224,6 +225,8 @@ describe('AgentPluginRegistry', () => {
     const result = spawnSync(process.execPath, [serverPath], { input, encoding: 'utf8', timeout: 5_000 });
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
+    expect(serverSource).toContain("new (terminator().Desktop)(false, false, 'off')");
+    expect(serverSource).not.toContain("new (terminator().Desktop)(false, false, 'warn')");
     const responses = result.stdout.trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
     const tools = ((responses[1].result as { tools: Array<{
       name: string;
@@ -239,6 +242,66 @@ describe('AgentPluginRegistry', () => {
       result: {
         isError: true,
         content: [{ type: 'text', text: expect.stringContaining('denies process') }]
+      }
+    });
+  });
+
+  it('keeps Terminator diagnostics off stdout during detailed observations', () => {
+    const fixtureRoot = tempDir('beale-terminator-fixture-');
+    const modulePath = join(fixtureRoot, 'terminator.cjs');
+    writeFileSync(modulePath, `
+class FixtureWindow {
+  isVisible() { return true; }
+  processName() { return 'fixture'; }
+  name() { return 'Fixture Window'; }
+  role() { return 'Window'; }
+  attributes() { return {}; }
+  processId() { return 42; }
+}
+class Desktop {
+  constructor(_useBackgroundApps, _activateApp, logLevel) {
+    this.logLevel = logLevel;
+    if (logLevel !== 'off') process.stdout.write('2026-08-18T22:32:03.372Z WARN fixture diagnostic\\n');
+  }
+  async windowsForApplication() { return [new FixtureWindow()]; }
+  async getWindowTreeResultAsync() {
+    return { pid: 42, elementCount: 1, formatted: 'logLevel=' + this.logLevel };
+  }
+}
+module.exports = {
+  Desktop,
+  PropertyLoadingMode: { Smart: 'Smart' },
+  TreeOutputFormat: { CompactYaml: 'CompactYaml' }
+};
+`, 'utf8');
+    const serverPath = join(process.cwd(), 'resources', 'agent-plugins', 'beale-terminator', 'server.mjs');
+    const input = [
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } },
+      {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name: 'observe',
+          arguments: { process: 'fixture', title: 'Fixture Window', maxDepth: 12 }
+        }
+      }
+    ].map((message) => JSON.stringify(message)).join('\n') + '\n';
+    const result = spawnSync(process.execPath, [serverPath], {
+      input,
+      encoding: 'utf8',
+      timeout: 5_000,
+      env: { ...process.env, BEALE_TERMINATOR_MODULE_PATH: modulePath }
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    const responses = result.stdout.trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(responses).toHaveLength(2);
+    expect(responses[1]).toMatchObject({
+      id: 2,
+      result: {
+        content: [{ type: 'text', text: expect.stringContaining('logLevel=off') }]
       }
     });
   });

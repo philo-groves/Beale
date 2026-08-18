@@ -466,7 +466,10 @@ function actionOptions() {
 }
 
 function getDesktop() {
-  if (!desktopInstance) desktopInstance = new (terminator().Desktop)(false, false, 'warn');
+  // MCP reserves stdout for newline-delimited JSON-RPC. Terminator's native
+  // tracing subscriber writes formatted diagnostics to stdout, so even one
+  // warning would corrupt the transport and terminate the owning agent run.
+  if (!desktopInstance) desktopInstance = new (terminator().Desktop)(false, false, 'off');
   return desktopInstance;
 }
 

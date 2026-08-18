@@ -4,7 +4,10 @@ import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase } from '../src/main/database';
-import { importHoneycrispSessionCapture } from '../src/main/honeycrispCliClient';
+import {
+  importHoneycrispSessionCapture,
+  recoverInterruptedHoneycrispSessions
+} from '../src/main/honeycrispCliClient';
 import {
   createHoneycrispSessionBoundary,
   flushHoneycrispSessionWrites,
@@ -372,6 +375,107 @@ describe('Honeycrisp session persistence boundary', () => {
       database.close();
     }
   }, 15_000);
+
+  it('returns the successful terminal response after an app-recovered session resumes', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-recovered-completion-'));
+    createdDirectories.push(directory);
+    const databasePath = join(directory, 'memory.sqlite');
+    const artifactRoot = join(directory, '.beale', 'artifacts');
+    const storage = {
+      databasePath,
+      artifactDirectoryPath: join(dirname(databasePath), 'artifacts')
+    };
+    const workspaceId = 'workspace_recovered_completion';
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    configureRealHoneycrisp();
+
+    const rawDatabase = new WorkspaceDatabase(databasePath, artifactRoot, {
+      workspacePath: directory,
+      workspaceId
+    });
+    rawDatabase.initialize();
+    const database = createHoneycrispSessionBoundary(rawDatabase);
+    const context = database.createRun({
+      scopeVersionId: database.getActiveScope().id,
+      title: 'Recovered Honeycrisp session',
+      promptMarkdown: 'Verify the calculator.',
+      shellSafetyMode: 'auto_review',
+      mode: 'open_discovery',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      attemptStrategy: 'iterative_research',
+      sandboxProfile: 'host',
+      budget: { runEngine: 'honeycrisp' }
+    });
+
+    try {
+      recoverInterruptedHoneycrispSessions(workspaceId, {
+        reason: 'app_shutdown',
+        at: '2026-08-18T22:28:42.542Z'
+      }, storage);
+      const pausedDetail = database.getRunDetail(context.run.id);
+      expect(pausedDetail.run.status).toBe('paused');
+      expect(pausedDetail.transcriptMessages).toContainEqual(expect.objectContaining({
+        contentMarkdown: 'Unexpected error',
+        metadata: expect.objectContaining({ interruptedByRecovery: true })
+      }));
+
+      const resumedAttempt = database.createAttempt({
+        runId: context.run.id,
+        parentAttemptId: context.attempt.id,
+        status: 'active',
+        shortState: 'Retry computer use after the patch.',
+        strategyRole: 'session_continuation'
+      });
+      expect(database.getRunDetail(context.run.id).transcriptMessages.some((message) =>
+        message.metadata.interruptedByRecovery === true
+      )).toBe(false);
+
+      const capturePath = join(directory, 'successful-continuation-capture.json');
+      writeFileSync(capturePath, JSON.stringify({
+        schemaVersion: 5,
+        capturedAt: '2026-08-18T22:56:44.289Z',
+        request: { prompt: 'Retry computer use after the patch.' },
+        agent: {
+          id: 'agent_recovered_root',
+          status: 'complete',
+          executorName: 'fixture',
+          startedAt: '2026-08-18T22:53:50.000Z',
+          completedAt: '2026-08-18T22:56:44.289Z',
+          outputText: 'The calculator displayed 6.'
+        },
+        eventTimeline: []
+      }));
+      importHoneycrispSessionCapture(context.run.id, resumedAttempt.id, capturePath, storage);
+
+      const latestPausedTrace = pausedDetail.traceEvents.at(-1);
+      const update = await getHoneycrispRunDetailUpdateForClient(database, context.run.id, {
+        afterTraceSequence: latestPausedTrace?.sequence ?? -1,
+        afterTranscriptCount: pausedDetail.transcriptMessages.length,
+        afterTraceEventId: typeof latestPausedTrace?.payload.honeycrispSessionEventId === 'string'
+          ? latestPausedTrace.payload.honeycrispSessionEventId
+          : latestPausedTrace?.id ?? null
+      });
+      expect(update?.run.status).toBe('completed');
+      expect(update?.transcriptMessages).toContainEqual(expect.objectContaining({
+        attemptId: resumedAttempt.id,
+        phase: 'final_answer',
+        contentMarkdown: 'The calculator displayed 6.'
+      }));
+
+      const completedDetail = database.getRunDetail(context.run.id);
+      expect(completedDetail.transcriptMessages.some((message) =>
+        message.metadata.interruptedByRecovery === true
+      )).toBe(false);
+      expect(completedDetail.transcriptMessages).toContainEqual(expect.objectContaining({
+        attemptId: resumedAttempt.id,
+        phase: 'final_answer',
+        contentMarkdown: 'The calculator displayed 6.'
+      }));
+    } finally {
+      database.close();
+    }
+  }, 20_000);
 
   it('keeps the completed root response when a subagent already has a final transcript', () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-root-final-'));
