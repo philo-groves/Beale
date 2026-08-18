@@ -1605,6 +1605,7 @@ export function App(): JSX.Element {
               shellApprovalBusy={Boolean(autoReviewOverrideApproval && (busy || shellApprovalDecisionInFlight === autoReviewOverrideApproval.id))}
               visibleTraceCategories={visibleTraceCategories}
               busy={busy}
+              connectedDeviceCaptureEnabled={windowControlPlatform === 'darwin'}
               workspaceDejunk={selectedRunId ? null : snapshot?.workspace.dejunk ?? null}
               workspaceDejunkInProgress={workspaceDejunkInProgress}
               memoryDreamingInProgress={memoryDreamingInProgress}

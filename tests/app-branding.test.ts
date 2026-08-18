@@ -33,6 +33,7 @@ describe('desktop app branding', () => {
     expect(plistValue('CFBundleName')).toBe('Beale');
     expect(plistValue('CFBundleIdentifier')).toBe('com.beale.app');
     expect(plistValue('CFBundleIconFile')).toBe('beale.icns');
+    expect(() => plistValue('NSScreenCaptureUsageDescription')).toThrow();
     expect(readFileSync(join(contentsPath, 'Resources/beale.icns')).byteLength).toBeGreaterThan(0);
   });
 });

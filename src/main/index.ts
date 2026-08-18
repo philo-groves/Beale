@@ -38,10 +38,12 @@ import { getHostEnvironment, WorkspaceService, type WorkspaceChange } from './wo
 import { nativeMacApplicationMenuTemplate } from './nativeApplicationMenu';
 import { ProviderCredentialStore } from './providerCredentialStore';
 import { restoreAndFocusWindow } from './windowLifecycle';
+import { IosDeviceCaptureService } from './iosDeviceCaptureService';
 
 const APP_NAME = 'Beale';
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
+let iosDeviceCaptureService: IosDeviceCaptureService;
 const runDetailRequestControllers = new Map<number, AbortController>();
 const smokeTestMode = process.argv.includes('--smoke-test');
 const NATIVE_WINDOW_SHAPE_RADIUS_PX = 8;
@@ -434,6 +436,18 @@ function broadcastSnapshot(change: WorkspaceChange = { workspaceRegistryChanged:
   });
 }
 
+function broadcastIosDeviceCaptureState(state: import('@shared/types').IosDeviceCaptureState): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.iosDeviceCaptureUpdated, state);
+  }
+}
+
+function broadcastIosDeviceCaptureFrame(frame: import('@shared/types').IosDeviceCaptureFrame): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.iosDeviceCaptureFrame, frame);
+  }
+}
+
 function snapshotBroadcastMetricDetail(snapshot: WorkspaceSnapshot | null): Record<string, string | number | boolean> {
   return {
     active: Boolean(snapshot),
@@ -557,6 +571,9 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.getSnapshot, () => timedMainIpc('getSnapshot', {}, () => workspaceService.getSnapshot()));
   ipcMain.handle(IPC_CHANNELS.getHostEnvironment, () => getHostEnvironment());
+  ipcMain.handle(IPC_CHANNELS.getIosDeviceCaptureState, () => iosDeviceCaptureService.getState());
+  ipcMain.handle(IPC_CHANNELS.startIosDeviceCapture, () => iosDeviceCaptureService.start());
+  ipcMain.handle(IPC_CHANNELS.stopIosDeviceCapture, () => iosDeviceCaptureService.stop());
   ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.startOpenAiOAuth, () => workspaceService.startOpenAiOAuth());
   ipcMain.handle(IPC_CHANNELS.forgetProviderSubscription, (_event, providerId: ResearchModelProviderId) =>
@@ -758,6 +775,10 @@ if (!hasSingleInstanceLock) {
       { deferLoad: true }
     );
     workspaceService = new WorkspaceService(broadcastSnapshot, { providerCredentialStore });
+    iosDeviceCaptureService = new IosDeviceCaptureService(
+      broadcastIosDeviceCaptureState,
+      broadcastIosDeviceCaptureFrame
+    );
     registerIpc();
     createWindow();
     if (smokeTestMode) {
@@ -774,6 +795,7 @@ if (!hasSingleInstanceLock) {
   });
 
   app.on('before-quit', () => {
+    iosDeviceCaptureService?.dispose();
     workspaceService?.dispose();
   });
 }

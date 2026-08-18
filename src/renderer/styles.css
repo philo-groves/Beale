@@ -2952,7 +2952,99 @@ body.is-resizing-research-side .main-session-grid {
   height: 100%;
   min-width: 0;
   min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
+}
+
+.main-session-grid:not(.research-details-open) .research-side-column.has-connected-device-capture {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.main-session-grid:not(.research-details-open) .research-side-column.has-connected-device-capture > .session-summary-panel {
+  height: auto;
+}
+
+.connected-device-summary-capture {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  position: relative;
+  display: block;
+  align-self: stretch;
+  overflow: hidden;
+  border-radius: var(--content-surface-radius);
+  margin: 10px 12px 12px 6px;
+}
+
+.main-session-grid.research-details-open .research-side-column:not(.device-capture-expanded) .connected-device-summary-capture {
+  display: none;
+}
+
+.research-side-column.device-capture-expanded {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.research-side-column.device-capture-expanded > .main-session-side {
+  display: none;
+}
+
+.research-side-column.device-capture-expanded .connected-device-summary-capture {
+  margin: 0;
+  border-radius: 0;
+}
+
+.connected-device-summary-frame {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: end;
+  overflow: hidden;
+}
+
+.connected-device-summary-capture.is-expanded .connected-device-summary-frame {
+  place-items: center;
+}
+
+.connected-device-summary-frame img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: block;
+  border-radius: var(--content-surface-radius);
+}
+
+.connected-device-summary-capture.is-expanded .connected-device-summary-frame img {
+  border-radius: 0;
+}
+
+.connected-device-summary-expand {
+  width: 28px;
+  height: 28px;
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 7px;
+  background: rgba(8, 8, 8, 0.74);
+  color: rgba(255, 255, 255, 0.82);
+  padding: 0;
+  backdrop-filter: blur(8px);
+}
+
+.connected-device-summary-expand:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(28, 28, 28, 0.88);
+  color: #fff;
 }
 
 .workspace-side-stack {

@@ -1673,6 +1673,35 @@ export type SteeringAction =
   | { type: 'review_export'; runId: string; exportId: string; decision: ExportReviewDecision; note?: string }
   | { type: 'review_policy_request'; runId: string; requestKind: PolicyReviewRequestKind; decision: PolicyReviewDecision; requestedAction: Record<string, unknown>; note?: string };
 
+export interface IosDeviceCaptureDevice {
+  id: string;
+  udid: string;
+  name: string;
+  model: string;
+  osVersion: string;
+}
+
+export type IosDeviceCapturePhase =
+  | 'idle'
+  | 'ready'
+  | 'starting'
+  | 'waiting_for_consent'
+  | 'streaming'
+  | 'error';
+
+export interface IosDeviceCaptureState {
+  supported: boolean;
+  phase: IosDeviceCapturePhase;
+  device: IosDeviceCaptureDevice | null;
+  detail: string;
+}
+
+export interface IosDeviceCaptureFrame {
+  sequence: number;
+  capturedAt: string;
+  jpegData: Uint8Array;
+}
+
 export interface BealeApi {
   selectWorkspace(mode: WorkspacePickerMode): Promise<WorkspacePickerResult>;
   selectWorkspaceDirectory(): Promise<WorkspaceDirectorySelection>;
@@ -1710,6 +1739,11 @@ export interface BealeApi {
   restoreLastWorkspace(): Promise<WorkspaceSnapshot | null>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
   getHostEnvironment(): Promise<HostEnvironment>;
+  getIosDeviceCaptureState(): Promise<IosDeviceCaptureState>;
+  startIosDeviceCapture(): Promise<IosDeviceCaptureState>;
+  stopIosDeviceCapture(): Promise<IosDeviceCaptureState>;
+  onIosDeviceCaptureUpdate(listener: (state: IosDeviceCaptureState) => void): () => void;
+  onIosDeviceCaptureFrame(listener: (frame: IosDeviceCaptureFrame) => void): () => void;
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
   forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<ProviderSettings>;

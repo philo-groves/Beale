@@ -67,7 +67,7 @@ describe('architecture conformance', () => {
     expect(findPatternHits(files, forbiddenSql)).toEqual([]);
   });
 
-  it('keeps host subprocess use limited to auth and Honeycrisp host-agent boundaries', () => {
+  it('keeps host subprocess use limited to auth, device, and Honeycrisp host-agent boundaries', () => {
     const files = filesUnder('src/main').filter(isSourceFile);
     const hits = findPatternHits(files, [/node:child_process|spawnSync\(|\bspawn\(|\bexecFile\(|\bfork\(/]).filter(
       (hit) =>
@@ -77,6 +77,7 @@ describe('architecture conformance', () => {
           'src/main/honeycrispRunEngine.ts',
           'src/main/honeycrispCliClient.ts',
           'src/main/honeycrispInvocation.ts',
+          'src/main/iosDeviceCaptureService.ts',
           'src/main/researchProfileService.ts',
           'src/main/honeycrispMemorySummary.ts'
         ].includes(normalizePath(hit.path))

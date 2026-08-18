@@ -27,6 +27,8 @@
 
 ### Fixed
 
+- Connected iPhone pixels now preserve their intrinsic aspect ratio while resolving both maximum width and maximum height against the measured remaining summary-sidebar row, preventing portrait frames from overflowing the dock.
+- Kept an approved iOS 27 full-display ScreenCaptureKit stream active when the Beale Capture companion moves to the background by declaring the required `screen-capture` background mode.
 - Honeycrisp session events and capture bodies now migrate out of repeatedly rewritten aggregate JSON into individually verified rows. Normal research appends update only bounded lifecycle state plus the new event, while corruption failures report an explicit preservation and restore/recovery path instead of the generic session-operation error.
 - Selecting a breakout room or returning to the Rooms list no longer reloads the session detail projection and briefly flashes the compact summary sidenav.
 - Automation editing now loads provider configuration and model catalogs when the view opens, keeps the lead model picker populated and editable, applies the editor field background to its dropdowns, and hides the New Research-only Add Context control.
@@ -71,6 +73,7 @@
 
 ### Added
 
+- Added an iOS 27 ScreenCaptureKit companion for showing user-approved physical iPhone pixels in the available lower-right space below the compact session summary over an authenticated, loopback-only USB tunnel; Beale detects the wired device and establishes the channel automatically, the frameless stream can expand to fill the detailed sidenav, captured frames remain transient, and capture stops when the session workspace closes or the host disconnects.
 - Reports display attached Honeycrisp `submission.zip` metadata and can open the exact durable packet through a workspace-validated IPC boundary.
 - Added an installed-but-disabled built-in Terminator computer-use Agent Plugin for Windows, pinned to `@mediar-ai/terminator` 0.24.32 and limited to a curated UI Automation surface with screenshot support.
 - Reporting now has a dedicated workspace sidenav destination below Automations, uses the same active background as workspace rows, and opens a list of workspace reports. A user's first report request starts a report-scoped agent session that stays out of the workspace session list, presents the normal commentary and tool transcript beside the report, and accepts both chat-based and inline section change requests.

@@ -6,6 +6,7 @@ import type { WorkspaceConfigurationInput } from '../workspaces/WorkspaceUnderst
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { TraceView } from '../traces/TraceView';
+import { ConnectedDeviceCapture } from '../deviceCapture/ConnectedDeviceCapture';
 import { isEndedResearchRunStatus, SessionNextSteps, type ResearchGoalSeed } from './SessionNextSteps';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { ChatView } from '../../view-models/chatView';
@@ -54,6 +55,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   shellApprovalBusy = false,
   visibleTraceCategories,
   busy,
+  connectedDeviceCaptureEnabled = false,
   workspaceDejunk = null,
   workspaceDejunkInProgress = false,
   memoryDreamingInProgress,
@@ -119,6 +121,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   shellApprovalBusy?: boolean;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
+  connectedDeviceCaptureEnabled?: boolean;
   workspaceDejunk?: WorkspaceDejunkSummary | null;
   workspaceDejunkInProgress?: boolean;
   memoryDreamingInProgress: boolean;
@@ -151,13 +154,15 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
   const [selectedWorkspaceMemoryId, setSelectedWorkspaceMemoryId] = useState<string | null>(null);
+  const [connectedDeviceCaptureVisible, setConnectedDeviceCaptureVisible] = useState(false);
+  const [connectedDeviceCaptureExpanded, setConnectedDeviceCaptureExpanded] = useState(false);
   const workspaceView = selectedRunId === null;
   const [workspaceSidePanelMounted, setWorkspaceSidePanelMounted] = useState(workspaceView && researchDetailsOpen);
   const [workspaceSidePanelVisible, setWorkspaceSidePanelVisible] = useState(workspaceView && researchDetailsOpen);
   const showResearchSidePanel = selectedRunId !== null || workspaceSidePanelMounted;
   const visibleResearchDetails = selectedRunId !== null ? researchDetailsOpen : workspaceSidePanelVisible;
   const expandedResearchSidePanel = selectedRunId !== null ? researchDetailsOpen : workspaceSidePanelMounted;
-  const researchSideResizeEnabled = selectedRunId !== null && !visibleResearchDetails;
+  const researchSideResizeEnabled = selectedRunId !== null && !visibleResearchDetails && !connectedDeviceCaptureExpanded;
   const {
     containerRef,
     panelWidth,
@@ -220,6 +225,12 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   const changeResearchDetailsOpen = (expanded: boolean): void => {
     onResearchDetailsOpenChange(expanded);
   };
+  useEffect(() => {
+    if (researchDetailsOpen) setConnectedDeviceCaptureExpanded(false);
+  }, [researchDetailsOpen]);
+  useEffect(() => {
+    if (!connectedDeviceCaptureVisible) setConnectedDeviceCaptureExpanded(false);
+  }, [connectedDeviceCaptureVisible]);
 
   const postSessionContent = detail && isEndedResearchRunStatus(detail.run.status)
     ? (
@@ -235,7 +246,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   return (
     <div
       ref={containerRef}
-      className={`main-session-grid${workspaceView ? ' workspace-context' : ''}${visibleResearchDetails ? ' research-details-open' : ''}${workspaceView && !visibleResearchDetails ? ' workspace-main-only' : ''}`}
+      className={`main-session-grid${workspaceView ? ' workspace-context' : ''}${visibleResearchDetails || connectedDeviceCaptureExpanded ? ' research-details-open' : ''}${workspaceView && !visibleResearchDetails ? ' workspace-main-only' : ''}`}
       style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
     >
       {!selectedRunId ? (
@@ -325,7 +336,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onPointerDown={researchSideResizeEnabled ? beginResize : undefined}
         />
       ) : null}
-      {showResearchSidePanel ? <div className="research-side-column">
+      {showResearchSidePanel ? <div className={`research-side-column${connectedDeviceCaptureVisible ? ' has-connected-device-capture' : ''}${connectedDeviceCaptureExpanded ? ' device-capture-expanded' : ''}`}>
         <ResearchSidePanel
           chatView={chatView}
           detail={detail}
@@ -366,6 +377,14 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onExpandedChange={changeResearchDetailsOpen}
           viewSpace={viewSpace}
         />
+        {selectedRunId ? (
+          <ConnectedDeviceCapture
+            active={connectedDeviceCaptureEnabled}
+            expanded={connectedDeviceCaptureExpanded}
+            onExpandedChange={setConnectedDeviceCaptureExpanded}
+            onVisibilityChange={setConnectedDeviceCaptureVisible}
+          />
+        ) : null}
       </div> : null}
     </div>
   );
