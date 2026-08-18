@@ -29,4 +29,15 @@ describe('renderer workspace actions', () => {
     expect(runActionSource).toContain('else await loadSnapshot();');
     expect(runActionSource).not.toContain('loadWorkspaceRegistry');
   });
+
+  it('does not reload the registry after opening a workspace that already synchronized it', () => {
+    const source = readFileSync(
+      new URL('../src/renderer/hooks/useWorkspaceActions.ts', import.meta.url),
+      'utf8'
+    );
+    const start = source.indexOf('  const openRegisteredWorkspace = useCallback(');
+    const end = source.indexOf('  const openResearchSession = useCallback(', start);
+
+    expect(source.slice(start, end)).toContain('{ reloadRegistry: false }');
+  });
 });

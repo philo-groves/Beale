@@ -27,6 +27,7 @@
 
 ### Fixed
 
+- Workspace opening now batches registry updates in one SQLite transaction, avoids re-synchronizing cached background workspaces or immediately reloading the just-updated registry, and mounts only the visible dashboard tab instead of eagerly building all hidden activity, resource, memory, runbook, and utility views.
 - Honeycrisp session events and capture bodies now migrate out of repeatedly rewritten aggregate JSON into individually verified rows. Normal research appends update only bounded lifecycle state plus the new event, while corruption failures report an explicit preservation and restore/recovery path instead of the generic session-operation error.
 - Selecting a breakout room or returning to the Rooms list no longer reloads the session detail projection and briefly flashes the compact summary sidenav.
 - Automation editing now loads provider configuration and model catalogs when the view opens, keeps the lead model picker populated and editable, applies the editor field background to its dropdowns, and hides the New Research-only Add Context control.

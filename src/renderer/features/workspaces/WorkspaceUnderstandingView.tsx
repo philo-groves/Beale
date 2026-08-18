@@ -34,7 +34,7 @@ const WORKSPACE_ACTIVITY_DAY_COUNT = 365;
 const DAY_DURATION_MS = 24 * 60 * 60 * 1_000;
 const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources', 'memory', 'runbooks', 'utilities'] as const;
 
-type WorkspaceDashboardView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
+export type WorkspaceDashboardView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
 
 export interface WorkspaceConfigurationInput {
   workspaceName: string;
@@ -176,6 +176,7 @@ export function WorkspaceUnderstandingView({
   onActiveViewChange,
   onRunWorkspaceDejunk = () => undefined,
   onRunMemoryDreaming,
+  initialView = 'overview',
   nowMs
 }: {
   busy: boolean;
@@ -194,6 +195,7 @@ export function WorkspaceUnderstandingView({
   runs: RunRow[];
   onRunWorkspaceDejunk?: () => void;
   onRunMemoryDreaming: () => void;
+  initialView?: WorkspaceDashboardView;
   onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onCloneRepository?: (assetId: string) => Promise<void>;
@@ -205,7 +207,7 @@ export function WorkspaceUnderstandingView({
   onActiveViewChange?: (viewName: string) => void;
   nowMs?: number;
 }): JSX.Element {
-  const [activeView, setActiveView] = useState<WorkspaceDashboardView>('overview');
+  const [activeView, setActiveView] = useState<WorkspaceDashboardView>(initialView);
   const [clockNowMs, setClockNowMs] = useState(() => Date.now());
   const [timelineLegendOpen, setTimelineLegendOpen] = useState(false);
   const timelineLegendRef = useRef<HTMLDivElement>(null);
@@ -235,32 +237,41 @@ export function WorkspaceUnderstandingView({
   const timelineNowMs = nowMs ?? clockNowMs;
   const memoryTypes = researchProfile?.memory.types ?? [];
   const timeline = useMemo(
-    () => buildWorkspaceTimeline(
-      runs,
-      honeycrispMemory?.nodes ?? [],
-      honeycrispMemory?.runbooks ?? [],
-      honeycrispMemory?.reports ?? [],
-      memoryTypes,
-      timelineNowMs
-    ),
-    [honeycrispMemory?.nodes, honeycrispMemory?.reports, honeycrispMemory?.runbooks, memoryTypes, runs, timelineNowMs]
+    () => activeView === 'activity'
+      ? buildWorkspaceTimeline(
+          runs,
+          honeycrispMemory?.nodes ?? [],
+          honeycrispMemory?.runbooks ?? [],
+          honeycrispMemory?.reports ?? [],
+          memoryTypes,
+          timelineNowMs
+        )
+      : null,
+    [activeView, honeycrispMemory?.nodes, honeycrispMemory?.reports, honeycrispMemory?.runbooks, memoryTypes, runs, timelineNowMs]
   );
-  const timelineRows = timeline.rows;
+  const timelineRows = timeline?.rows ?? [];
   const workspaceId = honeycrispMemory?.contextWorkspaceId ?? null;
   const workspaceMemoryNodes = useMemo(
-    () => (honeycrispMemory?.nodes ?? [])
-      .filter((node) => workspaceId !== null && node.workspaces.some((workspace) => workspace.id === workspaceId))
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
-    [honeycrispMemory?.nodes, workspaceId]
+    () => activeView === 'memory'
+      ? (honeycrispMemory?.nodes ?? [])
+          .filter((node) => workspaceId !== null && node.workspaces.some((workspace) => workspace.id === workspaceId))
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      : [],
+    [activeView, honeycrispMemory?.nodes, workspaceId]
   );
   const workspaceRunbooks = useMemo(
-    () => (honeycrispMemory?.runbooks ?? [])
-      .filter((runbook) => workspaceId !== null && runbook.workspaceId === workspaceId)
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
-    [honeycrispMemory?.runbooks, workspaceId]
+    () => activeView === 'runbooks'
+      ? (honeycrispMemory?.runbooks ?? [])
+          .filter((runbook) => workspaceId !== null && runbook.workspaceId === workspaceId)
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      : [],
+    [activeView, honeycrispMemory?.runbooks, workspaceId]
   );
-  const tokenActivity = useMemo(() => workspaceTokenActivity(runs, timelineNowMs), [runs, timelineNowMs]);
-  const axisWindowDurationMs = timeline.windowDurationMs || TIMELINE_WINDOW_HOURS * 60 * 60 * 1_000;
+  const tokenActivity = useMemo(
+    () => activeView === 'activity' ? workspaceTokenActivity(runs, timelineNowMs) : null,
+    [activeView, runs, timelineNowMs]
+  );
+  const axisWindowDurationMs = timeline?.windowDurationMs || TIMELINE_WINDOW_HOURS * 60 * 60 * 1_000;
   const timelineAriaLabel = `${workspaceName.trim() || 'Workspace'} — most recent 4 hours of session activity`;
 
   return (
@@ -285,10 +296,10 @@ export function WorkspaceUnderstandingView({
         })}
       </div>
 
-      <WorkspaceOverviewPanel
+      {activeView === 'overview' ? <WorkspaceOverviewPanel
         activeScope={activeScope}
         busy={busy}
-        hidden={activeView !== 'overview'}
+        hidden={false}
         onSave={onSaveConfiguration}
         onChangeDirectories={onChangeWorkspaceDirectories}
         researchProfile={researchProfile}
@@ -296,12 +307,11 @@ export function WorkspaceUnderstandingView({
         workspaceName={workspaceName}
         workspacePath={workspacePath}
         workspaceDirectories={workspaceDirectories ?? (workspacePath ? [workspacePath] : [])}
-      />
+      /> : null}
 
-      <section
+      {activeView === 'activity' && timeline && tokenActivity ? <section
         aria-label={`${workspaceName.trim() || 'Workspace'} activity`}
         className="workspace-dashboard-panel workspace-timeline-card"
-        hidden={activeView !== 'activity'}
         id="workspace-dashboard-activity-panel"
         role="tabpanel"
       >
@@ -419,11 +429,11 @@ export function WorkspaceUnderstandingView({
             )}
           </div>
         </div>
-      </section>
+      </section> : null}
 
-      <WorkspaceResearchSurface
+      {activeView === 'resources' ? <WorkspaceResearchSurface
         activeScope={activeScope}
-        hidden={activeView !== 'resources'}
+        hidden={false}
         honeycrispMemory={honeycrispMemory}
         nowMs={timelineNowMs}
         runs={runs}
@@ -431,10 +441,10 @@ export function WorkspaceUnderstandingView({
         onChangeResource={onChangeResource}
         onCloneRepository={onCloneRepository}
         workspaceName={activeScope?.workspaceName || workspaceName}
-      />
+      /> : null}
 
-      <WorkspaceMemoryPanel
-        hidden={activeView !== 'memory'}
+      {activeView === 'memory' ? <WorkspaceMemoryPanel
+        hidden={false}
         loading={honeycrispMemory === null || honeycrispMemory.loading === true}
         memoryTypes={memoryTypes}
         nowMs={timelineNowMs}
@@ -443,20 +453,20 @@ export function WorkspaceUnderstandingView({
         profileId={researchProfile?.id}
         sessionHeatPreferences={sessionHeatPreferences}
         workspaceName={activeScope?.workspaceName || workspaceName}
-      />
+      /> : null}
 
-      <WorkspaceRunbooksPanel
-        hidden={activeView !== 'runbooks'}
+      {activeView === 'runbooks' ? <WorkspaceRunbooksPanel
+        hidden={false}
         loading={honeycrispMemory === null || honeycrispMemory.loading === true}
         nowMs={timelineNowMs}
         runbooks={workspaceRunbooks}
         onOpen={onOpenRunbook}
         workspaceName={activeScope?.workspaceName || workspaceName}
-      />
+      /> : null}
 
-      <WorkspaceUtilitiesPanel
+      {activeView === 'utilities' ? <WorkspaceUtilitiesPanel
         busy={busy}
-        hidden={activeView !== 'utilities'}
+        hidden={false}
         honeycrispMemory={honeycrispMemory}
         memoryDreamingInProgress={memoryDreamingInProgress}
         memoryDreamingProgress={memoryDreamingProgress}
@@ -467,7 +477,7 @@ export function WorkspaceUnderstandingView({
         onRunMemoryDreaming={onRunMemoryDreaming}
         onRunWorkspaceDejunk={onRunWorkspaceDejunk}
         workspaceName={activeScope?.workspaceName || workspaceName}
-      />
+      /> : null}
     </main>
   );
 }

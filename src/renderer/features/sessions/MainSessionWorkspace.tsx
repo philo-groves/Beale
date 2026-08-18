@@ -240,6 +240,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     >
       {!selectedRunId ? (
         <WorkspaceUnderstandingView
+          key={workspacePath}
           busy={busy}
           activeScope={activeScope}
           workspaceDejunk={workspaceDejunk}

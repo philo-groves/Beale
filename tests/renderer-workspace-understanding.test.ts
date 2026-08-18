@@ -212,7 +212,7 @@ describe('workspace dashboard', () => {
     expect(html).toContain('disabled=""');
   });
 
-  it('shows six workspace views without a default right sidenav', () => {
+  it('shows six workspace tabs while mounting only the initial overview panel', () => {
     const memory = memorySummary();
     const html = renderToStaticMarkup(createElement(MainSessionWorkspace, {
       detail: null,
@@ -257,7 +257,7 @@ describe('workspace dashboard', () => {
 
     expect(html).toContain('class="main-session-grid workspace-context workspace-main-only"');
     expect(html).toContain('class="workspace-dashboard"');
-    expect(html.match(/class="workspace-dashboard-panel/g)).toHaveLength(6);
+    expect(html.match(/class="workspace-dashboard-panel/g)).toHaveLength(1);
     expect(html).toContain('aria-label="Workspace dashboard views"');
     expect(html).toContain('<span>Overview</span>');
     expect(html).toContain('<span>Activity</span>');
@@ -266,11 +266,11 @@ describe('workspace dashboard', () => {
     expect(html).toContain('<span>Runbooks</span>');
     expect(html).toContain('<span>Utilities</span>');
     expect(html).toContain('aria-controls="workspace-dashboard-overview-panel" aria-selected="true"');
-    expect(html).toContain('id="workspace-dashboard-activity-panel" role="tabpanel"');
-    expect(html).toContain('id="workspace-dashboard-resources-panel" role="tabpanel"');
-    expect(html).toContain('id="workspace-dashboard-memory-panel" role="tabpanel"');
-    expect(html).toContain('id="workspace-dashboard-runbooks-panel" role="tabpanel"');
-    expect(html).toContain('id="workspace-dashboard-utilities-panel" role="tabpanel"');
+    expect(html).not.toContain('id="workspace-dashboard-activity-panel"');
+    expect(html).not.toContain('id="workspace-dashboard-resources-panel"');
+    expect(html).not.toContain('id="workspace-dashboard-memory-panel"');
+    expect(html).not.toContain('id="workspace-dashboard-runbooks-panel"');
+    expect(html).not.toContain('id="workspace-dashboard-utilities-panel"');
     expect(html).toContain('<h2 id="workspace-overview-heading">Parser Workspace Overview</h2>');
     expect(html).toContain('class="settings-form-squircle" aria-labelledby="workspace-overview-heading"');
     expect(html).toContain('aria-label="Workspace directories"');
@@ -296,43 +296,12 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('workspace-surface-card');
     expect(html).not.toContain('class="research-side-column');
     expect(html).not.toContain('class="research-side-resize-handle"');
-    expect(html).toContain('aria-label="Workspace resource types"');
-    expect(html).toContain('aria-label="Add resource type"');
-    expect(html).not.toContain('>Housekeeping</span>');
-    expect(html).toContain('<small>0 New Files</small>');
-    expect(html).toContain('<small>0 New Memories</small>');
-    expect(html).toContain('>Dejunk Now</button>');
-    expect(html).toContain('>Dream Now</button>');
-    expect(html.indexOf('<strong>Dejunk</strong>')).toBeLessThan(html.indexOf('<strong>Dream</strong>'));
-    expect(html.indexOf('0 New Files')).toBeLessThan(html.indexOf('0 New Memories'));
-    expect(html).toContain('No workspace resources recorded.');
-    expect(html).toContain('<h2>Parser Workspace Activity</h2>');
-    expect(html).toContain('<h2>Parser Workspace Resources</h2>');
-    expect(html).toContain('<h2>Parser Workspace Memory</h2>');
-    expect(html).toContain('<h2>Parser Workspace Runbooks</h2>');
-    expect(html).toContain('<h2>Parser Workspace Utilities</h2>');
-    expect(html).toContain('tokens used over the past year.');
-    expect(html).toContain('resources created over the past year.');
-    expect(html).toContain('memories created over the past year.');
-    expect(html).toContain('runbooks created over the past year.');
-    expect(html).toContain('aria-label="Daily token usage over the past year"');
-    expect(html).toContain('aria-label="Daily resource creation over the past year"');
-    expect(html).toContain('aria-label="Daily memory creation over the past year"');
-    expect(html).toContain('aria-label="Daily runbook creation over the past year"');
-    expect(html).not.toContain('workspace-activity-squircle');
-    expect(html).not.toContain('workspace-activity-weekdays');
-    expect(html).not.toContain('Token usage heat scale');
-    expect(html.indexOf('<h2>Parser Workspace Resources</h2>')).toBeLessThan(html.indexOf('aria-label="Workspace resource types"'));
-    expect(html.indexOf('<h2>Parser Workspace Memory</h2>')).toBeLessThan(html.indexOf('class="workspace-catalog-list memory-catalog-list workspace-memory-type-lists"'));
-    expect(html.indexOf('<h2>Parser Workspace Runbooks</h2>')).toBeLessThan(html.indexOf('class="workspace-catalog-list runbook-catalog-list"'));
-    expect(html).toContain('aria-label="Parser Workspace — most recent 4 hours of session activity"');
-    expect(html).toContain('<span>Activity</span>');
-    expect(html).toContain('aria-label="Show activity legend"');
-    expect(html).toContain('aria-expanded="false"');
-    expect(html.indexOf('workspace-timeline-legend-popover')).toBeLessThan(html.indexOf('workspace-timeline-rows'));
-    expect(html).toContain('No session activity recorded.');
-    expect(html).toContain('No workspace memory yet.');
-    expect(html).toContain('No workspace runbooks yet.');
+    expect(html).not.toContain('aria-label="Workspace resource types"');
+    expect(html).not.toContain('aria-label="Daily token usage over the past year"');
+    expect(html).not.toContain('class="workspace-catalog-list memory-catalog-list');
+    expect(html).not.toContain('class="workspace-catalog-list runbook-catalog-list');
+    expect(html).not.toContain('>Dejunk Now</button>');
+    expect(html).not.toContain('>Dream Now</button>');
   });
 
   it('preserves non-editable authorization and resource data when saving overview configuration', () => {
@@ -474,6 +443,7 @@ describe('workspace dashboard', () => {
 
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
+      initialView: 'memory',
       memoryDreamingInProgress: false,
       honeycrispMemory: memory,
       researchProfile: profile,
@@ -555,6 +525,7 @@ describe('workspace dashboard', () => {
 
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
+      initialView: 'activity',
       workspaceDejunk: {
         available: true,
         newFileCount: 50,
@@ -597,6 +568,7 @@ describe('workspace dashboard', () => {
     });
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
+      initialView: 'resources',
       memoryDreamingInProgress: false,
       honeycrispMemory: memory,
       activeScope: {
@@ -821,6 +793,7 @@ describe('workspace dashboard', () => {
 
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
+      initialView: 'activity',
       memoryDreamingInProgress: false,
       honeycrispMemory: memorySummary(),
       researchProfile: testResearchProfile(),

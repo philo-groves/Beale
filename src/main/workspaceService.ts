@@ -3706,7 +3706,7 @@ export class WorkspaceService {
       this.refreshResearchProfile(foreground);
       this.getWorkspaceRegistry();
       this.scheduleWorkspaceMemorySummaryLoad(foreground);
-      this.syncWorkspaceRegistry();
+      this.syncWorkspaceRegistryForRuntime(foreground, true);
       if (emitChange) this.emitChange({ preserveSnapshotCache: true });
       return this.requireSnapshot();
     }
@@ -3719,7 +3719,7 @@ export class WorkspaceService {
       this.setForegroundRuntime(background);
       this.getWorkspaceRegistry();
       this.scheduleWorkspaceMemorySummaryLoad(background);
-      this.syncWorkspaceRegistry();
+      this.syncWorkspaceRegistryForRuntime(background, true);
       if (emitChange) this.emitChange({ preserveSnapshotCache: true });
       return this.requireSnapshot();
     }
@@ -3728,7 +3728,7 @@ export class WorkspaceService {
     this.setForegroundRuntime(runtime);
     this.getWorkspaceRegistry();
     this.scheduleWorkspaceMemorySummaryLoad(runtime);
-    this.syncWorkspaceRegistry();
+    this.syncWorkspaceRegistryForRuntime(runtime, true);
     if (emitChange) this.emitChange({ preserveSnapshotCache: true });
     return this.requireSnapshot();
   }

@@ -343,20 +343,27 @@ export class WorkspaceRegistry {
     const researchProfileId = options.researchProfileId
       ?? (isResearchProfileId(snapshot.researchProfile.profileId)
         ? snapshot.researchProfile.profileId : DEFAULT_RESEARCH_PROFILE_ID);
-    const workspace = this.upsertWorkspaceFromSnapshot(snapshot, researchProfileId);
-    if (options.rememberLast ?? true) {
-      this.rememberLastKnownWorkspace(workspace);
-    }
-    for (const row of snapshot.runs) {
-      if (isUntrackedResourceSession(row)) continue;
-      this.upsertResearchSession(
-        researchProfileId,
-        workspace.id,
-        snapshot.workspace.workspacePath,
-        snapshot.workspace.workspaceId,
-        row,
-        sessionUpdatedAt(row)
-      );
+    this.db.exec('BEGIN IMMEDIATE;');
+    try {
+      const workspace = this.upsertWorkspaceFromSnapshot(snapshot, researchProfileId);
+      if (options.rememberLast ?? true) {
+        this.rememberLastKnownWorkspace(workspace);
+      }
+      for (const row of snapshot.runs) {
+        if (isUntrackedResourceSession(row)) continue;
+        this.upsertResearchSession(
+          researchProfileId,
+          workspace.id,
+          snapshot.workspace.workspacePath,
+          snapshot.workspace.workspaceId,
+          row,
+          sessionUpdatedAt(row)
+        );
+      }
+      this.db.exec('COMMIT;');
+    } catch (error) {
+      this.db.exec('ROLLBACK;');
+      throw error;
     }
   }
 

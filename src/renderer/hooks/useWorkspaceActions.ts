@@ -63,7 +63,7 @@ export function useWorkspaceActions({
         const next = await window.beale.openRegisteredWorkspace(workspace.id);
         applySnapshot(next);
         setSelectedRunId(null);
-      });
+      }, { reloadRegistry: false });
     },
     [applySnapshot, clearRunDetail, runWorkspaceAction, setSelectedRunId]
   );
