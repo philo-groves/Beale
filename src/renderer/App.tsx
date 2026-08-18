@@ -421,6 +421,11 @@ export function App(): JSX.Element {
     }
   }, []);
 
+  useEffect(() => {
+    if (!settingsOpen || settingsSection !== 'computer-use' || hostEnvironment?.platform !== 'win32') return;
+    void loadAgentPlugins();
+  }, [hostEnvironment?.platform, loadAgentPlugins, settingsOpen, settingsSection]);
+
   const openPlugins = useCallback((): void => {
     clearRunDetail();
     setSelectedRunId(null);
@@ -1509,6 +1514,11 @@ export function App(): JSX.Element {
             researchProviderModelCatalog={researchProviderModelCatalog}
             providerSettings={providerSettings}
             providerStatusesLoaded={researchProviderStatusesLoaded}
+            computerUsePlatform={hostEnvironment?.platform ?? null}
+            agentPluginState={agentPluginState}
+            agentPluginsLoading={agentPluginsLoading}
+            agentPluginsBusy={agentPluginsBusy}
+            agentPluginsError={agentPluginsError}
             sessionHeatPreferences={sessionHeatPreferences}
             busy={busy}
             onChangeChatView={setChatView}
@@ -1526,6 +1536,7 @@ export function App(): JSX.Element {
             onSetProviderOptionalModelEnabled={setProviderOptionalModelEnabled}
             onSetProviderCyberPolicyRiskAcknowledged={setProviderCyberPolicyRiskAcknowledged}
             onSetProviderPreferredAuthenticationMethod={setProviderPreferredAuthenticationMethod}
+            onSetAgentPluginEnabled={setAgentPluginEnabled}
             onSetSessionHeatPreference={setSessionHeatPreference}
             onSetSessionHeatPalettePreference={setSessionHeatPalettePreference}
           />

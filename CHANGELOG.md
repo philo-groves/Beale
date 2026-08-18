@@ -80,6 +80,8 @@
 
 ### Added
 
+- Agent Settings now includes a Computer Use view where Windows users can enable the built-in Terminator integration; other operating systems receive an availability notice instead of a feature toggle.
+
 - Added an iOS 27 ScreenCaptureKit companion for showing user-approved physical iPhone pixels in the available lower-right space below the compact session summary over an authenticated, loopback-only USB tunnel; Beale detects the wired device and establishes the channel automatically, the frameless stream can expand to fill the detailed sidenav, captured frames remain transient, and capture stops when the session workspace closes or the host disconnects.
 - Reports display attached Honeycrisp `submission.zip` metadata and can open the exact durable packet through a workspace-validated IPC boundary.
 - Added an installed-but-disabled built-in Terminator computer-use Agent Plugin for Windows, pinned to `@mediar-ai/terminator` 0.24.32 and limited to a curated UI Automation surface with screenshot support.

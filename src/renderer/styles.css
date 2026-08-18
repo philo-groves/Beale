@@ -10899,6 +10899,17 @@ button.research-goal-choice:focus-visible {
   padding: 3px var(--settings-form-inline-padding);
 }
 
+.computer-use-settings-message {
+  margin: 0;
+  padding: 14px 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.computer-use-settings-message.state-error {
+  color: var(--danger);
+}
+
 .settings-form-radio-list,
 .settings-form-control-list {
   min-width: 0;

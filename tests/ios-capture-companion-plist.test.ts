@@ -16,7 +16,7 @@ function plistString(key: string): string {
   ], { encoding: 'utf8' }).trim();
 }
 
-describe('iOS capture companion configuration', () => {
+describe.skipIf(process.platform !== 'darwin')('iOS capture companion configuration', () => {
   it('declares persistent full-display capture while backgrounded', () => {
     expect(plistJson('UIBackgroundModes')).toEqual(['screen-capture']);
     expect(plistString('NSScreenCaptureUsageDescription')).toMatch(/iPhone screen pixels/);

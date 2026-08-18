@@ -5,8 +5,10 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   DEFAULT_RESEARCH_REASONING_EFFORT
 } from '../../../shared/modelDefaults';
-import { ArrowLeft, KeyRound, Plus, RefreshCw, Settings, X } from 'lucide-react';
+import { ArrowLeft, KeyRound, Monitor, Plus, RefreshCw, Settings, X } from 'lucide-react';
 import type {
+  AgentPluginRegistryState,
+  HostEnvironment,
   OpenAiAccountStatus,
   OpenAiAuthReadiness,
   OpenAiOAuthStartResult,
@@ -52,9 +54,9 @@ import {
   type SessionHeatTheme
 } from '../../view-models/sessionHeat';
 
-export type SettingsSection = 'general' | 'providers' | 'profile';
+export type SettingsSection = 'general' | 'providers' | 'profile' | 'computer-use';
 
-const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'profile'];
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'profile', 'computer-use'];
 
 export function SettingsSidebar({
   collapsed,
@@ -95,7 +97,9 @@ export function SettingsSidebar({
                   aria-current={activeSection === item ? 'page' : undefined}
                   onClick={() => onChangeSection(item)}
                 >
-                  <Settings size={15} aria-hidden="true" />
+                  {item === 'computer-use'
+                    ? <Monitor size={15} aria-hidden="true" />
+                    : <Settings size={15} aria-hidden="true" />}
                   <span>{settingsSectionLabel(item)}</span>
                 </button>
               </div>
@@ -124,6 +128,11 @@ export function SettingsView({
   researchProviderModelCatalog,
   providerSettings,
   providerStatusesLoaded,
+  computerUsePlatform,
+  agentPluginState,
+  agentPluginsLoading,
+  agentPluginsBusy,
+  agentPluginsError,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   busy,
   onChangeChatView,
@@ -141,6 +150,7 @@ export function SettingsView({
   onSetProviderOptionalModelEnabled = async () => undefined,
   onSetProviderCyberPolicyRiskAcknowledged = async () => undefined,
   onSetProviderPreferredAuthenticationMethod = async () => undefined,
+  onSetAgentPluginEnabled,
   onSetSessionHeatPreference = () => undefined,
   onSetSessionHeatPalettePreference = () => undefined
 }: {
@@ -158,6 +168,11 @@ export function SettingsView({
   researchProviderModelCatalog: ResearchProviderModelCatalog[];
   providerSettings: ProviderSettings | null;
   providerStatusesLoaded: boolean;
+  computerUsePlatform: HostEnvironment['platform'] | null;
+  agentPluginState: AgentPluginRegistryState | null;
+  agentPluginsLoading: boolean;
+  agentPluginsBusy: boolean;
+  agentPluginsError: string | null;
   sessionHeatPreferences?: SessionHeatPreferences;
   busy: boolean;
   onChangeChatView: (chatView: ChatView) => void;
@@ -185,6 +200,7 @@ export function SettingsView({
     providerId: ResearchModelProviderId,
     method: ProviderAuthenticationMethod
   ) => Promise<void>;
+  onSetAgentPluginEnabled: (pluginId: string, enabled: boolean) => void;
   onSetSessionHeatPreference?: (profileId: string, memoryTypeId: string, status: string, heat: SessionHeat | null) => void;
   onSetSessionHeatPalettePreference?: (
     profileId: string,
@@ -230,7 +246,7 @@ export function SettingsView({
             onSetProviderCyberPolicyRiskAcknowledged={onSetProviderCyberPolicyRiskAcknowledged}
             onSetProviderPreferredAuthenticationMethod={onSetProviderPreferredAuthenticationMethod}
           />
-        ) : (
+        ) : activeSection === 'profile' ? (
           <ProfileSettingsView
             researchProfile={researchProfile}
             researchProfiles={researchProfiles}
@@ -238,6 +254,15 @@ export function SettingsView({
             sessionHeatPreferences={sessionHeatPreferences}
             onSetSessionHeatPreference={onSetSessionHeatPreference}
             onSetSessionHeatPalettePreference={onSetSessionHeatPalettePreference}
+          />
+        ) : (
+          <ComputerUseSettingsView
+            platform={computerUsePlatform}
+            pluginState={agentPluginState}
+            loading={agentPluginsLoading}
+            busy={agentPluginsBusy}
+            error={agentPluginsError}
+            onSetEnabled={onSetAgentPluginEnabled}
           />
         )}
       </section>
@@ -463,6 +488,65 @@ export function ProfileSettingsView({
           </article>
         )}
       </div>
+    </div>
+  );
+}
+
+export function ComputerUseSettingsView({
+  platform,
+  pluginState,
+  loading,
+  busy,
+  error,
+  onSetEnabled
+}: {
+  platform: HostEnvironment['platform'] | null;
+  pluginState: AgentPluginRegistryState | null;
+  loading: boolean;
+  busy: boolean;
+  error: string | null;
+  onSetEnabled: (pluginId: string, enabled: boolean) => void;
+}): JSX.Element {
+  const terminator = pluginState?.plugins.find((plugin) => (
+    plugin.id === 'beale-terminator-builtin' || plugin.name === 'beale-terminator'
+  )) ?? null;
+  const resolving = platform === null || (platform === 'win32' && (loading || pluginState === null));
+
+  return (
+    <div className="settings-page general-settings-page computer-use-settings-page">
+      <section className="settings-form computer-use-settings-form" aria-busy={resolving || busy}>
+        <header className="settings-form-heading">
+          <h2 id="computer-use-settings-heading">Terminator</h2>
+          <p>Control whether Beale can use Terminator for computer interaction.</p>
+        </header>
+        <fieldset className="settings-form-squircle computer-use-settings" aria-labelledby="computer-use-settings-heading">
+          {resolving ? (
+            <CenteredLoadingState label="Loading computer use…" />
+          ) : platform !== 'win32' ? (
+            <p className="computer-use-settings-message">Computer use is not available on this operating system.</p>
+          ) : error ? (
+            <p className="computer-use-settings-message state-error">{error}</p>
+          ) : terminator ? (
+            <div className="settings-form-control-list">
+              <label className="settings-form-control-row">
+                <span className="settings-form-control-copy">
+                  <strong>Enable Terminator</strong>
+                  <small>Allow research sessions to interact with the Windows desktop through Terminator.</small>
+                </span>
+                <input
+                  aria-label="Enable Terminator"
+                  type="checkbox"
+                  checked={terminator.enabled}
+                  disabled={busy || terminator.status === 'invalid'}
+                  onChange={(event) => onSetEnabled(terminator.id, event.currentTarget.checked)}
+                />
+              </label>
+            </div>
+          ) : (
+            <p className="computer-use-settings-message state-error">Terminator is not available.</p>
+          )}
+        </fieldset>
+      </section>
     </div>
   );
 }
@@ -2239,6 +2323,8 @@ function ProviderOAuthResult({ result }: { result: OpenAiOAuthStartResult | Rese
 
 export function settingsSectionLabel(section: SettingsSection): string {
   switch (section) {
+    case 'computer-use':
+      return 'Computer Use';
     case 'providers':
       return 'Providers';
     case 'profile':
