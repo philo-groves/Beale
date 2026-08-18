@@ -13,6 +13,8 @@ import type {
   GeneratedResearchGoalSuggestions,
   GeneratedResearchPrompt,
   HostEnvironment,
+  WorkspaceEditorCatalog,
+  WorkspaceEditorId,
   IosDeviceCaptureFrame,
   IosDeviceCaptureState,
   HackerOneScopeLookupResult,
@@ -194,6 +196,12 @@ const api: BealeApi = {
   },
   getHostEnvironment(): Promise<HostEnvironment> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHostEnvironment);
+  },
+  getWorkspaceEditors(): Promise<WorkspaceEditorCatalog> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceEditors);
+  },
+  openWorkspaceInEditor(editorId: WorkspaceEditorId): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openWorkspaceInEditor, editorId);
   },
   getIosDeviceCaptureState(): Promise<IosDeviceCaptureState> {
     return ipcRenderer.invoke(IPC_CHANNELS.getIosDeviceCaptureState);

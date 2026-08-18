@@ -4,11 +4,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HostEnvironment, RunDetail, WorkspaceSnapshot } from '@shared/types';
 import { AppHeaderTitle, StaticAppHeaderTitle, type AppHeaderViewIcon } from '../src/renderer/app/AppHeaderTitle';
-import { headerMenuInlineEnd, rightmostHeaderMenuControl } from '../src/renderer/app/TopBar';
+import { headerMenuInlineEnd, rightmostHeaderMenuControl, TopBar } from '../src/renderer/app/TopBar';
 import {
   activeRunDetailForSelection,
   appShellClassName,
   selectedRunStatus,
+  shouldShowHeaderResearchControls,
   workspaceHasLiveResearchRun,
   windowControlPlatformForState
 } from '../src/renderer/view-models/appShell';
@@ -53,6 +54,61 @@ describe('renderer app shell view model', () => {
     expect(styles).toContain('left: max(calc(var(--main-content-inline-start) + 12px), var(--header-menu-inline-end));');
     expect(styles).toMatch(/@media \(max-width: 820px\)[\s\S]*?\.app-shell\s*\{\s*--main-content-inline-start: 0px;/u);
     expect(styles).not.toContain('left: 180px;');
+  });
+
+  it('shows the detected default workspace editor beside the right sidenav control', () => {
+    const header = renderToStaticMarkup(createElement(TopBar, {
+      sidebarCollapsed: false,
+      rightSidenavAvailable: true,
+      rightSidenavExpanded: false,
+      contextualTitleVisible: false,
+      staticContextTitle: null,
+      platform: 'win32',
+      workspaceName: 'Parser',
+      workspaceViewTitle: null,
+      activeRunDetail: null,
+      activeBreakoutRoomTitle: null,
+      profilingEnabled: false,
+      workspaceEditors: {
+        editors: [
+          { id: 'vscode', name: 'Visual Studio Code', iconDataUrl: 'data:image/png;base64,dnNjb2Rl' },
+          { id: 'cursor', name: 'Cursor', iconDataUrl: 'data:image/png;base64,Y3Vyc29y' }
+        ],
+        defaultEditorId: 'cursor'
+      },
+      onOpenProfiling: () => undefined,
+      onOpenWorkspaceInEditor: () => undefined,
+      onAddWorkspace: () => undefined,
+      onToggleRightSidenav: () => undefined,
+      onToggleSidebar: () => undefined
+    }));
+
+    expect(header).toContain('editor-launch-available');
+    expect(header).toContain('Open primary workspace directory in Cursor');
+    expect(header).toContain('class="workspace-editor-icon"');
+    expect(header).toContain('data:image/png;base64,Y3Vyc29y');
+    expect(header.indexOf('workspace-editor-control')).toBeLessThan(header.indexOf('right-sidenav-toggle-button'));
+  });
+
+  it('limits both header research controls to workspace and session views', () => {
+    const base = {
+      researchDetailsAvailable: true,
+      settingsOpen: false,
+      reportsOpen: false,
+      automationsOpen: false,
+      pluginsOpen: false
+    };
+    expect(shouldShowHeaderResearchControls(base)).toBe(true);
+    expect(shouldShowHeaderResearchControls({ ...base, settingsOpen: true })).toBe(false);
+    expect(shouldShowHeaderResearchControls({ ...base, reportsOpen: true })).toBe(false);
+    expect(shouldShowHeaderResearchControls({ ...base, automationsOpen: true })).toBe(false);
+    expect(shouldShowHeaderResearchControls({ ...base, pluginsOpen: true })).toBe(false);
+    expect(shouldShowHeaderResearchControls({ ...base, researchDetailsAvailable: false })).toBe(false);
+
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    expect(styles).toContain('.workspace-editor-control + .window-control-button.right-sidenav-toggle-button');
+    expect(styles).toMatch(/\.workspace-editor-control\s*\{[^}]*margin: 0;/u);
+    expect(styles).toMatch(/\.workspace-editor-open-button,\s*\.workspace-editor-menu-button\s*\{[^}]*background: rgba\(255, 255, 255, 0\.045\);/u);
   });
 
   it('selects active run state and detail only when ids match', () => {

@@ -80,9 +80,14 @@ describe('memory settings', () => {
     const tabButtonStyles = styles.match(/\.profile-settings-tab \.research-side-view-tab-activate\s*\{([^}]*)\}/)?.[1] ?? '';
     const descriptionRowStyles =
       styles.match(/\.profile-basic-details-form \.profile-basic-details-description-row\s*\{([^}]*)\}/)?.[1] ?? '';
+    const profilePageStyles = styles.match(/\.profile-settings-page\s*\{([^}]*)\}/)?.[1] ?? '';
+    const profileFormStyles = styles.match(/\.general-settings-page \.settings-form,\s*\.profile-settings-page \.settings-form\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(viewTabRowStyles).toContain('padding-inline: 0');
     expect(tabButtonStyles).toContain('padding: 0 9px');
     expect(descriptionRowStyles).toContain('grid-template-columns: minmax(0, 1fr)');
+    expect(profilePageStyles).toContain('--settings-view-font-size: 14px');
+    expect(profilePageStyles).toContain('--profile-settings-font-size: var(--settings-view-font-size)');
+    expect(profileFormStyles).toContain('font-size: var(--settings-view-font-size)');
   });
 
   it('renders memory types as details, possible states, and session heat forms', () => {

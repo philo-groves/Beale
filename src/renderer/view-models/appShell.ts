@@ -22,6 +22,20 @@ export function workspaceHasLiveResearchRun(snapshot: WorkspaceSnapshot | null):
   return snapshot?.runs.some(({ run }) => isLiveResearchRunStatus(run.status)) ?? false;
 }
 
+export function shouldShowHeaderResearchControls(input: {
+  researchDetailsAvailable: boolean;
+  settingsOpen: boolean;
+  reportsOpen: boolean;
+  automationsOpen: boolean;
+  pluginsOpen: boolean;
+}): boolean {
+  return input.researchDetailsAvailable
+    && !input.settingsOpen
+    && !input.reportsOpen
+    && !input.automationsOpen
+    && !input.pluginsOpen;
+}
+
 export function appShellClassName(input: {
   sessionHeat: SessionHeat;
   sessionActive: boolean;

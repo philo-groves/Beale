@@ -203,6 +203,30 @@ export interface HostEnvironment {
   remoteName: string | null;
 }
 
+export type WorkspaceEditorId =
+  | 'vscode'
+  | 'vscode-insiders'
+  | 'cursor'
+  | 'windsurf'
+  | 'visual-studio'
+  | 'intellij-idea'
+  | 'webstorm'
+  | 'pycharm'
+  | 'rider'
+  | 'sublime-text'
+  | 'zed';
+
+export interface WorkspaceEditorSummary {
+  id: WorkspaceEditorId;
+  name: string;
+  iconDataUrl: string | null;
+}
+
+export interface WorkspaceEditorCatalog {
+  editors: WorkspaceEditorSummary[];
+  defaultEditorId: WorkspaceEditorId | null;
+}
+
 export interface WindowChromeState {
   isMaximized: boolean;
   isFullScreen: boolean;
@@ -1762,6 +1786,8 @@ export interface BealeApi {
   restoreLastWorkspace(): Promise<WorkspaceSnapshot | null>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
   getHostEnvironment(): Promise<HostEnvironment>;
+  getWorkspaceEditors(): Promise<WorkspaceEditorCatalog>;
+  openWorkspaceInEditor(editorId: WorkspaceEditorId): Promise<void>;
   getIosDeviceCaptureState(): Promise<IosDeviceCaptureState>;
   startIosDeviceCapture(): Promise<IosDeviceCaptureState>;
   stopIosDeviceCapture(): Promise<IosDeviceCaptureState>;

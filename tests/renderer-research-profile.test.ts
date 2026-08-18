@@ -236,6 +236,9 @@ describe('renderer research profile presentation', () => {
     expect(html).toContain('class="active" type="button" aria-pressed="true">Dark</button>');
     expect(html).not.toContain('aria-label="Reset Light Heat colors"');
     expect(html).toContain('aria-label="Reset Dark Heat colors"');
+    expect(html.indexOf('aria-label="Reset Dark Heat colors"')).toBeLessThan(
+      html.indexOf('role="group" aria-label="Heat variant"')
+    );
     expect(html).not.toContain('aria-label="Light Heat Low session heat color"');
     expect(html).not.toContain('value="#112233"');
     expect(html).toContain('aria-label="Dark Heat Critical session heat color"');

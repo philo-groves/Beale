@@ -815,8 +815,17 @@ function SessionHeatPaletteSettings({
     <section className="settings-form profile-heat-form" aria-label={`${profile.name} session heat colors`}>
       <header className="settings-form-heading profile-heat-form-heading">
         <div className="profile-heat-form-title">
-                <h2 id="profile-heat-heading">Heat Palette</h2>
+          <h2 id="profile-heat-heading">Heat Palette</h2>
           <div className="profile-heat-form-controls">
+            <button
+              className="profile-heat-reset"
+              type="button"
+              aria-label={`Reset ${SESSION_HEAT_THEME_LABELS[theme]} colors`}
+              title={`Reset ${SESSION_HEAT_THEME_LABELS[theme]} colors`}
+              onClick={() => SESSION_HEAT_COLOR_LEVELS.forEach((level) => onSetColor(profile.id, theme, level, null))}
+            >
+              <RefreshCw size={13} aria-hidden="true" />
+            </button>
             <div className="profile-heat-theme-toggle" role="group" aria-label="Heat variant">
               {(['light', 'dark'] as const).map((candidate) => (
                 <button
@@ -830,15 +839,6 @@ function SessionHeatPaletteSettings({
                 </button>
               ))}
             </div>
-            <button
-              className="profile-heat-reset"
-              type="button"
-              aria-label={`Reset ${SESSION_HEAT_THEME_LABELS[theme]} colors`}
-              title={`Reset ${SESSION_HEAT_THEME_LABELS[theme]} colors`}
-              onClick={() => SESSION_HEAT_COLOR_LEVELS.forEach((level) => onSetColor(profile.id, theme, level, null))}
-            >
-              <RefreshCw size={13} aria-hidden="true" />
-            </button>
           </div>
         </div>
         <p>Customize the colors used to show session activity intensity.</p>

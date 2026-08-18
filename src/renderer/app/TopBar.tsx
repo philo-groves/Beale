@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { JSX, MouseEvent } from 'react';
-import { Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, X } from 'lucide-react';
-import type { HostEnvironment, RunDetail, ZoomState } from '@shared/types';
+import { ChevronDown, Code2, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, X } from 'lucide-react';
+import type { HostEnvironment, RunDetail, WorkspaceEditorCatalog, WorkspaceEditorId, WorkspaceEditorSummary, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { AppHeaderTitle, StaticAppHeaderTitle } from './AppHeaderTitle';
 import type { AppHeaderViewIcon } from './AppHeaderTitle';
@@ -18,6 +18,12 @@ export function rightmostHeaderMenuControl(menuLeft: number, controlRights: read
   return Math.max(menuLeft, ...controlRights);
 }
 
+function WorkspaceEditorIcon({ editor, size = 16 }: { editor: WorkspaceEditorSummary; size?: number }): JSX.Element {
+  return editor.iconDataUrl
+    ? <img className="workspace-editor-icon" src={editor.iconDataUrl} alt="" width={size} height={size} aria-hidden="true" />
+    : <Code2 size={size} aria-hidden="true" />;
+}
+
 export const TopBar = memo(function TopBar({
   sidebarCollapsed,
   rightSidenavAvailable,
@@ -30,7 +36,9 @@ export const TopBar = memo(function TopBar({
   activeRunDetail,
   activeBreakoutRoomTitle,
   profilingEnabled,
+  workspaceEditors,
   onOpenProfiling,
+  onOpenWorkspaceInEditor,
   onAddWorkspace,
   onToggleRightSidenav,
   onToggleSidebar
@@ -46,7 +54,9 @@ export const TopBar = memo(function TopBar({
   activeRunDetail: RunDetail | null;
   activeBreakoutRoomTitle: string | null;
   profilingEnabled: boolean;
+  workspaceEditors: WorkspaceEditorCatalog | null;
   onOpenProfiling: () => void;
+  onOpenWorkspaceInEditor: (editorId: WorkspaceEditorId) => void;
   onAddWorkspace: () => void;
   onToggleRightSidenav: () => void;
   onToggleSidebar: () => void;
@@ -56,9 +66,11 @@ export const TopBar = memo(function TopBar({
   const RightSidenavToggleIcon = rightSidenavExpanded ? PanelRightClose : PanelRightOpen;
   const isMac = platform === 'darwin';
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
+  const [editorMenuOpen, setEditorMenuOpen] = useState(false);
   const [zoomState, setZoomState] = useState<ZoomState>(() => ({ level: 0, percent: 100 }));
   const topBarRef = useRef<HTMLElement | null>(null);
   const menuRef = useRef<HTMLElement | null>(null);
+  const editorMenuRef = useRef<HTMLDivElement | null>(null);
   const zoomOutShortcut = viewMenuShortcut(platform, 'zoom_out');
   const zoomInShortcut = viewMenuShortcut(platform, 'zoom_in');
 
@@ -89,11 +101,15 @@ export const TopBar = memo(function TopBar({
 
   useEffect(() => {
     const closeFromPointer = (event: PointerEvent): void => {
-      if (menuRef.current?.contains(event.target as Node)) return;
+      if (menuRef.current?.contains(event.target as Node) || editorMenuRef.current?.contains(event.target as Node)) return;
       setOpenMenu(null);
+      setEditorMenuOpen(false);
     };
     const closeFromEscape = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setOpenMenu(null);
+      if (event.key === 'Escape') {
+        setOpenMenu(null);
+        setEditorMenuOpen(false);
+      }
     };
 
     const handleZoomShortcut = (event: KeyboardEvent): void => {
@@ -134,6 +150,7 @@ export const TopBar = memo(function TopBar({
 
   const toggleViewMenu = useCallback(() => {
     setZoomState(window.beale.getZoomState());
+    setEditorMenuOpen(false);
     setOpenMenu((current) => (current === 'view' ? null : 'view'));
   }, []);
 
@@ -157,8 +174,15 @@ export const TopBar = memo(function TopBar({
     onAddWorkspace();
   }, [onAddWorkspace]);
 
+  const availableEditors = workspaceEditors?.editors ?? [];
+  const defaultEditor = availableEditors.find((editor) => editor.id === workspaceEditors?.defaultEditorId) ?? availableEditors[0] ?? null;
+  const openWorkspaceInEditor = useCallback((editorId: WorkspaceEditorId) => {
+    setEditorMenuOpen(false);
+    onOpenWorkspaceInEditor(editorId);
+  }, [onOpenWorkspaceInEditor]);
+
   return (
-    <header ref={topBarRef} className={`top-bar ${isMac ? 'top-bar-darwin' : 'top-bar-custom-controls'} ${profilingEnabled ? 'profiling-enabled' : ''} ${rightSidenavAvailable ? 'right-sidenav-available' : ''} ${openMenu ? 'menu-open' : ''}`}>
+    <header ref={topBarRef} className={`top-bar ${isMac ? 'top-bar-darwin' : 'top-bar-custom-controls'} ${profilingEnabled ? 'profiling-enabled' : ''} ${rightSidenavAvailable ? 'right-sidenav-available' : ''} ${defaultEditor ? 'editor-launch-available' : ''} ${openMenu || editorMenuOpen ? 'menu-open' : ''}`}>
       {isMac ? <div className="mac-window-control-spacer" aria-hidden="true" /> : null}
       <nav className="window-menu" aria-label={isMac ? 'Sidebar controls' : 'Application menu'} ref={menuRef}>
         <button
@@ -179,7 +203,10 @@ export const TopBar = memo(function TopBar({
             aria-haspopup="menu"
             aria-expanded={openMenu === 'file'}
             onMouseDown={preserveSelection}
-            onClick={() => setOpenMenu((current) => (current === 'file' ? null : 'file'))}
+            onClick={() => {
+              setEditorMenuOpen(false);
+              setOpenMenu((current) => (current === 'file' ? null : 'file'));
+            }}
           >
             File
           </button>
@@ -226,7 +253,10 @@ export const TopBar = memo(function TopBar({
             aria-haspopup="menu"
             aria-expanded={openMenu === 'window'}
             onMouseDown={preserveSelection}
-            onClick={() => setOpenMenu((current) => (current === 'window' ? null : 'window'))}
+            onClick={() => {
+              setEditorMenuOpen(false);
+              setOpenMenu((current) => (current === 'window' ? null : 'window'));
+            }}
           >
             Window
           </button>
@@ -256,12 +286,56 @@ export const TopBar = memo(function TopBar({
       ) : staticContextTitle ? (
         <StaticAppHeaderTitle primaryTitle={staticContextTitle.primary} secondaryTitle={staticContextTitle.secondary} icon={staticContextTitle.icon} />
       ) : null}
-      {profilingEnabled || rightSidenavAvailable || !isMac ? (
+      {profilingEnabled || defaultEditor || rightSidenavAvailable || !isMac ? (
         <div className="window-controls" aria-label="Header controls">
           {profilingEnabled ? (
             <button type="button" className="window-debug-button" title="Open profiling overview" onClick={onOpenProfiling}>
               Debug
             </button>
+          ) : null}
+          {defaultEditor ? (
+            <div className="workspace-editor-control" ref={editorMenuRef}>
+              <button
+                type="button"
+                className="workspace-editor-open-button"
+                title={`Open primary workspace directory in ${defaultEditor.name}`}
+                aria-label={`Open primary workspace directory in ${defaultEditor.name}`}
+                onClick={() => openWorkspaceInEditor(defaultEditor.id)}
+              >
+                <WorkspaceEditorIcon editor={defaultEditor} />
+              </button>
+              <button
+                type="button"
+                className="workspace-editor-menu-button"
+                title="Choose editor"
+                aria-label="Choose editor"
+                aria-haspopup="menu"
+                aria-expanded={editorMenuOpen}
+                onClick={() => {
+                  setOpenMenu(null);
+                  setEditorMenuOpen((current) => !current);
+                }}
+              >
+                <ChevronDown size={12} aria-hidden="true" />
+              </button>
+              {editorMenuOpen ? (
+                <div className="workspace-editor-dropdown" role="menu" aria-label="Open workspace in editor">
+                  {availableEditors.map((editor) => (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      key={editor.id}
+                      onMouseDown={preserveSelection}
+                      onClick={() => openWorkspaceInEditor(editor.id)}
+                    >
+                      <WorkspaceEditorIcon editor={editor} />
+                      <span>{editor.name}</span>
+                      {editor.id === workspaceEditors?.defaultEditorId ? <span className="workspace-editor-default-label">Default</span> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ) : null}
           {rightSidenavAvailable ? (
             <button

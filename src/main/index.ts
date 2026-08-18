@@ -32,13 +32,15 @@ import type {
   StartRunInput,
   SteeringAction,
   WorkspaceSnapshot,
-  WorkspacePickerMode
+  WorkspacePickerMode,
+  WorkspaceEditorId
 } from '@shared/types';
 import { getHostEnvironment, WorkspaceService, type WorkspaceChange } from './workspaceService';
 import { nativeMacApplicationMenuTemplate } from './nativeApplicationMenu';
 import { ProviderCredentialStore } from './providerCredentialStore';
 import { restoreAndFocusWindow } from './windowLifecycle';
 import { IosDeviceCaptureService } from './iosDeviceCaptureService';
+import { getWorkspaceEditorCatalogForHost, openWorkspaceInEditor } from './workspaceEditors';
 
 const APP_NAME = 'Beale';
 let mainWindow: BrowserWindow | null = null;
@@ -571,6 +573,15 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.getSnapshot, () => timedMainIpc('getSnapshot', {}, () => workspaceService.getSnapshot()));
   ipcMain.handle(IPC_CHANNELS.getHostEnvironment, () => getHostEnvironment());
+  ipcMain.handle(IPC_CHANNELS.getWorkspaceEditors, () => getWorkspaceEditorCatalogForHost({}, async (path) => {
+    const icon = await app.getFileIcon(path, { size: 'normal' });
+    return icon.isEmpty() ? null : icon.toDataURL();
+  }));
+  ipcMain.handle(IPC_CHANNELS.openWorkspaceInEditor, async (_event, editorId: WorkspaceEditorId) => {
+    const workspacePath = workspaceService.getSnapshot()?.workspace.workspacePath;
+    if (!workspacePath) throw new Error('No Beale workspace is open.');
+    await openWorkspaceInEditor(editorId, workspacePath);
+  });
   ipcMain.handle(IPC_CHANNELS.getIosDeviceCaptureState, () => iosDeviceCaptureService.getState());
   ipcMain.handle(IPC_CHANNELS.startIosDeviceCapture, () => iosDeviceCaptureService.start());
   ipcMain.handle(IPC_CHANNELS.stopIosDeviceCapture, () => iosDeviceCaptureService.stop());

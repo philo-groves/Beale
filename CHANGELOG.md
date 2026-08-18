@@ -4,6 +4,7 @@
 
 ### Changed
 
+- General, Profiles, and Computer Use settings now use the application's normal font size instead of their previous compact typography.
 - Provider Settings, Automations, Reporting, Plugins, and session views now share the Plugins-style centered loading indicator with regular-weight text.
 - Runbook detail now provides whole-run and per-cell execution controls for the owning live Honeycrisp session, records Localhost, Device, VM, Web, or Other as the proof target plus the target OS for Device runs, persists each cell's latest status, duration, exit code, and bounded output, and surfaces healthy-runbook guidance. Auto-Review classifies proofing and denies proof commands outside a trusted runbook cell; `runbook.run` is the canonical model-facing proof execution path.
 - Workspace repository resources now show whether a managed checkout exists and offer an in-place Clone action when it does not. Clone requests stay scope-bound, deduplicate concurrent acquisition, and use Honeycrisp's large-repository-safe asynchronous materialization path.
@@ -80,6 +81,7 @@
 
 ### Added
 
+- Workspace and session headers now open the active workspace's primary directory in a detected local editor. The compact control sits directly beside the details-sidenav button, prefers the system-configured editor when identifiable, falls back to Visual Studio Code, and lists only available editors with their native installed-app icons.
 - Agent Settings now includes a Computer Use view where Windows users can enable the built-in Terminator integration; other operating systems receive an availability notice instead of a feature toggle.
 
 - Added an iOS 27 ScreenCaptureKit companion for showing user-approved physical iPhone pixels in the available lower-right space below the compact session summary over an authenticated, loopback-only USB tunnel; Beale detects the wired device and establishes the channel automatically, the frameless stream can expand to fill the detailed sidenav, captured frames remain transient, and capture stops when the session workspace closes or the host disconnects.

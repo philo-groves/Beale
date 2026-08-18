@@ -821,6 +821,22 @@ code {
   right: 234px;
 }
 
+.top-bar.editor-launch-available .app-header-title {
+  right: 180px;
+}
+
+.top-bar.profiling-enabled.editor-launch-available .app-header-title {
+  right: 238px;
+}
+
+.top-bar.right-sidenav-available.editor-launch-available .app-header-title {
+  right: 214px;
+}
+
+.top-bar.profiling-enabled.right-sidenav-available.editor-launch-available .app-header-title {
+  right: 272px;
+}
+
 .top-bar-darwin .app-header-title {
   right: 14px;
 }
@@ -835,6 +851,22 @@ code {
 
 .top-bar-darwin.profiling-enabled.right-sidenav-available .app-header-title {
   right: 122px;
+}
+
+.top-bar-darwin.editor-launch-available .app-header-title {
+  right: 62px;
+}
+
+.top-bar-darwin.profiling-enabled.editor-launch-available .app-header-title {
+  right: 126px;
+}
+
+.top-bar-darwin.right-sidenav-available.editor-launch-available .app-header-title {
+  right: 96px;
+}
+
+.top-bar-darwin.profiling-enabled.right-sidenav-available.editor-launch-available .app-header-title {
+  right: 160px;
 }
 
 .app-header-workspace-title span,
@@ -977,8 +1009,106 @@ code {
   margin: 0 9px;
 }
 
+.workspace-editor-control + .window-control-button.right-sidenav-toggle-button {
+  margin-left: 0;
+}
+
 .window-control-button.right-sidenav-toggle-button:hover:not(:disabled) {
   background: #181818;
+}
+
+.workspace-editor-control {
+  position: relative;
+  height: 26px;
+  align-self: center;
+  display: inline-flex;
+  align-items: stretch;
+  margin: 0;
+  border-radius: 5px;
+  -webkit-app-region: no-drag;
+}
+
+.workspace-editor-open-button,
+.workspace-editor-menu-button {
+  min-height: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted-strong);
+  padding: 0;
+}
+
+.workspace-editor-open-button {
+  width: 29px;
+  border-radius: 5px 0 0 5px;
+}
+
+.workspace-editor-menu-button {
+  width: 18px;
+  border-radius: 0 5px 5px 0;
+}
+
+.workspace-editor-open-button:hover:not(:disabled),
+.workspace-editor-menu-button:hover:not(:disabled),
+.workspace-editor-menu-button[aria-expanded='true'] {
+  border: 0;
+  background: #181818;
+  color: var(--text);
+}
+
+.workspace-editor-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  object-fit: contain;
+}
+
+.workspace-editor-dropdown {
+  min-width: 218px;
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 90;
+  display: grid;
+  gap: 2px;
+  border: 1px solid #2c2c2c;
+  border-radius: 7px;
+  background: #111111;
+  padding: 4px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.42);
+  -webkit-app-region: no-drag;
+}
+
+.workspace-editor-dropdown button {
+  width: 100%;
+  height: 28px;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-strong);
+  padding: 0 8px;
+  text-align: left;
+  font-size: 0.82rem;
+  font-weight: 450;
+}
+
+.workspace-editor-dropdown button:hover:not(:disabled) {
+  border: 0;
+  background: #181818;
+  color: var(--text);
+}
+
+.workspace-editor-default-label {
+  color: #777777;
+  font-size: 0.69rem;
 }
 
 .window-control-close:hover:not(:disabled) {
@@ -10847,10 +10977,12 @@ button.research-goal-choice:focus-visible {
 }
 
 .general-settings-page {
+  --settings-view-font-size: 14px;
   width: 100%;
   max-width: var(--session-content-max-width);
   gap: 14px;
   margin-inline: auto;
+  font-size: var(--settings-view-font-size);
 }
 
 .settings-form {
@@ -10860,6 +10992,26 @@ button.research-goal-choice:focus-visible {
   gap: 6px;
   font-size: var(--steer-control-font-size, 13px);
   font-weight: 400;
+}
+
+.general-settings-page .settings-form,
+.profile-settings-page .settings-form {
+  font-size: var(--settings-view-font-size);
+}
+
+.general-settings-page .settings-form-heading h2,
+.profile-settings-page .settings-form-heading h2 {
+  font-size: 26px;
+}
+
+.general-settings-page .settings-form-control-row,
+.general-settings-page .settings-form-radio-list,
+.general-settings-page .chat-view-option,
+.general-settings-page .computer-use-settings-message,
+.profile-settings-page .settings-form-control-row,
+.general-settings-page .settings-form-heading p,
+.profile-settings-page .settings-form-heading p {
+  font-size: var(--settings-view-font-size);
 }
 
 .settings-form-heading {
@@ -10922,7 +11074,8 @@ button.research-goal-choice:focus-visible {
 }
 
 .profile-settings-page {
-  --profile-settings-font-size: var(--steer-control-font-size, 13px);
+  --settings-view-font-size: 14px;
+  --profile-settings-font-size: var(--settings-view-font-size);
   align-content: start;
   gap: 8px;
   font-size: var(--profile-settings-font-size);

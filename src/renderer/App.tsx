@@ -33,6 +33,8 @@ import type {
   RunDetail,
   ShellSafetyMode,
   SteeringAction,
+  WorkspaceEditorCatalog,
+  WorkspaceEditorId,
   WorkspaceSnapshot
 } from '@shared/types';
 import { AppModals } from './app/AppModals';
@@ -77,6 +79,7 @@ import {
   activeRunDetailForSelection,
   appShellClassName,
   selectedRunStatus,
+  shouldShowHeaderResearchControls,
   workspaceHasLiveResearchRun,
   windowControlPlatformForState
 } from './view-models/appShell';
@@ -94,6 +97,7 @@ import {
 export function App(): JSX.Element {
   const appShellRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [workspaceEditors, setWorkspaceEditors] = useState<WorkspaceEditorCatalog | null>(null);
   const handleError = useCallback((message: string) => setError(message), []);
   const {
     snapshot,
@@ -110,6 +114,25 @@ export function App(): JSX.Element {
     loadSnapshot,
     loadWorkspaceRegistry
   } = useWorkspaceRuntime(handleError);
+  useEffect(() => {
+    if (startupPhase !== 'ready') return;
+    let cancelled = false;
+    window.beale.getWorkspaceEditors()
+      .then((catalog) => {
+        if (!cancelled) setWorkspaceEditors(catalog);
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) handleError(errorMessage(caught));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [handleError, startupPhase]);
+
+  const openWorkspaceInEditor = useCallback((editorId: WorkspaceEditorId): void => {
+    setError(null);
+    void window.beale.openWorkspaceInEditor(editorId).catch((caught: unknown) => setError(errorMessage(caught)));
+  }, []);
   const pendingViewedSessionIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!selectedRunId || !workspaceRegistry) return;
@@ -1327,6 +1350,13 @@ export function App(): JSX.Element {
     ...sessionHeatPaletteStyle(sessionHeatPaletteForProfile(sessionHeatProfile, sessionHeatPreferences, 'dark'))
   } as CSSProperties;
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
+  const headerResearchControlsAvailable = shouldShowHeaderResearchControls({
+    researchDetailsAvailable,
+    settingsOpen,
+    reportsOpen,
+    automationsOpen,
+    pluginsOpen
+  });
   const shellClassName = `${appShellClassName({
     sessionHeat,
     sessionActive: workspaceHasLiveResearchRun(snapshot),
@@ -1424,7 +1454,7 @@ export function App(): JSX.Element {
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
-        rightSidenavAvailable={!settingsOpen && !reportsOpen && !automationsOpen && !pluginsOpen && researchDetailsAvailable}
+        rightSidenavAvailable={headerResearchControlsAvailable}
         rightSidenavExpanded={!reportsOpen && !automationsOpen && !pluginsOpen && rightSidenavExpanded && researchDetailsAvailable}
         contextualTitleVisible={!settingsOpen && !reportsOpen && !automationsOpen && !pluginsOpen}
         staticContextTitle={settingsOpen
@@ -1442,7 +1472,9 @@ export function App(): JSX.Element {
         activeRunDetail={activeRunDetail}
         activeBreakoutRoomTitle={activeBreakoutRoomTitle}
         profilingEnabled={profilingState?.enabled ?? false}
+        workspaceEditors={headerResearchControlsAvailable ? workspaceEditors : null}
         onOpenProfiling={openProfiling}
+        onOpenWorkspaceInEditor={openWorkspaceInEditor}
         onAddWorkspace={() => {
           addWorkspace();
         }}

@@ -35,6 +35,8 @@ export const IPC_CHANNELS = {
   restoreLastWorkspace: 'beale:restore-last-workspace',
   getSnapshot: 'beale:get-snapshot',
   getHostEnvironment: 'beale:get-host-environment',
+  getWorkspaceEditors: 'beale:get-workspace-editors',
+  openWorkspaceInEditor: 'beale:open-workspace-in-editor',
   getIosDeviceCaptureState: 'beale:get-ios-device-capture-state',
   startIosDeviceCapture: 'beale:start-ios-device-capture',
   stopIosDeviceCapture: 'beale:stop-ios-device-capture',
