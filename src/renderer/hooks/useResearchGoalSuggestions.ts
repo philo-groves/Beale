@@ -40,7 +40,8 @@ export interface ResearchGoalSuggestionsState {
 
 export function useResearchGoalSuggestions(
   snapshot: WorkspaceSnapshot | null,
-  _openAiConfigured: boolean
+  _openAiConfigured: boolean,
+  enabled = true
 ): ResearchGoalSuggestionsState {
   const cache = useMemo(() => new ResearchGoalSuggestionCache(), []);
   const phases = useMemo(
@@ -76,6 +77,12 @@ export function useResearchGoalSuggestions(
     force = false,
     topUpTo?: number
   ): void => {
+    if (!enabled) {
+      const activeRequest = activeRequestsRef.current.get(phase);
+      if (activeRequest) cancelRequest(activeRequest);
+      updatePhaseState(setRequestStates, phase, { key: null, loading: false, error: null });
+      return;
+    }
     const key = phaseCacheKey(suggestionContextKey, phase);
     if (!key) {
       const activeRequest = activeRequestsRef.current.get(phase);
@@ -137,17 +144,22 @@ export function useResearchGoalSuggestions(
           activeRequestsRef.current.delete(phase);
         }
       });
-  }, [cache, cancelRequest, suggestionContextKey]);
+  }, [cache, cancelRequest, enabled, suggestionContextKey]);
   loadSuggestionsRef.current = loadSuggestions;
 
   useEffect(() => {
+    if (!enabled) {
+      for (const activeRequest of activeRequestsRef.current.values()) cancelRequest(activeRequest);
+      setRequestStates({});
+      return;
+    }
     const phaseSet = new Set(phases);
     for (const [phase, activeRequest] of activeRequestsRef.current) {
       if (!phaseSet.has(phase) || activeRequest.key !== phaseCacheKey(suggestionContextKey, phase)) {
         cancelRequest(activeRequest);
       }
     }
-  }, [cancelRequest, phases, suggestionContextKey]);
+  }, [cancelRequest, enabled, phases, suggestionContextKey]);
 
   useEffect(() => () => {
     for (const request of activeRequestsRef.current.values()) cancelRequest(request);
@@ -155,6 +167,7 @@ export function useResearchGoalSuggestions(
 
   const retry = useCallback((phase: ResearchGoalPhase) => loadSuggestions(phase, true), [loadSuggestions]);
   const consume = useCallback((phase: ResearchGoalPhase, suggestion: string): void => {
+    if (!enabled) return;
     const key = phaseCacheKey(suggestionContextKey, phase);
     if (!key) return;
     const remaining = cache.consume(key, suggestion);
@@ -176,7 +189,7 @@ export function useResearchGoalSuggestions(
       return;
     }
     void selection.catch(() => undefined);
-  }, [cache, snapshot, suggestionContextKey]);
+  }, [cache, enabled, snapshot, suggestionContextKey]);
   const suggestions: ResearchGoalSuggestionsByPhase = {};
   const loading: ResearchGoalSuggestionStateByPhase<boolean> = {};
   const errors: ResearchGoalSuggestionStateByPhase<string | null> = {};
@@ -184,11 +197,11 @@ export function useResearchGoalSuggestions(
   for (const phase of phases) {
     const key = phaseCacheKey(suggestionContextKey, phase);
     const cached = cache.read(key);
-    if (cached.status === 'ready') suggestions[phase] = cached.result.suggestions;
+    if (enabled && cached.status === 'ready') suggestions[phase] = cached.result.suggestions;
     const requestState = requestStates[phase] ?? { key: null, loading: false, error: null };
     const stateMatchesKey = requestState.key === key;
-    loading[phase] = Boolean(key) && cached.status !== 'ready' && stateMatchesKey && requestState.loading;
-    errors[phase] = stateMatchesKey ? requestState.error : null;
+    loading[phase] = enabled && Boolean(key) && cached.status !== 'ready' && stateMatchesKey && requestState.loading;
+    errors[phase] = enabled && stateMatchesKey ? requestState.error : null;
   }
 
   return { suggestions, loading, errors, load: loadSuggestions, retry, consume };

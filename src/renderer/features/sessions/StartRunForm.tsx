@@ -123,6 +123,7 @@ interface StartRunFormProps {
   researchGoalSuggestionsLoading: ResearchGoalSuggestionStateByPhase<boolean>;
   researchGoalSuggestionErrors: ResearchGoalSuggestionStateByPhase<string | null>;
   initialGoal?: ResearchGoalSeed | null;
+  showSuggestions?: boolean;
   busy: boolean;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
   onCancel: () => void;
@@ -174,7 +175,7 @@ export function StartRunForm(props: StartRunFormProps): JSX.Element {
       {...settingsProps}
       researchProfile={snapshot.researchProfile ?? null}
       formIdentity={`${snapshot.workspace.workspaceId}:${snapshot.activeScope.id}:${snapshot.researchProfile?.profileHash ?? 'default'}`}
-      showSuggestions
+      showSuggestions={props.showSuggestions ?? true}
       presentation="dialog"
       onSubmit={(input) => runAction(async () => {
         const next = await window.beale.startRun(input);

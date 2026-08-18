@@ -31,6 +31,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   activeScope = null,
   researchProfile,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
+  sessionEndingSuggestionsEnabled = true,
+  responseSuggestionsEnabled = true,
   researchSubjectName = '',
   workspacePath = '',
   workspaceDirectories,
@@ -91,6 +93,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   activeScope?: WorkspaceScopeVersion | null;
   researchProfile: ResearchProfile | null;
   sessionHeatPreferences?: SessionHeatPreferences;
+  sessionEndingSuggestionsEnabled?: boolean;
+  responseSuggestionsEnabled?: boolean;
   researchSubjectName?: string;
   workspacePath?: string;
   workspaceDirectories?: readonly string[];
@@ -182,7 +186,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   const researchSidePanelKey = selectedRunId ?? `workspace:${honeycrispMemory?.contextWorkspaceId ?? 'current'}`;
   const previousRunRef = useRef<{ id: string; status: RunDetail['run']['status'] } | null>(null);
   const currentRun = detail ? { id: detail.run.id, status: detail.run.status } : null;
-  const autoGenerateNextSteps = shouldAutoGenerateSessionNextSteps(previousRunRef.current, currentRun);
+  const autoGenerateNextSteps = sessionEndingSuggestionsEnabled
+    && shouldAutoGenerateSessionNextSteps(previousRunRef.current, currentRun);
   useEffect(() => {
     previousRunRef.current = currentRun;
   }, [currentRun?.id, currentRun?.status]);
@@ -281,7 +286,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     ? expandedDeviceCapturePanelWidth(mainSessionSize.width, mainSessionSize.height, connectedDeviceAspectRatio)
     : null, [connectedDeviceAspectRatio, connectedDeviceCaptureExpanded, mainSessionSize.height, mainSessionSize.width]);
 
-  const postSessionContent = detail && isEndedResearchRunStatus(detail.run.status)
+  const postSessionContent = detail && shouldShowSessionNextSteps(detail.run.status, sessionEndingSuggestionsEnabled)
     ? (
         <SessionNextSteps
           key={detail.run.id}
@@ -345,6 +350,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           shellApproval={shellApproval}
           shellApprovalBusy={shellApprovalBusy}
           postSessionContent={postSessionContent}
+          responseSuggestionsEnabled={responseSuggestionsEnabled}
           onBackToMain={() => undefined}
           onShellApprovalDecision={onShellApprovalDecision}
           onSessionAction={onSessionAction}
@@ -476,4 +482,11 @@ export function shouldAutoGenerateSessionNextSteps(
     && !isEndedResearchRunStatus(previous.status)
     && isEndedResearchRunStatus(current.status)
   );
+}
+
+export function shouldShowSessionNextSteps(
+  status: RunDetail['run']['status'] | null,
+  enabled = true
+): boolean {
+  return enabled && status !== null && isEndedResearchRunStatus(status);
 }

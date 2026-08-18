@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { HoneycrispMemoryNodeSummary, ResearchGoalSuggestionsByPhase, RunDetail, TraceEventRecord, WorkspaceSnapshot } from '@shared/types';
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePanel';
-import { expandedDeviceCapturePanelWidth, isIosDeviceOs, latestOverallRunbookExecution, shouldAutoGenerateSessionNextSteps } from '../src/renderer/features/sessions/MainSessionWorkspace';
+import { expandedDeviceCapturePanelWidth, isIosDeviceOs, latestOverallRunbookExecution, shouldAutoGenerateSessionNextSteps, shouldShowSessionNextSteps } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
 import { SessionNextSteps, SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
 import { WorkspaceOnboardingModal } from '../src/renderer/features/workspaces/WorkspaceOnboardingModal';
@@ -373,6 +373,8 @@ describe('renderer dialog surfaces', () => {
       { id: 'run_other', status: 'active' },
       { id: 'run_complete', status: 'completed' }
     )).toBe(false);
+    expect(shouldShowSessionNextSteps('completed', true)).toBe(true);
+    expect(shouldShowSessionNextSteps('completed', false)).toBe(false);
 
     const detail = {
       run: {

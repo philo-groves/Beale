@@ -59,6 +59,7 @@ export const CommentaryView = memo(function CommentaryView({
   postSessionContent,
   initialModelSelection,
   initialSuggestion,
+  responseSuggestionsEnabled = true,
   onBackToMain,
   onInitialInstruction,
   onShellApprovalDecision = () => undefined,
@@ -80,6 +81,7 @@ export const CommentaryView = memo(function CommentaryView({
   postSessionContent?: ReactNode;
   initialModelSelection?: ResearchModelSelection;
   initialSuggestion?: string;
+  responseSuggestionsEnabled?: boolean;
   onBackToMain: () => void;
   onInitialInstruction?: (
     instruction: string,
@@ -429,6 +431,7 @@ export const CommentaryView = memo(function CommentaryView({
           initialModelSelection={initialModelSelection}
           runId={detail?.run.id ?? selectedRunId}
           initialSuggestion={initialSuggestion}
+          responseSuggestionsEnabled={responseSuggestionsEnabled}
           shellApproval={shellApproval}
           shellApprovalBusy={shellApprovalBusy}
           onInitialInstruction={onInitialInstruction}

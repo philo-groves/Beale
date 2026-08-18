@@ -70,6 +70,7 @@ import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
 import { usePermissionSettings } from './hooks/usePermissionSettings';
 import { useAppearanceTheme } from './hooks/useAppearanceTheme';
 import { useSessionHeatPreferences } from './hooks/useSessionHeatPreferences';
+import { useSuggestionPreferences } from './hooks/useSuggestionPreferences';
 import { filterEnabledProviderModelCatalogs } from '../shared/optionalProviderModels';
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
 import { errorMessage } from './lib/errors';
@@ -165,9 +166,11 @@ export function App(): JSX.Element {
       .catch((caught: unknown) => setError(errorMessage(caught)))
       .finally(() => pendingViewedSessionIdsRef.current.delete(selectedSession.id));
   }, [selectedRunId, setWorkspaceRegistry, workspaceRegistry]);
+  const [suggestionPreferences, setSuggestionPreference] = useSuggestionPreferences();
   const researchGoalSuggestionState = useResearchGoalSuggestions(
     snapshot,
-    openAiStatus?.configured ?? snapshot?.openAi.configured ?? false
+    openAiStatus?.configured ?? snapshot?.openAi.configured ?? false,
+    suggestionPreferences.newResearchPromptSuggestionsEnabled
   );
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [researchProviderStatuses, setResearchProviderStatuses] = useState<ResearchProviderStatus[]>([]);
@@ -1550,6 +1553,7 @@ export function App(): JSX.Element {
             researchProfilesLoading={researchProfilesLoading}
             researchProfile={snapshot?.researchProfile ?? null}
             tracesEnabled={tracesEnabled}
+            suggestionPreferences={suggestionPreferences}
             dangerModeEnabled={permissionSettings.dangerModeEnabled}
             defaultShellSafetyMode={permissionSettings.defaultShellSafetyMode}
             openAiOAuthResult={openAiOAuthResult}
@@ -1568,6 +1572,7 @@ export function App(): JSX.Element {
             busy={busy}
             onChangeAppearanceTheme={setAppearanceTheme}
             onChangeTracesEnabled={changeTracesEnabled}
+            onChangeSuggestionPreference={setSuggestionPreference}
             onChangeDangerModeEnabled={setDangerModeEnabled}
             onChangeDefaultShellSafetyMode={setDefaultShellSafetyMode}
             onRefreshOpenAi={refreshOpenAiProvider}
@@ -1637,6 +1642,7 @@ export function App(): JSX.Element {
                   events={mainSessionTraceEvents}
                   providerModelCatalog={enabledResearchProviderModelCatalog}
                   initialModelSelection={reportSessionInitialModelSelection}
+                  responseSuggestionsEnabled={suggestionPreferences.responseSuggestionsEnabled}
                   selectedRunId={reportSessionRunId}
                   shellApproval={autoReviewOverrideApproval}
                   shellApprovalBusy={Boolean(autoReviewOverrideApproval && (busy || shellApprovalDecisionInFlight === autoReviewOverrideApproval.id))}
@@ -1690,6 +1696,8 @@ export function App(): JSX.Element {
               researchProfile={selectedRunId ? activeRunDetail?.researchProfile?.profile ?? null : snapshot?.researchProfile.profile ?? null}
               researchSubjectName={selectedRunId ? '' : snapshot?.researchSubject.name ?? ''}
               sessionHeatPreferences={sessionHeatPreferences}
+              sessionEndingSuggestionsEnabled={suggestionPreferences.sessionEndingSuggestionsEnabled}
+              responseSuggestionsEnabled={suggestionPreferences.responseSuggestionsEnabled}
               workspacePath={selectedRunId ? '' : snapshot?.workspace.workspacePath ?? ''}
               workspaceDirectories={selectedRunId ? [] : snapshot?.workspace.workspaceDirectories}
               workspaceName={snapshot?.activeScope.workspaceName ?? 'Workspace'}
@@ -1776,6 +1784,7 @@ export function App(): JSX.Element {
         researchGoalSuggestions={researchGoalSuggestionState.suggestions}
         researchGoalSuggestionsLoading={researchGoalSuggestionState.loading}
         researchGoalSuggestionErrors={researchGoalSuggestionState.errors}
+        newResearchPromptSuggestionsEnabled={suggestionPreferences.newResearchPromptSuggestionsEnabled}
         profilingOpen={profilingOpen}
         profilingState={profilingState}
         lastProfilingReport={lastProfilingReport}

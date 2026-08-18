@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { GeneralSettingsView } from '../src/renderer/features/settings/SettingsModal';
+import { ResearchSettingsForm } from '../src/renderer/features/sessions/StartRunForm';
 import {
   DEFAULT_PERMISSION_SETTINGS,
   PERMISSION_SETTINGS_STORAGE_KEY,
@@ -11,6 +12,13 @@ import {
   readPermissionSettings,
   writePermissionSettings
 } from '../src/renderer/view-models/permissionSettings';
+import {
+  DEFAULT_SUGGESTION_PREFERENCES,
+  SUGGESTION_PREFERENCES_STORAGE_KEY,
+  normalizeSuggestionPreferences,
+  readSuggestionPreferences,
+  writeSuggestionPreferences
+} from '../src/renderer/view-models/suggestionPreferences';
 
 describe('renderer debugging settings', () => {
   it('renders a Traces retention checkbox and keeps Commentary implicit', () => {
@@ -72,5 +80,67 @@ describe('renderer debugging settings', () => {
       'auto_review',
       'danger'
     ]);
+  });
+
+  it('renders and persists enabled-by-default suggestion controls', () => {
+    expect(DEFAULT_SUGGESTION_PREFERENCES).toEqual({
+      sessionEndingSuggestionsEnabled: true,
+      responseSuggestionsEnabled: true,
+      newResearchPromptSuggestionsEnabled: true
+    });
+    expect(normalizeSuggestionPreferences({ responseSuggestionsEnabled: false })).toEqual({
+      sessionEndingSuggestionsEnabled: true,
+      responseSuggestionsEnabled: false,
+      newResearchPromptSuggestionsEnabled: true
+    });
+
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value)
+    };
+    const preferences = {
+      sessionEndingSuggestionsEnabled: false,
+      responseSuggestionsEnabled: true,
+      newResearchPromptSuggestionsEnabled: false
+    };
+    writeSuggestionPreferences(storage, preferences);
+
+    expect(values.has(SUGGESTION_PREFERENCES_STORAGE_KEY)).toBe(true);
+    expect(readSuggestionPreferences(storage)).toEqual(preferences);
+
+    const html = renderToStaticMarkup(createElement(GeneralSettingsView, {
+      tracesEnabled: false,
+      suggestionPreferences: preferences,
+      dangerModeEnabled: false,
+      defaultShellSafetyMode: 'auto_review',
+      onChangeTracesEnabled: () => undefined,
+      onChangeSuggestionPreference: () => undefined,
+      onChangeDangerModeEnabled: () => undefined,
+      onChangeDefaultShellSafetyMode: () => undefined
+    }));
+
+    expect(html).toContain('<h2 id="suggestions-settings-heading">Suggestions</h2>');
+    expect(html).toMatch(/aria-label="Response Suggestions"[^>]*checked=""/u);
+    expect(html).not.toMatch(/aria-label="Session Ending Suggestions"[^>]*checked/u);
+    expect(html).not.toMatch(/aria-label="New Research Prompt Suggestions"[^>]*checked/u);
+  });
+
+  it('removes the New Research suggestion panel when prompt suggestions are disabled', () => {
+    const html = renderToStaticMarkup(createElement(ResearchSettingsForm, {
+      researchProfile: null,
+      formIdentity: 'suggestions-disabled',
+      openAiStatus: null,
+      defaultProviderId: null,
+      providerModelDefaults: undefined,
+      researchProviderStatuses: [],
+      providerModelCatalog: [],
+      showSuggestions: false,
+      busy: false,
+      onSubmit: () => undefined
+    }));
+
+    expect(html).toContain('new-research-compose-layout without-suggestions');
+    expect(html).not.toContain('Research suggestions');
   });
 });

@@ -44,6 +44,11 @@ import { normalizeShellSafetyMode } from '../../../shared/shellSafety';
 import { permissionModeOptions } from '../../view-models/permissionSettings';
 import { APPEARANCE_THEMES, type AppearanceTheme } from '../../view-models/appearance';
 import {
+  DEFAULT_SUGGESTION_PREFERENCES,
+  type SuggestionPreferenceKey,
+  type SuggestionPreferences
+} from '../../view-models/suggestionPreferences';
+import {
   EMPTY_SESSION_HEAT_PREFERENCES,
   SESSION_HEAT_COLOR_LEVELS,
   SESSION_HEAT_THEMES,
@@ -127,6 +132,7 @@ export function SettingsView({
   appearanceTheme,
   researchProfile,
   tracesEnabled,
+  suggestionPreferences,
   dangerModeEnabled,
   defaultShellSafetyMode,
   researchProfiles,
@@ -147,6 +153,7 @@ export function SettingsView({
   busy,
   onChangeAppearanceTheme,
   onChangeTracesEnabled,
+  onChangeSuggestionPreference,
   onChangeDangerModeEnabled,
   onChangeDefaultShellSafetyMode,
   onRefreshOpenAi,
@@ -171,6 +178,7 @@ export function SettingsView({
   researchProfiles: ResolvedResearchProfile[];
   researchProfilesLoading: boolean;
   tracesEnabled: boolean;
+  suggestionPreferences: SuggestionPreferences;
   dangerModeEnabled: boolean;
   defaultShellSafetyMode: ShellSafetyMode;
   openAiStatus: OpenAiAccountStatus | null;
@@ -189,6 +197,7 @@ export function SettingsView({
   busy: boolean;
   onChangeAppearanceTheme: (theme: AppearanceTheme) => void;
   onChangeTracesEnabled: (enabled: boolean) => void;
+  onChangeSuggestionPreference: (key: SuggestionPreferenceKey, enabled: boolean) => void;
   onChangeDangerModeEnabled: (enabled: boolean) => void;
   onChangeDefaultShellSafetyMode: (mode: ShellSafetyMode) => void;
   onRefreshOpenAi: () => Promise<void>;
@@ -230,9 +239,11 @@ export function SettingsView({
         {activeSection === 'general' ? (
           <GeneralSettingsView
             tracesEnabled={tracesEnabled}
+            suggestionPreferences={suggestionPreferences}
             dangerModeEnabled={dangerModeEnabled}
             defaultShellSafetyMode={defaultShellSafetyMode}
             onChangeTracesEnabled={onChangeTracesEnabled}
+            onChangeSuggestionPreference={onChangeSuggestionPreference}
             onChangeDangerModeEnabled={onChangeDangerModeEnabled}
             onChangeDefaultShellSafetyMode={onChangeDefaultShellSafetyMode}
           />
@@ -1068,16 +1079,20 @@ function toggleStringValue(values: readonly string[], value: string): string[] {
 
 export function GeneralSettingsView({
   tracesEnabled,
+  suggestionPreferences = DEFAULT_SUGGESTION_PREFERENCES,
   dangerModeEnabled,
   defaultShellSafetyMode,
   onChangeTracesEnabled,
+  onChangeSuggestionPreference = () => undefined,
   onChangeDangerModeEnabled,
   onChangeDefaultShellSafetyMode
 }: {
   tracesEnabled: boolean;
+  suggestionPreferences?: SuggestionPreferences;
   dangerModeEnabled: boolean;
   defaultShellSafetyMode: ShellSafetyMode;
   onChangeTracesEnabled: (enabled: boolean) => void;
+  onChangeSuggestionPreference?: (key: SuggestionPreferenceKey, enabled: boolean) => void;
   onChangeDangerModeEnabled: (enabled: boolean) => void;
   onChangeDefaultShellSafetyMode: (mode: ShellSafetyMode) => void;
 }): JSX.Element {
@@ -1101,6 +1116,52 @@ export function GeneralSettingsView({
                 aria-label="Traces"
                 checked={tracesEnabled}
                 onChange={(event) => onChangeTracesEnabled(event.currentTarget.checked)}
+              />
+            </label>
+          </div>
+        </fieldset>
+      </section>
+      <section className="settings-form suggestions-settings-form">
+        <header className="settings-form-heading">
+          <h2 id="suggestions-settings-heading">Suggestions</h2>
+          <p>Choose which optional suggestions Beale shows while you research.</p>
+        </header>
+        <fieldset className="settings-form-squircle suggestions-settings" aria-labelledby="suggestions-settings-heading">
+          <div className="settings-form-control-list">
+            <label className="settings-form-control-row">
+              <span className="settings-form-control-copy">
+                <strong>Session Ending Suggestions</strong>
+                <small>Show generated follow-up research ideas after a session ends.</small>
+              </span>
+              <input
+                type="checkbox"
+                aria-label="Session Ending Suggestions"
+                checked={suggestionPreferences.sessionEndingSuggestionsEnabled}
+                onChange={(event) => onChangeSuggestionPreference('sessionEndingSuggestionsEnabled', event.currentTarget.checked)}
+              />
+            </label>
+            <label className="settings-form-control-row">
+              <span className="settings-form-control-copy">
+                <strong>Response Suggestions</strong>
+                <small>Show suggested responses in session and report composers.</small>
+              </span>
+              <input
+                type="checkbox"
+                aria-label="Response Suggestions"
+                checked={suggestionPreferences.responseSuggestionsEnabled}
+                onChange={(event) => onChangeSuggestionPreference('responseSuggestionsEnabled', event.currentTarget.checked)}
+              />
+            </label>
+            <label className="settings-form-control-row">
+              <span className="settings-form-control-copy">
+                <strong>New Research Prompt Suggestions</strong>
+                <small>Show generated prompt ideas in the New Research form.</small>
+              </span>
+              <input
+                type="checkbox"
+                aria-label="New Research Prompt Suggestions"
+                checked={suggestionPreferences.newResearchPromptSuggestionsEnabled}
+                onChange={(event) => onChangeSuggestionPreference('newResearchPromptSuggestionsEnabled', event.currentTarget.checked)}
               />
             </label>
           </div>

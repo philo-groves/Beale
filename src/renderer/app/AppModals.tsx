@@ -39,6 +39,7 @@ export function AppModals({
   researchGoalSuggestions,
   researchGoalSuggestionsLoading,
   researchGoalSuggestionErrors,
+  newResearchPromptSuggestionsEnabled = true,
   profilingOpen,
   profilingState,
   lastProfilingReport,
@@ -76,6 +77,7 @@ export function AppModals({
   researchGoalSuggestions: ResearchGoalSuggestionsByPhase;
   researchGoalSuggestionsLoading: ResearchGoalSuggestionStateByPhase<boolean>;
   researchGoalSuggestionErrors: ResearchGoalSuggestionStateByPhase<string | null>;
+  newResearchPromptSuggestionsEnabled?: boolean;
   profilingOpen: boolean;
   profilingState: ProfilingState | null;
   lastProfilingReport: ProfilingReport | null;
@@ -127,6 +129,7 @@ export function AppModals({
           researchGoalSuggestionsLoading={researchGoalSuggestionsLoading}
           researchGoalSuggestionErrors={researchGoalSuggestionErrors}
           initialGoal={newResearchInitialGoal}
+          showSuggestions={newResearchPromptSuggestionsEnabled}
           busy={busy}
           runAction={runAction}
           onCancel={onCancelNewResearch}

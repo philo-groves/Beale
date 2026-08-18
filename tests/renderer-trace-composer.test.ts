@@ -63,6 +63,39 @@ describe('renderer session composer', () => {
     expect(html).toContain('placeholder="Inspect the saved crash and validate the suspected bounds check."');
   });
 
+  it('hides response suggestions when they are disabled', () => {
+    const html = renderToStaticMarkup(createElement(MainSteerArea, {
+      busy: false,
+      detail: composerDetail('completed', {
+        transcriptMessages: [{
+          id: 'final_message',
+          runId: 'run_composer',
+          attemptId: 'attempt_one',
+          traceEventId: 'trace_final',
+          role: 'assistant',
+          phase: 'final_answer',
+          contentMarkdown: 'Final result.',
+          source: 'honeycrisp',
+          metadata: {
+            nextPromptSuggestions: [{
+              title: 'Validate crash',
+              promptMarkdown: 'Inspect the saved crash and validate the suspected bounds check.'
+            }]
+          },
+          createdAt: '2026-08-14T10:00:00.000Z'
+        }]
+      }),
+      providerModelCatalog: providerModelCatalog(),
+      responseSuggestionsEnabled: false,
+      runId: 'run_composer',
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+
+    expect(html).not.toContain('Inspect the saved crash and validate the suspected bounds check.');
+    expect(html).toContain('placeholder="Your move"');
+  });
+
   it('uses Tab to first show and then accept an input suggestion', () => {
     expect(steeringInputTabAction({
       instruction: '',

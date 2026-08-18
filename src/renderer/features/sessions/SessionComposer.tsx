@@ -44,6 +44,7 @@ export const MainSteerArea = memo(function MainSteerArea({
   shellApprovalBusy = false,
   initialModelSelection,
   initialSuggestion,
+  responseSuggestionsEnabled = true,
   onInitialInstruction,
   onShellApprovalDecision = () => undefined,
   onSessionAction,
@@ -57,6 +58,7 @@ export const MainSteerArea = memo(function MainSteerArea({
   shellApprovalBusy?: boolean;
   initialModelSelection?: ResearchModelSelection;
   initialSuggestion?: string;
+  responseSuggestionsEnabled?: boolean;
   onInitialInstruction?: (
     instruction: string,
     modelSelection: ResearchModelSelection,
@@ -90,7 +92,9 @@ export const MainSteerArea = memo(function MainSteerArea({
   const trimmedInstruction = instruction.trim();
   const disabled = busy || (!runId && !onInitialInstruction) || !trimmedInstruction || !selectedModelId;
   const status = detail?.run.status ?? null;
-  const steeringSuggestion = initialSuggestion ?? steeringInputSuggestion(detail);
+  const steeringSuggestion = responseSuggestionsEnabled
+    ? initialSuggestion ?? steeringInputSuggestion(detail)
+    : null;
   const suggestionShowing = Boolean(
     steeringSuggestion && (initialSuggestion || tabSuggestionVisible || steeringSuggestionAutoVisible(status))
   );
