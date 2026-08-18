@@ -905,6 +905,10 @@ export interface DeveloperSettings {
   developerModeEnabled: boolean;
 }
 
+export interface DebuggingSettings {
+  tracesEnabled: boolean;
+}
+
 export interface ProviderSettings {
   defaultProviderId: ResearchModelProviderId | null;
   modelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>>;
@@ -1773,6 +1777,8 @@ export interface BealeApi {
   markResearchSessionViewed(sessionId: string): Promise<WorkspaceRegistryState>;
   getDeveloperSettings(): Promise<DeveloperSettings>;
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings>;
+  getDebuggingSettings(): Promise<DebuggingSettings>;
+  setTracesEnabled(enabled: boolean): Promise<DebuggingSettings>;
   getProviderSettings(): Promise<ProviderSettings>;
   setDefaultProviderId(providerId: ResearchModelProviderId | null): Promise<ProviderSettings>;
   setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): Promise<ProviderSettings>;

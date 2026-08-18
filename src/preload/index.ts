@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
+  DebuggingSettings,
   DeveloperSettings,
   ProviderSettings,
   ProviderAuthenticationMethod,
@@ -100,6 +101,12 @@ const api: BealeApi = {
   },
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setDeveloperModeEnabled, enabled);
+  },
+  getDebuggingSettings(): Promise<DebuggingSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getDebuggingSettings);
+  },
+  setTracesEnabled(enabled: boolean): Promise<DebuggingSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setTracesEnabled, enabled);
   },
   getProviderSettings(): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.getProviderSettings);

@@ -27,6 +27,77 @@ afterEach(() => {
 });
 
 describe('Honeycrisp session persistence boundary', () => {
+  it('retains optional diagnostic traces only while tracing is enabled', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-trace-retention-'));
+    createdDirectories.push(directory);
+    const databasePath = join(directory, 'memory.sqlite');
+    const artifactRoot = join(directory, '.beale', 'artifacts');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    configureRealHoneycrisp();
+
+    const rawDatabase = new WorkspaceDatabase(databasePath, artifactRoot, {
+      workspacePath: directory,
+      workspaceId: 'workspace_trace_retention'
+    });
+    rawDatabase.initialize();
+    let tracesEnabled = false;
+    const database = createHoneycrispSessionBoundary(rawDatabase, true, () => tracesEnabled);
+    try {
+      const context = database.createRun({
+        scopeVersionId: database.getActiveScope().id,
+        title: 'Trace retention',
+        promptMarkdown: 'Inspect the parser.',
+        shellSafetyMode: 'auto_review',
+        mode: 'open_discovery',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+        attemptStrategy: 'iterative_research',
+        sandboxProfile: 'host',
+        budget: { runEngine: 'honeycrisp' }
+      });
+
+      database.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'research_event',
+        source: 'executor',
+        summary: 'Discarded transport diagnostic.',
+        payload: { transport: 'websocket' },
+        modelVisible: false
+      });
+      database.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'user_note',
+        source: 'user',
+        summary: 'Retained session-history event.',
+        payload: {}
+      });
+      await flushHoneycrispSessionWrites(database, context.run.id);
+
+      let summaries = database.getRunDetail(context.run.id).traceEvents.map((event) => event.summary);
+      expect(summaries).not.toContain('Discarded transport diagnostic.');
+      expect(summaries).toContain('Retained session-history event.');
+
+      tracesEnabled = true;
+      database.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'research_event',
+        source: 'executor',
+        summary: 'Queryable transport diagnostic.',
+        payload: { transport: 'websocket' },
+        modelVisible: false
+      });
+      await flushHoneycrispSessionWrites(database, context.run.id);
+
+      summaries = database.getRunDetail(context.run.id).traceEvents.map((event) => event.summary);
+      expect(summaries).toContain('Queryable transport diagnostic.');
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
   it('derives and persists interrupted canonical breakout-room state', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-breakout-interruption-'));
     createdDirectories.push(directory);

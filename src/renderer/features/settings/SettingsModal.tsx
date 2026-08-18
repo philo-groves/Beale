@@ -40,7 +40,6 @@ import {
   isOptionalProviderModelEnabled,
   OPTIONAL_PROVIDER_MODELS
 } from '../../../shared/optionalProviderModels';
-import type { ChatView } from '../../view-models/chatView';
 import { normalizeShellSafetyMode } from '../../../shared/shellSafety';
 import { permissionModeOptions } from '../../view-models/permissionSettings';
 import {
@@ -116,7 +115,7 @@ export function SettingsSidebar({
 export function SettingsView({
   section,
   researchProfile,
-  chatView,
+  tracesEnabled,
   dangerModeEnabled,
   defaultShellSafetyMode,
   researchProfiles,
@@ -135,7 +134,7 @@ export function SettingsView({
   agentPluginsError,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   busy,
-  onChangeChatView,
+  onChangeTracesEnabled,
   onChangeDangerModeEnabled,
   onChangeDefaultShellSafetyMode,
   onRefreshOpenAi,
@@ -158,7 +157,7 @@ export function SettingsView({
   researchProfile: ResearchProfileSnapshot | null;
   researchProfiles: ResolvedResearchProfile[];
   researchProfilesLoading: boolean;
-  chatView: ChatView;
+  tracesEnabled: boolean;
   dangerModeEnabled: boolean;
   defaultShellSafetyMode: ShellSafetyMode;
   openAiStatus: OpenAiAccountStatus | null;
@@ -175,7 +174,7 @@ export function SettingsView({
   agentPluginsError: string | null;
   sessionHeatPreferences?: SessionHeatPreferences;
   busy: boolean;
-  onChangeChatView: (chatView: ChatView) => void;
+  onChangeTracesEnabled: (enabled: boolean) => void;
   onChangeDangerModeEnabled: (enabled: boolean) => void;
   onChangeDefaultShellSafetyMode: (mode: ShellSafetyMode) => void;
   onRefreshOpenAi: () => Promise<void>;
@@ -216,10 +215,10 @@ export function SettingsView({
       <section className="settings-view settings-main-view" aria-label={`${settingsSectionLabel(activeSection)} settings`}>
         {activeSection === 'general' ? (
           <GeneralSettingsView
-            chatView={chatView}
+            tracesEnabled={tracesEnabled}
             dangerModeEnabled={dangerModeEnabled}
             defaultShellSafetyMode={defaultShellSafetyMode}
-            onChangeChatView={onChangeChatView}
+            onChangeTracesEnabled={onChangeTracesEnabled}
             onChangeDangerModeEnabled={onChangeDangerModeEnabled}
             onChangeDefaultShellSafetyMode={onChangeDefaultShellSafetyMode}
           />
@@ -967,54 +966,40 @@ function toggleStringValue(values: readonly string[], value: string): string[] {
 }
 
 export function GeneralSettingsView({
-  chatView,
+  tracesEnabled,
   dangerModeEnabled,
   defaultShellSafetyMode,
-  onChangeChatView,
+  onChangeTracesEnabled,
   onChangeDangerModeEnabled,
   onChangeDefaultShellSafetyMode
 }: {
-  chatView: ChatView;
+  tracesEnabled: boolean;
   dangerModeEnabled: boolean;
   defaultShellSafetyMode: ShellSafetyMode;
-  onChangeChatView: (chatView: ChatView) => void;
+  onChangeTracesEnabled: (enabled: boolean) => void;
   onChangeDangerModeEnabled: (enabled: boolean) => void;
   onChangeDefaultShellSafetyMode: (mode: ShellSafetyMode) => void;
 }): JSX.Element {
   const permissionOptions = permissionModeOptions({ dangerModeEnabled, defaultShellSafetyMode });
   return (
     <div className="settings-page general-settings-page">
-      <section className="settings-form chat-view-form">
+      <section className="settings-form debugging-settings-form">
         <header className="settings-form-heading">
-          <h2 id="chat-view-settings-heading">Session View</h2>
-          <p>Choose how Beale presents agent activity in research sessions.</p>
+          <h2 id="debugging-settings-heading">Debugging</h2>
+          <p>Control optional diagnostic data retained for research sessions.</p>
         </header>
-        <fieldset className="settings-form-squircle chat-view-settings" aria-labelledby="chat-view-settings-heading">
-          <div className="settings-form-radio-list chat-view-options">
-            <label className={`chat-view-option ${chatView === 'commentary' ? 'selected' : ''}`}>
-              <span className="settings-form-radio-copy">
-                <strong>Commentary</strong>
-                <small>Follow concise research updates and agent responses.</small>
-              </span>
-              <input
-                type="radio"
-                name="chat-view"
-                value="commentary"
-                checked={chatView === 'commentary'}
-                onChange={() => onChangeChatView('commentary')}
-              />
-            </label>
-            <label className={`chat-view-option ${chatView === 'traces' ? 'selected' : ''}`}>
-              <span className="settings-form-radio-copy">
+        <fieldset className="settings-form-squircle debugging-settings" aria-labelledby="debugging-settings-heading">
+          <div className="settings-form-control-list">
+            <label className="settings-form-control-row">
+              <span className="settings-form-control-copy">
                 <strong>Traces</strong>
-                <small>Inspect the detailed agent event timeline and tool activity.</small>
+                <small>Retain detailed diagnostic events for querying and debugging. Commentary is always available.</small>
               </span>
               <input
-                type="radio"
-                name="chat-view"
-                value="traces"
-                checked={chatView === 'traces'}
-                onChange={() => onChangeChatView('traces')}
+                type="checkbox"
+                aria-label="Traces"
+                checked={tracesEnabled}
+                onChange={(event) => onChangeTracesEnabled(event.currentTarget.checked)}
               />
             </label>
           </div>

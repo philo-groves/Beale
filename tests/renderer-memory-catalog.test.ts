@@ -463,13 +463,10 @@ describe('renderer memory catalog', () => {
       runbookError: null,
       selectedSubagentPath: null,
       selectedRunbookId: null,
-      selectedTraceEventId: null,
       searchHighlightQuery: '',
-      visibleTraceCategories: [],
       onBackToRunbooks: () => undefined,
       onBackToSubagents: () => undefined,
       onOpenRunbook: () => undefined,
-      onSelectTraceEvent: () => undefined,
       onSelectSubagent: () => undefined
     }));
 
@@ -936,14 +933,11 @@ function researchSidePanelProps(
     runbookLoading: false,
     runbookError: null,
     selectedSubagentPath: null,
-    selectedTraceEventId: null,
     searchHighlightQuery: '',
-    visibleTraceCategories: [],
     onBackToRunbooks: () => undefined,
     onBackToSubagents: () => undefined,
     onOpenRunbook: () => undefined,
     onSelectSubagent: () => undefined,
-    onSelectTraceEvent: () => undefined,
     ...overrides
   };
 }

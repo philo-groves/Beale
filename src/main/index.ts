@@ -506,6 +506,8 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.getDeveloperSettings, () => workspaceService.getDeveloperSettings());
   ipcMain.handle(IPC_CHANNELS.setDeveloperModeEnabled, (_event, enabled: boolean) => workspaceService.setDeveloperModeEnabled(enabled));
+  ipcMain.handle(IPC_CHANNELS.getDebuggingSettings, () => workspaceService.getDebuggingSettings());
+  ipcMain.handle(IPC_CHANNELS.setTracesEnabled, (_event, enabled: boolean) => workspaceService.setTracesEnabled(enabled));
   ipcMain.handle(IPC_CHANNELS.getProviderSettings, () => workspaceService.getProviderSettings());
   ipcMain.handle(IPC_CHANNELS.setDefaultProviderId, (_event, providerId: ResearchModelProviderId | null) => workspaceService.setDefaultProviderId(providerId));
   ipcMain.handle(IPC_CHANNELS.setProviderModelDefaults, (_event, providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) =>

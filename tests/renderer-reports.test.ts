@@ -128,7 +128,7 @@ describe('reports resource views', () => {
   });
 
   it('enables the safety selector before the first report message and applies it when starting the run', () => {
-    const composerSource = readFileSync(new URL('../src/renderer/features/traces/TraceView.tsx', import.meta.url), 'utf8');
+    const composerSource = readFileSync(new URL('../src/renderer/features/sessions/SessionComposer.tsx', import.meta.url), 'utf8');
     const serviceSource = readFileSync(new URL('../src/main/workspaceService.ts', import.meta.url), 'utf8');
     expect(composerSource).toContain("disabled={busy || status === 'paused' || (!runId && !onInitialInstruction)}");
     expect(composerSource).toContain('onInitialInstruction?.(trimmedInstruction, modelSelection, shellSafetyMode)');

@@ -7379,38 +7379,6 @@ button.session-summary-item:hover:not(:disabled),
   cursor: default;
 }
 
-.main-steer-filter-button {
-  grid-column: 1;
-  grid-row: 2;
-  align-self: start;
-  height: 31px;
-  min-height: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 31px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  margin-left: 3px;
-  padding: 0;
-  font-size: var(--steer-control-font-size);
-  font-weight: 400;
-  line-height: 1.25;
-}
-
-.main-steer-filter-button svg {
-  flex: 0 0 auto;
-}
-
-.main-steer-filter-button:hover:not(:disabled),
-.main-steer-filter-button:focus-visible {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: #242424;
-  color: var(--muted-strong);
-  outline: none;
-}
 .floating-text-picker-trigger {
   min-width: 0;
   max-width: 100%;
@@ -11104,7 +11072,6 @@ button.research-goal-choice:focus-visible {
 
 .general-settings-page .settings-form-control-row,
 .general-settings-page .settings-form-radio-list,
-.general-settings-page .chat-view-option,
 .general-settings-page .computer-use-settings-message,
 .profile-settings-page .settings-form-control-row,
 .general-settings-page .settings-form-heading p,
@@ -11542,12 +11509,6 @@ button.research-goal-choice:focus-visible {
   color: var(--muted);
   font-size: var(--profile-settings-font-size);
 }
-.chat-view-options {
-  min-width: 0;
-  display: grid;
-}
-
-.chat-view-option,
 .settings-form-control-row {
   min-width: 0;
   display: grid;
@@ -11558,14 +11519,6 @@ button.research-goal-choice:focus-visible {
   cursor: pointer;
 }
 
-.chat-view-option input {
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  accent-color: var(--text);
-  cursor: pointer;
-}
-
 .settings-form-radio-copy,
 .settings-form-control-copy {
   min-width: 0;
@@ -11573,14 +11526,12 @@ button.research-goal-choice:focus-visible {
   gap: 3px;
 }
 
-.chat-view-option strong,
 .settings-form-control-row strong {
   color: var(--text);
   font-size: inherit;
   font-weight: 400;
 }
 
-.chat-view-option small,
 .settings-form-control-row small {
   color: var(--muted);
   font-size: inherit;
@@ -13894,7 +13845,6 @@ button.research-goal-choice:focus-visible {
   }
 
   .top-bar,
-  .chat-view-options,
   .settings-field-grid,
   .start-grid,
   .new-research-compose-layout,

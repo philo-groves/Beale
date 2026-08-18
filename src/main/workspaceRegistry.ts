@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { applyDatabaseMigrations } from './databaseMigrations';
 import type {
   DeveloperSettings,
+  DebuggingSettings,
   ProviderSettings,
   ProviderModelDefaults,
   ProviderAuthenticationMethod,
@@ -272,6 +273,15 @@ export class WorkspaceRegistry {
   public getWorkspaceByPath(path: string): WorkspaceRegistryEntry | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM workspaces WHERE workspace_path = ?').get(resolve(path)));
     return row ? this.mapWorkspace(row) : null;
+  }
+
+  public getDebuggingSettings(): DebuggingSettings {
+    return { tracesEnabled: this.getMeta('traces_enabled') === '1' };
+  }
+
+  public setTracesEnabled(enabled: boolean): DebuggingSettings {
+    this.setMeta('traces_enabled', enabled ? '1' : '0');
+    return this.getDebuggingSettings();
   }
 
   public getWorkspaceByDirectory(path: string): WorkspaceRegistryEntry | null {

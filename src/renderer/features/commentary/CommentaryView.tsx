@@ -13,7 +13,7 @@ import type {
 } from '@shared/types';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
 import { renderTraceProseText } from '../traces/traceMarkup';
-import { MainSteerArea, SessionLoadingState } from '../traces/TraceView';
+import { MainSteerArea, SessionLoadingState } from '../sessions/SessionComposer';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import {
   commentaryMessagesForSession,
@@ -53,7 +53,6 @@ export const CommentaryView = memo(function CommentaryView({
   showBackToMain,
   showBackButton = showBackToMain,
   scrollScopeKey = selectedRunId,
-  selectedTraceEventId,
   searchHighlightQuery,
   shellApproval = null,
   shellApprovalBusy = false,
@@ -75,7 +74,6 @@ export const CommentaryView = memo(function CommentaryView({
   showBackToMain: boolean;
   showBackButton?: boolean;
   scrollScopeKey?: string | null;
-  selectedTraceEventId: string | null;
   searchHighlightQuery: string;
   shellApproval?: ApprovalRecord | null;
   shellApprovalBusy?: boolean;
@@ -106,11 +104,7 @@ export const CommentaryView = memo(function CommentaryView({
   );
   const activityMessages = messageSections.activity;
   const messageUpdateKey = commentaryMessageUpdateKey(messages, events);
-  const allMessageIndexById = useMemo(() => commentaryMessageIndex(messages), [messages]);
   const messageIndexById = useMemo(() => commentaryMessageIndex(activityMessages), [activityMessages]);
-  const selectedMessageIndex = selectedTraceEventId ? messageIndexById.get(selectedTraceEventId) : undefined;
-  const selectedAllMessageIndex = selectedTraceEventId ? allMessageIndexById.get(selectedTraceEventId) : undefined;
-  const selectedMessageId = selectedAllMessageIndex === undefined ? null : messages[selectedAllMessageIndex]?.id ?? null;
   const maxWindowStart = Math.max(0, activityMessages.length - COMMENTARY_RENDER_WINDOW_SIZE);
   const [windowStart, setWindowStart] = useState(maxWindowStart);
   const normalizedWindowStart = Math.min(windowStart, maxWindowStart);
@@ -122,7 +116,6 @@ export const CommentaryView = memo(function CommentaryView({
   const followLatestRef = useRef(true);
   const restoringAnchorRef = useRef(false);
   const pendingScrollAnchorRef = useRef<CommentaryScrollAnchor | null>(null);
-  const pendingSelectedMessageRef = useRef<string | null>(selectedTraceEventId);
   const userScrollIntentRef = useRef(false);
   const userScrollIntentTimerRef = useRef<number | null>(null);
   const scrollbarDragRef = useRef(false);
@@ -215,42 +208,6 @@ export const CommentaryView = memo(function CommentaryView({
       restoringAnchorRef.current = false;
     };
   }, [normalizedWindowStart, renderedMessages.length, updateScrollEdges]);
-
-  useLayoutEffect(() => {
-    pendingSelectedMessageRef.current = selectedTraceEventId;
-  }, [selectedTraceEventId]);
-
-  useLayoutEffect(() => {
-    if (!selectedTraceEventId || pendingSelectedMessageRef.current !== selectedTraceEventId) return;
-    const selectedIndex = selectedMessageIndex;
-    if (selectedIndex === undefined) return;
-    followLatestRef.current = false;
-    const windowEnd = normalizedWindowStart + renderedMessages.length;
-    if (selectedIndex >= normalizedWindowStart && selectedIndex < windowEnd) return;
-    const targetStart = commentaryWindowStartForIndex(activityMessages.length, selectedIndex);
-    if (targetStart !== normalizedWindowStart) setWindowStart(targetStart);
-  }, [activityMessages.length, normalizedWindowStart, renderedMessages.length, selectedMessageIndex, selectedTraceEventId]);
-
-  useLayoutEffect(() => {
-    if (!selectedTraceEventId || pendingSelectedMessageRef.current !== selectedTraceEventId) return undefined;
-    const list = listRef.current;
-    if (!list) return undefined;
-    const selected = commentaryMessageNodes(list).find((node) => node.dataset.commentaryEventId === selectedMessageId);
-    if (!selected) return undefined;
-    restoringAnchorRef.current = true;
-    const centeredTop = selected.offsetTop - Math.max(16, (list.clientHeight - selected.offsetHeight) / 2);
-    list.scrollTop = Math.max(0, centeredTop);
-    pendingSelectedMessageRef.current = null;
-    updateScrollEdges();
-    const frame = window.requestAnimationFrame(() => {
-      restoringAnchorRef.current = false;
-      updateScrollEdges();
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-      restoringAnchorRef.current = false;
-    };
-  }, [normalizedWindowStart, renderedMessages.length, selectedMessageId, selectedTraceEventId, updateScrollEdges]);
 
   useLayoutEffect(() => {
     if (scrollScopeKeyRef.current !== scrollScopeKey) {
@@ -407,7 +364,7 @@ export const CommentaryView = memo(function CommentaryView({
                 message={message}
                 autoExpandToolKey={null}
                 searchHighlightQuery={searchHighlightQuery}
-                selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+                selected={false}
                 onRequestToolCallDetail={requestToolCallDetail}
               />
             ))}
@@ -424,7 +381,7 @@ export const CommentaryView = memo(function CommentaryView({
                           ? `${message.id}:${message.toolCalls?.length ?? 0}`
                           : null}
                         searchHighlightQuery={searchHighlightQuery}
-                        selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+                        selected={false}
                         onRequestToolCallDetail={requestToolCallDetail}
                       />
                     ))}
@@ -443,7 +400,7 @@ export const CommentaryView = memo(function CommentaryView({
                       ? `${message.id}:${message.toolCalls?.length ?? 0}`
                       : null}
                     searchHighlightQuery={searchHighlightQuery}
-                    selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+                    selected={false}
                     onRequestToolCallDetail={requestToolCallDetail}
                   />
                 ))}
@@ -456,7 +413,7 @@ export const CommentaryView = memo(function CommentaryView({
                 message={message}
                 autoExpandToolKey={null}
                 searchHighlightQuery={searchHighlightQuery}
-                selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+                selected={false}
                 onRequestToolCallDetail={requestToolCallDetail}
               />
             ))}
@@ -474,10 +431,6 @@ export const CommentaryView = memo(function CommentaryView({
           initialSuggestion={initialSuggestion}
           shellApproval={shellApproval}
           shellApprovalBusy={shellApprovalBusy}
-          showTraceFilters={false}
-          traceFilterCount={0}
-          totalTraceFilterCount={0}
-          onOpenTraceFilters={() => undefined}
           onInitialInstruction={onInitialInstruction}
           onShellApprovalDecision={onShellApprovalDecision}
           onSessionAction={onSessionAction}
@@ -835,12 +788,6 @@ function commentaryMessageIndex(messages: readonly CommentaryMessage[]): Map<str
     });
   });
   return index;
-}
-
-function commentaryMessageContainsTraceId(message: CommentaryMessage, traceEventId: string): boolean {
-  return message.id === traceEventId ||
-    message.traceEventId === traceEventId ||
-    message.toolCalls?.some((toolCall) => toolCall.id === traceEventId || toolCall.traceEventId === traceEventId) === true;
 }
 
 export function commentaryWindowStartForIndex(messageCount: number, messageIndex: number): number {

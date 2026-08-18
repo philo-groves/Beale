@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Removed the session trace timeline, filters, and detail UI. Commentary is now always on, while General settings exposes a Debugging > Traces checkbox that defaults off and controls retention of optional diagnostic trace mirrors; functional, evidence, policy, and session-history records remain retained, and enabled traces stay available through run-detail queries.
 - Workspace Overview now matches its Directories column to the session summary sidenav width, presents directories as a flat divided list, and lets users promote any directory to the persisted primary position while keeping the workspace storage root protected.
 - Workspace Overview form labels, descriptions, fields, and save status now use the same 14px typography as the General and Profile settings views.
 - General, Profiles, and Computer Use settings now use the application's normal font size instead of their previous compact typography.

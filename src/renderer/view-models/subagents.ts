@@ -1,11 +1,11 @@
 import type { RunStatus, TraceEventRecord } from '@shared/types';
 import {
-  chatMessageCorrelationKey,
-  nativeCommentaryCorrelationKeys,
-  type ChatView
-} from './chatView';
+  commentaryMessageCorrelationKey,
+  nativeCommentaryCorrelationKeys
+} from './commentaryCorrelation';
 
 export type SubagentStatus = 'pending' | 'running' | 'completed' | 'interrupted' | 'errored';
+export type SubagentMessageProjection = 'commentary' | 'full';
 
 export interface SubagentSummary {
   id: string | null;
@@ -113,12 +113,12 @@ export function filterSubagentSummaries(
 export function subagentSummaries(
   events: readonly TraceEventRecord[],
   runStatus?: RunStatus | null,
-  chatView: ChatView = 'traces'
+  projection: SubagentMessageProjection = 'full'
 ): SubagentSummary[] {
   const summaries = new Map<string, SubagentAccumulator>();
   const currentAttemptId = latestRootAttemptId(events);
   const recoveryInterruption = latestRecoveryInterruption(events);
-  const nativeCommentaryKeys = chatView === 'commentary' ? nativeCommentaryCorrelationKeys(events) : new Set<string>();
+  const nativeCommentaryKeys = nativeCommentaryCorrelationKeys(events);
 
   for (const event of events) {
     const path = traceAgentPath(event);
@@ -142,7 +142,7 @@ export function subagentSummaries(
       spawnedAt: null,
       lastSequence: event.sequence
     };
-    const message = chatView === 'commentary'
+    const message = projection === 'commentary'
       ? subagentAssistantPreview(event, nativeCommentaryKeys) ?? subagentActivityMessage(event)
       : subagentMessage(event);
     summaries.set(path, {
@@ -291,7 +291,7 @@ function subagentAssistantPreview(
   );
   const legacyCommentary = transcriptSource === 'openai_reasoning_summary';
   const finalAnswer = transcriptRole === 'assistant' && (messagePhase === 'final_answer' || transcriptSource === 'honeycrisp');
-  const correlationKey = chatMessageCorrelationKey(event);
+  const correlationKey = commentaryMessageCorrelationKey(event);
   const suppressedLegacyCommentary = legacyCommentary && correlationKey !== null && nativeCommentaryKeys.has(correlationKey);
   if (!nativeCommentary && !finalAnswer && !(legacyCommentary && !suppressedLegacyCommentary)) {
     return null;

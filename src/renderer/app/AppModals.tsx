@@ -13,24 +13,18 @@ import type {
   ProfilingReport,
   ProfilingState,
   WorkspaceOnboardingProgressUpdate,
-  RunDetail,
   ShellSafetyMode,
   WorkspaceSnapshot
 } from '@shared/types';
-import type { TraceCategoryId } from '../traceClassification';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
 import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import type { ResearchGoalSeed } from '../features/sessions/SessionNextSteps';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
-import { TraceDetailModal } from '../features/traces/TraceDetailModal';
-import { TraceFilterModal } from '../features/traces/TraceFilterModal';
-import type { TraceDisplayEvent } from '../view-models/traceDisplay';
 import type { WorkspaceOnboardingFormState, WorkspaceTemplateKind } from '../view-models/workspaceOnboarding';
 
 export function AppModals({
   activeNotification,
-  activeRunDetail,
   busy,
   newResearchOpen,
   newResearchInitialGoal,
@@ -50,19 +44,12 @@ export function AppModals({
   lastProfilingReport,
   workspaceDraft,
   workspaceOnboardingProgress,
-  selectedTraceEvent,
   snapshot,
-  traceDetailOpen,
-  traceFilterOpen,
-  visibleTraceCategories,
   onCancelNewResearch,
   onCancelWorkspaceOnboarding,
   onChangeWorkspaceDraft,
-  onChangeVisibleTraceCategories,
   onCloseNotification,
   onCloseProfiling,
-  onCloseTraceDetail,
-  onCloseTraceFilters,
   onLookupHackerOne,
   onWorkspaceTemplate,
   onFlushProfilingReport,
@@ -75,7 +62,6 @@ export function AppModals({
   runAction
 }: {
   activeNotification: NotificationRecord | null;
-  activeRunDetail: RunDetail | null;
   busy: boolean;
   newResearchOpen: boolean;
   newResearchInitialGoal: ResearchGoalSeed | null;
@@ -95,19 +81,12 @@ export function AppModals({
   lastProfilingReport: ProfilingReport | null;
   workspaceDraft: WorkspaceOnboardingFormState | null;
   workspaceOnboardingProgress: WorkspaceOnboardingProgressUpdate | null;
-  selectedTraceEvent: TraceDisplayEvent | null;
   snapshot: WorkspaceSnapshot | null;
-  traceDetailOpen: boolean;
-  traceFilterOpen: boolean;
-  visibleTraceCategories: TraceCategoryId[];
   onCancelNewResearch: () => void;
   onCancelWorkspaceOnboarding: () => void;
   onChangeWorkspaceDraft: (next: WorkspaceOnboardingFormState) => void;
-  onChangeVisibleTraceCategories: (categories: TraceCategoryId[]) => void;
   onCloseNotification: () => void;
   onCloseProfiling: () => void;
-  onCloseTraceDetail: () => void;
-  onCloseTraceFilters: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
   onWorkspaceTemplate: (templateKind: WorkspaceTemplateKind) => void;
   onFlushProfilingReport: () => void;
@@ -165,26 +144,12 @@ export function AppModals({
           onFlush={onFlushProfilingReport}
         />
       ) : null}
-      {traceFilterOpen ? (
-        <TraceFilterModal
-          visibleCategories={visibleTraceCategories}
-          onChange={onChangeVisibleTraceCategories}
-          onClose={onCloseTraceFilters}
-        />
-      ) : null}
       {activeNotification ? (
         <NotificationDetailModal
           notification={activeNotification}
           busy={busy}
           onClose={onCloseNotification}
           onSteer={(instruction) => onSteerNotification(activeNotification, instruction)}
-        />
-      ) : null}
-      {traceDetailOpen && selectedTraceEvent ? (
-        <TraceDetailModal
-          detail={activeRunDetail}
-          event={selectedTraceEvent}
-          onClose={onCloseTraceDetail}
         />
       ) : null}
     </>

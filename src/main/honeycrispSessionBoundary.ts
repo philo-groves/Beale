@@ -204,7 +204,8 @@ function sessionWithQueuedEvents(
 
 export function createHoneycrispSessionBoundary(
   database: WorkspaceDatabase,
-  ownershipEnabled = usesHoneycrispSessionOwnership()
+  ownershipEnabled = usesHoneycrispSessionOwnership(),
+  tracesEnabled: () => boolean = () => true
 ): WorkspaceDatabase {
   if (!ownershipEnabled) return database;
   const storage: HoneycrispSessionStorage = {
@@ -402,8 +403,10 @@ export function createHoneycrispSessionBoundary(
         toolCallId: input.toolCallId ?? null,
         approvalId: input.approvalId ?? null
       };
-      nextTraceSequence.set(input.runId, record.sequence);
-      sessionWrites.enqueueTrace(input.runId, record);
+      if (tracesEnabled() || traceRequiredForFunctionalityOrHistory(input)) {
+        nextTraceSequence.set(input.runId, record.sequence);
+        sessionWrites.enqueueTrace(input.runId, record);
+      }
       return record;
     }) as WorkspaceDatabase['appendTraceEvent'],
 
@@ -852,6 +855,16 @@ export function markHoneycrispSessionInterrupted(
     }
   }, context.storage);
   return true;
+}
+
+export function traceRequiredForFunctionalityOrHistory(
+  input: Parameters<WorkspaceDatabase['appendTraceEvent']>[0]
+): boolean {
+  if (input.artifactId || input.toolCallId || input.approvalId) return true;
+  if (input.source === 'user' || input.source === 'policy' || input.source === 'verifier') return true;
+  if (input.type !== 'research_event' && input.type !== 'network_event') return true;
+  const payload = input.payload ?? {};
+  return payload.interruptedByRecovery === true || payload.type === 'subagent.activity';
 }
 
 function queueInterruptedHoneycrispBreakoutRooms(

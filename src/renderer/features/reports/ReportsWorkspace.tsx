@@ -141,7 +141,6 @@ export function ReportSessionWorkspace({
   providerModelCatalog,
   initialModelSelection,
   selectedRunId,
-  selectedTraceEventId,
   shellApproval,
   shellApprovalBusy,
   busy,
@@ -161,7 +160,6 @@ export function ReportSessionWorkspace({
   providerModelCatalog: ResearchProviderModelCatalog[];
   initialModelSelection: ResearchModelSelection | null;
   selectedRunId: string | null;
-  selectedTraceEventId: string | null;
   shellApproval: ApprovalRecord | null;
   shellApprovalBusy: boolean;
   busy: boolean;
@@ -189,7 +187,6 @@ export function ReportSessionWorkspace({
           selectedRunId={selectedRunId}
           initialSuggestion={selectedRunId ? undefined : 'Review this report.'}
           showBackToMain={false}
-          selectedTraceEventId={selectedTraceEventId}
           searchHighlightQuery=""
           shellApproval={shellApproval}
           shellApprovalBusy={shellApprovalBusy}

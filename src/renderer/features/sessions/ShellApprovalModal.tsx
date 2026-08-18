@@ -32,12 +32,12 @@ export function ShellApprovalQuestion({
     : 'Auto-Review did not approve this command.';
 
   useLayoutEffect(() => {
-    const traceView = footerRef.current?.parentElement;
-    if (!traceView) return undefined;
-    traceView.style.removeProperty('--trace-footer-height');
-    traceView.style.setProperty('--trace-footer-content-height', 'var(--trace-footer-min-height)');
+    const sessionView = footerRef.current?.parentElement;
+    if (!sessionView) return undefined;
+    sessionView.style.removeProperty('--trace-footer-height');
+    sessionView.style.setProperty('--trace-footer-content-height', 'var(--trace-footer-min-height)');
     return () => {
-      traceView.style.removeProperty('--trace-footer-content-height');
+      sessionView.style.removeProperty('--trace-footer-content-height');
     };
   }, [approval.id]);
 

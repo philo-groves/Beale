@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { TraceEventRow } from '../src/renderer/features/traces/TraceEventRow';
 import {
   codeBrowserTracePreview,
   compactTracePath,
@@ -162,30 +159,6 @@ describe('renderer trace content view models', () => {
     ]);
   });
 
-  it('renders a brain icon for every coalesced reasoning trace', () => {
-    const reasoning = traceEvent({
-      source: 'model',
-      type: 'model_message',
-      summary: 'Reasoning.',
-      payload: {
-        transcriptSource: 'openai_reasoning_summary',
-        reasoningSummaryTexts: ['**Inspecting parser**', '**Checking bounds**', '**Reviewing call sites**']
-      }
-    });
-    const html = renderToStaticMarkup(
-      createElement(TraceEventRow, {
-        detail: null,
-        entering: false,
-        event: reasoning,
-        searchHighlightQuery: '',
-        selected: false,
-        onSelect: () => undefined
-      })
-    );
-
-    expect(html.match(/lucide-brain/g)).toHaveLength(3);
-  });
-
   it('formats key trace detail content without raw JSON noise', () => {
     const search = traceEvent({
       type: 'tool_result',
@@ -323,28 +296,6 @@ describe('renderer trace content view models', () => {
     expect(honeycrispToolTraceSubtext(shellRun)).toBe('make test');
     expect(isEmptyHoneycrispMemorySearchObservation(memorySearch)).toBe(true);
     expect(isEmptyHoneycrispMemorySearchObservation(honeycrispToolObservation('memory.search', { query: 'ZFTP' }, [{ id: memoryId }]))).toBe(false);
-  });
-
-  it('renders Memory Save metadata and summary Markdown in trace rows', () => {
-    const memorySave = honeycrispToolObservation(
-      'memory.save',
-      { type: 'primitive', title: 'Unchecked ZFTP length', status: 'suspected', summary: '**Unchecked length** reaches `malloc`.' },
-      { type: 'primitive', status: 'suspected', summary: '**Unchecked length** reaches `malloc`.' }
-    );
-    const html = renderToStaticMarkup(
-      createElement(TraceEventRow, {
-        detail: null,
-        entering: false,
-        event: memorySave,
-        searchHighlightQuery: '',
-        selected: false,
-        onSelect: () => undefined
-      })
-    );
-
-    expect(html).toContain('Primitive • Suspected');
-    expect(html).toContain('<strong>Unchecked length</strong>');
-    expect(html).toContain('<code class="main-trace-inline-code">malloc</code>');
   });
 
   it('renders collaboration tool targets, prompts, wait state, and bounded agent lists', () => {

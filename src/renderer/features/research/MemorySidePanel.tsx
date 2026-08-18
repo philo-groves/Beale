@@ -32,12 +32,10 @@ import { filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, su
 import type { SubagentSummary } from '../../view-models/subagents';
 import { runbookCatalogGroups, runbookDescriptionText } from '../../view-models/runbooks';
 import { reportCatalogGroups } from '../../view-models/reports';
-import type { ChatView } from '../../view-models/chatView';
 import { EMPTY_SESSION_HEAT_PREFERENCES } from '../../view-models/sessionHeat';
 import type { SessionHeatPreferences } from '../../view-models/sessionHeat';
 import { researchProfileFeatureAvailability } from '../../view-models/researchProfileFeatures';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
-import type { TraceCategoryId } from '../../traceClassification';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { SessionUsageSummary } from '../momentum/SessionUsageStatus';
 import { BreakoutRoomView } from '../sessions/BreakoutRoomView';
@@ -46,7 +44,6 @@ import { MemoryTypeIcon, MemoryTypeLabel, memoryTypeClassName, memoryTypeDefinit
 import { RunbookView } from './RunbookView';
 import { ReportView } from './ReportView';
 import { renderInlineCodeText } from '../traces/traceMarkup';
-import { TraceView } from '../traces/TraceView';
 
 const EMPTY_SUBAGENT_OVERVIEW = { count: 0, activeCount: 0, completedCount: 0 };
 
@@ -206,7 +203,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   runId,
   runStatus,
-  chatView = 'commentary',
   providerModelCatalog,
   selectedRunbook,
   selectedRunbookDocument,
@@ -222,9 +218,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedRunbookId,
   selectedReportId = null,
   selectedMemoryNodeId,
-  selectedTraceEventId,
   searchHighlightQuery,
-  visibleTraceCategories,
   onOpenRunbook,
   onRunbookExecute,
   onOpenReport = () => undefined,
@@ -235,7 +229,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   onBackToMemory,
   onBackToRooms = () => undefined,
   onBackToSubagents,
-  onSelectTraceEvent,
   expanded,
   onExpandedChange,
   viewSpace = 'session'
@@ -247,7 +240,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   sessionHeatPreferences?: SessionHeatPreferences;
   runId: string;
   runStatus: RunStatus | null;
-  chatView?: ChatView;
   providerModelCatalog: ResearchProviderModelCatalog[];
   selectedRunbook: HoneycrispRunbookSummary | null;
   selectedRunbookDocument: HoneycrispRunbookDocument | null;
@@ -263,9 +255,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedRunbookId: string | null;
   selectedReportId?: string | null;
   selectedMemoryNodeId?: string | null;
-  selectedTraceEventId: string | null;
   searchHighlightQuery: string;
-  visibleTraceCategories: TraceCategoryId[];
   onOpenRunbook: (runbookId: string) => void;
   onRunbookExecute?: (runbookId: string, cellId: string | undefined, target: RunbookProofTargetSelection) => Promise<void>;
   onOpenReport?: (reportId: string) => void;
@@ -276,7 +266,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   onBackToMemory?: () => void;
   onBackToRooms?: () => void;
   onBackToSubagents: () => void;
-  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   viewSpace?: ResearchViewSpace;
@@ -408,8 +397,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   );
   const needsFullSubagents = subagentsAvailable && (detailsOpen || selectedSubagentPath !== null);
   const subagents = useMemo(
-    () => needsFullSubagents ? subagentSummaries(summaryEvents, runStatus, chatView) : [],
-    [chatView, needsFullSubagents, runStatus, summaryEvents]
+    () => needsFullSubagents ? subagentSummaries(summaryEvents, runStatus, 'commentary') : [],
+    [needsFullSubagents, runStatus, summaryEvents]
   );
   const subagentOverview = useMemo(
     () => {
@@ -782,44 +771,20 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           </div>
         ) : visibleSelectedSubagentPath ? (
           <div className="research-side-nested-content subagent-chat-content">
-            {chatView === 'commentary' ? (
-              <CommentaryView
-                busy={false}
-                detail={detail}
-                events={selectedSubagentEvents}
-                providerModelCatalog={providerModelCatalog}
-                selectedRunId={runId}
-                showBackToMain
-                showBackButton={false}
-                scrollScopeKey={visibleSelectedSubagentPath}
-                selectedTraceEventId={selectedTraceEventId}
-                searchHighlightQuery={searchHighlightQuery}
-                onBackToMain={onBackToSubagents}
-                onSessionAction={() => undefined}
-                onSteerInstruction={() => undefined}
-              />
-            ) : (
-              <TraceView
-                busy={false}
-                detail={detail}
-                events={selectedSubagentEvents}
-                providerModelCatalog={providerModelCatalog}
-                selectedRunId={runId}
-                traceScopeKey={visibleSelectedSubagentPath}
-                showBackToMain
-                showBackButton={false}
-                selectedTraceEventId={selectedTraceEventId}
-                searchHighlightQuery={searchHighlightQuery}
-                traceFilterCount={visibleTraceCategories.length}
-                totalTraceFilterCount={visibleTraceCategories.length}
-                visibleTraceCategories={visibleTraceCategories}
-                onBackToMain={onBackToSubagents}
-                onOpenTraceFilters={() => undefined}
-                onSelectTraceEvent={onSelectTraceEvent}
-                onSessionAction={() => undefined}
-                onSteerInstruction={() => undefined}
-              />
-            )}
+            <CommentaryView
+              busy={false}
+              detail={detail}
+              events={selectedSubagentEvents}
+              providerModelCatalog={providerModelCatalog}
+              selectedRunId={runId}
+              showBackToMain
+              showBackButton={false}
+              scrollScopeKey={visibleSelectedSubagentPath}
+              searchHighlightQuery={searchHighlightQuery}
+              onBackToMain={onBackToSubagents}
+              onSessionAction={() => undefined}
+              onSteerInstruction={() => undefined}
+            />
           </div>
         ) : visibleSelectedRunbook ? (
           <div className="research-side-nested-content runbook-detail-content">

@@ -103,6 +103,7 @@ import type {
   AttemptRecord,
   ArtifactRecord,
   DeveloperSettings,
+  DebuggingSettings,
   ProviderSettings,
   ProviderModelDefaults,
   ProviderAuthenticationMethod,
@@ -711,6 +712,14 @@ export class WorkspaceService {
     this.profiling.applyPreference(enabled);
     this.emitChange({ syncWorkspaceRegistry: false, workspaceRegistryChanged: false });
     return settings;
+  }
+
+  public getDebuggingSettings(): DebuggingSettings {
+    return this.getWorkspaceRegistry().getDebuggingSettings();
+  }
+
+  public setTracesEnabled(enabled: boolean): DebuggingSettings {
+    return this.getWorkspaceRegistry().setTracesEnabled(enabled);
   }
 
   public getProviderSettings(): ProviderSettings {
@@ -3848,7 +3857,11 @@ export class WorkspaceService {
         honeycrispRecovery.interruptedSessions,
         honeycrispRecovery.interruptedAttempts
       );
-      const sessionDatabase = createHoneycrispSessionBoundary(db, honeycrispOwnership);
+      const sessionDatabase = createHoneycrispSessionBoundary(
+        db,
+        honeycrispOwnership,
+        () => this.getWorkspaceRegistry().getDebuggingSettings().tracesEnabled
+      );
       return {
         workspacePath,
         profileId,

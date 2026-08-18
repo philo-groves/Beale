@@ -5,11 +5,8 @@ import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstanding
 import type { WorkspaceConfigurationInput } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
-import { TraceView } from '../traces/TraceView';
 import { ConnectedDeviceCapture } from '../deviceCapture/ConnectedDeviceCapture';
 import { isEndedResearchRunStatus, SessionNextSteps, type ResearchGoalSeed } from './SessionNextSteps';
-import type { TraceCategoryId } from '../../traceClassification';
-import type { ChatView } from '../../view-models/chatView';
 import { EMPTY_SESSION_HEAT_PREFERENCES } from '../../view-models/sessionHeat';
 import type { SessionHeatPreferences } from '../../view-models/sessionHeat';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
@@ -29,7 +26,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
   events,
   allEvents,
-  chatView,
   providerModelCatalog,
   honeycrispMemory,
   activeScope = null,
@@ -54,20 +50,15 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   reportLoading = false,
   reportError = null,
   selectedSubagentPath,
-  selectedTraceEventId,
   searchHighlightQuery,
   shellApproval = null,
   shellApprovalBusy = false,
-  visibleTraceCategories,
   busy,
   connectedDeviceCaptureEnabled = false,
   workspaceDejunk = null,
   workspaceDejunkInProgress = false,
   memoryDreamingInProgress,
   memoryDreamingProgress = null,
-  traceFilterCount,
-  totalTraceFilterCount,
-  onOpenTraceFilters,
   onRunWorkspaceDejunk = () => undefined,
   onRunMemoryDreaming,
   onAddWorkspaceResource = async () => undefined,
@@ -86,7 +77,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenBreakoutRoom = () => undefined,
   onBackToRooms = () => undefined,
   onBackToSubagents,
-  onSelectTraceEvent,
   onSelectSubagent,
   onSelectNextStep,
   onShellApprovalDecision = () => undefined,
@@ -96,7 +86,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
   allEvents: TraceDisplayEvent[];
-  chatView: ChatView;
   providerModelCatalog: ResearchProviderModelCatalog[];
   honeycrispMemory: HoneycrispMemorySummary | null;
   activeScope?: WorkspaceScopeVersion | null;
@@ -121,20 +110,15 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   reportLoading?: boolean;
   reportError?: string | null;
   selectedSubagentPath: string | null;
-  selectedTraceEventId: string | null;
   searchHighlightQuery: string;
   shellApproval?: ApprovalRecord | null;
   shellApprovalBusy?: boolean;
-  visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
   connectedDeviceCaptureEnabled?: boolean;
   workspaceDejunk?: WorkspaceDejunkSummary | null;
   workspaceDejunkInProgress?: boolean;
   memoryDreamingInProgress: boolean;
   memoryDreamingProgress?: MemoryDreamingProgressUpdate | null;
-  traceFilterCount: number;
-  totalTraceFilterCount: number;
-  onOpenTraceFilters: () => void;
   onRunWorkspaceDejunk?: () => void;
   onRunMemoryDreaming: () => void;
   onAddWorkspaceResource?: (asset: ScopeAssetInput) => Promise<void>;
@@ -153,7 +137,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenBreakoutRoom?: (roomId: string) => void;
   onBackToRooms?: () => void;
   onBackToSubagents: () => void;
-  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
   onSelectNextStep: (goal: ResearchGoalSeed) => void;
   onShellApprovalDecision?: (decision: PolicyReviewDecision) => void;
@@ -349,7 +332,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onOpenMemory={openWorkspaceMemory}
           onOpenRunbook={openWorkspaceRunbook}
         />
-      ) : chatView === 'commentary' ? (
+      ) : (
         <CommentaryView
           busy={busy}
           detail={detail}
@@ -358,36 +341,11 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           providerModelCatalog={providerModelCatalog}
           selectedRunId={selectedRunId}
           showBackToMain={false}
-          selectedTraceEventId={selectedTraceEventId}
           searchHighlightQuery={searchHighlightQuery}
           shellApproval={shellApproval}
           shellApprovalBusy={shellApprovalBusy}
           postSessionContent={postSessionContent}
           onBackToMain={() => undefined}
-          onShellApprovalDecision={onShellApprovalDecision}
-          onSessionAction={onSessionAction}
-          onSteerInstruction={onSteerInstruction}
-        />
-      ) : (
-        <TraceView
-          busy={busy}
-          detail={detail}
-          events={events}
-          providerModelCatalog={providerModelCatalog}
-          selectedRunId={selectedRunId}
-          traceScopeKey="main"
-          showBackToMain={false}
-          selectedTraceEventId={selectedTraceEventId}
-          searchHighlightQuery={searchHighlightQuery}
-          shellApproval={shellApproval}
-          shellApprovalBusy={shellApprovalBusy}
-          postSessionContent={postSessionContent}
-          traceFilterCount={traceFilterCount}
-          totalTraceFilterCount={totalTraceFilterCount}
-          visibleTraceCategories={visibleTraceCategories}
-          onOpenTraceFilters={onOpenTraceFilters}
-          onBackToMain={() => undefined}
-          onSelectTraceEvent={onSelectTraceEvent}
           onShellApprovalDecision={onShellApprovalDecision}
           onSessionAction={onSessionAction}
           onSteerInstruction={onSteerInstruction}
@@ -410,7 +368,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
       ) : null}
       {showResearchSidePanel ? <div className={`research-side-column${connectedDeviceCaptureVisible ? ' has-connected-device-capture' : ''}${connectedDeviceCaptureExpanded ? ' device-capture-expanded' : ''}`}>
         <ResearchSidePanel
-          chatView={chatView}
           detail={detail}
           events={allEvents}
           memory={viewSpace === 'workspace' ? honeycrispMemory : detail?.honeycrispMemory ?? null}
@@ -434,9 +391,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           reportError={reportError}
           selectedBreakoutRoomId={selectedBreakoutRoomId}
           selectedSubagentPath={selectedSubagentPath}
-          selectedTraceEventId={selectedTraceEventId}
           searchHighlightQuery={searchHighlightQuery}
-          visibleTraceCategories={visibleTraceCategories}
           onSelectSubagent={onSelectSubagent}
           onOpenRunbook={selectedRunId ? onOpenHoneycrispRunbook : openWorkspaceRunbook}
           onRunbookExecute={selectedRunId ? onRunHoneycrispRunbook : undefined}
@@ -447,7 +402,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onOpenBreakoutRoom={onOpenBreakoutRoom}
           onBackToRooms={onBackToRooms}
           onBackToSubagents={onBackToSubagents}
-          onSelectTraceEvent={onSelectTraceEvent}
           onExpandedChange={changeResearchDetailsOpen}
           viewSpace={viewSpace}
         />

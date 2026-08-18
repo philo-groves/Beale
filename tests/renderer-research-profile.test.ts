@@ -194,14 +194,11 @@ describe('renderer research profile presentation', () => {
       runbookError: null,
       selectedSubagentPath: null,
       selectedRunbookId: null,
-      selectedTraceEventId: null,
       searchHighlightQuery: '',
-      visibleTraceCategories: [],
       onOpenRunbook: () => undefined,
       onSelectSubagent: () => undefined,
       onBackToRunbooks: () => undefined,
       onBackToSubagents: () => undefined,
-      onSelectTraceEvent: () => undefined
     }));
     expect(html).toContain('aria-label="Session summary"');
     expect(html).toContain('>Session</h2>');

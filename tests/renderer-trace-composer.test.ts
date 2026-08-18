@@ -6,46 +6,15 @@ import {
   MainSteerArea,
   SHELL_SAFETY_MODE_OPTIONS,
   STEER_TEXTAREA_DEFAULT_EXTRA_LINES,
-  STEER_TEXTAREA_MAX_LINES,
-  TraceView
-} from '../src/renderer/features/traces/TraceView';
+  STEER_TEXTAREA_MAX_LINES
+} from '../src/renderer/features/sessions/SessionComposer';
 import {
   shortSteeringSuggestion,
   steeringInputSuggestion,
   steeringInputTabAction
 } from '../src/renderer/view-models/steeringSuggestions';
 
-describe('renderer trace composer', () => {
-  it('renders the trace session loading state with a spinner and no composer', () => {
-    const html = renderToStaticMarkup(createElement(TraceView, {
-      busy: true,
-      detail: null,
-      events: [],
-      providerModelCatalog: providerModelCatalog(),
-      selectedRunId: 'run_loading',
-      traceScopeKey: 'main',
-      showBackToMain: false,
-      selectedTraceEventId: null,
-      searchHighlightQuery: '',
-      traceFilterCount: 0,
-      totalTraceFilterCount: 0,
-      visibleTraceCategories: [],
-      onBackToMain: () => undefined,
-      onOpenTraceFilters: () => undefined,
-      onSelectTraceEvent: () => undefined,
-      onSessionAction: () => undefined,
-      onSteerInstruction: () => undefined
-    }));
-
-    expect(html).toContain('main-trace-view is-loading');
-    expect(html).toContain('class="centered-loading-state main-session-loading"');
-    expect(html).toContain('class="centered-loading-state-spinner"');
-    expect(html).not.toContain('lucide-loader-circle');
-    expect(html).toContain('Loading session');
-    expect(html).not.toContain('Loading session.');
-    expect(html).not.toContain('class="main-trace-footer"');
-  });
-
+describe('renderer session composer', () => {
   it('allows the steering input to grow through seven typed lines', () => {
     expect(STEER_TEXTAREA_MAX_LINES).toBe(7);
   });
@@ -119,10 +88,6 @@ describe('renderer trace composer', () => {
       providerModelCatalog: providerModelCatalog(),
       busy: false,
       initialSuggestion: 'Review this report.',
-      traceFilterCount: 0,
-      totalTraceFilterCount: 0,
-      showTraceFilters: false,
-      onOpenTraceFilters: () => undefined,
       onInitialInstruction: () => undefined,
       onSessionAction: () => undefined,
       onSteerInstruction: () => undefined
@@ -247,15 +212,13 @@ describe('renderer trace composer', () => {
     expect(html).not.toContain('aria-label="Reasoning effort for the next agent turn"');
   });
 
-  it('places the persisted shell safety picker immediately after Filters', () => {
+  it('places the persisted shell safety picker before model settings', () => {
     const html = renderTraceComposer('stopped');
-    const filtersIndex = html.indexOf('aria-label="Trace filters');
     const safetyIndex = html.indexOf('aria-label="Shell safety mode"');
     const modelIndex = html.indexOf('aria-label="Model settings for the next agent turn"');
 
     expect(html).toContain('Auto-Review');
-    expect(filtersIndex).toBeGreaterThanOrEqual(0);
-    expect(safetyIndex).toBeGreaterThan(filtersIndex);
+    expect(safetyIndex).toBeGreaterThanOrEqual(0);
     expect(modelIndex).toBeGreaterThan(safetyIndex);
     expect(SHELL_SAFETY_MODE_OPTIONS).toEqual([
       { value: 'manual_approval', label: 'Manual Approval' },
@@ -265,23 +228,12 @@ describe('renderer trace composer', () => {
   });
 
   it('replaces the steering composer with an inline Auto-Review override question', () => {
-    const html = renderToStaticMarkup(createElement(TraceView, {
+    const html = renderToStaticMarkup(createElement(MainSteerArea, {
       busy: false,
       detail: composerDetail('active'),
-      events: [],
       providerModelCatalog: providerModelCatalog(),
-      selectedRunId: 'run_composer',
-      traceScopeKey: 'main',
-      showBackToMain: false,
-      selectedTraceEventId: null,
-      searchHighlightQuery: '',
+      runId: 'run_composer',
       shellApproval: autoReviewOverrideApproval(),
-      traceFilterCount: 0,
-      totalTraceFilterCount: 0,
-      visibleTraceCategories: [],
-      onBackToMain: () => undefined,
-      onOpenTraceFilters: () => undefined,
-      onSelectTraceEvent: () => undefined,
       onShellApprovalDecision: () => undefined,
       onSessionAction: () => undefined,
       onSteerInstruction: () => undefined
@@ -293,16 +245,12 @@ describe('renderer trace composer', () => {
     expect(html).not.toContain('aria-label="Stop session"');
   });
 
-  it('keeps trace filters out of the Commentary composer', () => {
+  it('does not render trace filters', () => {
     const html = renderToStaticMarkup(createElement(MainSteerArea, {
       busy: false,
       detail: composerDetail('stopped'),
       providerModelCatalog: providerModelCatalog(),
       runId: 'run_composer',
-      showTraceFilters: false,
-      traceFilterCount: 0,
-      totalTraceFilterCount: 0,
-      onOpenTraceFilters: () => undefined,
       onSessionAction: () => undefined,
       onSteerInstruction: () => undefined
     }));
@@ -313,22 +261,11 @@ describe('renderer trace composer', () => {
 });
 
 function renderTraceComposer(status: RunStatus, detailPatch: Partial<RunDetail> = {}): string {
-  return renderToStaticMarkup(createElement(TraceView, {
+  return renderToStaticMarkup(createElement(MainSteerArea, {
     busy: false,
     detail: composerDetail(status, detailPatch),
-    events: [],
     providerModelCatalog: providerModelCatalog(),
-    selectedRunId: 'run_composer',
-    traceScopeKey: 'main',
-    showBackToMain: false,
-    selectedTraceEventId: null,
-    searchHighlightQuery: '',
-    traceFilterCount: 0,
-    totalTraceFilterCount: 0,
-    visibleTraceCategories: [],
-    onBackToMain: () => undefined,
-    onOpenTraceFilters: () => undefined,
-    onSelectTraceEvent: () => undefined,
+    runId: 'run_composer',
     onSessionAction: () => undefined,
     onSteerInstruction: () => undefined
   }));

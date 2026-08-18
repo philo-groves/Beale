@@ -1,8 +1,8 @@
 import type { RunDetail, TraceEventRecord, WorkspaceScopeVersion } from '@shared/types';
 import {
-  chatMessageCorrelationKey,
+  commentaryMessageCorrelationKey,
   nativeCommentaryCorrelationKeys
-} from './chatView';
+} from './commentaryCorrelation';
 import {
   honeycrispToolEventKind,
   honeycrispToolName,
@@ -204,7 +204,7 @@ function commentaryMessageKind(
   if (payloadString(event, 'finalResultKind') === 'error' || legacyHoneycrispFinalErrorText(event)) return 'error';
   if (source === 'honeycrisp_commentary') return 'commentary';
   if (source === 'openai_reasoning_summary') {
-    const key = chatMessageCorrelationKey(event);
+    const key = commentaryMessageCorrelationKey(event);
     if (key && nativeCommentaryKeys.has(key)) return null;
     return payloadString(event, 'provider') === 'xai' ? 'commentary' : 'progress';
   }

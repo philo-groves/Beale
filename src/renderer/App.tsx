@@ -59,7 +59,6 @@ import {
 } from './features/sessions/ShellApprovalModal';
 import { subagentSummaries, traceEventsForSubagent } from './view-models/subagents';
 import { SettingsSidebar, SettingsView, settingsSectionLabel, type SettingsSection } from './features/settings/SettingsModal';
-import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useWorkspaceActions, type WorkspaceActionOptions } from './hooks/useWorkspaceActions';
 import { useWorkspaceOverlayState } from './hooks/useWorkspaceOverlayState';
@@ -68,13 +67,10 @@ import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
 import { useResearchGoalSuggestions } from './hooks/useResearchGoalSuggestions';
 import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
-import { useTraceSelection } from './hooks/useTraceSelection';
-import { useChatViewPreference } from './hooks/useChatViewPreference';
 import { usePermissionSettings } from './hooks/usePermissionSettings';
 import { useSessionHeatPreferences } from './hooks/useSessionHeatPreferences';
 import { filterEnabledProviderModelCatalogs } from '../shared/optionalProviderModels';
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
-import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
 import {
   activeRunDetailForSelection,
@@ -131,10 +127,31 @@ export function App(): JSX.Element {
     };
   }, [handleError, startupPhase]);
 
+  useEffect(() => {
+    if (startupPhase !== 'ready') return;
+    let cancelled = false;
+    window.beale.getDebuggingSettings()
+      .then((settings) => {
+        if (!cancelled) setTracesEnabled(settings.tracesEnabled);
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) handleError(errorMessage(caught));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [handleError, startupPhase]);
+
   const openWorkspaceInEditor = useCallback((editorId: WorkspaceEditorId): void => {
     setError(null);
     void window.beale.openWorkspaceInEditor(editorId).catch((caught: unknown) => setError(errorMessage(caught)));
   }, []);
+  const changeTracesEnabled = useCallback((enabled: boolean): void => {
+    setTracesEnabled(enabled);
+    void window.beale.setTracesEnabled(enabled)
+      .then((settings) => setTracesEnabled(settings.tracesEnabled))
+      .catch((caught: unknown) => handleError(errorMessage(caught)));
+  }, [handleError]);
   const pendingViewedSessionIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!selectedRunId || !workspaceRegistry) return;
@@ -167,7 +184,7 @@ export function App(): JSX.Element {
     () => reportSessionDefaultModelSelection(providerSettings, enabledResearchProviderModelCatalog),
     [enabledResearchProviderModelCatalog, providerSettings]
   );
-  const [chatView, setChatView] = useChatViewPreference();
+  const [tracesEnabled, setTracesEnabled] = useState(false);
   const [permissionSettings, setDangerModeEnabled, setDefaultShellSafetyMode] = usePermissionSettings();
   const [sessionHeatPreferences, setSessionHeatPreference, setSessionHeatPalettePreference] = useSessionHeatPreferences();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
@@ -198,10 +215,8 @@ export function App(): JSX.Element {
   const [agentPluginsError, setAgentPluginsError] = useState<string | null>(null);
   const [pluginRepositoryUrl, setPluginRepositoryUrl] = useState('');
   const [profilingOpen, setProfilingOpen] = useState(false);
-  const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
   const [workspaceAlerts, setWorkspaceAlerts] = useState<WorkspaceAlert[]>([]);
-  const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [selectedSubagentPath, setSelectedSubagentPath] = useState<string | null>(null);
   const [selectedBreakoutRoomId, setSelectedBreakoutRoomId] = useState<string | null>(null);
   const [selectedRunbookId, setSelectedRunbookId] = useState<string | null>(null);
@@ -236,9 +251,7 @@ export function App(): JSX.Element {
     observeReports: profilingOpen || settingsOpen
   });
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
-  const runDetailProjection = chatView === 'commentary'
-    ? 'commentary' as const
-    : 'full' as const;
+  const runDetailProjection = 'commentary' as const;
   const selectedRunRefreshKey = useMemo(() => {
     const selected = snapshot?.runs.find((row) => row.run.id === selectedRunId)?.run;
     if (!selected) return null;
@@ -1324,24 +1337,14 @@ export function App(): JSX.Element {
   const needsSubagentSummaries = Boolean(selectedSubagentPath);
   const activeSubagents = useMemo(
     () => needsSubagentSummaries
-      ? subagentSummaries(activeTraceEvents, activeRunDetail?.run.status, chatView)
+      ? subagentSummaries(activeTraceEvents, activeRunDetail?.run.status, 'commentary')
       : [],
-    [activeRunDetail?.run.status, activeTraceEvents, chatView, needsSubagentSummaries]
+    [activeRunDetail?.run.status, activeTraceEvents, needsSubagentSummaries]
   );
   useEffect(() => {
     if (!selectedSubagentPath || activeSubagents.some((agent) => agent.path === selectedSubagentPath)) return;
     setSelectedSubagentPath(null);
   }, [activeSubagents, selectedSubagentPath]);
-  const {
-    selectedTraceEventId,
-    traceDetailOpen,
-    selectedTraceEvent,
-    selectTraceEvent,
-    closeTraceDetail
-  } = useTraceSelection({
-    events: needsFullTraceEvents ? activeTraceEvents : mainSessionTraceEvents,
-    selectedRunId
-  });
   const sessionHeat = useMemo(
     () => sessionHeatForDetail(activeRunDetail, sessionHeatPreferences),
     [activeRunDetail, sessionHeatPreferences]
@@ -1396,7 +1399,6 @@ export function App(): JSX.Element {
     setProfilingOpen(true);
   }, [flushProfilingReport]);
   const closeProfiling = useCallback(() => setProfilingOpen(false), []);
-  const openTraceFilters = useCallback(() => setTraceFilterOpen(true), []);
   const startNewResearch = useCallback(() => {
     if (reportsOpen) {
       clearRunDetail();
@@ -1544,7 +1546,7 @@ export function App(): JSX.Element {
             researchProfiles={researchProfiles}
             researchProfilesLoading={researchProfilesLoading}
             researchProfile={snapshot?.researchProfile ?? null}
-            chatView={chatView}
+            tracesEnabled={tracesEnabled}
             dangerModeEnabled={permissionSettings.dangerModeEnabled}
             defaultShellSafetyMode={permissionSettings.defaultShellSafetyMode}
             openAiOAuthResult={openAiOAuthResult}
@@ -1561,7 +1563,7 @@ export function App(): JSX.Element {
             agentPluginsError={agentPluginsError}
             sessionHeatPreferences={sessionHeatPreferences}
             busy={busy}
-            onChangeChatView={setChatView}
+            onChangeTracesEnabled={changeTracesEnabled}
             onChangeDangerModeEnabled={setDangerModeEnabled}
             onChangeDefaultShellSafetyMode={setDefaultShellSafetyMode}
             onRefreshOpenAi={refreshOpenAiProvider}
@@ -1632,7 +1634,6 @@ export function App(): JSX.Element {
                   providerModelCatalog={enabledResearchProviderModelCatalog}
                   initialModelSelection={reportSessionInitialModelSelection}
                   selectedRunId={reportSessionRunId}
-                  selectedTraceEventId={selectedTraceEventId}
                   shellApproval={autoReviewOverrideApproval}
                   shellApprovalBusy={Boolean(autoReviewOverrideApproval && (busy || shellApprovalDecisionInFlight === autoReviewOverrideApproval.id))}
                   busy={busy}
@@ -1676,7 +1677,6 @@ export function App(): JSX.Element {
                 />
               )
             ) : snapshot ? <MainSessionWorkspace
-              chatView={chatView}
               detail={activeRunDetail}
               events={mainSessionTraceEvents}
               allEvents={activeTraceEvents}
@@ -1704,20 +1704,15 @@ export function App(): JSX.Element {
               reportLoading={reportLoading}
               reportError={reportError}
               selectedSubagentPath={selectedSubagentPath}
-              selectedTraceEventId={selectedTraceEventId}
               searchHighlightQuery=""
               shellApproval={autoReviewOverrideApproval}
               shellApprovalBusy={Boolean(autoReviewOverrideApproval && (busy || shellApprovalDecisionInFlight === autoReviewOverrideApproval.id))}
-              visibleTraceCategories={visibleTraceCategories}
               busy={busy}
               connectedDeviceCaptureEnabled={windowControlPlatform === 'darwin'}
               workspaceDejunk={selectedRunId ? null : snapshot?.workspace.dejunk ?? null}
               workspaceDejunkInProgress={workspaceDejunkInProgress}
               memoryDreamingInProgress={memoryDreamingInProgress}
               memoryDreamingProgress={memoryDreamingProgress}
-              traceFilterCount={visibleTraceCategories.length}
-              totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
-              onOpenTraceFilters={openTraceFilters}
               onRunWorkspaceDejunk={runWorkspaceDejunk}
               onRunMemoryDreaming={runMemoryDreaming}
               onAddWorkspaceResource={addWorkspaceResource}
@@ -1736,7 +1731,6 @@ export function App(): JSX.Element {
               onOpenBreakoutRoom={openBreakoutRoom}
               onBackToRooms={backToRooms}
               onBackToSubagents={backToSubagents}
-              onSelectTraceEvent={selectTraceEvent}
               onSelectSubagent={selectSubagent}
               onSelectNextStep={startNewResearchFromSuggestion}
               onShellApprovalDecision={(decision) => {
@@ -1764,7 +1758,6 @@ export function App(): JSX.Element {
       />
       <AppModals
         activeNotification={activeNotification}
-        activeRunDetail={activeRunDetail}
         busy={busy}
         newResearchOpen={newResearchOpen}
         newResearchInitialGoal={newResearchInitialGoal}
@@ -1784,22 +1777,15 @@ export function App(): JSX.Element {
         lastProfilingReport={lastProfilingReport}
         workspaceDraft={workspaceDraft}
         workspaceOnboardingProgress={workspaceOnboardingProgress}
-        selectedTraceEvent={selectedTraceEvent}
         snapshot={snapshot}
-        traceDetailOpen={traceDetailOpen}
-        traceFilterOpen={traceFilterOpen}
-        visibleTraceCategories={visibleTraceCategories}
         onCancelNewResearch={() => {
           setNewResearchInitialGoal(null);
           setNewResearchOpen(false);
         }}
         onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
         onChangeWorkspaceDraft={setWorkspaceDraft}
-        onChangeVisibleTraceCategories={setVisibleTraceCategories}
         onCloseNotification={() => setActiveNotification(null)}
         onCloseProfiling={closeProfiling}
-        onCloseTraceDetail={closeTraceDetail}
-        onCloseTraceFilters={() => setTraceFilterOpen(false)}
         onLookupHackerOne={lookupHackerOneScope}
         onWorkspaceTemplate={applyOnboardingTemplate}
         onFlushProfilingReport={flushProfilingReport}

@@ -5,6 +5,8 @@ export const IPC_CHANNELS = {
   markResearchSessionViewed: 'beale:mark-research-session-viewed',
   getDeveloperSettings: 'beale:get-developer-settings',
   setDeveloperModeEnabled: 'beale:set-developer-mode-enabled',
+  getDebuggingSettings: 'beale:get-debugging-settings',
+  setTracesEnabled: 'beale:set-traces-enabled',
   getProviderSettings: 'beale:get-provider-settings',
   setDefaultProviderId: 'beale:set-default-provider-id',
   setProviderModelDefaults: 'beale:set-provider-model-defaults',
