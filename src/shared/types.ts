@@ -483,6 +483,16 @@ export interface HoneycrispRunbookOutput {
   mimeType: string | null;
 }
 
+export interface HoneycrispRunbookExecutionSummary {
+  runId: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+  exitCode: number | null;
+  error: string | null;
+}
+
 export interface HoneycrispRunbookCell {
   id: string;
   type: 'markdown' | 'code' | 'raw';
@@ -490,6 +500,7 @@ export interface HoneycrispRunbookCell {
   language: string | null;
   executionCount: number | null;
   outputs: HoneycrispRunbookOutput[];
+  latestRun: HoneycrispRunbookExecutionSummary | null;
 }
 
 export interface HoneycrispRunbookDocument {
@@ -497,6 +508,8 @@ export interface HoneycrispRunbookDocument {
   nbformat: 4;
   nbformatMinor: number;
   language: string | null;
+  revision: number | null;
+  latestRun: HoneycrispRunbookExecutionSummary | null;
   cells: HoneycrispRunbookCell[];
 }
 
@@ -1655,6 +1668,7 @@ export type SteeringAction =
   | { type: 'stop'; runId: string; note?: string }
   | { type: 'steer'; runId: string; instruction: string; modelSelection?: ResearchModelSelection }
   | { type: 'set_shell_safety_mode'; runId: string; shellSafetyMode: ShellSafetyMode }
+  | { type: 'run_runbook'; runId: string; runbookId: string; cellId?: string }
   | {
       type: 'review_shell_command';
       workspacePath: string;

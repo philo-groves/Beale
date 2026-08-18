@@ -224,6 +224,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   searchHighlightQuery,
   visibleTraceCategories,
   onOpenRunbook,
+  onRunbookExecute,
   onOpenReport = () => undefined,
   onOpenBreakoutRoom = () => undefined,
   onSelectSubagent,
@@ -263,6 +264,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   searchHighlightQuery: string;
   visibleTraceCategories: TraceCategoryId[];
   onOpenRunbook: (runbookId: string) => void;
+  onRunbookExecute?: (runbookId: string, cellId?: string) => Promise<void>;
   onOpenReport?: (reportId: string) => void;
   onOpenBreakoutRoom?: (roomId: string) => void;
   onSelectSubagent: (path: string) => void;
@@ -821,11 +823,13 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             <RunbookView
               document={selectedRunbookDocument}
               error={runbookError}
+              executionAvailable={viewSpace === 'session' && runStatus === 'active' && visibleSelectedRunbook.status !== 'archived' && visibleSelectedRunbook.sessionId === runId}
               followLatest
               loading={runbookLoading}
               runbook={visibleSelectedRunbook}
               showBackButton={false}
               onBackToMain={onBackToRunbooks}
+              onRun={onRunbookExecute ? (cellId) => onRunbookExecute(visibleSelectedRunbook.id, cellId) : undefined}
             />
           </div>
         ) : visibleSelectedRunbookId ? (

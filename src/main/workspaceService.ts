@@ -3325,6 +3325,37 @@ export class WorkspaceService {
         }
         break;
       }
+      case 'run_runbook': {
+        const runbookId = action.runbookId.trim();
+        const cellId = action.cellId?.trim();
+        if (!runbookId) throw new Error('Runbook execution requires a runbook ID.');
+        if (runbookId.length > 200) throw new Error('Runbook execution ID exceeds 200 characters.');
+        if (action.cellId !== undefined && !cellId) throw new Error('Runbook cell execution requires a cell ID.');
+        if (cellId && cellId.length > 200) throw new Error('Runbook cell ID exceeds 200 characters.');
+        if (runEngine !== 'honeycrisp') throw new Error('Runbook execution requires a Honeycrisp session.');
+        if (run.status !== 'active') throw new Error('Runbooks can execute only while their Honeycrisp session is active.');
+        const runbook = this.memorySummaryForRuntime(foregroundRuntime).runbooks.find((candidate) => candidate.id === runbookId);
+        if (!runbook || runbook.sessionId !== action.runId) {
+          throw new Error('Runbook execution must use the live Honeycrisp session that owns the runbook.');
+        }
+        const dispatch = this.honeycrispEngine?.executeRunbook(action.runId, runbookId, cellId) ?? null;
+        if (!dispatch) throw new Error(`Active Honeycrisp process not found for run ${action.runId}.`);
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'user_note',
+          source: 'user',
+          summary: cellId ? 'Runbook cell execution requested.' : 'Runbook execution requested.',
+          payload: {
+            runbookId,
+            cellId: cellId ?? null,
+            controlRequestId: dispatch.requestId,
+            deliveryStatus: dispatch.deliveryStatus
+          },
+          modelVisible: false
+        });
+        break;
+      }
       case 'fork': {
         db.appendTraceEvent({
           runId: action.runId,

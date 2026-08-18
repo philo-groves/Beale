@@ -74,6 +74,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onWorkspaceViewChange,
   onResearchDetailsOpenChange,
   onOpenHoneycrispRunbook,
+  onRunHoneycrispRunbook = async () => undefined,
   onBackToRunbooks,
   onOpenHoneycrispReport = () => undefined,
   onBackToReports = () => undefined,
@@ -140,6 +141,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onWorkspaceViewChange?: (viewName: string) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
+  onRunHoneycrispRunbook?: (runbookId: string, cellId?: string) => Promise<void>;
   onBackToRunbooks: () => void;
   onOpenHoneycrispReport?: (reportId: string) => void;
   onBackToReports?: () => void;
@@ -366,6 +368,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           visibleTraceCategories={visibleTraceCategories}
           onSelectSubagent={onSelectSubagent}
           onOpenRunbook={selectedRunId ? onOpenHoneycrispRunbook : openWorkspaceRunbook}
+          onRunbookExecute={selectedRunId ? onRunHoneycrispRunbook : undefined}
           onBackToRunbooks={selectedRunId ? onBackToRunbooks : closeWorkspaceRunbook}
           onBackToMemory={!selectedRunId ? closeWorkspaceMemory : undefined}
           onOpenReport={onOpenHoneycrispReport}

@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Runbook detail now provides whole-run and per-cell execution controls for the owning live Honeycrisp session, persists each cell's latest status, duration, exit code, and bounded output, and surfaces healthy-runbook guidance. Auto-Review classifies proofing and denies proof commands outside a trusted runbook cell; `runbook.run` is the canonical model-facing proof execution path.
 - Workspace repository resources now show whether a managed checkout exists and offer an in-place Clone action when it does not. Clone requests stay scope-bound, deduplicate concurrent acquisition, and use Honeycrisp's large-repository-safe asynchronous materialization path.
 - Report summaries now carry typed submission-packet metadata from the Honeycrisp report catalog.
 - Workspace model context now deduplicates scope assets already represented by the bounded Rules and Constraints text or by known local repository roots, while retaining asset-specific instructions, direction-mismatched assets, exclusions, credentials, and entries beyond the visible rules budget.

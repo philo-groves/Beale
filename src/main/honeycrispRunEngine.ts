@@ -124,7 +124,7 @@ interface ActiveHoneycrispRun {
 
 interface PendingHoneycrispControl {
   requestId: string;
-  type: 'pause' | 'resume' | 'stop' | 'configure' | 'steer' | 'configure_shell_safety' | 'resolve_shell_approval' | 'resolve_tool_approval';
+  type: 'pause' | 'resume' | 'stop' | 'configure' | 'steer' | 'configure_shell_safety' | 'resolve_shell_approval' | 'resolve_tool_approval' | 'runbook_execute';
   sentAt: string;
   instruction?: string;
   modelSelection?: ResearchModelSelection;
@@ -820,6 +820,18 @@ export class HoneycrispRunEngine {
       return { requestId: pending.requestId, deliveryStatus: 'pending' };
     }
     return this.sendControl(active, { schemaVersion: 1, type: 'configure_shell_safety', shellSafetyMode });
+  }
+
+  public executeRunbook(runId: string, runbookId: string, cellId?: string): HoneycrispControlDispatch | null {
+    const active = this.activeRuns.get(runId);
+    if (!active) return null;
+    if (active.paused) throw new Error('Resume the Honeycrisp process before running a runbook.');
+    return this.sendControl(active, {
+      schemaVersion: 1,
+      type: 'runbook_execute',
+      runbookId,
+      ...(cellId ? { cellId } : {})
+    });
   }
 
   public resolveShellApproval(
