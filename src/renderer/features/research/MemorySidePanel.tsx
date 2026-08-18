@@ -11,6 +11,7 @@ import type {
   HoneycrispReportSummary,
   HoneycrispRunbookDocument,
   HoneycrispRunbookSummary,
+  RunbookProofTargetSelection,
   ResearchProfile,
   ResearchProfileMemoryStatus,
   ResearchProfileMemoryType,
@@ -211,6 +212,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedRunbookDocument,
   runbookLoading,
   runbookError,
+  connectedDeviceOs = null,
   selectedReport = null,
   selectedReportDocument = null,
   reportLoading = false,
@@ -224,6 +226,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   searchHighlightQuery,
   visibleTraceCategories,
   onOpenRunbook,
+  onRunbookExecute,
   onOpenReport = () => undefined,
   onOpenBreakoutRoom = () => undefined,
   onSelectSubagent,
@@ -250,6 +253,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedRunbookDocument: HoneycrispRunbookDocument | null;
   runbookLoading: boolean;
   runbookError: string | null;
+  connectedDeviceOs?: string | null;
   selectedReport?: HoneycrispReportSummary | null;
   selectedReportDocument?: HoneycrispReportDocument | null;
   reportLoading?: boolean;
@@ -263,6 +267,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   searchHighlightQuery: string;
   visibleTraceCategories: TraceCategoryId[];
   onOpenRunbook: (runbookId: string) => void;
+  onRunbookExecute?: (runbookId: string, cellId: string | undefined, target: RunbookProofTargetSelection) => Promise<void>;
   onOpenReport?: (reportId: string) => void;
   onOpenBreakoutRoom?: (roomId: string) => void;
   onSelectSubagent: (path: string) => void;
@@ -819,13 +824,16 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
         ) : visibleSelectedRunbook ? (
           <div className="research-side-nested-content runbook-detail-content">
             <RunbookView
+              connectedDeviceOs={connectedDeviceOs}
               document={selectedRunbookDocument}
               error={runbookError}
+              executionAvailable={viewSpace === 'session' && runStatus === 'active' && visibleSelectedRunbook.status !== 'archived' && visibleSelectedRunbook.sessionId === runId}
               followLatest
               loading={runbookLoading}
               runbook={visibleSelectedRunbook}
               showBackButton={false}
               onBackToMain={onBackToRunbooks}
+              onRun={onRunbookExecute ? (cellId, target) => onRunbookExecute(visibleSelectedRunbook.id, cellId, target) : undefined}
             />
           </div>
         ) : visibleSelectedRunbookId ? (

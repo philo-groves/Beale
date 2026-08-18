@@ -738,12 +738,15 @@ describe('renderer memory catalog', () => {
       nbformat: 4,
       nbformatMinor: 5,
       language: 'typescript',
+      revision: 1,
+      latestRun: null,
       cells: [{
         id: 'cell_one',
         type: 'markdown',
         source: 'Latest runbook step.',
         language: null,
         executionCount: null,
+        latestRun: null,
         outputs: []
       }]
     };

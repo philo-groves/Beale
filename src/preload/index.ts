@@ -13,6 +13,8 @@ import type {
   GeneratedResearchGoalSuggestions,
   GeneratedResearchPrompt,
   HostEnvironment,
+  IosDeviceCaptureFrame,
+  IosDeviceCaptureState,
   HackerOneScopeLookupResult,
   GitHubRepositorySummary,
   HoneycrispMemoryDirectorySummary,
@@ -192,6 +194,25 @@ const api: BealeApi = {
   },
   getHostEnvironment(): Promise<HostEnvironment> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHostEnvironment);
+  },
+  getIosDeviceCaptureState(): Promise<IosDeviceCaptureState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getIosDeviceCaptureState);
+  },
+  startIosDeviceCapture(): Promise<IosDeviceCaptureState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.startIosDeviceCapture);
+  },
+  stopIosDeviceCapture(): Promise<IosDeviceCaptureState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.stopIosDeviceCapture);
+  },
+  onIosDeviceCaptureUpdate(listener: (state: IosDeviceCaptureState) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: IosDeviceCaptureState): void => listener(state);
+    ipcRenderer.on(IPC_CHANNELS.iosDeviceCaptureUpdated, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.iosDeviceCaptureUpdated, wrapped);
+  },
+  onIosDeviceCaptureFrame(listener: (frame: IosDeviceCaptureFrame) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, frame: IosDeviceCaptureFrame): void => listener(frame);
+    ipcRenderer.on(IPC_CHANNELS.iosDeviceCaptureFrame, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.iosDeviceCaptureFrame, wrapped);
   },
   getOpenAiStatus() {
     return ipcRenderer.invoke(IPC_CHANNELS.getOpenAiStatus);

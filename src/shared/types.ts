@@ -483,6 +483,25 @@ export interface HoneycrispRunbookOutput {
   mimeType: string | null;
 }
 
+export interface HoneycrispRunbookExecutionSummary {
+  runId: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'skipped';
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+  exitCode: number | null;
+  error: string | null;
+  proofTarget: RunbookProofTarget;
+  deviceOs: string | null;
+}
+
+export type RunbookProofTarget = 'localhost' | 'device' | 'vm' | 'web' | 'other';
+
+export interface RunbookProofTargetSelection {
+  proofTarget: RunbookProofTarget;
+  deviceOs?: string;
+}
+
 export interface HoneycrispRunbookCell {
   id: string;
   type: 'markdown' | 'code' | 'raw';
@@ -490,6 +509,7 @@ export interface HoneycrispRunbookCell {
   language: string | null;
   executionCount: number | null;
   outputs: HoneycrispRunbookOutput[];
+  latestRun: HoneycrispRunbookExecutionSummary | null;
 }
 
 export interface HoneycrispRunbookDocument {
@@ -497,6 +517,8 @@ export interface HoneycrispRunbookDocument {
   nbformat: 4;
   nbformatMinor: number;
   language: string | null;
+  revision: number | null;
+  latestRun: HoneycrispRunbookExecutionSummary | null;
   cells: HoneycrispRunbookCell[];
 }
 
@@ -1655,6 +1677,7 @@ export type SteeringAction =
   | { type: 'stop'; runId: string; note?: string }
   | { type: 'steer'; runId: string; instruction: string; modelSelection?: ResearchModelSelection }
   | { type: 'set_shell_safety_mode'; runId: string; shellSafetyMode: ShellSafetyMode }
+  | { type: 'run_runbook'; runId: string; runbookId: string; cellId?: string; proofTarget: RunbookProofTarget; deviceOs?: string }
   | {
       type: 'review_shell_command';
       workspacePath: string;
@@ -1672,6 +1695,35 @@ export type SteeringAction =
   | { type: 'generate_report_draft'; runId: string; memoryNodeId?: string; note?: string }
   | { type: 'review_export'; runId: string; exportId: string; decision: ExportReviewDecision; note?: string }
   | { type: 'review_policy_request'; runId: string; requestKind: PolicyReviewRequestKind; decision: PolicyReviewDecision; requestedAction: Record<string, unknown>; note?: string };
+
+export interface IosDeviceCaptureDevice {
+  id: string;
+  udid: string;
+  name: string;
+  model: string;
+  osVersion: string;
+}
+
+export type IosDeviceCapturePhase =
+  | 'idle'
+  | 'ready'
+  | 'starting'
+  | 'waiting_for_consent'
+  | 'streaming'
+  | 'error';
+
+export interface IosDeviceCaptureState {
+  supported: boolean;
+  phase: IosDeviceCapturePhase;
+  device: IosDeviceCaptureDevice | null;
+  detail: string;
+}
+
+export interface IosDeviceCaptureFrame {
+  sequence: number;
+  capturedAt: string;
+  jpegData: Uint8Array;
+}
 
 export interface BealeApi {
   selectWorkspace(mode: WorkspacePickerMode): Promise<WorkspacePickerResult>;
@@ -1710,6 +1762,11 @@ export interface BealeApi {
   restoreLastWorkspace(): Promise<WorkspaceSnapshot | null>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
   getHostEnvironment(): Promise<HostEnvironment>;
+  getIosDeviceCaptureState(): Promise<IosDeviceCaptureState>;
+  startIosDeviceCapture(): Promise<IosDeviceCaptureState>;
+  stopIosDeviceCapture(): Promise<IosDeviceCaptureState>;
+  onIosDeviceCaptureUpdate(listener: (state: IosDeviceCaptureState) => void): () => void;
+  onIosDeviceCaptureFrame(listener: (frame: IosDeviceCaptureFrame) => void): () => void;
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
   forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<ProviderSettings>;

@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 
 const APP_NAME = 'Beale';
 const APP_ID = 'com.beale.app';
-const BRAND_VERSION = 1;
+const BRAND_VERSION = 3;
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export function brandProjectElectron({
@@ -54,6 +54,7 @@ export function brandProjectElectron({
   replacePlistString(plistPath, 'CFBundleName', APP_NAME);
   replacePlistString(plistPath, 'CFBundleIdentifier', APP_ID);
   replacePlistString(plistPath, 'CFBundleIconFile', 'beale.icns');
+  removePlistKey(plistPath, 'NSScreenCaptureUsageDescription');
   writeFileSync(markerPath, `${JSON.stringify({ fingerprint, appName: APP_NAME, appId: APP_ID })}\n`);
 
   // Electron releases vary between unsealed and signed bundles. Re-signing ad hoc
@@ -72,7 +73,8 @@ function brandingIsCurrent(markerPath, iconPath, plistPath, fingerprint) {
       && plistString(plistPath, 'CFBundleDisplayName') === APP_NAME
       && plistString(plistPath, 'CFBundleName') === APP_NAME
       && plistString(plistPath, 'CFBundleIdentifier') === APP_ID
-      && plistString(plistPath, 'CFBundleIconFile') === 'beale.icns';
+      && plistString(plistPath, 'CFBundleIconFile') === 'beale.icns'
+      && !plistHasKey(plistPath, 'NSScreenCaptureUsageDescription');
   } catch {
     return false;
   }
@@ -134,6 +136,20 @@ function imageSize(path) {
 
 function replacePlistString(plistPath, key, value) {
   execFileSync('plutil', ['-replace', key, '-string', value, plistPath], { stdio: 'ignore' });
+}
+
+function removePlistKey(plistPath, key) {
+  if (!plistHasKey(plistPath, key)) return;
+  execFileSync('plutil', ['-remove', key, plistPath], { stdio: 'ignore' });
+}
+
+function plistHasKey(plistPath, key) {
+  try {
+    execFileSync('plutil', ['-extract', key, 'raw', plistPath], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function plistString(plistPath, key) {

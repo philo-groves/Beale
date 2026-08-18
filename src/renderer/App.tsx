@@ -27,6 +27,7 @@ import type {
   ResolvedResearchProfile,
   ResearchProviderStatus,
   RunStatus,
+  RunbookProofTargetSelection,
   ScopeAssetInput,
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
@@ -185,6 +186,7 @@ export function App(): JSX.Element {
   const [selectedRunbookDocument, setSelectedRunbookDocument] = useState<HoneycrispRunbookDocument | null>(null);
   const [runbookLoading, setRunbookLoading] = useState(false);
   const [runbookError, setRunbookError] = useState<string | null>(null);
+  const runbookExecutionRequestRef = useRef(0);
   const [selectedReportDocument, setSelectedReportDocument] = useState<HoneycrispReportDocument | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
@@ -1167,15 +1169,18 @@ export function App(): JSX.Element {
     setSelectedRunbookDocument(null);
     setRunbookError(null);
   }, [researchPanelMemory, selectedRunbook, selectedRunbookId]);
+  useEffect(() => () => {
+    runbookExecutionRequestRef.current += 1;
+  }, [selectedRunbookId]);
   useEffect(() => {
     if (!selectedRunbookId) {
       setRunbookLoading(false);
       return undefined;
     }
     let cancelled = false;
-    setRunbookLoading(true);
+    setRunbookLoading(selectedRunbookDocument?.runbookId !== selectedRunbookId);
     setRunbookError(null);
-    setSelectedRunbookDocument(null);
+    setSelectedRunbookDocument((current) => current?.runbookId === selectedRunbookId ? current : null);
     void window.beale.getHoneycrispRunbook(selectedRunbookId)
       .then((document) => {
         if (cancelled || document.runbookId !== selectedRunbookId) return;
@@ -1190,7 +1195,56 @@ export function App(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [selectedRunbook?.revision, selectedRunbookId]);
+  }, [selectedRunbook?.revision, selectedRunbookDocument?.runbookId, selectedRunbookId]);
+
+  const runHoneycrispRunbook = useCallback(async (
+    runbookId: string,
+    cellId: string | undefined,
+    target: RunbookProofTargetSelection
+  ): Promise<void> => {
+    const runbook = researchPanelMemory?.runbooks.find((candidate) => candidate.id === runbookId);
+    if (!runbook?.sessionId) throw new Error('This runbook is not attached to an executable Honeycrisp session.');
+    const previousRunId = selectedRunbookDocument?.runbookId === runbookId
+      ? selectedRunbookDocument.latestRun?.runId ?? null
+      : null;
+    const request = runbookExecutionRequestRef.current + 1;
+    runbookExecutionRequestRef.current = request;
+    setRunbookError(null);
+    try {
+      const next = await window.beale.steerRun({
+        type: 'run_runbook',
+        runId: runbook.sessionId,
+        runbookId,
+        proofTarget: target.proofTarget,
+        ...(target.deviceOs ? { deviceOs: target.deviceOs } : {}),
+        ...(cellId ? { cellId } : {})
+      });
+      applySnapshot(next);
+      let observedNewRun = false;
+      for (let attempt = 0; attempt < 6_000 && runbookExecutionRequestRef.current === request; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 300));
+        const document = await window.beale.getHoneycrispRunbook(runbookId);
+        if (runbookExecutionRequestRef.current !== request) return;
+        setSelectedRunbookDocument(document);
+        setRunbookLoading(false);
+        const latestRun = document.latestRun;
+        if (latestRun && latestRun.runId !== previousRunId) observedNewRun = true;
+        if (latestRun && latestRun.runId !== previousRunId && latestRun.status !== 'running' && latestRun.status !== 'queued') {
+          runbookExecutionRequestRef.current += 1;
+          const refreshed = await window.beale.getSnapshot();
+          if (refreshed) applySnapshot(refreshed);
+          return;
+        }
+        if (!observedNewRun && attempt >= 99) {
+          throw new Error('Honeycrisp acknowledged the request but the runbook did not start. Inspect the session trace for the execution error.');
+        }
+      }
+    } catch (caught: unknown) {
+      const message = errorMessage(caught);
+      setRunbookError(message);
+      throw new Error(message);
+    }
+  }, [applySnapshot, researchPanelMemory?.runbooks, selectedRunbookDocument]);
   useEffect(() => {
     if (!selectedReportId || selectedReport || (reportsOpen && reportingReportsLoading)) return;
     setSelectedReportId(null);
@@ -1605,6 +1659,7 @@ export function App(): JSX.Element {
               shellApprovalBusy={Boolean(autoReviewOverrideApproval && (busy || shellApprovalDecisionInFlight === autoReviewOverrideApproval.id))}
               visibleTraceCategories={visibleTraceCategories}
               busy={busy}
+              connectedDeviceCaptureEnabled={windowControlPlatform === 'darwin'}
               workspaceDejunk={selectedRunId ? null : snapshot?.workspace.dejunk ?? null}
               workspaceDejunkInProgress={workspaceDejunkInProgress}
               memoryDreamingInProgress={memoryDreamingInProgress}
@@ -1623,6 +1678,7 @@ export function App(): JSX.Element {
               onWorkspaceViewChange={setWorkspaceDashboardViewName}
               onResearchDetailsOpenChange={(expanded) => setRightSidenavExpanded(researchDetailsAvailable && expanded)}
               onOpenHoneycrispRunbook={openHoneycrispRunbook}
+              onRunHoneycrispRunbook={runHoneycrispRunbook}
               onBackToRunbooks={backToRunbooks}
               onOpenHoneycrispReport={openHoneycrispReport}
               onBackToReports={backToReports}
