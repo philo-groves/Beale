@@ -679,7 +679,8 @@ export async function materializeHoneycrispSource(
     ['harness', 'source-materialize'],
     { candidate, ref, ...(repositoryStoreDirectory ? { repositoryStoreDirectory } : {}) },
     null,
-    signal
+    signal,
+    null
   )).result;
 }
 
@@ -801,7 +802,7 @@ async function invokeWithJsonInputAsync<T>(
   input: unknown,
   storage: HoneycrispSessionStorage | null,
   signal?: AbortSignal,
-  timeoutMs?: number
+  timeoutMs?: number | null
 ): Promise<HoneycrispProtocolSuccess<T>> {
   const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-protocol-'));
   const inputPath = join(directory, 'input.json');
@@ -810,7 +811,7 @@ async function invokeWithJsonInputAsync<T>(
     return await invokeHoneycrispCliProtocolAsync<T>(operation, [...args, '--input', inputPath, '--json'], {
       ...(storage ? { env: storageEnvironment(storage) } : {}),
       ...(signal ? { signal } : {}),
-      ...(timeoutMs ? { timeoutMs } : {})
+      ...(timeoutMs !== undefined ? { timeoutMs } : {})
     });
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -820,7 +821,7 @@ async function invokeWithJsonInputAsync<T>(
 export function invokeHoneycrispCliProtocolAsync<T>(
   operation: string,
   args: readonly string[],
-  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; signal?: AbortSignal; stdin?: string } = {}
+  options: { timeoutMs?: number | null; env?: NodeJS.ProcessEnv; signal?: AbortSignal; stdin?: string } = {}
 ): Promise<HoneycrispProtocolSuccess<T>> {
   const invocation = resolveHoneycrispProtocolInvocation();
   const requestId = `beale-${randomUUID()}`;
@@ -839,7 +840,7 @@ export function invokeHoneycrispCliProtocolAsync<T>(
     const finish = (callback: () => void): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       options.signal?.removeEventListener('abort', abort);
       callback();
     };
@@ -847,11 +848,11 @@ export function invokeHoneycrispCliProtocolAsync<T>(
       child.kill('SIGTERM');
       finish(() => reject(new Error(`Honeycrisp ${operation} was canceled.`)));
     };
-    const timeout = setTimeout(() => {
+    const timeout = options.timeoutMs === null ? null : setTimeout(() => {
       child.kill('SIGTERM');
       finish(() => reject(new Error(`Honeycrisp ${operation} timed out.`)));
     }, options.timeoutMs ?? 5 * 60_000);
-    timeout.unref();
+    timeout?.unref();
     if (options.signal?.aborted) {
       abort();
       return;

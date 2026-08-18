@@ -637,6 +637,8 @@ describe('workspace dashboard', () => {
     expect(html).toContain('>1 session</span>');
     expect(html).toContain('>1 memory</span>');
     expect(html).toContain('>Last 2h ago</span>');
+    expect(html).toContain('>Not cloned</span>');
+    expect(html).toContain('>Clone</span>');
     expect(html).toContain('title="Edit parser"');
     expect(workspaceResearchSurfaceKinds(workspaceResearchSurfaceItems([{
       id: 'asset_repo',
@@ -729,9 +731,24 @@ describe('workspace dashboard', () => {
     expect(labels).not.toContain('default');
     expect(items.find((item) => item.label === 'gitlab')).toMatchObject({
       sessionCount: 1,
-      memoryCount: 1
+      memoryCount: 1,
+      repositoryCloned: true,
+      repositoryCloneAssetId: 'asset_gitlab_url',
+      repositoryLocalPath: 'C:\\Users\\research\\.beale\\repositories\\gitlab.com_gitlab-org_gitlab\\default'
     });
     expect(items.find((item) => item.label === 'gitlab')?.asset.value).toBe('https://gitlab.com/gitlab-org/gitlab');
+  });
+
+  it('routes repository cloning through the typed host IPC boundary', () => {
+    const ipcSource = readFileSync(new URL('../src/shared/ipc.ts', import.meta.url), 'utf8');
+    const preloadSource = readFileSync(new URL('../src/preload/index.ts', import.meta.url), 'utf8');
+    const mainSource = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8');
+    const rendererSource = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
+
+    expect(ipcSource).toContain("cloneWorkspaceRepository: 'beale:clone-workspace-repository'");
+    expect(preloadSource).toContain('ipcRenderer.invoke(IPC_CHANNELS.cloneWorkspaceRepository, assetId)');
+    expect(mainSource).toContain('workspaceService.cloneWorkspaceRepository(assetId)');
+    expect(rendererSource).toContain('window.beale.cloneWorkspaceRepository(assetId)');
   });
 
   it('keeps terminal session runs immutable when the session is continued', () => {

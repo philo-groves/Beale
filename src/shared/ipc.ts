@@ -25,6 +25,7 @@ export const IPC_CHANNELS = {
   listGitHubOrganizationRepositories: 'beale:list-github-organization-repositories',
   createScopedWorkspace: 'beale:create-scoped-workspace',
   updateWorkspaceDirectories: 'beale:update-workspace-directories',
+  cloneWorkspaceRepository: 'beale:clone-workspace-repository',
   workspaceOnboardingUpdated: 'beale:workspace-onboarding-updated',
   skipWorkspaceOnboardingRepository: 'beale:skip-workspace-onboarding-repository',
   openRegisteredWorkspace: 'beale:open-registered-workspace',

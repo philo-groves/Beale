@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -18,6 +18,7 @@ import { resolvedTestResearchProfile } from './researchProfileFixture';
 const directories: string[] = [];
 
 afterEach(() => {
+  delete process.env.BEALE_GIT_COMMAND;
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
@@ -357,6 +358,75 @@ describe('research profile persistence', () => {
     expect(reopened.updateWorkspaceDirectories([primary]).workspace.workspaceDirectories).toEqual([resolve(primary)]);
     expect(() => reopened.updateWorkspaceDirectories([])).toThrow('At least one workspace directory is required.');
     reopened.close();
+  });
+
+  it('clones an in-scope repository resource and records its managed checkout once', async () => {
+    const root = tempDirectory();
+    const workspacePath = join(root, 'workspace');
+    const repositoryStoreDirectory = join(root, 'repositories');
+    mkdirSync(workspacePath, { recursive: true });
+    const fakeGit = join(root, 'fake-git-clone-resource.mjs');
+    writeFileSync(fakeGit, [
+      '#!/usr/bin/env node',
+      "import { mkdirSync } from 'node:fs';",
+      'const args = process.argv.slice(2);',
+      "if (args.includes('clone')) { mkdirSync(`${args.at(-1)}/.git`, { recursive: true }); process.exit(0); }",
+      "if (args.includes('rev-parse')) { process.stdout.write('0123456789abcdef0123456789abcdef01234567\\n'); process.exit(0); }",
+      "if (args.includes('describe')) { process.stdout.write('test-head\\n'); process.exit(0); }",
+      'process.exit(0);'
+    ].join('\n'));
+    chmodSync(fakeGit, 0o700);
+    process.env.BEALE_GIT_COMMAND = fakeGit;
+    const service = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: join(root, 'registry'),
+      honeycrispDatabasePath: join(root, 'global', 'memory.sqlite'),
+      honeycrispArtifactDirectory: join(root, 'global', 'artifacts'),
+      repositoryStoreDirectory,
+      researchProfileResolver: () => resolvedTestResearchProfile()
+    });
+    try {
+      const created = service.createScopedWorkspace({
+        workspacePath,
+        workspaceName: 'Repository Resources',
+        researchSubjectName: 'Repository Resources',
+        scopeOwner: 'Repository Resources',
+        descriptionMarkdown: '',
+        rulesMarkdown: '',
+        expiresAt: null,
+        assets: [{
+          direction: 'in_scope',
+          kind: 'repo',
+          value: 'https://gitlab.com/gitlab-org/gitlab',
+          sensitivity: 'public',
+          attributes: { repositoryUrl: 'https://gitlab.com/gitlab-org/gitlab' }
+        }, {
+          direction: 'out_of_scope',
+          kind: 'repo',
+          value: 'https://gitlab.com/gitlab-org/gitaly',
+          sensitivity: 'public',
+          attributes: { repositoryUrl: 'https://gitlab.com/gitlab-org/gitaly' }
+        }]
+      });
+      const sourceAssetId = created.activeScope.assets.find((asset) => asset.direction === 'in_scope')?.id;
+      const excludedAssetId = created.activeScope.assets.find((asset) => asset.direction === 'out_of_scope')?.id;
+      expect(sourceAssetId).toBeTruthy();
+      expect(() => service.cloneWorkspaceRepository(excludedAssetId as string)).toThrow('Only in-scope repository resources can be cloned.');
+
+      const cloned = await service.cloneWorkspaceRepository(sourceAssetId as string);
+      const checkoutAssets = cloned.activeScope.assets.filter((asset) => asset.attributes?.source === 'beale_workspace_resource');
+      expect(checkoutAssets).toHaveLength(1);
+      expect(checkoutAssets[0]?.attributes).toMatchObject({
+        repositoryUrl: 'https://gitlab.com/gitlab-org/gitlab',
+        sourceAssetId
+      });
+      expect(existsSync(join(checkoutAssets[0]?.value ?? '', '.git'))).toBe(true);
+
+      const currentSourceAssetId = cloned.activeScope.assets.find((asset) => asset.value === 'https://gitlab.com/gitlab-org/gitlab')?.id;
+      const clonedAgain = await service.cloneWorkspaceRepository(currentSourceAssetId as string);
+      expect(clonedAgain.activeScope.assets.filter((asset) => asset.attributes?.source === 'beale_workspace_resource')).toHaveLength(1);
+    } finally {
+      service.close();
+    }
   });
 
   it('adopts the legacy scope-owner subject id during migration 14', () => {

@@ -633,6 +633,7 @@ export class WorkspaceService {
   private readonly runDetailEventCache = new Map<string, Map<string, TraceEventRecord>>();
   private readonly disposedRuntimeDatabases = new WeakSet<WorkspaceDatabase>();
   private readonly onboardingRepositoryJobs = new Map<string, WorkspaceOnboardingRepositoryJob>();
+  private readonly workspaceRepositoryCloneJobs = new Map<string, Promise<WorkspaceSnapshot>>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
   private readonly githubOrganizationRepositoryCache = new Map<string, GitHubRepositorySummary[]>();
   private registryLifecycleReconciliation: Promise<void> | null = null;
@@ -1743,6 +1744,107 @@ export class WorkspaceService {
     this.snapshotCache.delete(runtime.workspacePath);
     this.emitChange();
     return this.requireSnapshot();
+  }
+
+  public cloneWorkspaceRepository(assetId: string): Promise<WorkspaceSnapshot> {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) throw new Error('No Beale workspace is open');
+    const scope = runtime.db.getActiveScope();
+    const asset = scope.assets.find((candidate) => candidate.id === assetId);
+    if (!asset) throw new Error(`Repository resource not found in the active workspace scope: ${assetId}`);
+    if (asset.kind !== 'repo' || asset.direction !== 'in_scope') {
+      throw new Error('Only in-scope repository resources can be cloned.');
+    }
+    const repositoryUrl = normalizeSourceRepositoryUrl(stringValue(asset.attributes?.repositoryUrl, ''))
+      ?? normalizeSourceRepositoryUrl(asset.value);
+    if (!repositoryUrl) throw new Error('Repository resource must reference a supported GitHub or GitLab URL.');
+    const jobKey = `${runtime.workspacePath.toLowerCase()}\n${repositoryUrl.toLowerCase()}`;
+    const activeJob = this.workspaceRepositoryCloneJobs.get(jobKey);
+    if (activeJob) return activeJob;
+    const job = this.cloneWorkspaceRepositoryResource(runtime, asset.id, repositoryUrl)
+      .finally(() => this.workspaceRepositoryCloneJobs.delete(jobKey));
+    this.workspaceRepositoryCloneJobs.set(jobKey, job);
+    return job;
+  }
+
+  private async cloneWorkspaceRepositoryResource(
+    runtime: WorkspaceRuntime,
+    sourceAssetId: string,
+    repositoryUrl: string
+  ): Promise<WorkspaceSnapshot> {
+    const existing = runtime.db.getActiveScope().assets.find((asset) => (
+      asset.kind === 'repo'
+      && asset.direction === 'in_scope'
+      && isAbsolute(asset.value)
+      && existsSync(join(asset.value, '.git'))
+      && normalizeSourceRepositoryUrl(stringValue(asset.attributes?.repositoryUrl, ''))?.toLowerCase() === repositoryUrl.toLowerCase()
+    ));
+    if (existing) return this.snapshotForRuntime(runtime);
+
+    const sourceAsset = runtime.db.getActiveScope().assets.find((asset) => asset.id === sourceAssetId);
+    if (!sourceAsset || sourceAsset.kind !== 'repo' || sourceAsset.direction !== 'in_scope') {
+      throw new Error('Repository resource changed before cloning could begin.');
+    }
+    const materialized = await materializeGitRepositoryAsync({
+      url: repositoryUrl,
+      label: sourceAsset.value,
+      sourceAssetId,
+      sourceAssetKind: sourceAsset.kind,
+      sensitivity: sourceAsset.sensitivity
+    }, '', {
+      repositoryStoreDirectory:
+        this.options.repositoryStoreDirectory ?? defaultSourceRepositoryStoreDirectory(this.options.workspaceRegistryDirectory)
+    });
+
+    const latestScope = runtime.db.getActiveScope();
+    const latestSourceAsset = latestScope.assets.find((asset) => (
+      asset.kind === 'repo'
+      && asset.direction === 'in_scope'
+      && (normalizeSourceRepositoryUrl(stringValue(asset.attributes?.repositoryUrl, ''))
+        ?? normalizeSourceRepositoryUrl(asset.value))?.toLowerCase() === repositoryUrl.toLowerCase()
+    ));
+    if (!latestSourceAsset) {
+      throw new Error('Repository resource is no longer in scope; the managed checkout was not attached to the workspace.');
+    }
+    const alreadyRecorded = latestScope.assets.some((asset) => (
+      asset.kind === 'repo'
+      && isAbsolute(asset.value)
+      && resolve(asset.value).toLowerCase() === resolve(materialized.localPath).toLowerCase()
+    ));
+    if (!alreadyRecorded) {
+      runtime.db.saveScope({
+        workspaceName: latestScope.workspaceName,
+        scopeOwner: latestScope.scopeOwner,
+        descriptionMarkdown: latestScope.descriptionMarkdown,
+        rulesMarkdown: latestScope.rulesMarkdown,
+        expiresAt: latestScope.expiresAt,
+        assets: [
+          ...latestScope.assets.map(scopeAssetInput),
+          {
+            direction: 'in_scope',
+            kind: 'repo',
+            value: materialized.localPath,
+            sensitivity: latestSourceAsset.sensitivity,
+            attributes: {
+              source: 'beale_workspace_resource',
+              sourceStorage: 'user_global',
+              sourceReferenceVersion: 1,
+              repositoryUrl: materialized.repositoryUrl,
+              sourceAssetId: latestSourceAsset.id,
+              head: materialized.head,
+              materializedRef: materialized.ref ?? '',
+              cloned: materialized.cloned,
+              headRefName: materialized.headRefName,
+              headDescribe: materialized.headDescribe,
+              requestedRefHead: materialized.requestedRefHead,
+              requestedRefMatchesHead: materialized.requestedRefMatchesHead
+            }
+          }
+        ]
+      }, { refreshInventory: false });
+    }
+    this.emitRuntimeChange(runtime.workspacePath);
+    return this.snapshotForRuntime(runtime);
   }
 
   public skipWorkspaceOnboardingRepository(input: WorkspaceOnboardingSkipInput): WorkspaceOnboardingProgressUpdate | null {

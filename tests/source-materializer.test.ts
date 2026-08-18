@@ -141,7 +141,7 @@ describe('source materializer', () => {
     const repositoryDirectory = join(repositoryStore, 'gitlab.com_gitlab-org_gitlab');
     const staleCheckout = join(repositoryDirectory, '.default.tmp-1234-1000');
     mkdirSync(join(staleCheckout, 'partial', 'tree'), { recursive: true });
-    const staleTime = new Date(Date.now() - 10 * 60_000);
+    const staleTime = new Date(Date.now() - 8 * 24 * 60 * 60_000);
     utimesSync(staleCheckout, staleTime, staleTime);
     const fakeGit = join(workspace, 'fake-git-stale-cleanup.mjs');
     writeFileSync(

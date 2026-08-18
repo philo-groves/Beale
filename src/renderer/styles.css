@@ -2802,33 +2802,80 @@ body.is-resizing-research-side .main-session-grid {
   width: 100%;
   min-height: 86px;
   min-width: 0;
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  align-items: start;
-  gap: 9px;
+  position: relative;
   border: 0;
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.028);
   color: inherit;
-  padding: 11px 12px;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
   transition: background 140ms ease;
 }
 
 .workspace-surface-item:hover,
-.workspace-surface-item:focus-visible {
+.workspace-surface-item:focus-within {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.workspace-surface-item:focus-visible {
+.workspace-surface-item-open:focus-visible {
   outline: 1px solid var(--line-strong);
   outline-offset: -1px;
 }
 
 .workspace-surface-item.is-out_of_scope {
   opacity: 0.62;
+}
+
+.workspace-surface-item-open {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  padding: 11px 12px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-surface-item.has-repository-action .workspace-surface-item-open {
+  padding-right: 92px;
+}
+
+.workspace-repository-clone-button {
+  position: absolute;
+  right: 12px;
+  bottom: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--text);
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.workspace-repository-clone-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.workspace-repository-clone-button:disabled {
+  color: var(--muted);
+  cursor: wait;
+}
+
+.workspace-repository-clone-error {
+  display: block;
+  color: var(--danger);
+  padding: 0 12px 10px 51px;
+  font-size: 0.73rem;
 }
 
 .workspace-surface-item-icon {

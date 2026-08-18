@@ -1700,6 +1700,7 @@ export interface BealeApi {
   listGitHubOrganizationRepositories(organization: string): Promise<GitHubRepositorySummary[]>;
   createScopedWorkspace(input: WorkspaceOnboardingInput): Promise<WorkspaceSnapshot>;
   updateWorkspaceDirectories(directories: string[]): Promise<WorkspaceSnapshot>;
+  cloneWorkspaceRepository(assetId: string): Promise<WorkspaceSnapshot>;
   skipWorkspaceOnboardingRepository(input: WorkspaceOnboardingSkipInput): Promise<WorkspaceOnboardingProgressUpdate | null>;
   onWorkspaceOnboardingUpdate(listener: (update: WorkspaceOnboardingProgressUpdate) => void): () => void;
   openRegisteredWorkspace(registryWorkspaceId: string): Promise<WorkspaceSnapshot>;

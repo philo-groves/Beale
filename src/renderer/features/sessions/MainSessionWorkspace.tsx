@@ -65,6 +65,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onRunMemoryDreaming,
   onAddWorkspaceResource = async () => undefined,
   onChangeWorkspaceResource = async () => undefined,
+  onCloneWorkspaceRepository = async () => undefined,
   onSaveWorkspaceConfiguration = async () => undefined,
   onChangeWorkspaceDirectories = async () => undefined,
   onOpenSession = () => undefined,
@@ -129,6 +130,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onRunMemoryDreaming: () => void;
   onAddWorkspaceResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeWorkspaceResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
+  onCloneWorkspaceRepository?: (assetId: string) => Promise<void>;
   onSaveWorkspaceConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onChangeWorkspaceDirectories?: (directories: string[]) => Promise<void>;
   onOpenSession?: (runId: string) => void;
@@ -256,6 +258,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onRunMemoryDreaming={onRunMemoryDreaming}
           onAddResource={onAddWorkspaceResource}
           onChangeResource={onChangeWorkspaceResource}
+          onCloneRepository={onCloneWorkspaceRepository}
           onSaveConfiguration={onSaveWorkspaceConfiguration}
           onChangeWorkspaceDirectories={onChangeWorkspaceDirectories}
           onOpenSession={onOpenSession}

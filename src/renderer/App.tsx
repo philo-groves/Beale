@@ -370,6 +370,16 @@ export function App(): JSX.Element {
     [changeWorkspaceResource]
   );
 
+  const cloneWorkspaceRepository = useCallback(async (assetId: string): Promise<void> => {
+    setError(null);
+    try {
+      applySnapshot(await window.beale.cloneWorkspaceRepository(assetId));
+    } catch (caught) {
+      setError(errorMessage(caught));
+      throw caught;
+    }
+  }, [applySnapshot]);
+
   const saveWorkspaceConfiguration = useCallback(async (
     configuration: WorkspaceConfigurationInput
   ): Promise<void> => {
@@ -1606,6 +1616,7 @@ export function App(): JSX.Element {
               onRunMemoryDreaming={runMemoryDreaming}
               onAddWorkspaceResource={addWorkspaceResource}
               onChangeWorkspaceResource={changeWorkspaceResource}
+              onCloneWorkspaceRepository={cloneWorkspaceRepository}
               onSaveWorkspaceConfiguration={saveWorkspaceConfiguration}
               onChangeWorkspaceDirectories={changeWorkspaceDirectories}
               onOpenSession={openWorkspaceDashboardSession}

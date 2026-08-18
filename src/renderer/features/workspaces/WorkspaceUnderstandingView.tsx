@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import { Binary, BookOpen, Folder, GitBranch, Globe2, Info, Layers3, MoonStar, Plus, Server, Sparkles, Trash2 } from 'lucide-react';
+import { Binary, BookOpen, Download, Folder, GitBranch, Globe2, Info, Layers3, MoonStar, Plus, Server, Sparkles, Trash2 } from 'lucide-react';
 import { isLiveResearchRunStatus } from '../../../shared/types';
 import type {
   HoneycrispMemorySummary,
@@ -167,6 +167,7 @@ export function WorkspaceUnderstandingView({
   memoryDreamingProgress = null,
   onAddResource = async () => undefined,
   onChangeResource = async () => undefined,
+  onCloneRepository = async () => undefined,
   onSaveConfiguration = async () => undefined,
   onChangeWorkspaceDirectories = async () => undefined,
   onOpenSession = () => undefined,
@@ -195,6 +196,7 @@ export function WorkspaceUnderstandingView({
   onRunMemoryDreaming: () => void;
   onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
+  onCloneRepository?: (assetId: string) => Promise<void>;
   onSaveConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onChangeWorkspaceDirectories?: (directories: string[]) => Promise<void>;
   onOpenSession?: (runId: string) => void;
@@ -427,6 +429,7 @@ export function WorkspaceUnderstandingView({
         runs={runs}
         onAddResource={onAddResource}
         onChangeResource={onChangeResource}
+        onCloneRepository={onCloneRepository}
         workspaceName={activeScope?.workspaceName || workspaceName}
       />
 
@@ -1164,6 +1167,9 @@ interface WorkspaceResearchSurfaceItem {
   asset: ScopeAsset;
   assetIds: string[];
   label: string;
+  repositoryCloned: boolean | null;
+  repositoryCloneAssetId: string | null;
+  repositoryLocalPath: string | null;
   sessionCount: number;
   memoryCount: number;
   lastResearchedAt: string | null;
@@ -1200,12 +1206,21 @@ export function workspaceResearchSurfaceItems(
   return [...assetGroups.values()].map((groupAssets) => {
     const asset = preferredWorkspaceSurfaceAsset(groupAssets);
     const assetIds = groupAssets.map((candidate) => candidate.id);
+    const repositorySourceAsset = asset.kind === 'repo'
+      ? groupAssets.find((candidate) => repositoryNameFromUrl(candidate.value)) ?? null
+      : null;
+    const repositoryLocalAsset = asset.kind === 'repo'
+      ? groupAssets.find((candidate) => !repositoryNameFromUrl(candidate.value) && repositoryIdentityFromPath(candidate.value)) ?? null
+      : null;
     const memoryIds = new Set(assetIds.flatMap((assetId) => [...(memoryIdsByAssetId.get(assetId) ?? [])]));
     const runStats = assetIds.map((assetId) => runStatsByAssetId.get(assetId));
     return {
       asset,
       assetIds,
       label: workspaceAssetLabel(asset),
+      repositoryCloned: asset.kind === 'repo' ? repositoryLocalAsset !== null : null,
+      repositoryCloneAssetId: repositorySourceAsset?.id ?? null,
+      repositoryLocalPath: repositoryLocalAsset?.value ?? null,
       sessionCount: runStats.reduce((count, stats) => count + (stats?.count ?? 0), 0),
       memoryCount: memoryIds.size,
       lastResearchedAt: runStats.reduce<string | null>(
@@ -1268,6 +1283,7 @@ function WorkspaceResearchSurface({
   runs,
   onAddResource,
   onChangeResource,
+  onCloneRepository,
   workspaceName
 }: {
   activeScope: WorkspaceScopeVersion | null;
@@ -1277,6 +1293,7 @@ function WorkspaceResearchSurface({
   runs: RunRow[];
   onAddResource: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
+  onCloneRepository: (assetId: string) => Promise<void>;
   workspaceName: string;
 }): JSX.Element {
   const items = useMemo(
@@ -1291,6 +1308,8 @@ function WorkspaceResearchSurface({
   const [activeKind, setActiveKind] = useState<ScopeAssetKind | null>(() => representedKinds[0] ?? null);
   const [dialogState, setDialogState] = useState<{ kind: ScopeAssetKind; item: WorkspaceResearchSurfaceItem | null } | null>(null);
   const [kindPickerOpen, setKindPickerOpen] = useState(false);
+  const [cloningAssetIds, setCloningAssetIds] = useState<Set<string>>(() => new Set());
+  const [cloneErrors, setCloneErrors] = useState<Map<string, string>>(() => new Map());
   const kindPickerRef = useRef<HTMLDivElement>(null);
   const visibleItems = activeKind ? items.filter((item) => item.asset.kind === activeKind) : [];
   const missingKinds = WORKSPACE_ASSET_KINDS.filter((kind) => !representedKinds.includes(kind));
@@ -1339,6 +1358,27 @@ function WorkspaceResearchSurface({
   const openResourceDialog = (kind: ScopeAssetKind, item: WorkspaceResearchSurfaceItem | null = null): void => {
     setKindPickerOpen(false);
     setDialogState({ kind, item });
+  };
+  const cloneRepository = async (item: WorkspaceResearchSurfaceItem): Promise<void> => {
+    const assetId = item.repositoryCloneAssetId;
+    if (!assetId || cloningAssetIds.has(assetId)) return;
+    setCloningAssetIds((current) => new Set(current).add(assetId));
+    setCloneErrors((current) => {
+      const next = new Map(current);
+      next.delete(assetId);
+      return next;
+    });
+    try {
+      await onCloneRepository(assetId);
+    } catch (caught) {
+      setCloneErrors((current) => new Map(current).set(assetId, errorMessage(caught)));
+    } finally {
+      setCloningAssetIds((current) => {
+        const next = new Set(current);
+        next.delete(assetId);
+        return next;
+      });
+    }
   };
 
   return (
@@ -1411,30 +1451,54 @@ function WorkspaceResearchSurface({
             role="tabpanel"
           >
             {visibleItems.map((item) => (
-              <button
-                className={`workspace-surface-item is-${item.asset.direction}`}
+              <article
+                className={`workspace-surface-item is-${item.asset.direction}${item.asset.direction === 'in_scope' && item.repositoryCloned === false && item.repositoryCloneAssetId ? ' has-repository-action' : ''}`}
                 key={item.asset.id}
-                onClick={() => openResourceDialog(item.asset.kind, item)}
-                title={`Edit ${item.label}`}
-                type="button"
               >
-                <span className="workspace-surface-item-icon" aria-hidden="true">
-                  <WorkspaceAssetIcon kind={item.asset.kind} />
-                </span>
-                <div className="workspace-surface-item-main">
-                  <div className="workspace-surface-item-heading">
-                    <strong title={item.asset.value}>{item.label}</strong>
-                    <span>{workspaceAssetKindLabel(item.asset.kind)}</span>
+                <button
+                  className="workspace-surface-item-open"
+                  onClick={() => openResourceDialog(item.asset.kind, item)}
+                  title={`Edit ${item.label}`}
+                  type="button"
+                >
+                  <span className="workspace-surface-item-icon" aria-hidden="true">
+                    <WorkspaceAssetIcon kind={item.asset.kind} />
+                  </span>
+                  <div className="workspace-surface-item-main">
+                    <div className="workspace-surface-item-heading">
+                      <strong title={item.asset.value}>{item.label}</strong>
+                      <span>{workspaceAssetKindLabel(item.asset.kind)}</span>
+                    </div>
+                    <small title={item.asset.value}>{item.asset.value}</small>
+                    <div className="workspace-surface-item-meta">
+                      <span>{item.asset.direction === 'in_scope' ? 'In scope' : 'Out of scope'}</span>
+                      {item.repositoryCloned !== null ? (
+                        <span title={item.repositoryLocalPath ?? undefined}>{item.repositoryCloned ? 'Cloned' : 'Not cloned'}</span>
+                      ) : null}
+                      <span>{item.sessionCount} {item.sessionCount === 1 ? 'session' : 'sessions'}</span>
+                      <span>{item.memoryCount} {item.memoryCount === 1 ? 'memory' : 'memories'}</span>
+                      <span>{item.lastResearchedAt ? `Last ${formatSurfaceRecency(item.lastResearchedAt, nowMs)}` : 'Never researched'}</span>
+                    </div>
                   </div>
-                  <small title={item.asset.value}>{item.asset.value}</small>
-                  <div className="workspace-surface-item-meta">
-                    <span>{item.asset.direction === 'in_scope' ? 'In scope' : 'Out of scope'}</span>
-                    <span>{item.sessionCount} {item.sessionCount === 1 ? 'session' : 'sessions'}</span>
-                    <span>{item.memoryCount} {item.memoryCount === 1 ? 'memory' : 'memories'}</span>
-                    <span>{item.lastResearchedAt ? `Last ${formatSurfaceRecency(item.lastResearchedAt, nowMs)}` : 'Never researched'}</span>
-                  </div>
-                </div>
-              </button>
+                </button>
+                {item.asset.direction === 'in_scope' && item.repositoryCloned === false && item.repositoryCloneAssetId ? (
+                  <button
+                    className="workspace-repository-clone-button"
+                    disabled={cloningAssetIds.has(item.repositoryCloneAssetId)}
+                    onClick={() => void cloneRepository(item)}
+                    title="Clone this repository into Beale source storage"
+                    type="button"
+                  >
+                    <Download aria-hidden="true" size={14} />
+                    <span>{cloningAssetIds.has(item.repositoryCloneAssetId) ? 'Cloning…' : 'Clone'}</span>
+                  </button>
+                ) : null}
+                {item.repositoryCloneAssetId && cloneErrors.has(item.repositoryCloneAssetId) ? (
+                  <small className="workspace-repository-clone-error" role="alert">
+                    {cloneErrors.get(item.repositoryCloneAssetId)}
+                  </small>
+                ) : null}
+              </article>
             ))}
           </div>
         </div>

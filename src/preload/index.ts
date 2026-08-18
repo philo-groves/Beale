@@ -161,6 +161,9 @@ const api: BealeApi = {
   updateWorkspaceDirectories(directories: string[]) {
     return ipcRenderer.invoke(IPC_CHANNELS.updateWorkspaceDirectories, directories);
   },
+  cloneWorkspaceRepository(assetId: string): Promise<WorkspaceSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cloneWorkspaceRepository, assetId);
+  },
   skipWorkspaceOnboardingRepository(input: WorkspaceOnboardingSkipInput): Promise<WorkspaceOnboardingProgressUpdate | null> {
     return ipcRenderer.invoke(IPC_CHANNELS.skipWorkspaceOnboardingRepository, input);
   },

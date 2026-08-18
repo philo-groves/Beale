@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Workspace repository resources now show whether a managed checkout exists and offer an in-place Clone action when it does not. Clone requests stay scope-bound, deduplicate concurrent acquisition, and use Honeycrisp's large-repository-safe asynchronous materialization path.
 - Report summaries now carry typed submission-packet metadata from the Honeycrisp report catalog.
 - Workspace model context now deduplicates scope assets already represented by the bounded Rules and Constraints text or by known local repository roots, while retaining asset-specific instructions, direction-mismatched assets, exclusions, credentials, and entries beyond the visible rules budget.
 - The bundled default profile is consistently named Security in selectors and editable defaults. Security and Mathematics now present eight active memory types; Security combines new Source and Sink records into Flow Endpoint while retaining existing retired memory in resource views, and Profile settings hides retired type tabs.
