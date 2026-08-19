@@ -184,13 +184,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   }, [containerRef]);
   const viewSpace = selectedRunId ? 'session' : 'workspace';
   const researchSidePanelKey = selectedRunId ?? `workspace:${honeycrispMemory?.contextWorkspaceId ?? 'current'}`;
-  const previousRunRef = useRef<{ id: string; status: RunDetail['run']['status'] } | null>(null);
-  const currentRun = detail ? { id: detail.run.id, status: detail.run.status } : null;
-  const autoGenerateNextSteps = sessionEndingSuggestionsEnabled
-    && shouldAutoGenerateSessionNextSteps(previousRunRef.current, currentRun);
-  useEffect(() => {
-    previousRunRef.current = currentRun;
-  }, [currentRun?.id, currentRun?.status]);
   useEffect(() => {
     setSelectedWorkspaceMemoryId(null);
   }, [honeycrispMemory?.contextWorkspaceId, selectedRunId]);
@@ -291,7 +284,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         <SessionNextSteps
           key={detail.run.id}
           detail={detail}
-          autoGenerate={autoGenerateNextSteps}
           onSelect={onSelectNextStep}
         />
       )
@@ -469,19 +461,6 @@ export function isIosDeviceOs(deviceOs: string | null): boolean {
 
 function isRunbookProofTarget(value: unknown): value is RunbookProofTarget {
   return value === 'localhost' || value === 'device' || value === 'vm' || value === 'web' || value === 'other';
-}
-
-export function shouldAutoGenerateSessionNextSteps(
-  previous: { id: string; status: RunDetail['run']['status'] } | null,
-  current: { id: string; status: RunDetail['run']['status'] } | null
-): boolean {
-  return Boolean(
-    previous
-    && current
-    && previous.id === current.id
-    && !isEndedResearchRunStatus(previous.status)
-    && isEndedResearchRunStatus(current.status)
-  );
 }
 
 export function shouldShowSessionNextSteps(

@@ -42,6 +42,7 @@ import {
   usesHoneycrispSessionOwnership
 } from './honeycrispSessionBoundary';
 import { completeProviderText, type ProviderTextCompleter } from './providerTextCompletion';
+import { buildSessionNextStepSuggestions } from './sessionNextStepSuggestions';
 import { ResearchProfileService } from './researchProfileService';
 import {
   applyHoneycrispMemoryDreaming,
@@ -2300,25 +2301,41 @@ export class WorkspaceService {
     if (!runtime) throw new Error('No Beale workspace is open');
     const db = runtime.db;
     const sourceRunId = input.sourceRunId?.trim() || null;
-    const sourceDetail = sourceRunId ? db.getRunDetail(sourceRunId) : null;
-    const sourceRun = sourceDetail?.run ?? null;
-    if (sourceRun && !isEndedResearchRunStatus(sourceRun.status)) {
-      throw new Error('Next-step suggestions are only available after the source session has ended.');
-    }
-    const profileSnapshot = sourceRunId
-      ? db.getRunResearchProfileSnapshot(sourceRunId) ?? this.refreshResearchProfile(runtime)
-      : this.refreshResearchProfile(runtime);
     const phase = typeof input?.phase === 'string' ? input.phase.trim() : '';
     if (!phase) throw new Error('Research goal suggestion workflow is required.');
-    const workflow = requireResearchProfileWorkflow(profileSnapshot.profile, phase);
-    const suggestionCount = sourceRunId ? 3 : hostGoalSuggestionCount(profileSnapshot.profile, workflow);
     if (sourceRunId) {
-      const persisted = sourceDetail?.nextStepSuggestions;
-      if (persisted?.phase === workflow.id) return persisted;
+      const sourceRun = db.getRun(sourceRunId);
+      if (!sourceRun) throw new Error(`Run not found: ${sourceRunId}`);
+      if (!isEndedResearchRunStatus(sourceRun.status)) {
+        throw new Error('Next-step suggestions are only available after the source session has ended.');
+      }
+      const recordedPhase = typeof sourceRun.budget.researchWorkflowId === 'string'
+        ? sourceRun.budget.researchWorkflowId.trim()
+        : '';
+      if (recordedPhase && phase !== recordedPhase) {
+        throw new Error(`Source session workflow mismatch: expected ${recordedPhase}, received ${phase}.`);
+      }
+      const persisted = db.getSessionNextStepSuggestions(sourceRunId);
+      if (persisted?.phase === phase) return persisted;
+      const capturedSuggestions = db.getCapturedSessionNextPromptSuggestions(sourceRunId);
+      const generated = buildSessionNextStepSuggestions(
+        sourceRun,
+        phase,
+        capturedSuggestions
+      );
+      const saved = db.saveSessionNextStepSuggestions(sourceRunId, generated);
+      this.recordProfilingMainTiming('goalSuggestions.sessionCapture', performance.now() - totalStartedAt, {
+        phase,
+        capturedSuggestions: capturedSuggestions.length
+      });
+      return saved;
     }
+    const profileSnapshot = this.refreshResearchProfile(runtime);
+    const workflow = requireResearchProfileWorkflow(profileSnapshot.profile, phase);
+    const suggestionCount = hostGoalSuggestionCount(profileSnapshot.profile, workflow);
     const scope = this.profileMainTiming('goalSuggestions.scope', { phase }, () => db.getActiveScope());
     const contextRevision = db.getResearchGoalSuggestionContextRevision(scope.id);
-    if (!sourceRunId && input.refresh !== true) {
+    if (input.refresh !== true) {
       const cached = db.getResearchGoalSuggestionCache(scope.id, profileSnapshot.profileHash, workflow.id);
       if (cached) {
         const cacheStatus = cached.contextRevision === contextRevision ? 'fresh' : 'stale';
@@ -2330,17 +2347,11 @@ export class WorkspaceService {
         };
       }
     }
-    const priorSuggestionHistory = sourceRunId
-      ? []
-      : db.listResearchGoalSuggestionHistory(scope.id, profileSnapshot.profileHash, workflow.id, 64);
-    const sourceProvider = sourceRun && isResearchModelProviderId(sourceRun.budget.modelProvider)
-      ? sourceRun.budget.modelProvider
-      : null;
+    const priorSuggestionHistory = db.listResearchGoalSuggestionHistory(scope.id, profileSnapshot.profileHash, workflow.id, 64);
     const route = await this.resolveAuxiliaryModelRoute(
       profileSnapshot.profile,
       'goalSuggestions',
       {
-        provider: sourceProvider,
         size: 'small',
         fallbackEffort: RESEARCH_GOAL_SUGGESTION_REASONING_EFFORT
       }
@@ -2358,7 +2369,7 @@ export class WorkspaceService {
       scope,
       profileSnapshot,
       contextRevision,
-      sourceRunId
+      null
     );
     const adapter = route.provider === 'openai-codex'
       ? new OpenAiResponsesAdapter(
@@ -2373,7 +2384,7 @@ export class WorkspaceService {
     const recommendationDetails = rankResearchRecommendationDetailsForWorkflow(
       prepared.details,
       workflow,
-      sourceRunId
+      null
     );
     const recommendationInput = buildResearchPromptRecommendationInput(
       scope,
@@ -2392,14 +2403,14 @@ export class WorkspaceService {
       prepared,
       profileSnapshot.profile,
       workflow,
-      sourceRunId
+      null
     );
     requireEligibleResearchGoalSuggestionGrounding(profileSnapshot.profile, workflow, grounding);
-    const candidateCount = sourceRunId ? suggestionCount : researchGoalCandidateCount(suggestionCount);
+    const candidateCount = researchGoalCandidateCount(suggestionCount);
     const payload = JSON.stringify({
       ...grounding.payload,
-      task: sourceRunId ? 'suggest_source_session_next_steps' : 'suggest_next_research_goals',
-      sourceRunId,
+      task: 'suggest_next_research_goals',
+      sourceRunId: null,
       researchPhase: workflow.id,
       suggestionCount,
       candidateCount,
@@ -2441,7 +2452,7 @@ export class WorkspaceService {
           workflow,
           suggestionCount,
           candidateCount,
-          sourceRunId,
+          null,
           priorSuggestionHistory.length,
           priorSuggestionHistory.filter((entry) => entry.selectedAt).length
         );
@@ -2530,7 +2541,6 @@ export class WorkspaceService {
           if (attempt > 0) throw error;
           continue;
         }
-        if (sourceRunId) return db.saveSessionNextStepSuggestions(sourceRunId, generated);
         db.saveResearchGoalSuggestionCache({
           scopeId: scope.id,
           profileHash: profileSnapshot.profileHash,
@@ -2544,7 +2554,7 @@ export class WorkspaceService {
     } finally {
       this.recordProfilingMainTiming('goalSuggestions.total', performance.now() - totalStartedAt, {
         phase,
-        sourceSession: Boolean(sourceRunId),
+        sourceSession: false,
         refresh: input.refresh === true
       });
       if (requestId && this.researchPromptControllers.get(requestId) === controller) {

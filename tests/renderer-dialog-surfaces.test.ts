@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { HoneycrispMemoryNodeSummary, ResearchGoalSuggestionsByPhase, RunDetail, TraceEventRecord, WorkspaceSnapshot } from '@shared/types';
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePanel';
-import { expandedDeviceCapturePanelWidth, isIosDeviceOs, latestOverallRunbookExecution, shouldAutoGenerateSessionNextSteps, shouldShowSessionNextSteps } from '../src/renderer/features/sessions/MainSessionWorkspace';
+import { expandedDeviceCapturePanelWidth, isIosDeviceOs, latestOverallRunbookExecution, shouldShowSessionNextSteps } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
 import { SessionNextSteps, SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
 import { WorkspaceOnboardingModal } from '../src/renderer/features/workspaces/WorkspaceOnboardingModal';
@@ -301,7 +301,6 @@ describe('renderer dialog surfaces', () => {
         loading,
         suggestions,
         error: null,
-        onRefresh: () => undefined,
         onSelect: () => undefined
       })
     );
@@ -314,8 +313,8 @@ describe('renderer dialog surfaces', () => {
 
     expect(loadingHtml).toContain('class="session-next-steps"');
     expect(loadingHtml).toContain('<header class="session-next-steps-header"><h3>Suggestions</h3>');
-    expect(loadingHtml).toContain('aria-label="Regenerate suggestions"');
-    expect(loadingHtml).toContain('<span>Refresh</span>');
+    expect(loadingHtml).not.toContain('Regenerate suggestions');
+    expect(loadingHtml).not.toContain('<span>Refresh</span>');
     expect(loadingHtml.match(/class="session-next-step-skeleton"/g)).toHaveLength(3);
     expect(loadedHtml).toContain('class="session-next-steps"');
     expect(loadedHtml.match(/class="session-next-step-button"/g)).toHaveLength(3);
@@ -353,26 +352,16 @@ describe('renderer dialog surfaces', () => {
     expect(buttonHoverStyles).toContain('color: var(--text)');
   });
 
-  it('shows a quiet empty suggestion state and regenerates only after a viewed session ends', () => {
+  it('loads missing suggestions for every ended session view', () => {
     const emptyHtml = renderToStaticMarkup(createElement(SessionNextStepsWidget, {
       loading: false,
       suggestions: [],
       error: null,
-      onRefresh: () => undefined,
       onSelect: () => undefined
     }));
 
     expect(emptyHtml).toContain('No suggestions to show.');
-    expect(emptyHtml).toContain('aria-label="Regenerate suggestions"');
-    expect(shouldAutoGenerateSessionNextSteps(null, { id: 'run_complete', status: 'completed' })).toBe(false);
-    expect(shouldAutoGenerateSessionNextSteps(
-      { id: 'run_active', status: 'active' },
-      { id: 'run_active', status: 'completed' }
-    )).toBe(true);
-    expect(shouldAutoGenerateSessionNextSteps(
-      { id: 'run_other', status: 'active' },
-      { id: 'run_complete', status: 'completed' }
-    )).toBe(false);
+    expect(emptyHtml).not.toContain('Regenerate suggestions');
     expect(shouldShowSessionNextSteps('completed', true)).toBe(true);
     expect(shouldShowSessionNextSteps('completed', false)).toBe(false);
 
@@ -391,17 +380,8 @@ describe('renderer dialog surfaces', () => {
       detail,
       onSelect: () => undefined
     }));
-    const justEndedHtml = renderToStaticMarkup(createElement(SessionNextSteps, {
-      detail,
-      autoGenerate: true,
-      onSelect: () => undefined
-    }));
-
-    expect(revisitHtml).toContain('aria-busy="false"');
-    expect(revisitHtml).toContain('No suggestions to show.');
-    expect(revisitHtml).not.toContain('session-next-step-skeleton');
-    expect(justEndedHtml).toContain('aria-busy="true"');
-    expect(justEndedHtml.match(/session-next-step-skeleton/g)).toHaveLength(3);
+    expect(revisitHtml).toContain('aria-busy="true"');
+    expect(revisitHtml.match(/session-next-step-skeleton/g)).toHaveLength(3);
   });
 
   it('renders persisted session next steps immediately without a loading state', () => {
@@ -434,6 +414,7 @@ describe('renderer dialog surfaces', () => {
 
   it('seeds the shared New Research composer from a session suggestion', () => {
     const sentence = 'Verify the strongest unresolved boundary from the completed session.';
+    const promptMarkdown = 'Continue from the prior evidence and verify the unresolved parser boundary.';
     const html = renderToStaticMarkup(
       createElement(StartRunForm, {
         snapshot: {
@@ -448,7 +429,7 @@ describe('renderer dialog surfaces', () => {
         researchGoalSuggestions: phaseSuggestions(),
         researchGoalSuggestionsLoading: phaseValues(false),
         researchGoalSuggestionErrors: phaseValues(null),
-        initialGoal: { sentence, phase: 'discovery' },
+        initialGoal: { sentence, phase: 'discovery', promptMarkdown },
         busy: false,
         runAction: async () => undefined,
         onCancel: () => undefined,
@@ -457,8 +438,8 @@ describe('renderer dialog surfaces', () => {
       })
     );
 
-    expect(html).toContain(sentence);
-    expect(html).toContain('aria-label="Research goal"');
+    expect(html).toContain(promptMarkdown);
+    expect(html).toContain('aria-label="Research objective brief"');
     expect(html).toContain('>Start</button>');
     expect(html).toContain('aria-label="Research suggestions"');
     expect(html).not.toContain('Discovery suggestions');

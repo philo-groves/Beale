@@ -60,6 +60,7 @@ import type {
   SessionBlockerDependencyKind,
   SessionFinalDisposition,
   SessionDispositionOutcome,
+  SessionNextPromptSuggestion,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   SessionTranscriptSearchResult,
@@ -666,7 +667,31 @@ function parseStoredSessionNextStepSuggestions(value: SqlPrimitive | undefined):
     : [];
   const identities = new Set(suggestions.map((suggestion) => suggestion.toLocaleLowerCase()));
   if (!phase || suggestions.length !== 3 || suggestions.some((suggestion) => !suggestion) || identities.size !== 3) return null;
-  return { phase, suggestions };
+  const promptSuggestions = parseSessionNextPromptSuggestions(parsed.promptSuggestions);
+  return {
+    phase,
+    suggestions,
+    ...(promptSuggestions.length === 3 ? { promptSuggestions } : {})
+  };
+}
+
+function parseSessionNextPromptSuggestions(value: unknown): SessionNextPromptSuggestion[] {
+  if (!Array.isArray(value)) return [];
+  const suggestions: SessionNextPromptSuggestion[] = [];
+  const identities = new Set<string>();
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+    const record = candidate as Record<string, unknown>;
+    const title = typeof record.title === 'string' ? record.title.replace(/\s+/g, ' ').trim() : '';
+    const promptMarkdown = typeof record.promptMarkdown === 'string' ? record.promptMarkdown.trim() : '';
+    const rationale = typeof record.rationale === 'string' ? record.rationale.replace(/\s+/g, ' ').trim() : '';
+    const identity = title.toLocaleLowerCase();
+    if (!title || !promptMarkdown || identities.has(identity)) continue;
+    identities.add(identity);
+    suggestions.push({ title, promptMarkdown, ...(rationale ? { rationale } : {}) });
+    if (suggestions.length === 3) break;
+  }
+  return suggestions;
 }
 
 function parseResearchGoalSuggestionCacheRow(row: SqlRow | undefined): ResearchGoalSuggestionCacheRecord | null {
@@ -3897,6 +3922,25 @@ export class WorkspaceDatabase {
     return parseStoredSessionNextStepSuggestions(row.next_step_suggestions_json);
   }
 
+  public getCapturedSessionNextPromptSuggestions(runId: string): SessionNextPromptSuggestion[] {
+    if (!this.getRun(runId)) throw new Error(`Run not found: ${runId}`);
+    const transcriptRows = rows(
+      this.db
+        .prepare(
+          `SELECT metadata_json
+           FROM transcript_messages
+           WHERE run_id = ? AND role = 'assistant'
+           ORDER BY created_at DESC, rowid DESC`
+        )
+        .all(runId)
+    );
+    for (const row of transcriptRows) {
+      const suggestions = parseSessionNextPromptSuggestions(parseJson(row.metadata_json).nextPromptSuggestions);
+      if (suggestions.length > 0) return suggestions;
+    }
+    return [];
+  }
+
   public saveSessionNextStepSuggestions(
     runId: string,
     value: GeneratedResearchGoalSuggestions
@@ -3908,6 +3952,8 @@ export class WorkspaceDatabase {
       throw new Error('Session next-step suggestions must contain a workflow and exactly three distinct non-empty suggestions.');
     }
     const normalized: GeneratedResearchGoalSuggestions = { phase, suggestions };
+    const promptSuggestions = parseSessionNextPromptSuggestions(value.promptSuggestions);
+    if (promptSuggestions.length === 3) normalized.promptSuggestions = promptSuggestions;
     const result = this.db
       .prepare(
         `UPDATE runs

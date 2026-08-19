@@ -6515,29 +6515,6 @@ button.subagent-catalog-item:hover:not(:disabled),
   overflow: auto;
 }
 
-.session-next-steps-refresh {
-  padding: 3px 7px;
-  border: 0;
-  border-radius: 7px;
-  color: var(--muted);
-  background: transparent;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font: inherit;
-  cursor: pointer;
-}
-
-.session-next-steps-refresh:hover:not(:disabled) {
-  color: var(--text);
-  background: var(--chrome-soft);
-}
-
-.session-next-steps-refresh:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
 @keyframes session-next-step-loading {
   from { background-position: 100% 0; }
   to { background-position: -100% 0; }

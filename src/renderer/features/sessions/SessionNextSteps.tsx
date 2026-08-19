@@ -1,14 +1,15 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowRight, Lightbulb, RefreshCw } from 'lucide-react';
-import type { ResearchGoalPhase, RunDetail, RunStatus } from '@shared/types';
-import { clientRequestId } from '../../view-models/runSettings';
+import { ArrowRight, Lightbulb } from 'lucide-react';
+import type { ResearchGoalPhase, RunDetail, RunStatus, SessionNextPromptSuggestion } from '@shared/types';
 
 const NEXT_STEP_COUNT = 3;
+const EMPTY_SESSION_PROMPTS: readonly SessionNextPromptSuggestion[] = [];
 
 export interface ResearchGoalSeed {
   sentence: string;
   phase: ResearchGoalPhase;
+  promptMarkdown?: string;
 }
 
 export function isEndedResearchRunStatus(status: RunStatus): boolean {
@@ -17,11 +18,9 @@ export function isEndedResearchRunStatus(status: RunStatus): boolean {
 
 export const SessionNextSteps = memo(function SessionNextSteps({
   detail,
-  autoGenerate = false,
   onSelect
 }: {
   detail: RunDetail;
-  autoGenerate?: boolean;
   onSelect: (goal: ResearchGoalSeed) => void;
 }): JSX.Element | null {
   const workflowId = sessionWorkflowId(detail);
@@ -29,82 +28,77 @@ export const SessionNextSteps = memo(function SessionNextSteps({
   const persistedSuggestions = detail.nextStepSuggestions?.phase === workflowId
     ? detail.nextStepSuggestions.suggestions
     : null;
-  const [generationRequest, setGenerationRequest] = useState<{ cacheKey: string; attempt: number } | null>(
-    () => autoGenerate && persistedSuggestions === null ? { cacheKey, attempt: 1 } : null
-  );
-  const generationRequested = generationRequest?.cacheKey === cacheKey;
+  const persistedPrompts = detail.nextStepSuggestions?.phase === workflowId
+    ? detail.nextStepSuggestions.promptSuggestions ?? EMPTY_SESSION_PROMPTS
+    : EMPTY_SESSION_PROMPTS;
   const [state, setState] = useState<{
     cacheKey: string;
     loading: boolean;
     suggestions: readonly string[];
+    promptSuggestions: readonly SessionNextPromptSuggestion[];
     error: string | null;
   }>(() => ({
     cacheKey,
-    loading: generationRequested,
+    loading: persistedSuggestions === null,
     suggestions: persistedSuggestions ?? [],
+    promptSuggestions: persistedPrompts,
     error: workflowId ? null : 'This session does not have a research workflow.'
   }));
 
   useEffect(() => {
-    if (!generationRequested || !generationRequest) return undefined;
+    if (persistedSuggestions) {
+      setState({ cacheKey, loading: false, suggestions: persistedSuggestions, promptSuggestions: persistedPrompts, error: null });
+      return undefined;
+    }
     if (!workflowId) {
       setState({
         cacheKey,
         loading: false,
         suggestions: [],
+        promptSuggestions: [],
         error: 'This session does not have a research workflow.'
       });
       return undefined;
     }
 
     let cancelled = false;
-    const requestId = clientRequestId('session_next_steps');
-    setState({ cacheKey, loading: true, suggestions: [], error: null });
+    setState({ cacheKey, loading: true, suggestions: [], promptSuggestions: [], error: null });
     void window.beale.generateResearchGoalSuggestions({
       phase: workflowId,
-      requestId,
       sourceRunId: detail.run.id
     })
       .then((result) => {
         if (cancelled) return;
-        setState({ cacheKey, loading: false, suggestions: result.suggestions, error: null });
+        setState({
+          cacheKey,
+          loading: false,
+          suggestions: result.suggestions,
+          promptSuggestions: result.promptSuggestions ?? [],
+          error: null
+        });
       })
       .catch((caught: unknown) => {
         if (cancelled) return;
         const message = caught instanceof Error ? caught.message : String(caught);
         if (!/canceled/i.test(message)) {
-          setState({ cacheKey, loading: false, suggestions: [], error: message });
+          setState({ cacheKey, loading: false, suggestions: [], promptSuggestions: [], error: message });
         }
       });
 
     return () => {
       cancelled = true;
-      void window.beale.cancelResearchPromptGeneration(requestId).catch(() => undefined);
     };
-  }, [cacheKey, detail.run.id, generationRequest, generationRequested, workflowId]);
-
-  useEffect(() => {
-    if (generationRequested) return;
-    if (persistedSuggestions) {
-      setState({ cacheKey, loading: false, suggestions: persistedSuggestions, error: null });
-      return;
-    }
-    setState({
-      cacheKey,
-      loading: false,
-      suggestions: [],
-      error: workflowId ? null : 'This session does not have a research workflow.'
-    });
-  }, [cacheKey, generationRequested, persistedSuggestions, workflowId]);
+  }, [cacheKey, detail.run.id, persistedPrompts, persistedSuggestions, workflowId]);
 
   const currentState = state.cacheKey === cacheKey
     ? state
     : persistedSuggestions
-      ? { cacheKey, loading: false, suggestions: persistedSuggestions, error: null }
+      ? { cacheKey, loading: false, suggestions: persistedSuggestions, promptSuggestions: persistedPrompts, error: null }
       : {
           cacheKey,
-          loading: generationRequested,
+          loading: true,
           suggestions: [] as readonly string[],
+          promptSuggestions: [] as readonly SessionNextPromptSuggestion[],
           error: workflowId ? null : 'This session does not have a research workflow.'
         };
 
@@ -113,12 +107,10 @@ export const SessionNextSteps = memo(function SessionNextSteps({
       loading={currentState.loading}
       suggestions={currentState.suggestions}
       error={currentState.error}
-      onRefresh={() => setGenerationRequest((current) => ({
-        cacheKey,
-        attempt: current?.cacheKey === cacheKey ? current.attempt + 1 : 1
-      }))}
       onSelect={(sentence) => {
-        if (workflowId) onSelect({ sentence, phase: workflowId });
+        if (!workflowId) return;
+        const promptMarkdown = currentState.promptSuggestions.find((suggestion) => suggestion.title === sentence)?.promptMarkdown;
+        onSelect({ sentence, phase: workflowId, ...(promptMarkdown ? { promptMarkdown } : {}) });
       }}
     />
   );
@@ -128,13 +120,11 @@ export const SessionNextStepsWidget = memo(function SessionNextStepsWidget({
   loading,
   suggestions,
   error,
-  onRefresh,
   onSelect
 }: {
   loading: boolean;
   suggestions: readonly string[];
   error: string | null;
-  onRefresh: () => void;
   onSelect: (sentence: string) => void;
 }): JSX.Element {
   const visibleSuggestions = useMemo(() => suggestions.slice(0, NEXT_STEP_COUNT), [suggestions]);
@@ -142,17 +132,6 @@ export const SessionNextStepsWidget = memo(function SessionNextStepsWidget({
     <section className="session-next-steps" aria-label="Suggestions" aria-busy={loading}>
       <header className="session-next-steps-header">
         <h3>Suggestions</h3>
-        <button
-          type="button"
-          className="session-next-steps-refresh"
-          disabled={loading}
-          aria-label="Regenerate suggestions"
-          title="Regenerate suggestions"
-          onClick={onRefresh}
-        >
-          <RefreshCw size={13} aria-hidden="true" />
-          <span>Refresh</span>
-        </button>
       </header>
       <div className="session-next-steps-list">
         {loading

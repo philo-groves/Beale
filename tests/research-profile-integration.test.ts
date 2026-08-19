@@ -508,6 +508,39 @@ describe('research profile host integration', () => {
       const started = service.startRun(runInput('literature-synthesis'));
       const runId = started.runs[0]?.run.id ?? '';
       await waitForRun(service, runId);
+      const capturedNextPrompts = [
+        {
+          title: 'Compare the nearest regional model',
+          promptMarkdown: 'Compare the completed result with the nearest regional model and preserve the established evidence.'
+        },
+        {
+          title: 'Challenge the boundary assumptions',
+          promptMarkdown: 'Challenge the completed session’s boundary assumptions with a materially different dataset.'
+        },
+        {
+          title: 'Build a reproducible comparison',
+          promptMarkdown: 'Turn the completed analysis into a bounded, reproducible comparison.'
+        }
+      ];
+      const workspaceDb = (service as unknown as { db: WorkspaceDatabase }).db;
+      workspaceDb.createTranscriptMessage({
+        runId,
+        role: 'assistant',
+        phase: 'final_answer',
+        contentMarkdown: 'Completed regional analysis.',
+        source: 'honeycrisp',
+        metadata: { nextPromptSuggestions: capturedNextPrompts }
+      });
+      const modelRequestCount = modelRequests.length;
+      await expect(service.generateResearchGoalSuggestions({
+        phase: 'literature-synthesis',
+        sourceRunId: runId
+      })).resolves.toEqual({
+        phase: 'literature-synthesis',
+        suggestions: capturedNextPrompts.map((suggestion) => suggestion.title),
+        promptSuggestions: capturedNextPrompts
+      });
+      expect(modelRequests).toHaveLength(modelRequestCount);
       const invocation = readInvocations(invocationLog)[0];
       const launchArgs = invocation?.args ?? [];
       expect(invocation?.args).toEqual(expect.arrayContaining([

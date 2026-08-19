@@ -225,7 +225,7 @@ export function ResearchSettingsForm({
     researchSettingsInput(initialInput, initialWorkflowId, initialGoal, defaultShellSafetyMode)
   ));
   const [startingRun, setStartingRun] = useState(false);
-  const [editorStage, setEditorStage] = useState<PromptEditorStage>(initialInput ? 'prompt' : 'goal');
+  const [editorStage, setEditorStage] = useState<PromptEditorStage>(initialInput || initialGoal?.promptMarkdown ? 'prompt' : 'goal');
   const [generateEnabled, setGenerateEnabled] = useState(false);
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
@@ -397,7 +397,7 @@ export function ResearchSettingsForm({
     setSelectedProviderId(inflatedProvider ?? defaultProviderId ?? null);
     providerSelectionInitializedRef.current = Boolean(inflatedProvider);
     modelSelectionInitializedRef.current = Boolean(initialInput?.model);
-    setEditorStage(initialInput ? 'prompt' : 'goal');
+    setEditorStage(initialInput || initialGoal?.promptMarkdown ? 'prompt' : 'goal');
     setGenerationError(null);
   }, [defaultProviderId, defaultShellSafetyMode, defaultWorkflowId, formIdentity, initialGoal, initialInput]);
 
@@ -1263,7 +1263,7 @@ export function researchSettingsInput(
     shellSafetyMode: defaultShellSafetyMode,
     workflowId: initialGoal?.phase ?? initialWorkflowId,
     goalObjective: initialGoal?.sentence ?? null,
-    promptMarkdown: initialGoal?.sentence ?? '',
+    promptMarkdown: initialGoal?.promptMarkdown ?? initialGoal?.sentence ?? '',
     sandboxProfile: 'host',
     budget: { ...defaultRunInput.budget },
     collaboration: normalizeResearchCollaboration(defaultRunInput.collaboration)

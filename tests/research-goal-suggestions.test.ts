@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { ResearchProfileWorkflow } from '@shared/types';
+import type { ResearchProfileWorkflow, RunRecord } from '@shared/types';
 import {
   parseAndSelectResearchGoalCandidates,
   researchGoalCandidateCount,
   researchGoalSuggestionTextFormat,
   semanticGoalSimilarity
 } from '../src/main/researchGoalSuggestions';
+import { buildSessionNextStepSuggestions } from '../src/main/sessionNextStepSuggestions';
 
 const WORKFLOW: ResearchProfileWorkflow = {
   id: 'discovery',
@@ -236,11 +237,74 @@ describe('research goal candidate selection', () => {
   });
 });
 
+describe('session next-step suggestions', () => {
+  it('preserves captured prompts and fills missing entries locally without a model request', () => {
+    const captured = [{
+      title: 'Validate the parser boundary',
+      promptMarkdown: 'Validate the parser boundary with the alternate encoded input.'
+    }];
+    const generated = buildSessionNextStepSuggestions(sessionRun(), 'discovery', captured);
+
+    expect(generated.suggestions).toHaveLength(3);
+    expect(generated.suggestions[0]).toBe(captured[0]?.title);
+    expect(generated.promptSuggestions?.[0]).toEqual(captured[0]);
+    expect(generated.promptSuggestions?.every((suggestion) => suggestion.promptMarkdown.length > 0)).toBe(true);
+  });
+
+  it('prioritizes an external blocker when no captured prompts are available', () => {
+    const run = sessionRun();
+    run.status = 'blocked';
+    run.finalDisposition = {
+      outcome: 'blocked',
+      summary: 'Live validation needs an authorized test account.',
+      blockerDependencies: [{
+        kind: 'credentials',
+        description: 'A second account is unavailable.',
+        requiredState: 'Provide an authorized second test account.',
+        external: true
+      }],
+      externalStateRequired: true,
+      source: 'agent',
+      recordedAt: '2026-08-19T12:00:00.000Z'
+    };
+
+    const generated = buildSessionNextStepSuggestions(run, 'discovery', []);
+    expect(generated.suggestions).toHaveLength(3);
+    expect(generated.suggestions[0]).toContain('Provide an authorized second test account');
+    expect(generated.promptSuggestions?.[0]?.promptMarkdown).toContain('remaining dependency');
+  });
+});
+
 function candidate(goal: string, noveltyAxis: string, groundingRef = 'workspace:scope') {
   return {
     goal,
     groundingRefs: [groundingRef],
     rationale: 'The recorded workspace context makes this a bounded and discriminating direction.',
     noveltyAxis
+  };
+}
+
+function sessionRun(): RunRecord {
+  return {
+    id: 'run_session_suggestions',
+    scopeVersionId: 'scope_one',
+    researchProfileSnapshotId: null,
+    shellSafetyMode: 'auto_review',
+    mode: 'research',
+    status: 'completed',
+    title: 'Inspect parser trust boundaries',
+    promptMarkdown: 'Inspect the parser trust boundaries and validate concrete failures.',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'high',
+    attemptStrategy: 'iterative_research',
+    sandboxProfile: 'host',
+    targetAssetId: null,
+    targetPath: null,
+    budget: { researchWorkflowId: 'discovery' },
+    summary: 'The primary encoded-input path was validated; the alternate path remains open.',
+    finalDisposition: null,
+    createdAt: '2026-08-19T11:00:00.000Z',
+    startedAt: '2026-08-19T11:00:01.000Z',
+    endedAt: '2026-08-19T12:00:00.000Z'
   };
 }

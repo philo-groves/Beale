@@ -1318,9 +1318,17 @@ export type ResearchGoalPhase = string;
 
 export type ResearchGoalSuggestionGroup = string[];
 
+export interface SessionNextPromptSuggestion {
+  title: string;
+  promptMarkdown: string;
+  rationale?: string;
+}
+
 export interface GeneratedResearchGoalSuggestions {
   phase: ResearchGoalPhase;
   suggestions: ResearchGoalSuggestionGroup;
+  /** Structured prompts captured during session finalization. Only present for session next steps. */
+  promptSuggestions?: SessionNextPromptSuggestion[];
   /** Present for workspace-level suggestions. Session next steps remain immutable session data. */
   cacheStatus?: 'fresh' | 'stale';
   contextRevision?: string;
