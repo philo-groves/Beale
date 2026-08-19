@@ -845,6 +845,7 @@ code {
 
 .top-bar {
   --header-menu-inline-end: 210px;
+  --header-control-active-background: color-mix(in srgb, var(--text) 4.5%, transparent);
   grid-column: 1 / -1;
   grid-row: 1;
   min-width: 0;
@@ -1248,6 +1249,12 @@ code {
   margin: 0;
 }
 
+.sidebar-toggle-button[aria-pressed='true'],
+.window-control-button.bottom-panel-toggle-button[aria-pressed='true'],
+.window-control-button.right-sidenav-toggle-button[aria-pressed='true'] {
+  background: var(--header-control-active-background);
+}
+
 .window-control-button.bottom-panel-toggle-button:hover:not(:disabled) {
   background: var(--gray-18);
 }
@@ -1275,7 +1282,7 @@ code {
   align-items: center;
   justify-content: center;
   border: 0;
-  background: color-mix(in srgb, var(--text) 4.5%, transparent);
+  background: var(--header-control-active-background);
   color: var(--muted-strong);
   padding: 0;
 }
