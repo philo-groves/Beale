@@ -1155,7 +1155,7 @@ export interface OpenAiOAuthStartResult {
   instructions: string | null;
 }
 
-export type ResearchProviderId = 'anthropic' | 'xai' | 'zai';
+export type ResearchProviderId = 'anthropic' | 'xai' | 'zai' | 'openrouter';
 
 export type ResearchModelProviderId = 'openai-codex' | ResearchProviderId;
 
@@ -1217,7 +1217,7 @@ export interface ResearchProviderStatus {
   credentialsHostOnly: boolean;
   loginInProgress: boolean;
   statusDetail: string;
-  apiKeyEnvironmentVariable: 'ANTHROPIC_API_KEY' | 'XAI_API_KEY' | 'ZAI_API_KEY';
+  apiKeyEnvironmentVariable: 'ANTHROPIC_API_KEY' | 'XAI_API_KEY' | 'ZAI_API_KEY' | 'OPENROUTER_API_KEY';
 }
 
 export interface ResearchProviderOAuthStartResult {

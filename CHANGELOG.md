@@ -94,6 +94,7 @@
 
 ### Added
 
+- Added OpenRouter provider settings, encrypted `OPENROUTER_API_KEY` management, the Pi-backed model catalog with `auto` defaults, API-key-only authentication UI, and routed-provider policy-risk preflight acknowledgement.
 - Memory, Runbook, and Report detail views now show every model author recorded across the resource's revisions, with an explicit unrecorded state for legacy resources.
 - Agent Settings now includes Ticketing with Local Reports Only as the default plus opt-in GitHub Issues and Linear integrations. Beale encrypts managed tokens in the host process, discovers accessible repositories or teams, and creates tickets directly from durable report Markdown.
 

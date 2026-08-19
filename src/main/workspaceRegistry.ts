@@ -126,6 +126,9 @@ export class WorkspaceRegistry {
     if (this.getMeta('zai_policy_use_risk_acknowledged') === '1') {
       cyberPolicyRiskAcknowledgements.zai = true;
     }
+    if (this.getMeta('openrouter_policy_use_risk_acknowledged') === '1') {
+      cyberPolicyRiskAcknowledgements.openrouter = true;
+    }
     return {
       defaultProviderId: normalizeDefaultProviderId(this.getMeta('default_provider_id')),
       modelDefaults: normalizeProviderModelDefaultsRecord(this.getMeta('provider_model_defaults_json')),
@@ -210,6 +213,9 @@ export class WorkspaceRegistry {
   ): ProviderSettings {
     if (!isResearchModelProviderId(providerId)) throw new Error('Invalid authentication preference provider.');
     if (method !== 'subscription' && method !== 'api_key') throw new Error('Invalid authentication preference.');
+    if (providerId === 'openrouter' && method !== 'api_key') {
+      throw new Error('OpenRouter supports API key authentication only.');
+    }
     const preferences = {
       ...this.getProviderSettings().preferredAuthenticationMethods,
       [providerId]: method
@@ -1061,14 +1067,15 @@ function isComputerUsePermissionMode(value: unknown): value is ComputerUsePermis
 }
 
 function isResearchModelProviderId(value: unknown): value is ResearchModelProviderId {
-  return value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai';
+  return value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai' || value === 'openrouter';
 }
 
 function providerCyberPolicyAcknowledgementMetaKey(providerId: ResearchModelProviderId): string {
   if (providerId === 'openai-codex') return 'openai_trusted_access_cyber_risk_acknowledged';
   if (providerId === 'anthropic') return 'anthropic_cvp_risk_acknowledged';
   if (providerId === 'xai') return 'xai_policy_use_risk_acknowledged';
-  return 'zai_policy_use_risk_acknowledged';
+  if (providerId === 'zai') return 'zai_policy_use_risk_acknowledged';
+  return 'openrouter_policy_use_risk_acknowledged';
 }
 
 function normalizeProviderModelDefaultsRecord(value: unknown): Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> {
@@ -1077,7 +1084,7 @@ function normalizeProviderModelDefaultsRecord(value: unknown): Partial<Record<Re
     const parsed = JSON.parse(value) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const normalized: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> = {};
-    for (const providerId of ['openai-codex', 'anthropic', 'xai', 'zai'] as const) {
+    for (const providerId of ['openai-codex', 'anthropic', 'xai', 'zai', 'openrouter'] as const) {
       const defaults = (parsed as Record<string, unknown>)[providerId];
       if (defaults === undefined) continue;
       try {
@@ -1100,7 +1107,7 @@ function normalizeEnabledOptionalModelsRecord(
     const parsed = JSON.parse(value) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const normalized: Partial<Record<ResearchModelProviderId, string[]>> = {};
-    for (const providerId of ['openai-codex', 'anthropic', 'xai', 'zai'] as const) {
+    for (const providerId of ['openai-codex', 'anthropic', 'xai', 'zai', 'openrouter'] as const) {
       const modelIds = (parsed as Record<string, unknown>)[providerId];
       if (!Array.isArray(modelIds)) continue;
       const enabled = [...new Set(modelIds.filter((modelId): modelId is string => (
@@ -1122,9 +1129,11 @@ function normalizePreferredAuthenticationMethodsRecord(
     const parsed = JSON.parse(value) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const normalized: Partial<Record<ResearchModelProviderId, ProviderAuthenticationMethod>> = {};
-    for (const providerId of ['openai-codex', 'anthropic', 'xai', 'zai'] as const) {
+    for (const providerId of ['openai-codex', 'anthropic', 'xai', 'zai', 'openrouter'] as const) {
       const method = (parsed as Record<string, unknown>)[providerId];
-      if (method === 'subscription' || method === 'api_key') normalized[providerId] = method;
+      if (method === 'api_key' || (providerId !== 'openrouter' && method === 'subscription')) {
+        normalized[providerId] = method;
+      }
     }
     return normalized;
   } catch {

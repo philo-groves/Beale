@@ -2711,7 +2711,8 @@ export function honeycrispProcessEnvironment(
     'openai-codex': preferredAuthenticationMethods?.['openai-codex'] ?? 'subscription',
     anthropic: preferredAuthenticationMethods?.anthropic ?? 'subscription',
     xai: preferredAuthenticationMethods?.xai ?? 'subscription',
-    zai: preferredAuthenticationMethods?.zai ?? 'subscription'
+    zai: preferredAuthenticationMethods?.zai ?? 'subscription',
+    openrouter: 'api_key'
   });
   if (env.HONEYCRISP_CODEX_AUTH_FILE?.trim()) return env;
 
@@ -2932,6 +2933,9 @@ function honeycrispRunArgs(
   }
   if (providerSettings?.cyberPolicyRiskAcknowledgements?.zai === true) {
     args.push('--zai-policy-risk-acknowledged');
+  }
+  if (providerSettings?.cyberPolicyRiskAcknowledgements?.openrouter === true) {
+    args.push('--openrouter-policy-risk-acknowledged');
   }
   const providerModelDefaults = providerSettings?.modelDefaults[effectiveProvider as keyof ProviderSettings['modelDefaults']];
   const providerSemantics = getHoneycrispProviderSemantics();

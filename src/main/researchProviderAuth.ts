@@ -13,12 +13,13 @@ import type {
 } from '@shared/types';
 import { honeycrispProcessEnvironment, resolveHoneycrispInvocation } from './honeycrispRunEngine';
 
-const SUPPORTED_PROVIDERS: readonly ResearchProviderId[] = ['anthropic', 'xai', 'zai'];
-const MODEL_PROVIDERS: readonly ResearchModelProviderId[] = ['openai-codex', 'anthropic', 'xai', 'zai'];
+const SUPPORTED_PROVIDERS: readonly ResearchProviderId[] = ['anthropic', 'xai', 'zai', 'openrouter'];
+const MODEL_PROVIDERS: readonly ResearchModelProviderId[] = ['openai-codex', 'anthropic', 'xai', 'zai', 'openrouter'];
 const EFFORT_LEVELS: readonly ResearchModelEffortLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const STATUS_TIMEOUT_MS = 10_000;
 const INITIAL_OAUTH_OUTPUT_MS = 2_500;
 const MAX_AUTH_OUTPUT_CHARS = 16_000;
+const MAX_MODEL_CATALOG_OUTPUT_CHARS = 4 * 1024 * 1024;
 const EXTERNAL_AUTH_TIMEOUT_MS = 5 * 60_000;
 
 interface AuthCommandResult {
@@ -55,7 +56,10 @@ export class ResearchProviderAuthService {
     if (this.modelCatalog) return this.modelCatalog;
     const catalogs = await Promise.all(
       MODEL_PROVIDERS.map(async (providerId) => {
-        const result = await runHoneycrispCommand(['models', 'list', providerId, '--json']);
+        const result = await runHoneycrispCommand(
+          ['models', 'list', providerId, '--json'],
+          MAX_MODEL_CATALOG_OUTPUT_CHARS
+        );
         const [catalog] = parseHoneycrispModelCatalog(result.stdout);
         if (!catalog || catalog.providerId !== providerId) {
           throw new Error(`Honeycrisp returned an unrecognized ${providerId} model catalog.`);
@@ -69,6 +73,9 @@ export class ResearchProviderAuthService {
 
   public async startOAuthLogin(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult> {
     requireSupportedProvider(providerId);
+    if (providerId === 'openrouter') {
+      throw new Error('OpenRouter supports API key authentication only.');
+    }
     if (providerId === 'zai' && zcodeSubscriptionConfigured()) {
       return {
         providerId,
@@ -174,6 +181,7 @@ export class ResearchProviderAuthService {
 
   public async forgetSubscription(providerId: ResearchProviderId): Promise<void> {
     requireSupportedProvider(providerId);
+    if (providerId === 'openrouter') return;
     this.cancelOAuthLogin(providerId);
     if (providerId === 'zai') {
       const invocation = zcodeCliInvocation(['logout']);
@@ -194,7 +202,7 @@ export class ResearchProviderAuthService {
 
   private async getStatus(providerId: ResearchProviderId): Promise<ResearchProviderStatus> {
     if (providerId === 'zai') return this.getZaiStatus();
-    const apiKeyEnvironmentVariable = providerId === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'XAI_API_KEY';
+    const apiKeyEnvironmentVariable = providerApiKeyEnvironmentVariable(providerId);
     const environmentApiKeyConfigured = Boolean(process.env[apiKeyEnvironmentVariable]?.trim());
     try {
       const [statusResult, verifyResult] = await Promise.all([
@@ -232,7 +240,7 @@ export class ResearchProviderAuthService {
         subscriptionConfigured: false,
         apiKeyConfigured: environmentApiKeyConfigured,
         readiness: 'unavailable',
-        authMethods: ['api_key', 'oauth'],
+        authMethods: providerId === 'openrouter' ? ['api_key'] : ['api_key', 'oauth'],
         credentialType: null,
         source: null,
         defaultModel: null,
@@ -338,14 +346,17 @@ export function parseHoneycrispModelCatalog(output: string): ResearchProviderMod
   });
 }
 
-async function runHoneycrispCommand(args: readonly string[]): Promise<AuthCommandResult> {
+async function runHoneycrispCommand(
+  args: readonly string[],
+  maxOutputChars = MAX_AUTH_OUTPUT_CHARS
+): Promise<AuthCommandResult> {
   const invocation = resolveHoneycrispInvocation();
   const child = spawn(invocation.command, [...invocation.prefixArgs, ...args], {
     cwd: invocation.cwd,
     env: honeycrispProcessEnvironment(),
     windowsHide: true
   });
-  return collectCommandOutput(child, STATUS_TIMEOUT_MS);
+  return collectCommandOutput(child, STATUS_TIMEOUT_MS, maxOutputChars);
 }
 
 function parseProviderModel(value: unknown): ResearchProviderModel[] {
@@ -366,12 +377,16 @@ function parseProviderModel(value: unknown): ResearchProviderModel[] {
   }];
 }
 
-function collectCommandOutput(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<AuthCommandResult> {
+function collectCommandOutput(
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+  maxOutputChars = MAX_AUTH_OUTPUT_CHARS
+): Promise<AuthCommandResult> {
   return new Promise((resolve, reject) => {
     let stdout = '';
     let stderr = '';
     let settled = false;
-    const append = (current: string, chunk: Buffer): string => (current + chunk.toString('utf8')).slice(-MAX_AUTH_OUTPUT_CHARS);
+    const append = (current: string, chunk: Buffer): string => (current + chunk.toString('utf8')).slice(-maxOutputChars);
     const finish = (callback: () => void): void => {
       if (settled) return;
       settled = true;
@@ -451,6 +466,9 @@ function providerStatusDetail(providerId: ResearchProviderId, configured: boolea
   }
   if (providerId === 'zai') {
     return `${name} is not configured. Sign in through the official ZCode app, or provide ZAI_API_KEY in Beale's host environment.`;
+  }
+  if (providerId === 'openrouter') {
+    return `${name} is not configured. Configure an API key in Beale or provide OPENROUTER_API_KEY in Beale's host environment.`;
   }
 
   return `${name} is not configured. Use subscription OAuth here or provide the provider API key in Beale's host environment.`;
@@ -553,7 +571,16 @@ function launchDetachedApplication(invocation: InteractiveAuthInvocation): Promi
 function providerDisplayName(providerId: ResearchProviderId): string {
   if (providerId === 'anthropic') return 'Anthropic (Claude)';
   if (providerId === 'xai') return 'xAI (Grok/X)';
-  return 'Z.ai (ZCode/GLM)';
+  if (providerId === 'zai') return 'Z.ai (ZCode/GLM)';
+  return 'OpenRouter';
+}
+
+function providerApiKeyEnvironmentVariable(
+  providerId: Exclude<ResearchProviderId, 'zai'>
+): 'ANTHROPIC_API_KEY' | 'XAI_API_KEY' | 'OPENROUTER_API_KEY' {
+  if (providerId === 'anthropic') return 'ANTHROPIC_API_KEY';
+  if (providerId === 'xai') return 'XAI_API_KEY';
+  return 'OPENROUTER_API_KEY';
 }
 
 function providerAuthProcessEnvironment(providerId: ResearchProviderId): NodeJS.ProcessEnv {

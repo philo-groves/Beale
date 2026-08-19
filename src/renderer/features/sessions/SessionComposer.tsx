@@ -313,7 +313,7 @@ export const MainSteerArea = memo(function MainSteerArea({
 
 function runModelProvider(detail: RunDetail | null, catalogs: ResearchProviderModelCatalog[]): ResearchModelProviderId {
   const stored = detail?.run.budget.modelProvider;
-  if (stored === 'openai-codex' || stored === 'anthropic' || stored === 'xai') return stored;
+  if (stored === 'openai-codex' || stored === 'anthropic' || stored === 'xai' || stored === 'zai' || stored === 'openrouter') return stored;
   const matchingCatalog = catalogs.find((catalog) => catalog.models.some((model) => model.id === detail?.run.model));
   return matchingCatalog?.providerId ?? 'openai-codex';
 }

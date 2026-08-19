@@ -6,7 +6,8 @@ const API_KEY_ENVIRONMENT_VARIABLES: Readonly<Record<ResearchModelProviderId, st
   'openai-codex': 'OPENAI_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
   xai: 'XAI_API_KEY',
-  zai: 'ZAI_API_KEY'
+  zai: 'ZAI_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY'
 };
 const MAX_API_KEY_LENGTH = 16_384;
 
@@ -156,7 +157,7 @@ export class ProviderCredentialStore {
 }
 
 function providerIds(): ResearchModelProviderId[] {
-  return ['openai-codex', 'anthropic', 'xai', 'zai'];
+  return ['openai-codex', 'anthropic', 'xai', 'zai', 'openrouter'];
 }
 
 function environmentVariable(providerId: ResearchModelProviderId): string {

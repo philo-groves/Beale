@@ -503,6 +503,7 @@ function breakoutResearchProviderId(value: string): ResearchModelProviderId | nu
   if (normalized === 'anthropic' || normalized === 'claude' || normalized.startsWith('claude-')) return 'anthropic';
   if (normalized === 'xai' || normalized === 'grok' || normalized.startsWith('grok-')) return 'xai';
   if (normalized === 'zai' || normalized === 'z.ai' || normalized === 'glm' || normalized.startsWith('glm-')) return 'zai';
+  if (normalized === 'openrouter' || normalized === 'openrouter.ai') return 'openrouter';
   return null;
 }
 

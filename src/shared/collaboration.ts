@@ -19,7 +19,7 @@ export const DEFAULT_RESEARCH_COLLABORATION = Object.freeze({
 
 const MODES = new Set<ResearchCollaborationMode>(['solo', 'adaptive', 'always']);
 const INTENSITIES = new Set<ResearchCollaborationIntensity>(['focused', 'balanced', 'deep']);
-const PROVIDERS = new Set<ResearchModelProviderId>(['openai-codex', 'anthropic', 'xai', 'zai']);
+const PROVIDERS = new Set<ResearchModelProviderId>(['openai-codex', 'anthropic', 'xai', 'zai', 'openrouter']);
 const EFFORTS = new Set<ResearchModelEffortLevel>(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 export function normalizeResearchCollaboration(

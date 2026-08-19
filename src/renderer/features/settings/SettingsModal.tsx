@@ -1504,7 +1504,8 @@ function providerCompanyName(providerId: ResearchModelProviderId): string {
   if (providerId === 'openai-codex') return 'OpenAI';
   if (providerId === 'anthropic') return 'Anthropic';
   if (providerId === 'xai') return 'xAI';
-  return 'Z.ai';
+  if (providerId === 'zai') return 'Z.ai';
+  return 'OpenRouter';
 }
 
 type ProviderHealthState = 'healthy' | 'unhealthy' | 'authenticating';
@@ -1580,6 +1581,7 @@ function ProviderAuthenticationStatus({ state, preferred = false }: { state: Pro
 
 function ProviderAuthenticationSection({
   providerId,
+  subscriptionSupported = true,
   subscriptionState,
   apiKeyConfigured,
   busy,
@@ -1594,6 +1596,7 @@ function ProviderAuthenticationSection({
   onMarkPreferred
 }: {
   providerId: ResearchModelProviderId;
+  subscriptionSupported?: boolean;
   subscriptionState: ProviderAuthenticationState;
   apiKeyConfigured: boolean;
   busy: boolean;
@@ -1608,7 +1611,7 @@ function ProviderAuthenticationSection({
   onMarkPreferred: (method: ProviderAuthenticationMethod) => void;
 }): JSX.Element {
   const subscriptionConfigured = subscriptionState === 'configured';
-  const showPreferenceControls = subscriptionConfigured && apiKeyConfigured;
+  const showPreferenceControls = subscriptionSupported && subscriptionConfigured && apiKeyConfigured;
   const providerName = providerCompanyName(providerId);
   return (
     <section className="settings-form provider-settings-form provider-authentication-section" aria-label="Authentication">
@@ -1623,7 +1626,7 @@ function ProviderAuthenticationSection({
       </header>
       <div className="settings-form-squircle provider-settings-form-squircle">
         <div className="provider-authentication-options">
-          <div className="provider-authentication-option">
+          {subscriptionSupported ? <div className="provider-authentication-option">
             <div className="provider-authentication-copy">
               <div className="provider-authentication-option-heading">
                 <strong>Subscription</strong>
@@ -1653,7 +1656,7 @@ function ProviderAuthenticationSection({
                 </button>
               ) : null}
             </div>
-          </div>
+          </div> : null}
           <div className="provider-authentication-option">
             <div className="provider-authentication-copy">
               <div className="provider-authentication-option-heading">
@@ -2062,7 +2065,8 @@ export function ProvidersSettingsView({
           policyRiskAcknowledged={providerSettings?.cyberPolicyRiskAcknowledgements?.[activeProvider.id] === true}
           onSetPolicyRiskAcknowledged={(acknowledged) =>
             void onSetProviderCyberPolicyRiskAcknowledged(activeProvider.id, acknowledged)}
-          preferredAuthenticationMethod={providerSettings?.preferredAuthenticationMethods?.[activeProvider.id] ?? 'subscription'}
+          preferredAuthenticationMethod={providerSettings?.preferredAuthenticationMethods?.[activeProvider.id]
+            ?? (activeProvider.id === 'openrouter' ? 'api_key' : 'subscription')}
           onSetPreferredAuthenticationMethod={(method) =>
             void onSetProviderPreferredAuthenticationMethod(activeProvider.id, method)}
         />
@@ -2565,6 +2569,7 @@ function ResearchProviderCard({
       authentication={(
         <ProviderAuthenticationSection
           providerId={provider.id}
+          subscriptionSupported={provider.authMethods.includes('oauth')}
           subscriptionState={subscriptionState}
           apiKeyConfigured={provider.apiKeyConfigured}
           busy={busy}
@@ -2602,14 +2607,18 @@ function ProviderCyberPolicyAcknowledgement({
       ? 'Subscription sign-in is experimental and only intended for Anthropic Cyber Verification Program members. CVP membership does not waive Anthropic\'s Usage Policy: requests may still be blocked or treated as usage violations. Beale delegates Claude sessions to the official Claude Agent SDK and Claude Code CLI; it does not copy or replay subscription tokens.'
       : providerId === 'xai'
         ? 'Cybersecurity use remains subject to xAI policy requirements. Requests may be blocked or treated as usage violations.'
-        : 'Cybersecurity use remains subject to Z.ai policy and Coding Plan terms. Requests may be blocked or treated as usage violations. Subscription sessions are delegated to the official ZCode agent; Beale does not copy or replay subscription credentials.';
+        : providerId === 'zai'
+          ? 'Cybersecurity use remains subject to Z.ai policy and Coding Plan terms. Requests may be blocked or treated as usage violations. Subscription sessions are delegated to the official ZCode agent; Beale does not copy or replay subscription credentials.'
+          : 'Requests sent through OpenRouter remain subject to OpenRouter terms and the policies of the selected model provider. Requests may be blocked or treated as usage violations by either service.';
   const label = providerId === 'openai-codex'
     ? 'I confirm this account has OpenAI Trusted Access for Cyber membership and I accept the policy-use risk.'
     : providerId === 'anthropic'
       ? 'I confirm this account is enrolled in Anthropic\'s Cyber Verification Program and I accept the usage-policy risk.'
       : providerId === 'xai'
         ? 'I accept the policy-use risk for cybersecurity research with xAI.'
-        : 'I accept the policy-use risk for cybersecurity research with Z.ai.';
+        : providerId === 'zai'
+          ? 'I accept the policy-use risk for cybersecurity research with Z.ai.'
+          : 'I accept the OpenRouter and routed-provider policy-use risk for cybersecurity research.';
   return (
     <div className="provider-policy-warning">
       <p className="provider-detail provider-billing-note">{detail}</p>

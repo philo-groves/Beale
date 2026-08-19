@@ -207,15 +207,15 @@ export interface HoneycrispResolvedArtifact {
 }
 
 export interface HoneycrispAuxiliaryModelRoute {
-  provider: 'openai-codex' | 'anthropic' | 'xai' | 'zai';
+  provider: 'openai-codex' | 'anthropic' | 'xai' | 'zai' | 'openrouter';
   model: string;
   effort: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 }
 
 export interface HoneycrispProviderSemantics {
-  providers: Array<'openai-codex' | 'anthropic' | 'xai' | 'zai'>;
-  aliases: Record<string, 'openai-codex' | 'anthropic' | 'xai' | 'zai'>;
-  defaultSmallModels: Record<'openai-codex' | 'anthropic' | 'xai' | 'zai', string>;
+  providers: Array<'openai-codex' | 'anthropic' | 'xai' | 'zai' | 'openrouter'>;
+  aliases: Record<string, 'openai-codex' | 'anthropic' | 'xai' | 'zai' | 'openrouter'>;
+  defaultSmallModels: Record<'openai-codex' | 'anthropic' | 'xai' | 'zai' | 'openrouter', string>;
   auxiliaryEfforts: Array<'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'>;
   sessionTitleEffort: 'medium';
   shellReviewEffort: 'medium';

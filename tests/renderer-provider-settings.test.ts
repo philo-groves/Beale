@@ -674,6 +674,62 @@ describe('renderer provider settings', () => {
     expect(html).toMatch(/<input type="checkbox"[^>]*disabled=""[^>]*checked=""/u);
   });
 
+  it('presents OpenRouter as an API-key-only provider with routed-provider policy notice', () => {
+    const openrouterStatus: ResearchProviderStatus = {
+      id: 'openrouter',
+      name: 'OpenRouter',
+      configured: true,
+      subscriptionConfigured: false,
+      apiKeyConfigured: true,
+      readiness: 'ready',
+      authMethods: ['api_key'],
+      credentialType: 'api_key',
+      source: 'OPENROUTER_API_KEY',
+      defaultModel: 'auto',
+      credentialsHostOnly: true,
+      loginInProgress: false,
+      statusDetail: 'OpenRouter is ready.',
+      apiKeyEnvironmentVariable: 'OPENROUTER_API_KEY'
+    };
+    const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {
+      openAiStatus: { ...configuredOpenAiStatus(), configured: false, readiness: 'not_configured', source: 'not_configured' },
+      openAiOAuthResult: null,
+      researchProviderOAuthResults: {},
+      researchProviderStatuses: [...researchProviderStatuses(), openrouterStatus],
+      researchProviderModelCatalog: [...modelCatalogs(), {
+        providerId: 'openrouter',
+        providerName: 'OpenRouter',
+        defaultSmallModel: 'auto',
+        models: [{
+          id: 'auto',
+          name: 'Auto Router',
+          reasoning: true,
+          effortLevels: ['low', 'medium', 'high'],
+          contextWindow: 2_000_000,
+          maxTokens: 32_000
+        }]
+      }],
+      providerSettings: {
+        defaultProviderId: 'openrouter',
+        modelDefaults: {},
+        cyberPolicyRiskAcknowledgements: { openrouter: true },
+        preferredAuthenticationMethods: { openrouter: 'api_key' }
+      },
+      providerStatusesLoaded: true,
+      busy: false,
+      onRefreshOpenAi: async () => undefined,
+      onStartOpenAiOAuth: async () => undefined,
+      onStartResearchProviderOAuth: async () => undefined,
+      onSetDefaultProviderId: async () => undefined,
+      onSetProviderModelDefaults: async () => undefined
+    }));
+
+    expect(html).toContain('OpenRouter terms and the policies of the selected model provider');
+    expect(html).toContain('<strong>API Key</strong>');
+    expect(html).not.toContain('<strong>Subscription</strong>');
+    expect(html).not.toContain('>Sign in</button>');
+  });
+
   it('shows an add-provider empty state when no provider is configured', () => {
     const statuses = researchProviderStatuses().map((provider) => ({ ...provider, configured: false, readiness: 'not_configured' as const }));
     const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {

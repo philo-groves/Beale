@@ -8,7 +8,8 @@ const originalEnvironment = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   XAI_API_KEY: process.env.XAI_API_KEY,
-  ZAI_API_KEY: process.env.ZAI_API_KEY
+  ZAI_API_KEY: process.env.ZAI_API_KEY,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY
 };
 const directories: string[] = [];
 
@@ -17,6 +18,7 @@ afterEach(() => {
   restoreEnvironment('ANTHROPIC_API_KEY');
   restoreEnvironment('XAI_API_KEY');
   restoreEnvironment('ZAI_API_KEY');
+  restoreEnvironment('OPENROUTER_API_KEY');
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
@@ -49,6 +51,15 @@ describe('provider credential store', () => {
     expect(process.env.ZAI_API_KEY).toBe('zai-test-secret');
     store.removeApiKey('zai');
     expect(process.env.ZAI_API_KEY).toBeUndefined();
+  });
+
+  it('maps OpenRouter credentials to OPENROUTER_API_KEY', () => {
+    delete process.env.OPENROUTER_API_KEY;
+    const store = new ProviderCredentialStore();
+    store.setApiKey('openrouter', 'openrouter-test-secret');
+    expect(process.env.OPENROUTER_API_KEY).toBe('openrouter-test-secret');
+    store.removeApiKey('openrouter');
+    expect(process.env.OPENROUTER_API_KEY).toBeUndefined();
   });
 
   it('can defer encrypted credential I/O until provider state is needed', () => {

@@ -8,7 +8,8 @@ describe('research session title models', () => {
       'openai-codex': 'gpt-5.6-luna',
       anthropic: 'claude-haiku-4-5',
       xai: 'grok-4.3',
-      zai: 'glm-5-turbo'
+      zai: 'glm-5-turbo',
+      openrouter: 'auto'
     });
     expect(semantics.sessionTitleEffort).toBe('medium');
     expect(semantics.shellReviewEffort).toBe('medium');

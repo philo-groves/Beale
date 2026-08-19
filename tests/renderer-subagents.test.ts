@@ -13,6 +13,7 @@ describe('subagent trace view models', () => {
     expect(providerIconKind('grok-4.6')).toBe('xai');
     expect(providerIconKind('zai')).toBe('zai');
     expect(providerIconKind('glm-5.3')).toBe('zai');
+    expect(providerIconKind('openrouter')).toBe('openrouter');
     expect(providerIconKind(null)).toBe('unknown');
   });
 

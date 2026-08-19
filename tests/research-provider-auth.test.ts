@@ -30,8 +30,8 @@ describe('research provider auth parsing', () => {
     const kill = vi.fn();
     const otherKill = vi.fn();
     const internals = auth as unknown as {
-      loginProcesses: Map<'anthropic' | 'xai' | 'zai', { kill: () => void }>;
-      latestStarts: Map<'anthropic' | 'xai' | 'zai', unknown>;
+      loginProcesses: Map<'anthropic' | 'xai' | 'zai' | 'openrouter', { kill: () => void }>;
+      latestStarts: Map<'anthropic' | 'xai' | 'zai' | 'openrouter', unknown>;
     };
     internals.loginProcesses.set('anthropic', { kill });
     internals.loginProcesses.set('xai', { kill: otherKill });
@@ -48,6 +48,11 @@ describe('research provider auth parsing', () => {
   it('uses the official ZCode CLI for subscription authentication', () => {
     const invocation = zcodeCliInvocation(['login'], 'linux', '/home/researcher', undefined, '/workspace');
     expect(invocation).toEqual({ command: 'zcode', args: ['login'], cwd: '/workspace' });
+  });
+
+  it('does not offer subscription authentication for OpenRouter', async () => {
+    const auth = new ResearchProviderAuthService();
+    await expect(auth.startOAuthLogin('openrouter')).rejects.toThrow('API key authentication only');
   });
 
   it('uses the official ZCode desktop app for interactive subscription sign-in when installed', () => {

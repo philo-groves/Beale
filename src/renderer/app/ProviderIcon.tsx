@@ -1,7 +1,7 @@
 import type { JSX, SVGProps } from 'react';
-import { CircleHelp } from 'lucide-react';
+import { CircleHelp, Route } from 'lucide-react';
 
-export type ProviderIconKind = 'openai' | 'anthropic' | 'xai' | 'zai' | 'unknown';
+export type ProviderIconKind = 'openai' | 'anthropic' | 'xai' | 'zai' | 'openrouter' | 'unknown';
 
 export function providerIconKind(provider: string | null | undefined): ProviderIconKind {
   const normalized = provider?.trim().toLocaleLowerCase() ?? '';
@@ -13,6 +13,7 @@ export function providerIconKind(provider: string | null | undefined): ProviderI
   if (['anthropic', 'claude'].includes(normalized) || normalized.startsWith('claude-')) return 'anthropic';
   if (['xai', 'x.ai', 'grok'].includes(normalized) || normalized.startsWith('grok-')) return 'xai';
   if (['zai', 'z.ai', 'zcode', 'glm'].includes(normalized) || normalized.startsWith('glm-')) return 'zai';
+  if (['openrouter', 'openrouter.ai'].includes(normalized)) return 'openrouter';
   return 'unknown';
 }
 
@@ -29,6 +30,7 @@ export function ProviderIcon({
   if (kind === 'anthropic') return <AnthropicIcon size={size} {...props} />;
   if (kind === 'xai') return <XAIIcon size={size} {...props} />;
   if (kind === 'zai') return <ZAIIcon size={size} {...props} />;
+  if (kind === 'openrouter') return <Route size={size} {...props} />;
   return <CircleHelp size={size} {...props} />;
 }
 

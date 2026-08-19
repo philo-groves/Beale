@@ -1271,7 +1271,7 @@ export function researchSettingsInput(
 }
 
 function researchProviderId(value: string | null | undefined): ResearchModelProviderId | null {
-  if (value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai') return value;
+  if (value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai' || value === 'openrouter') return value;
   return null;
 }
 
