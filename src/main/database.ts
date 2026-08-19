@@ -659,8 +659,12 @@ export interface ResearchGoalSuggestionHistoryRecord {
   selectionCount: number;
 }
 
-function parseStoredSessionNextStepSuggestions(value: SqlPrimitive | undefined): GeneratedResearchGoalSuggestions | null {
-  const parsed = parseJson(value);
+export function normalizeSessionNextStepSuggestions(value: unknown): GeneratedResearchGoalSuggestions | null {
+  const parsed = typeof value === 'string'
+    ? parseJson(value)
+    : value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
   const phase = typeof parsed.phase === 'string' ? parsed.phase.trim() : '';
   const suggestions = Array.isArray(parsed.suggestions)
     ? parsed.suggestions.map((suggestion) => typeof suggestion === 'string' ? suggestion.replace(/\s+/g, ' ').trim() : '')
@@ -675,7 +679,7 @@ function parseStoredSessionNextStepSuggestions(value: SqlPrimitive | undefined):
   };
 }
 
-function parseSessionNextPromptSuggestions(value: unknown): SessionNextPromptSuggestion[] {
+export function parseSessionNextPromptSuggestions(value: unknown): SessionNextPromptSuggestion[] {
   if (!Array.isArray(value)) return [];
   const suggestions: SessionNextPromptSuggestion[] = [];
   const identities = new Set<string>();
@@ -3919,7 +3923,7 @@ export class WorkspaceDatabase {
         .get(runId, this.workspaceId)
     );
     if (!row) throw new Error(`Run not found: ${runId}`);
-    return parseStoredSessionNextStepSuggestions(row.next_step_suggestions_json);
+    return normalizeSessionNextStepSuggestions(row.next_step_suggestions_json);
   }
 
   public getCapturedSessionNextPromptSuggestions(runId: string): SessionNextPromptSuggestion[] {
@@ -3945,15 +3949,10 @@ export class WorkspaceDatabase {
     runId: string,
     value: GeneratedResearchGoalSuggestions
   ): GeneratedResearchGoalSuggestions {
-    const phase = value.phase.trim();
-    const suggestions = value.suggestions.map((suggestion) => suggestion.replace(/\s+/g, ' ').trim());
-    const identities = new Set(suggestions.map((suggestion) => suggestion.toLocaleLowerCase()));
-    if (!phase || suggestions.length !== 3 || suggestions.some((suggestion) => !suggestion) || identities.size !== 3) {
+    const normalized = normalizeSessionNextStepSuggestions(value);
+    if (!normalized) {
       throw new Error('Session next-step suggestions must contain a workflow and exactly three distinct non-empty suggestions.');
     }
-    const normalized: GeneratedResearchGoalSuggestions = { phase, suggestions };
-    const promptSuggestions = parseSessionNextPromptSuggestions(value.promptSuggestions);
-    if (promptSuggestions.length === 3) normalized.promptSuggestions = promptSuggestions;
     const result = this.db
       .prepare(
         `UPDATE runs

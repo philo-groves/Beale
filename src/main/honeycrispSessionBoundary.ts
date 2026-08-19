@@ -7,6 +7,7 @@ import type {
   BreakoutRoomMemberRecord,
   BreakoutRoomMessageRecord,
   BreakoutRoomRecord,
+  GeneratedResearchGoalSuggestions,
   ModelSessionRecord,
   NotificationRecord,
   RunDetail,
@@ -15,12 +16,19 @@ import type {
   RunDetailVersion,
   RunRecord,
   RunRow,
+  SessionNextPromptSuggestion,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   TraceEventRecord,
   TranscriptMessageRecord
 } from '@shared/types';
-import { createId, type CreatedRunContext, type WorkspaceDatabase } from './database';
+import {
+  createId,
+  normalizeSessionNextStepSuggestions,
+  parseSessionNextPromptSuggestions,
+  type CreatedRunContext,
+  type WorkspaceDatabase
+} from './database';
 import { resolvedBreakoutRoomStatus } from './breakoutRoomStatus';
 import {
   appendHoneycrispSessionEventAsync,
@@ -337,6 +345,44 @@ export function createHoneycrispSessionBoundary(
       const session = getSession(runId);
       return session ? sessionDetail(session, database) : database.getRunDetail(runId);
     }) as WorkspaceDatabase['getRunDetail'],
+
+    getSessionNextStepSuggestions: ((runId: string): GeneratedResearchGoalSuggestions | null => {
+      const session = getSession(runId);
+      return session ? sessionNextStepSuggestions(session) : database.getSessionNextStepSuggestions(runId);
+    }) as WorkspaceDatabase['getSessionNextStepSuggestions'],
+
+    getCapturedSessionNextPromptSuggestions: ((runId: string): SessionNextPromptSuggestion[] => {
+      const session = getSession(runId);
+      if (!session) return database.getCapturedSessionNextPromptSuggestions(runId);
+      const transcripts = sessionDetail(session, database).transcriptMessages;
+      for (let index = transcripts.length - 1; index >= 0; index -= 1) {
+        const transcript = transcripts[index];
+        if (transcript?.role !== 'assistant') continue;
+        const suggestions = parseSessionNextPromptSuggestions(transcript.metadata.nextPromptSuggestions);
+        if (suggestions.length > 0) return suggestions;
+      }
+      return [];
+    }) as WorkspaceDatabase['getCapturedSessionNextPromptSuggestions'],
+
+    saveSessionNextStepSuggestions: ((runId: string, value: GeneratedResearchGoalSuggestions): GeneratedResearchGoalSuggestions => {
+      if (!ownedRunIds.has(runId)) return database.saveSessionNextStepSuggestions(runId, value);
+      const session = getSession(runId);
+      if (!session || !['blocked', 'completed', 'failed', 'stopped'].includes(sessionStatus(session.status))) {
+        throw new Error(`Ended run not found for next-step suggestions: ${runId}`);
+      }
+      const normalized = normalizeSessionNextStepSuggestions(value);
+      if (!normalized) {
+        throw new Error('Session next-step suggestions must contain a workflow and exactly three distinct non-empty suggestions.');
+      }
+      sessionWrites.enqueueEvent(runId, {
+        id: createId('next_step_suggestions'),
+        kind: 'beale.session_next_step_suggestions',
+        timestamp: new Date().toISOString(),
+        summary: 'Session next-step suggestions stored.',
+        payload: { record: normalized }
+      });
+      return normalized;
+    }) as WorkspaceDatabase['saveSessionNextStepSuggestions'],
 
     getRunDetailVersion: ((runId: string): RunDetailVersion => {
       const session = getSession(runId);
@@ -1172,6 +1218,7 @@ function sessionDetail(
     researchProfile: run.researchProfileSnapshotId
       ? database.getResearchProfileSnapshot(run.researchProfileSnapshotId)
       : null,
+    nextStepSuggestions: sessionNextStepSuggestions(session),
     attempts: session.attempts.map((attempt) => {
       const stored = recordValue(attempt.metadata.bealeAttempt);
       return {
@@ -1201,6 +1248,16 @@ function sessionDetail(
     policyEvents: reconciledApprovalRecords(events, traceEvents),
     exports: []
   };
+}
+
+function sessionNextStepSuggestions(session: HoneycrispSessionRecord): GeneratedResearchGoalSuggestions | null {
+  for (let index = session.events.length - 1; index >= 0; index -= 1) {
+    const event = session.events[index];
+    if (event?.kind !== 'beale.session_next_step_suggestions') continue;
+    const normalized = normalizeSessionNextStepSuggestions(recordValue(event.payload)?.record);
+    if (normalized) return normalized;
+  }
+  return null;
 }
 
 function traceFromSessionEvent(runId: string, event: HoneycrispSessionEvent, sequence: number): TraceEventRecord[] {

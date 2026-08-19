@@ -44,6 +44,7 @@
 
 ### Fixed
 
+- End-of-session next-step suggestions now read captured prompts and persist results through Honeycrisp's canonical session boundary instead of failing when the session has no legacy workbench run row.
 - Honeycrisp context-compaction telemetry now uses provider-neutral language and reports the active model context window, so OpenAI-compatible providers such as xAI no longer inherit a misleading 200k context meter or OpenAI attribution.
 - Switching directly between sessions now retains the prior session heat and palette while the next detail loads, then transitions straight to the newly resolved heat without briefly resetting to the neutral background.
 - Completed sessions resumed after app recovery now show the successful terminal response instead of letting the historical recovery marker suppress an otherwise empty result area.

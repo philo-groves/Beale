@@ -30,6 +30,69 @@ afterEach(() => {
 });
 
 describe('Honeycrisp session persistence boundary', () => {
+  it('captures and persists end-of-session suggestions for Honeycrisp-owned runs', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-next-steps-'));
+    createdDirectories.push(directory);
+    const databasePath = join(directory, 'memory.sqlite');
+    const artifactRoot = join(directory, '.beale', 'artifacts');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    configureRealHoneycrisp();
+
+    const rawDatabase = new WorkspaceDatabase(databasePath, artifactRoot, {
+      workspacePath: directory,
+      workspaceId: 'workspace_next_steps'
+    });
+    rawDatabase.initialize();
+    const database = createHoneycrispSessionBoundary(rawDatabase);
+    try {
+      const context = database.createRun({
+        scopeVersionId: database.getActiveScope().id,
+        title: 'Canonical next-step session',
+        promptMarkdown: 'Inspect the parser.',
+        shellSafetyMode: 'auto_review',
+        mode: 'open_discovery',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+        attemptStrategy: 'iterative_research',
+        sandboxProfile: 'host',
+        budget: { runEngine: 'honeycrisp', researchWorkflowId: 'discovery' }
+      });
+      const promptSuggestions = [1, 2, 3].map((index) => ({
+        title: `Follow-up direction ${index}`,
+        promptMarkdown: `Investigate follow-up direction ${index} with verifier-backed evidence.`
+      }));
+      database.createTranscriptMessage({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        role: 'assistant',
+        phase: 'final_answer',
+        contentMarkdown: 'Session complete.',
+        source: 'honeycrisp',
+        metadata: { nextPromptSuggestions: promptSuggestions }
+      });
+      database.updateRunStatus(context.run.id, 'completed', 'Session complete.');
+
+      expect(rawDatabase.getRun(context.run.id)).toBeNull();
+      expect(database.getSessionNextStepSuggestions(context.run.id)).toBeNull();
+      expect(database.getCapturedSessionNextPromptSuggestions(context.run.id)).toEqual(promptSuggestions);
+
+      const saved = database.saveSessionNextStepSuggestions(context.run.id, {
+        phase: 'discovery',
+        suggestions: promptSuggestions.map((suggestion) => suggestion.title),
+        promptSuggestions
+      });
+      expect(database.getSessionNextStepSuggestions(context.run.id)).toEqual(saved);
+      expect(database.getRunDetail(context.run.id).nextStepSuggestions).toEqual(saved);
+
+      await flushHoneycrispSessionWrites(database, context.run.id);
+      await expect(getHoneycrispRunDetailForClient(database, context.run.id)).resolves.toMatchObject({
+        nextStepSuggestions: saved
+      });
+    } finally {
+      database.close();
+    }
+  }, 30_000);
+
   it('retains optional diagnostic traces only while tracing is enabled', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-honeycrisp-trace-retention-'));
     createdDirectories.push(directory);
