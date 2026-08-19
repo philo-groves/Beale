@@ -168,6 +168,7 @@ export interface MemoryDreamingPlan {
 }
 
 export interface MemoryDreamingRunContext {
+  provider: string;
   model: string;
   reasoningEffort: string;
   inputNodeCount: number;

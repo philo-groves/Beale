@@ -17,6 +17,10 @@ const summary: HoneycrispRunbookSummary = {
   artifactId: 'artifact-1',
   revision: 4,
   revisions: [],
+  authors: [
+    { provider: 'openai', model: 'gpt-5.6' },
+    { provider: 'anthropic', model: 'claude-opus-4-6' }
+  ],
   createdAt: '2026-07-23T10:00:00.000Z',
   updatedAt: '2026-07-23T11:00:00.000Z'
 };
@@ -83,6 +87,9 @@ describe('RunbookView', () => {
     }));
 
     expect(html).toContain('Back to Main');
+    expect(html).toContain('Authored by');
+    expect(html).toContain('gpt-5.6');
+    expect(html).toContain('claude-opus-4-6');
     expect(html).toContain('<p>Capture a repeatable validation procedure with one display line.</p>');
     expect(html).toContain('<h1>Procedure</h1>');
     expect(html).toContain('<ul>');

@@ -16,6 +16,7 @@ import type {
   WorkspaceRegistryEntry
 } from '@shared/types';
 import { CenteredLoadingState } from '../../app/CenteredLoadingState';
+import { ModelAuthors } from '../../app/ModelAuthors';
 import { traceLabel } from '../../lib/formatting';
 import {
   joinReportBlockSelection,
@@ -304,6 +305,7 @@ export function EditableReport({
       <div className="report-session-document-scroll">
         <header className="report-session-document-header">
           <h1>{report.title}</h1>
+          <ModelAuthors authors={report.authors} />
           {report.summary ? <p>{report.summary}</p> : null}
           <div className="report-session-meta"><span>{traceLabel(report.status)}</span><span>Update {report.revision}</span></div>
           {ticketingSettings?.provider !== undefined && ticketingSettings.provider !== 'local' ? (

@@ -10,6 +10,7 @@ import type {
   RunbookProofTargetSelection
 } from '@shared/types';
 import { traceLabel } from '../../lib/formatting';
+import { ModelAuthors } from '../../app/ModelAuthors';
 import { runbookDescriptionText } from '../../view-models/runbooks';
 import { renderHighlightedCodeBlock, renderTraceProseText } from '../traces/traceMarkup';
 
@@ -164,6 +165,7 @@ export const RunbookView = memo(function RunbookView({
             </div>
           </div>
           <h2>{runbook.title}</h2>
+          <ModelAuthors authors={runbook.authors} />
           {runbook.purpose ? <p>{runbookDescriptionText(runbook.purpose)}</p> : null}
           <div className="runbook-view-meta">
             <span>{traceLabel(runbook.status)}</span>

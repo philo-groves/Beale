@@ -94,6 +94,7 @@
 
 ### Added
 
+- Memory, Runbook, and Report detail views now show every model author recorded across the resource's revisions, with an explicit unrecorded state for legacy resources.
 - Agent Settings now includes Ticketing with Local Reports Only as the default plus opt-in GitHub Issues and Linear integrations. Beale encrypts managed tokens in the host process, discovers accessible repositories or teams, and creates tickets directly from durable report Markdown.
 
 - Workspace and session views now provide a real interactive PTY terminal in a separate 250px bottom panel. The terminal opens in the active workspace's primary directory, streams through a typed host boundary, closes with its owning window or panel, and defaults to collapsed behind a context-matched header toggle with animated vertical transitions.

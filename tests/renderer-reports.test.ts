@@ -28,6 +28,10 @@ const report: HoneycrispReportSummary = {
   submissionPacket: null,
   revision: 3,
   revisions: [],
+  authors: [
+    { provider: 'openai', model: 'gpt-5.6' },
+    { provider: 'zai', model: 'glm-5' }
+  ],
   createdAt: '2026-08-10T12:00:00.000Z',
   updatedAt: '2026-08-16T12:00:00.000Z'
 };
@@ -272,6 +276,9 @@ describe('reports resource views', () => {
     }));
 
     expect(html).toContain(`<header class="report-session-document-header"><h1>${report.title}</h1>`);
+    expect(html).toContain('Authored by');
+    expect(html).toContain('gpt-5.6');
+    expect(html).toContain('glm-5');
     expect(html).not.toContain('class="report-session-back"');
     expect(html).not.toContain('>Report</span>');
     expect(html).toContain('Editable report content');

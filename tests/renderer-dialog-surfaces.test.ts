@@ -504,7 +504,8 @@ describe('renderer dialog surfaces', () => {
       evidenceRefs: [],
       createdAt: '2026-07-28T00:00:00.000Z',
       updatedAt: '2026-07-28T00:05:00.000Z',
-      revision: 2
+      revision: 2,
+      authors: [{ provider: 'anthropic', model: 'claude-sonnet-4-5' }]
     };
     const html = renderToStaticMarkup(
       createElement(MemoryDetailView, {
@@ -517,6 +518,8 @@ describe('renderer dialog surfaces', () => {
     expect(html).not.toContain('bottom-sheet-panel');
     expect(html).toContain('Unchecked parser length');
     expect(html).toContain('Detailed parser analysis.');
+    expect(html).toContain('Authored by');
+    expect(html).toContain('claude-sonnet-4-5');
     expect(html).toContain('class="memory-type-label memory-type-primitive"');
     expect(html).toContain('class="memory-type-dot memory-type-primitive" aria-hidden="true"');
   });

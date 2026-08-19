@@ -23,6 +23,7 @@ import type {
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { ProviderIcon } from '../../app/ProviderIcon';
+import { ModelAuthors } from '../../app/ModelAuthors';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { displayBreakoutRoomTitle } from '../../view-models/appHeader';
@@ -1771,6 +1772,7 @@ export function MemoryDetailView({
         </span>
         <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
         <h3>{node.title}</h3>
+        <ModelAuthors authors={node.authors} />
       </header>
       <div className="memory-catalog-content">
         {node.summary ? <p className="memory-catalog-summary">{node.summary}</p> : null}

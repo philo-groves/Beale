@@ -6168,7 +6168,7 @@ function memoryDreamingDecisionCount(plan: MemoryDreamingPlan): number {
 function applyMemoryDreamingPlan(
   workspaceId: string,
   plan: MemoryDreamingPlan,
-  context: { model: string; reasoningEffort: string; inputNodeCount: number; inputSessionCount: number },
+  context: { provider: string; model: string; reasoningEffort: string; inputNodeCount: number; inputSessionCount: number },
   profileInput: MemoryDreamingProfileInput,
   storage: { databasePath: string; artifactDirectoryPath: string }
 ): void {

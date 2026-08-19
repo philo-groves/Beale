@@ -487,6 +487,8 @@ export interface HoneycrispMemoryNodeSummary {
   createdAt: string;
   updatedAt: string;
   revision: number;
+  /** Missing only on legacy summaries produced before model authorship tracking. */
+  authors?: HoneycrispModelAuthor[];
   /** Optional only for compatibility with summaries produced before catalog provenance existed. */
   provenance?: HoneycrispMemoryNodeProvenanceSummary;
 }
@@ -515,6 +517,12 @@ export interface HoneycrispRunbookSummary {
   revisions: HoneycrispArtifactRevisionSummary[];
   createdAt: string;
   updatedAt: string;
+  authors?: HoneycrispModelAuthor[];
+}
+
+export interface HoneycrispModelAuthor {
+  provider: string;
+  model: string;
 }
 
 export interface HoneycrispRunbookOutput {
@@ -579,6 +587,7 @@ export interface HoneycrispReportSummary {
   revisions: HoneycrispArtifactRevisionSummary[];
   createdAt: string;
   updatedAt: string;
+  authors?: HoneycrispModelAuthor[];
 }
 
 export interface HoneycrispReportDocument {

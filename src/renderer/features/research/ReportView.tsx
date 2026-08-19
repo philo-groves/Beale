@@ -2,6 +2,7 @@ import { FileText, CircleAlert, LoaderCircle } from 'lucide-react';
 import type { JSX } from 'react';
 import type { HoneycrispReportDocument, HoneycrispReportSummary } from '@shared/types';
 import { traceLabel } from '../../lib/formatting';
+import { ModelAuthors } from '../../app/ModelAuthors';
 import { renderTraceProseText } from '../traces/traceMarkup';
 
 export function ReportView({ report, document, loading, error }: {
@@ -16,6 +17,7 @@ export function ReportView({ report, document, loading, error }: {
         <header className="runbook-view-header">
           <span className="runbook-view-eyebrow"><FileText size={15} aria-hidden="true" /> Report</span>
           <h2>{report.title}</h2>
+          <ModelAuthors authors={report.authors} />
           {report.summary ? <p>{report.summary}</p> : null}
           <div className="runbook-view-meta">
             <span>{traceLabel(report.status)}</span>
