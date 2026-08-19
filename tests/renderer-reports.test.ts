@@ -165,6 +165,8 @@ describe('reports resource views', () => {
     expect(source.indexOf('<span>Reporting</span>')).toBeGreaterThan(-1);
     expect(source.indexOf('<span>Reporting</span>')).toBeGreaterThan(source.indexOf('<span>Automations</span>'));
     expect(source.indexOf('<span>Reporting</span>')).toBeLessThan(source.indexOf('<span>Plugins</span>'));
+    expect(styles).toMatch(/\.sidebar-utility-button\s*\{[^}]*background:\s*transparent;/s);
+    expect(styles).toMatch(/\.sidebar-utility-button:hover:not\(:disabled\)\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--text\) 4\.5%, transparent\);/s);
     expect(styles).toMatch(/\.sidebar-utility-button\.active\s*\{[^}]*background:\s*var\(--panel\);/s);
     expect(styles).toMatch(/\.sidebar-utility-button\.active:hover:not\(:disabled\)\s*\{[^}]*background:\s*var\(--panel\);/s);
   });

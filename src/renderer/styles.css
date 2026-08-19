@@ -1699,7 +1699,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   justify-content: flex-start;
   border-color: transparent;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--text) 4.5%, transparent);
+  background: transparent;
   color: var(--gray-c8);
   margin-inline: -4px;
   padding: 6px 4px;
@@ -1712,7 +1712,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .sidebar-utility-button:hover:not(:disabled) {
   border-color: transparent;
-  background: var(--gray-18);
+  background: color-mix(in srgb, var(--text) 4.5%, transparent);
   color: var(--text);
 }
 
