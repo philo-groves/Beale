@@ -7,6 +7,8 @@ export const IPC_CHANNELS = {
   setDeveloperModeEnabled: 'beale:set-developer-mode-enabled',
   getDebuggingSettings: 'beale:get-debugging-settings',
   setTracesEnabled: 'beale:set-traces-enabled',
+  getComputerUseSettings: 'beale:get-computer-use-settings',
+  setComputerUsePermissionMode: 'beale:set-computer-use-permission-mode',
   getProviderSettings: 'beale:get-provider-settings',
   setDefaultProviderId: 'beale:set-default-provider-id',
   setProviderModelDefaults: 'beale:set-provider-model-defaults',

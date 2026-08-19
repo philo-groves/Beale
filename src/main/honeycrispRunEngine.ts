@@ -9,6 +9,7 @@ import type {
   BreakoutRoomMemberStatus,
   BreakoutRoomPhase,
   BreakoutRoomMessageKind,
+  ComputerUseSettings,
   ResearchModelSelection,
   ProviderSettings,
   MemoryTypeDescriptions,
@@ -114,6 +115,8 @@ interface ActiveHoneycrispRun {
   }>;
   resolvedShellApprovalRequestIds: Set<string>;
   toolApprovalRequestIds: Set<string>;
+  toolApprovalSessionGrantTargets: Map<string, string>;
+  approvedComputerUseTargetBinaries: Set<string>;
   automaticWebSocketRetryCount: number;
   transportToken: string;
   transportMode: 'pending' | 'websocket';
@@ -306,6 +309,7 @@ export interface HoneycrispRunEngineChange {
 export class HoneycrispRunEngine {
   private readonly activeRuns = new Map<string, ActiveHoneycrispRun>();
   private readonly completions = new Map<string, Promise<void>>();
+  private readonly computerUseBinaryGrants = new Map<string, Set<string>>();
   private disposed = false;
 
   public constructor(
@@ -317,7 +321,8 @@ export class HoneycrispRunEngine {
     private readonly getResearchSubject?: () => ResearchSubjectInput | null,
     private readonly getProviderSettings?: () => ProviderSettings,
     private readonly getAgentPluginHoneycrispRuntime?: () => AgentPluginHoneycrispRuntime,
-    private readonly getWorkspaceDirectories?: () => readonly string[]
+    private readonly getWorkspaceDirectories?: () => readonly string[],
+    private readonly getComputerUseSettings?: () => ComputerUseSettings
   ) {}
 
   public startRun(input: StartRunInput, researchProfile: ResearchProfileSnapshot): HoneycrispRunHandle {
@@ -621,6 +626,8 @@ export class HoneycrispRunEngine {
     const transportReady = new Promise<boolean>((resolveReady) => {
       resolveTransportReady = resolveReady;
     });
+    const approvedComputerUseTargetBinaries = this.computerUseBinaryGrants.get(context.run.id) ?? new Set<string>();
+    this.computerUseBinaryGrants.set(context.run.id, approvedComputerUseTargetBinaries);
     const active: ActiveHoneycrispRun = {
       child,
       context,
@@ -638,6 +645,8 @@ export class HoneycrispRunEngine {
       shellApprovalDecisionsInFlight: new Map(),
       resolvedShellApprovalRequestIds: new Set(),
       toolApprovalRequestIds: new Set(),
+      toolApprovalSessionGrantTargets: new Map(),
+      approvedComputerUseTargetBinaries,
       automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0,
       transportToken,
       transportMode: 'pending',
@@ -865,6 +874,10 @@ export class HoneycrispRunEngine {
       approvalRequestId,
       decision
     });
+    const sessionGrantTarget = active.toolApprovalSessionGrantTargets.get(approvalRequestId);
+    if (decision === 'approved' && sessionGrantTarget) {
+      active.approvedComputerUseTargetBinaries.add(sessionGrantTarget);
+    }
     active.shellApprovalDecisionsInFlight.set(approvalRequestId, { decision, dispatch, resolutionTimeout: null });
     return dispatch;
   }
@@ -905,6 +918,7 @@ export class HoneycrispRunEngine {
       }
     }
     this.activeRuns.clear();
+    this.computerUseBinaryGrants.clear();
   }
 
   private sendControl(
@@ -1204,6 +1218,7 @@ export class HoneycrispRunEngine {
     }
     active.shellApprovalRecords.clear();
     active.toolApprovalRequestIds.clear();
+    active.toolApprovalSessionGrantTargets.clear();
     for (const approvalRequestId of active.shellApprovalDecisionsInFlight.keys()) {
       this.clearShellApprovalDecisionInFlight(active, approvalRequestId);
     }
@@ -1751,18 +1766,74 @@ export class HoneycrispRunEngine {
       this.stopActiveRun(active, 'safety_control');
       return;
     }
+    const permissionMode = this.getComputerUseSettings?.().permissionMode ?? 'every_action';
+    const targetBinary = computerUseTargetBinary(payload);
+    const reusableTargetBinary = reusableComputerUseTargetBinary(
+      permissionMode,
+      active.approvedComputerUseTargetBinaries,
+      payload
+    );
     const runTitle = (this.db.getRun(context.run.id)?.title ?? context.run.title).slice(0, 240);
+    const approvalAction = {
+      ...requestedAction,
+      approvalRequestId,
+      runTitle,
+      permissionMode,
+      targetBinary
+    };
+    if (reusableTargetBinary) {
+      const reason = `Approved automatically because ${reusableTargetBinary} was approved earlier in this session.`;
+      const approval = this.db.createApproval({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        requestKind: 'computer_use',
+        requestedAction: approvalAction,
+        decision: 'approved',
+        reason
+      });
+      active.resolvedShellApprovalRequestIds.add(approvalRequestId);
+      this.db.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'approval_event',
+        source: 'policy',
+        summary: `Computer-use action approved by the existing ${reusableTargetBinary} session grant.`,
+        payload: {
+          ...approvalAction,
+          approvalId: approval.id,
+          approvalRequestId,
+          decision: 'approved',
+          source: 'session_binary_grant',
+          reason
+        },
+        approvalId: approval.id,
+        modelVisible: false
+      });
+      this.sendControl(active, {
+        schemaVersion: 1,
+        type: 'resolve_tool_approval',
+        approvalRequestId,
+        decision: 'approved'
+      });
+      this.onChange();
+      return;
+    }
     const approval = this.db.createApproval({
       runId: context.run.id,
       attemptId: context.attempt.id,
       requestKind: 'computer_use',
-      requestedAction: { approvalRequestId, runTitle, ...requestedAction },
+      requestedAction: approvalAction,
       decision: 'pending',
-      reason: 'Waiting for researcher approval before changing a Windows application.',
+      reason: permissionMode === 'once_per_session' && targetBinary
+        ? `Waiting for researcher approval to use ${targetBinary} for this session.`
+        : 'Waiting for researcher approval before changing a Windows application.',
       pending: true
     });
     active.shellApprovalRecords.set(approvalRequestId, approval.id);
     active.toolApprovalRequestIds.add(approvalRequestId);
+    if (permissionMode === 'once_per_session' && targetBinary) {
+      active.toolApprovalSessionGrantTargets.set(approvalRequestId, targetBinary);
+    }
     this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
@@ -1803,6 +1874,7 @@ export class HoneycrispRunEngine {
         });
     active?.shellApprovalRecords.delete(approvalRequestId);
     active?.toolApprovalRequestIds.delete(approvalRequestId);
+    active?.toolApprovalSessionGrantTargets.delete(approvalRequestId);
     if (active) this.clearShellApprovalDecisionInFlight(active, approvalRequestId);
     active?.resolvedShellApprovalRequestIds.add(approvalRequestId);
     this.db.appendTraceEvent({
@@ -3611,6 +3683,24 @@ function toolAuthorizationAuditPayload(payload: Record<string, unknown>): Record
   };
   const redacted = redactJsonForModel(audit);
   return recordValue(redacted) ?? {};
+}
+
+export function computerUseTargetBinary(payload: Record<string, unknown>): string | null {
+  const argumentsValue = recordValue(payload.arguments);
+  const processName = stringPayload(argumentsValue ?? {}, 'process');
+  if (!processName) return null;
+  const normalized = processName.trim().toLocaleLowerCase().replace(/\.exe$/u, '');
+  return /^[a-z0-9_.-]{1,128}$/u.test(normalized) ? normalized : null;
+}
+
+export function reusableComputerUseTargetBinary(
+  permissionMode: ComputerUseSettings['permissionMode'],
+  approvedTargetBinaries: ReadonlySet<string>,
+  payload: Record<string, unknown>
+): string | null {
+  if (permissionMode !== 'once_per_session') return null;
+  const targetBinary = computerUseTargetBinary(payload);
+  return targetBinary && approvedTargetBinaries.has(targetBinary) ? targetBinary : null;
 }
 
 function toolAuthorizationAuditMatches(payload: Record<string, unknown>): boolean {

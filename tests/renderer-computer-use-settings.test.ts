@@ -40,6 +40,18 @@ describe('renderer Computer Use settings', () => {
     expect(enabledHtml).toContain('aria-label="Enable Terminator" type="checkbox" checked=""');
   });
 
+  it('renders Computer Permissions with Every Action as the safe default', () => {
+    const defaultHtml = renderComputerUse('win32', pluginState(true));
+    const sessionHtml = renderComputerUse('win32', pluginState(true), false, 'once_per_session');
+
+    expect(defaultHtml).toContain('<h2 id="computer-permissions-settings-heading">Computer Permissions</h2>');
+    expect(defaultHtml).toContain('<strong>Every Action</strong>');
+    expect(defaultHtml).toContain('This is the safer default.');
+    expect(defaultHtml).toMatch(/aria-label="Every Action"[^>]*checked=""/u);
+    expect(defaultHtml).toContain('Ask once for each target binary');
+    expect(sessionHtml).toMatch(/aria-label="Once Per Session"[^>]*checked=""/u);
+  });
+
   it.each<HostEnvironment['platform']>(['linux', 'darwin', 'other'])(
     'shows an availability message instead of a toggle on %s',
     (platform) => {
@@ -62,15 +74,18 @@ describe('renderer Computer Use settings', () => {
 function renderComputerUse(
   platform: HostEnvironment['platform'],
   state: AgentPluginRegistryState | null,
-  loading = false
+  loading = false,
+  permissionMode: 'once_per_session' | 'every_action' = 'every_action'
 ): string {
   return renderToStaticMarkup(createElement(ComputerUseSettingsView, {
     platform,
+    settings: { permissionMode },
     pluginState: state,
     loading,
     busy: false,
     error: null,
-    onSetEnabled: () => undefined
+    onSetEnabled: () => undefined,
+    onChangePermissionMode: () => undefined
   }));
 }
 

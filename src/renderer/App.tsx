@@ -9,6 +9,8 @@ import type {
   AgentPluginRegistryState,
   AutomationSummary,
   AutomationUpdateInput,
+  ComputerUsePermissionMode,
+  ComputerUseSettings,
   ProviderSettings,
   ProviderAuthenticationMethod,
   ProviderModelDefaults,
@@ -53,7 +55,7 @@ import { AutomationsWorkspace } from './features/automations/AutomationsWorkspac
 import { PluginManagerWorkspace } from './features/plugins/PluginManagerWorkspace';
 import type { ResearchGoalSeed } from './features/sessions/SessionNextSteps';
 import {
-  isAutoReviewOverrideApproval,
+  isInlineApproval,
   pendingShellApproval,
   ShellApprovalModal
 } from './features/sessions/ShellApprovalModal';
@@ -215,6 +217,7 @@ export function App(): JSX.Element {
   const [reportSessionRunId, setReportSessionRunId] = useState<string | null>(null);
   const [reportSessionRefreshVersion, setReportSessionRefreshVersion] = useState(0);
   const [agentPluginState, setAgentPluginState] = useState<AgentPluginRegistryState | null>(null);
+  const [computerUseSettings, setComputerUseSettings] = useState<ComputerUseSettings | null>(null);
   const [agentPluginsLoading, setAgentPluginsLoading] = useState(false);
   const [agentPluginsBusy, setAgentPluginsBusy] = useState(false);
   const [agentPluginsError, setAgentPluginsError] = useState<string | null>(null);
@@ -464,10 +467,19 @@ export function App(): JSX.Element {
     }
   }, []);
 
+  const loadComputerUseSettings = useCallback(async (): Promise<void> => {
+    try {
+      setComputerUseSettings(await window.beale.getComputerUseSettings());
+    } catch (caught) {
+      setAgentPluginsError(errorMessage(caught));
+    }
+  }, []);
+
   useEffect(() => {
     if (!settingsOpen || settingsSection !== 'computer-use' || hostEnvironment?.platform !== 'win32') return;
     void loadAgentPlugins();
-  }, [hostEnvironment?.platform, loadAgentPlugins, settingsOpen, settingsSection]);
+    void loadComputerUseSettings();
+  }, [hostEnvironment?.platform, loadAgentPlugins, loadComputerUseSettings, settingsOpen, settingsSection]);
 
   const openPlugins = useCallback((): void => {
     clearRunDetail();
@@ -508,6 +520,15 @@ export function App(): JSX.Element {
   const setAgentPluginEnabled = useCallback((pluginId: string, enabled: boolean): void => {
     void runAgentPluginAction(() => window.beale.setAgentPluginEnabled(pluginId, enabled));
   }, [runAgentPluginAction]);
+
+  const changeComputerUsePermissionMode = useCallback((permissionMode: ComputerUsePermissionMode): void => {
+    setAgentPluginsBusy(true);
+    setAgentPluginsError(null);
+    void window.beale.setComputerUsePermissionMode(permissionMode)
+      .then(setComputerUseSettings)
+      .catch((caught: unknown) => setAgentPluginsError(errorMessage(caught)))
+      .finally(() => setAgentPluginsBusy(false));
+  }, []);
 
   const removeAgentPlugin = useCallback((pluginId: string): void => {
     void runAgentPluginAction(() => window.beale.removeAgentPlugin(pluginId));
@@ -1142,14 +1163,14 @@ export function App(): JSX.Element {
     if (!snapshot) return pendingShellApproval(activeRunDetail);
     return snapshot.pendingShellApprovals.find((approval) => approval.runId === selectedRunId) ?? null;
   }, [activeRunDetail?.policyEvents, selectedRunId, snapshot]);
-  const autoReviewOverrideApproval = isAutoReviewOverrideApproval(selectedShellApproval)
+  const inlineApproval = isInlineApproval(selectedShellApproval)
     ? selectedShellApproval
     : null;
   const activeManualShellApproval = useMemo(() => {
-    if (selectedShellApproval && !isAutoReviewOverrideApproval(selectedShellApproval)) return selectedShellApproval;
-    return snapshot?.pendingShellApprovals.find((approval) => !isAutoReviewOverrideApproval(approval)) ?? null;
+    if (selectedShellApproval && !isInlineApproval(selectedShellApproval)) return selectedShellApproval;
+    return snapshot?.pendingShellApprovals.find((approval) => !isInlineApproval(approval)) ?? null;
   }, [selectedShellApproval, snapshot?.pendingShellApprovals]);
-  const activeShellApproval = autoReviewOverrideApproval ?? activeManualShellApproval;
+  const activeShellApproval = inlineApproval ?? activeManualShellApproval;
   useEffect(() => {
     if (shellApprovalDecisionRef.current === activeShellApproval?.id) return;
     shellApprovalDecisionRef.current = null;
@@ -1564,6 +1585,7 @@ export function App(): JSX.Element {
             providerSettings={providerSettings}
             providerStatusesLoaded={researchProviderStatusesLoaded}
             computerUsePlatform={hostEnvironment?.platform ?? null}
+            computerUseSettings={computerUseSettings}
             agentPluginState={agentPluginState}
             agentPluginsLoading={agentPluginsLoading}
             agentPluginsBusy={agentPluginsBusy}
@@ -1588,6 +1610,7 @@ export function App(): JSX.Element {
             onSetProviderCyberPolicyRiskAcknowledged={setProviderCyberPolicyRiskAcknowledged}
             onSetProviderPreferredAuthenticationMethod={setProviderPreferredAuthenticationMethod}
             onSetAgentPluginEnabled={setAgentPluginEnabled}
+            onChangeComputerUsePermissionMode={changeComputerUsePermissionMode}
             onSetSessionHeatPreference={setSessionHeatPreference}
             onSetSessionHeatPalettePreference={setSessionHeatPalettePreference}
           />
@@ -1644,14 +1667,14 @@ export function App(): JSX.Element {
                   initialModelSelection={reportSessionInitialModelSelection}
                   responseSuggestionsEnabled={suggestionPreferences.responseSuggestionsEnabled}
                   selectedRunId={reportSessionRunId}
-                  shellApproval={autoReviewOverrideApproval}
-                  shellApprovalBusy={Boolean(autoReviewOverrideApproval && (busy || shellApprovalDecisionInFlight === autoReviewOverrideApproval.id))}
+                  shellApproval={inlineApproval}
+                  shellApprovalBusy={Boolean(inlineApproval && (busy || shellApprovalDecisionInFlight === inlineApproval.id))}
                   busy={busy}
                   onInitialInstruction={(instruction, modelSelection, shellSafetyMode) => {
                     void startReportTurn(instruction, modelSelection, shellSafetyMode).catch(() => undefined);
                   }}
                   onShellApprovalDecision={(decision) => {
-                    if (autoReviewOverrideApproval) handleShellApprovalDecision(autoReviewOverrideApproval, decision);
+                    if (inlineApproval) handleShellApprovalDecision(inlineApproval, decision);
                   }}
                   onSessionAction={handleSessionAction}
                   onReportChange={submitReportChange}
@@ -1717,8 +1740,8 @@ export function App(): JSX.Element {
               reportError={reportError}
               selectedSubagentPath={selectedSubagentPath}
               searchHighlightQuery=""
-              shellApproval={autoReviewOverrideApproval}
-              shellApprovalBusy={Boolean(autoReviewOverrideApproval && (busy || shellApprovalDecisionInFlight === autoReviewOverrideApproval.id))}
+              shellApproval={inlineApproval}
+              shellApprovalBusy={Boolean(inlineApproval && (busy || shellApprovalDecisionInFlight === inlineApproval.id))}
               busy={busy}
               connectedDeviceCaptureEnabled={windowControlPlatform === 'darwin'}
               workspaceDejunk={selectedRunId ? null : snapshot?.workspace.dejunk ?? null}
@@ -1746,7 +1769,7 @@ export function App(): JSX.Element {
               onSelectSubagent={selectSubagent}
               onSelectNextStep={startNewResearchFromSuggestion}
               onShellApprovalDecision={(decision) => {
-                if (autoReviewOverrideApproval) handleShellApprovalDecision(autoReviewOverrideApproval, decision);
+                if (inlineApproval) handleShellApprovalDecision(inlineApproval, decision);
               }}
               onSessionAction={handleSessionAction}
               onSteerInstruction={handleSteerInstruction}

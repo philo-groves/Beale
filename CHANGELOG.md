@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Computer-use approvals now use the compact inline steering overlay instead of a modal. Computer Use settings adds persisted Every Action and Once Per Session permission modes, defaulting to Every Action; session grants remain scoped to each approved target binary.
 - General settings now includes persisted, enabled-by-default controls for session-ending, response, and New Research prompt suggestions; disabling a type hides its UI, and dedicated suggestion requests are not started while their surface is disabled.
 - Agent Settings now includes a persisted Appearance view with Light, Dark, warm Cream, and dark-blue Midnight themes; Dark remains the default, and profile Session Heat palettes provide customizable variants with theme-appropriate defaults.
 - Removed the session trace timeline, filters, and detail UI. Commentary is now always on, while General settings exposes a Debugging > Traces checkbox that defaults off and controls retention of optional diagnostic trace mirrors; functional, evidence, policy, and session-history records remain retained, and enabled traces stay available through run-detail queries.

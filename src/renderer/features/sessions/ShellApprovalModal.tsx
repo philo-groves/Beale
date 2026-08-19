@@ -16,6 +16,10 @@ export function isAutoReviewOverrideApproval(approval: ApprovalRecord | null): b
   return approval?.requestedAction.approvalKind === 'auto_review_override';
 }
 
+export function isInlineApproval(approval: ApprovalRecord | null): boolean {
+  return approval?.requestKind === 'computer_use' || isAutoReviewOverrideApproval(approval);
+}
+
 export function ShellApprovalQuestion({
   approval,
   busy,
@@ -26,6 +30,15 @@ export function ShellApprovalQuestion({
   onDecision: (decision: PolicyReviewDecision) => void;
 }): JSX.Element {
   const footerRef = useRef<HTMLElement | null>(null);
+  const computerUse = approval.requestKind === 'computer_use';
+  const permissionMode = approval.requestedAction.permissionMode;
+  const targetBinary = typeof approval.requestedAction.targetBinary === 'string'
+    ? approval.requestedAction.targetBinary
+    : null;
+  const toolName = typeof approval.requestedAction.toolName === 'string'
+    ? approval.requestedAction.toolName
+    : 'act';
+  const sessionBinaryGrant = computerUse && permissionMode === 'once_per_session' && targetBinary;
   const reviewReason = typeof approval.requestedAction.reviewReason === 'string'
     && approval.requestedAction.reviewReason.trim()
     ? approval.requestedAction.reviewReason.trim()
@@ -42,15 +55,27 @@ export function ShellApprovalQuestion({
   }, [approval.id]);
 
   return (
-    <footer ref={footerRef} className="main-trace-footer shell-approval-question" aria-label="Approve shell command once">
+    <footer
+      ref={footerRef}
+      className="main-trace-footer shell-approval-question"
+      aria-label={computerUse ? 'Approve computer action' : 'Approve shell command once'}
+    >
       <div className="shell-approval-question-surface">
         <div className="shell-approval-question-content">
-          <strong>Approve this command once?</strong>
-          <span>{reviewReason}</span>
+          <strong>{sessionBinaryGrant
+            ? `Allow ${targetBinary} for this session?`
+            : computerUse ? 'Approve this computer action?' : 'Approve this command once?'}</strong>
+          <span>{sessionBinaryGrant
+            ? `Allow this and later computer actions targeting ${targetBinary}.`
+            : computerUse
+              ? `${toolName} in ${targetBinary ?? 'the target application'}.`
+              : reviewReason}</span>
         </div>
         <div className="shell-approval-question-actions">
           <button type="button" disabled={busy} onClick={() => onDecision('denied')}>Keep Blocked</button>
-          <button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('approved')}>Approve Once</button>
+          <button type="button" className="primary-button" disabled={busy} onClick={() => onDecision('approved')}>
+            {sessionBinaryGrant ? 'Allow for Session' : 'Approve Once'}
+          </button>
         </div>
       </div>
     </footer>

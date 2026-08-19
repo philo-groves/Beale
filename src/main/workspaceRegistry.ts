@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { applyDatabaseMigrations } from './databaseMigrations';
 import type {
+  ComputerUsePermissionMode,
+  ComputerUseSettings,
   DeveloperSettings,
   DebuggingSettings,
   ProviderSettings,
@@ -43,6 +45,7 @@ const SHELL_UTILITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/u;
 const MAX_MEMORY_TYPE_DESCRIPTION_CHARACTERS = 4_000;
 const MAX_MEMORY_TYPE_DESCRIPTIONS_JSON_CHARACTERS = 64_000;
 const DEFAULT_RESEARCH_PROFILE_ID: ResearchProfileId = 'security-research';
+const DEFAULT_COMPUTER_USE_PERMISSION_MODE: ComputerUsePermissionMode = 'every_action';
 
 function defaultWorkspaceRegistryDirectory(): string {
   return process.env.BEALE_WORKSPACE_REGISTRY_DIR?.trim() || join(homedir(), '.beale');
@@ -282,6 +285,21 @@ export class WorkspaceRegistry {
   public setTracesEnabled(enabled: boolean): DebuggingSettings {
     this.setMeta('traces_enabled', enabled ? '1' : '0');
     return this.getDebuggingSettings();
+  }
+
+  public getComputerUseSettings(): ComputerUseSettings {
+    const permissionMode = this.getMeta('computer_use_permission_mode');
+    return {
+      permissionMode: isComputerUsePermissionMode(permissionMode)
+        ? permissionMode
+        : DEFAULT_COMPUTER_USE_PERMISSION_MODE
+    };
+  }
+
+  public setComputerUsePermissionMode(permissionMode: ComputerUsePermissionMode): ComputerUseSettings {
+    if (!isComputerUsePermissionMode(permissionMode)) throw new Error('Invalid computer-use permission mode.');
+    this.setMeta('computer_use_permission_mode', permissionMode);
+    return this.getComputerUseSettings();
   }
 
   public getWorkspaceByDirectory(path: string): WorkspaceRegistryEntry | null {
@@ -1036,6 +1054,10 @@ function normalizeShellOptions(value: unknown): ShellOptions {
 
 function normalizeDefaultProviderId(value: unknown): ResearchModelProviderId | null {
   return isResearchModelProviderId(value) ? value : null;
+}
+
+function isComputerUsePermissionMode(value: unknown): value is ComputerUsePermissionMode {
+  return value === 'once_per_session' || value === 'every_action';
 }
 
 function isResearchModelProviderId(value: unknown): value is ResearchModelProviderId {

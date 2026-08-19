@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { ApprovalRecord, RunDetail } from '@shared/types';
 import {
   isAutoReviewOverrideApproval,
+  isInlineApproval,
   pendingShellApproval,
   ShellApprovalModal,
   ShellApprovalQuestion
@@ -51,6 +52,43 @@ describe('renderer shell approval modal', () => {
     expect(html).not.toContain('class="modal-overlay"');
   });
 
+  it('renders Every Action computer use as a concise inline approval', () => {
+    const approval = approvalRecord({
+      permissionMode: 'every_action',
+      targetBinary: 'calculator',
+      toolName: 'click'
+    }, 'computer_use');
+    const html = renderToStaticMarkup(createElement(ShellApprovalQuestion, {
+      approval,
+      busy: false,
+      onDecision: () => undefined
+    }));
+
+    expect(isInlineApproval(approval)).toBe(true);
+    expect(html).toContain('aria-label="Approve computer action"');
+    expect(html).toContain('Approve this computer action?');
+    expect(html).toContain('click in calculator.');
+    expect(html).toContain('>Approve Once</button>');
+    expect(html).not.toContain('class="modal-overlay"');
+  });
+
+  it('explains that Once Per Session approval is bound to the target binary', () => {
+    const approval = approvalRecord({
+      permissionMode: 'once_per_session',
+      targetBinary: 'calculator',
+      toolName: 'click'
+    }, 'computer_use');
+    const html = renderToStaticMarkup(createElement(ShellApprovalQuestion, {
+      approval,
+      busy: false,
+      onDecision: () => undefined
+    }));
+
+    expect(html).toContain('Allow calculator for this session?');
+    expect(html).toContain('later computer actions targeting calculator.');
+    expect(html).toContain('>Allow for Session</button>');
+  });
+
   it('surfaces pending approvals only while their session is active', () => {
     const approval = approvalRecord();
     const detail = {
@@ -74,12 +112,15 @@ function renderApproval(busy: boolean): string {
   }));
 }
 
-function approvalRecord(requestedActionPatch: Record<string, unknown> = {}): ApprovalRecord {
+function approvalRecord(
+  requestedActionPatch: Record<string, unknown> = {},
+  requestKind: ApprovalRecord['requestKind'] = 'shell_command'
+): ApprovalRecord {
   return {
     id: 'approval_fixture',
     runId: 'run_fixture',
     attemptId: 'attempt_fixture',
-    requestKind: 'shell_command',
+    requestKind,
     requestedAction: {
       approvalRequestId: 'shell_approval_fixture',
       workspaceName: 'Example Workspace',

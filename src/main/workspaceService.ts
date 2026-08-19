@@ -102,6 +102,8 @@ import type {
   AutomationUpdateInput,
   AttemptRecord,
   ArtifactRecord,
+  ComputerUsePermissionMode,
+  ComputerUseSettings,
   DeveloperSettings,
   DebuggingSettings,
   ProviderSettings,
@@ -720,6 +722,14 @@ export class WorkspaceService {
 
   public setTracesEnabled(enabled: boolean): DebuggingSettings {
     return this.getWorkspaceRegistry().setTracesEnabled(enabled);
+  }
+
+  public getComputerUseSettings(): ComputerUseSettings {
+    return this.getWorkspaceRegistry().getComputerUseSettings();
+  }
+
+  public setComputerUsePermissionMode(permissionMode: ComputerUsePermissionMode): ComputerUseSettings {
+    return this.getWorkspaceRegistry().setComputerUsePermissionMode(permissionMode);
   }
 
   public getProviderSettings(): ProviderSettings {
@@ -3878,7 +3888,8 @@ export class WorkspaceService {
           () => this.options.researchSubjectResolver?.(workspacePath) ?? db.getResearchSubject(),
           () => this.getWorkspaceRegistry().getProviderSettings(),
           () => this.getAgentPluginRegistry().getHoneycrispRuntime(),
-          () => this.getWorkspaceRegistry().getWorkspaceByPath(workspacePath)?.workspaceDirectories ?? [workspacePath]
+          () => this.getWorkspaceRegistry().getWorkspaceByPath(workspacePath)?.workspaceDirectories ?? [workspacePath],
+          () => this.getWorkspaceRegistry().getComputerUseSettings()
         )
       };
     } catch (error) {

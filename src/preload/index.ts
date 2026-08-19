@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
+  ComputerUsePermissionMode,
+  ComputerUseSettings,
   DebuggingSettings,
   DeveloperSettings,
   ProviderSettings,
@@ -107,6 +109,12 @@ const api: BealeApi = {
   },
   setTracesEnabled(enabled: boolean): Promise<DebuggingSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setTracesEnabled, enabled);
+  },
+  getComputerUseSettings(): Promise<ComputerUseSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getComputerUseSettings);
+  },
+  setComputerUsePermissionMode(permissionMode: ComputerUsePermissionMode): Promise<ComputerUseSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setComputerUsePermissionMode, permissionMode);
   },
   getProviderSettings(): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.getProviderSettings);

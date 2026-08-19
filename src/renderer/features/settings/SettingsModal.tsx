@@ -8,6 +8,8 @@ import {
 import { ArrowLeft, KeyRound, Monitor, Palette, Plus, RefreshCw, ServerCog, Settings, UserRoundCog, X } from 'lucide-react';
 import type {
   AgentPluginRegistryState,
+  ComputerUsePermissionMode,
+  ComputerUseSettings,
   HostEnvironment,
   OpenAiAccountStatus,
   OpenAiAuthReadiness,
@@ -145,6 +147,7 @@ export function SettingsView({
   providerSettings,
   providerStatusesLoaded,
   computerUsePlatform,
+  computerUseSettings,
   agentPluginState,
   agentPluginsLoading,
   agentPluginsBusy,
@@ -169,6 +172,7 @@ export function SettingsView({
   onSetProviderCyberPolicyRiskAcknowledged = async () => undefined,
   onSetProviderPreferredAuthenticationMethod = async () => undefined,
   onSetAgentPluginEnabled,
+  onChangeComputerUsePermissionMode,
   onSetSessionHeatPreference = () => undefined,
   onSetSessionHeatPalettePreference = () => undefined
 }: {
@@ -189,6 +193,7 @@ export function SettingsView({
   providerSettings: ProviderSettings | null;
   providerStatusesLoaded: boolean;
   computerUsePlatform: HostEnvironment['platform'] | null;
+  computerUseSettings: ComputerUseSettings | null;
   agentPluginState: AgentPluginRegistryState | null;
   agentPluginsLoading: boolean;
   agentPluginsBusy: boolean;
@@ -223,6 +228,7 @@ export function SettingsView({
     method: ProviderAuthenticationMethod
   ) => Promise<void>;
   onSetAgentPluginEnabled: (pluginId: string, enabled: boolean) => void;
+  onChangeComputerUsePermissionMode: (permissionMode: ComputerUsePermissionMode) => void;
   onSetSessionHeatPreference?: (profileId: string, memoryTypeId: string, status: string, heat: SessionHeat | null) => void;
   onSetSessionHeatPalettePreference?: (
     profileId: string,
@@ -288,11 +294,13 @@ export function SettingsView({
         ) : (
           <ComputerUseSettingsView
             platform={computerUsePlatform}
+            settings={computerUseSettings}
             pluginState={agentPluginState}
             loading={agentPluginsLoading}
             busy={agentPluginsBusy}
             error={agentPluginsError}
             onSetEnabled={onSetAgentPluginEnabled}
+            onChangePermissionMode={onChangeComputerUsePermissionMode}
           />
         )}
       </section>
@@ -601,23 +609,27 @@ export function ProfileSettingsView({
 
 export function ComputerUseSettingsView({
   platform,
+  settings,
   pluginState,
   loading,
   busy,
   error,
-  onSetEnabled
+  onSetEnabled,
+  onChangePermissionMode
 }: {
   platform: HostEnvironment['platform'] | null;
+  settings: ComputerUseSettings | null;
   pluginState: AgentPluginRegistryState | null;
   loading: boolean;
   busy: boolean;
   error: string | null;
   onSetEnabled: (pluginId: string, enabled: boolean) => void;
+  onChangePermissionMode: (permissionMode: ComputerUsePermissionMode) => void;
 }): JSX.Element {
   const terminator = pluginState?.plugins.find((plugin) => (
     plugin.id === 'beale-terminator-builtin' || plugin.name === 'beale-terminator'
   )) ?? null;
-  const resolving = platform === null || (platform === 'win32' && (loading || pluginState === null));
+  const resolving = platform === null || (platform === 'win32' && (loading || pluginState === null || settings === null));
 
   return (
     <div className="settings-page general-settings-page computer-use-settings-page">
@@ -654,6 +666,49 @@ export function ComputerUseSettingsView({
           )}
         </fieldset>
       </section>
+      {platform === 'win32' && settings ? (
+        <section className="settings-form computer-permissions-settings-form" aria-busy={busy}>
+          <header className="settings-form-heading">
+            <h2 id="computer-permissions-settings-heading">Computer Permissions</h2>
+            <p>Choose how often Beale asks before changing an application.</p>
+          </header>
+          <fieldset
+            className="settings-form-squircle computer-permissions-settings"
+            aria-labelledby="computer-permissions-settings-heading"
+          >
+            <div className="settings-form-radio-list">
+              <label className="settings-form-control-row">
+                <span className="settings-form-control-copy">
+                  <strong>Every Action</strong>
+                  <small>Ask before every computer action. This is the safer default.</small>
+                </span>
+                <input
+                  type="radio"
+                  name="computer-use-permission-mode"
+                  aria-label="Every Action"
+                  checked={settings.permissionMode === 'every_action'}
+                  disabled={busy}
+                  onChange={() => onChangePermissionMode('every_action')}
+                />
+              </label>
+              <label className="settings-form-control-row">
+                <span className="settings-form-control-copy">
+                  <strong>Once Per Session</strong>
+                  <small>Ask once for each target binary, then allow later actions against that binary for the session.</small>
+                </span>
+                <input
+                  type="radio"
+                  name="computer-use-permission-mode"
+                  aria-label="Once Per Session"
+                  checked={settings.permissionMode === 'once_per_session'}
+                  disabled={busy}
+                  onChange={() => onChangePermissionMode('once_per_session')}
+                />
+              </label>
+            </div>
+          </fieldset>
+        </section>
+      ) : null}
     </div>
   );
 }

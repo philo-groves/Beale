@@ -909,6 +909,12 @@ export interface DebuggingSettings {
   tracesEnabled: boolean;
 }
 
+export type ComputerUsePermissionMode = 'once_per_session' | 'every_action';
+
+export interface ComputerUseSettings {
+  permissionMode: ComputerUsePermissionMode;
+}
+
 export interface ProviderSettings {
   defaultProviderId: ResearchModelProviderId | null;
   modelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>>;
@@ -1779,6 +1785,8 @@ export interface BealeApi {
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings>;
   getDebuggingSettings(): Promise<DebuggingSettings>;
   setTracesEnabled(enabled: boolean): Promise<DebuggingSettings>;
+  getComputerUseSettings(): Promise<ComputerUseSettings>;
+  setComputerUsePermissionMode(permissionMode: ComputerUsePermissionMode): Promise<ComputerUseSettings>;
   getProviderSettings(): Promise<ProviderSettings>;
   setDefaultProviderId(providerId: ResearchModelProviderId | null): Promise<ProviderSettings>;
   setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): Promise<ProviderSettings>;
