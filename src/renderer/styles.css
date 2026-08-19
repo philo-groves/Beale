@@ -6287,7 +6287,9 @@ button.subagent-catalog-item:hover:not(:disabled),
   .memory-catalog-item-name,
   .memory-catalog-status,
   .memory-catalog-item-description,
-  .memory-catalog-item-trailing
+  .memory-catalog-item-trailing,
+  .memory-catalog-item-type,
+  .memory-catalog-item-author-model
 ) {
   color: var(--text);
 }

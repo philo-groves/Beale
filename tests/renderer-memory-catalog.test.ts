@@ -76,7 +76,7 @@ describe('renderer memory catalog', () => {
     expect(styles).toMatch(/button\.subagent-catalog-item:hover:not\(:disabled\)[^{]*\{[^}]*background: transparent/u);
     expect(styles).toMatch(/button\.runbook-catalog-item:not\(\.breakout-room-catalog-item\):hover:not\(:disabled\)[^{]*\{[^}]*background: transparent/u);
     expect(styles).toMatch(/\.subagent-catalog-preview\s*\)\s*\{\s*color: var\(--text\)/u);
-    expect(styles).toMatch(/\.memory-catalog-item-trailing\s*\)\s*\{\s*color: var\(--text\)/u);
+    expect(styles).toMatch(/\.memory-catalog-item-trailing\s*,[\s\S]*\.memory-catalog-item-type\s*,[\s\S]*\.memory-catalog-item-author-model\s*\)\s*\{\s*color: var\(--text\)/u);
     expect(styles).toMatch(/\btime\s*\)\s*\{\s*color: var\(--text\)/u);
   });
 
