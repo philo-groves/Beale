@@ -8,7 +8,8 @@ import {
   BreakoutRoomCatalogItem,
   ResearchSidePanel,
   ResearchSideViewTabs,
-  MemoryCatalogSection,
+  SubagentCatalogSection,
+  MemoryTypeCatalogSection,
   RunbookCatalogItem,
   ReportCatalogItem,
   DEFAULT_MEMORY_LEVEL_FILTER,
@@ -27,15 +28,114 @@ import {
   researchSideNavigationReducer,
   runbookScopeFiltersForViewSpace,
   restrictResearchSideNavigation,
+  subagentModelDisplayName,
   type ResearchSideNavigationState
 } from '../src/renderer/features/research/MemorySidePanel';
-import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogUpdateKey, memoryTypeSummaryPresentation, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogUpdateKey, memoryTypeGroupsByHeat, memoryTypeSummaryPresentation, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from '../src/renderer/view-models/researchProfileFeatures';
 import { runbookCatalogGroups } from '../src/renderer/view-models/runbooks';
 import { reportCatalogGroups } from '../src/renderer/view-models/reports';
+import { memoryStatusPolarity } from '../src/renderer/features/research/MemoryStatusDot';
 import { testResearchProfile } from './researchProfileFixture';
 
 describe('renderer memory catalog', () => {
+  it('maps profile memory status polarity to semantic dot colors', () => {
+    const statuses = testResearchProfile().memory.statuses;
+    expect(memoryStatusPolarity('draft', statuses)).toBe('neutral');
+    expect(memoryStatusPolarity('confirmed', statuses)).toBe('positive');
+    expect(memoryStatusPolarity('rejected')).toBe('negative');
+    expect(memoryStatusPolarity('custom-status')).toBe('unknown');
+  });
+
+  it('uses agent response color for primary catalog labels while metadata remains muted', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const subagentNameStyles = styles.match(/\.subagent-catalog-name\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const subagentModelStyles = styles.match(/\.subagent-catalog-model\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const memoryNameStyles = styles.match(/\.memory-catalog-item-name\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const runbookAndReportNameStyles = styles.match(/\.runbook-catalog-item:not\(\.breakout-room-catalog-item\) \.runbook-catalog-name\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+    expect(subagentNameStyles).toContain('color: var(--text)');
+    expect(subagentModelStyles).toContain('color: var(--muted)');
+    expect(memoryNameStyles).toContain('color: var(--text)');
+    expect(runbookAndReportNameStyles).toContain('color: var(--text)');
+  });
+
+  it('uses response-colored text and dividers instead of catalog hover backgrounds', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const subagentHoverStyles = styles.match(/\.subagent-catalog-item:is\(:hover, :focus-visible\)\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const memoryHoverStyles = styles.match(/\.memory-catalog-item:hover\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const runbookHoverStyles = styles.match(/\.runbook-catalog-item:not\(\.breakout-room-catalog-item\):is\(:hover, :focus-visible\)\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+    expect(subagentHoverStyles).toContain('inset 0 1px var(--text)');
+    expect(subagentHoverStyles).toContain('inset 0 -1px var(--text)');
+    expect(memoryHoverStyles).toContain('background: transparent');
+    expect(memoryHoverStyles).toContain('inset 0 1px var(--text)');
+    expect(memoryHoverStyles).not.toContain('var(--gray-20)');
+    expect(runbookHoverStyles).toContain('inset 0 1px var(--text)');
+    expect(runbookHoverStyles).toContain('inset 0 -1px var(--text)');
+    expect(styles).toMatch(/button\.subagent-catalog-item:hover:not\(:disabled\)[^{]*\{[^}]*background: transparent/u);
+    expect(styles).toMatch(/button\.runbook-catalog-item:not\(\.breakout-room-catalog-item\):hover:not\(:disabled\)[^{]*\{[^}]*background: transparent/u);
+    expect(styles).toMatch(/\.subagent-catalog-preview\s*\)\s*\{\s*color: var\(--text\)/u);
+    expect(styles).toMatch(/\.memory-catalog-item-trailing\s*\)\s*\{\s*color: var\(--text\)/u);
+    expect(styles).toMatch(/\btime\s*\)\s*\{\s*color: var\(--text\)/u);
+  });
+
+  it('uses provider catalog display names for subagent models with identifier fallback', () => {
+    const catalogs = [{
+      providerId: 'xai' as const,
+      providerName: 'xAI',
+      models: [{
+        id: 'grok-4.6',
+        name: 'Grok 4.6',
+        reasoning: true,
+        effortLevels: ['low' as const, 'high' as const],
+        contextWindow: 500_000,
+        maxTokens: 32_000
+      }]
+    }];
+
+    expect(subagentModelDisplayName('xai', 'grok-4.6', catalogs)).toBe('Grok 4.6');
+    expect(subagentModelDisplayName('xai', 'grok-legacy', catalogs)).toBe('grok-legacy');
+    expect(subagentModelDisplayName(null, null, catalogs)).toBe('Unknown model');
+  });
+
+  it('renders subagent timestamps before spinner and dot status indicators', () => {
+    const baseAgent = {
+      id: 'agent_parser',
+      path: '/root/parser_review',
+      name: 'parser_review',
+      provider: 'xai',
+      model: 'grok-4.6',
+      latestMessage: 'Checking the parser boundary.',
+      createdAt: '2026-07-20T10:00:00.000Z',
+      lastActiveAt: '2026-07-20T10:01:00.000Z'
+    };
+    const activeHtml = renderToStaticMarkup(createElement(SubagentCatalogSection, {
+      agents: [{ ...baseAgent, status: 'running' as const }],
+      nowMs: Date.parse('2026-07-20T12:00:00.000Z'),
+      providerModelCatalog: [],
+      label: 'Active',
+      selectedPath: null,
+      onSelect: () => undefined
+    }));
+    const completedHtml = renderToStaticMarkup(createElement(SubagentCatalogSection, {
+      agents: [{ ...baseAgent, status: 'completed' as const }],
+      nowMs: Date.parse('2026-07-20T12:00:00.000Z'),
+      providerModelCatalog: [],
+      label: 'Completed',
+      selectedPath: null,
+      onSelect: () => undefined
+    }));
+
+    expect(activeHtml.indexOf('<time')).toBeLessThan(activeHtml.indexOf('subagent-catalog-status is-active'));
+    expect(activeHtml).toContain('>2h</time>');
+    expect(activeHtml).toContain('subagent-catalog-status-spinner');
+    expect(activeHtml).not.toContain('>Running</span>');
+    expect(completedHtml.indexOf('<time')).toBeLessThan(completedHtml.indexOf('subagent-catalog-status is-success'));
+    expect(completedHtml).not.toContain('subagent-catalog-status-spinner');
+    expect(completedHtml).not.toContain('>Completed</span>');
+  });
+
   it('defaults the detailed memory catalog to Session scope', () => {
     expect(DEFAULT_MEMORY_LEVEL_FILTER).toBe('session');
   });
@@ -87,6 +187,8 @@ describe('renderer memory catalog', () => {
     });
 
     const html = renderToStaticMarkup(createElement(RunbookCatalogItem, {
+      compactTime: true,
+      nowMs: Date.parse('2026-07-20T15:00:00.000Z'),
       runbook: active,
       selected: false,
       onOpen: () => undefined
@@ -95,6 +197,7 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('class="lucide lucide-book-open runbook-catalog-icon"');
     expect(html).toContain('class="runbook-catalog-name">Runbook title</span>');
     expect(html).toContain('class="runbook-catalog-heading-trailing"><span class="runbook-catalog-status">Active</span><time');
+    expect(html).toMatch(/<time class="catalog-time-since" dateTime="2026-07-19T15:00:00\.000Z" title="[^"]+">1d<\/time>/u);
     expect(html).toContain('class="runbook-catalog-purpose">Runbook purpose</span>');
     expect(html).not.toContain('runbook-catalog-type');
     expect(html).not.toContain('memory-catalog-status');
@@ -104,10 +207,16 @@ describe('renderer memory catalog', () => {
     const complete = report({ id: 'report_complete', title: 'A readable result', status: 'complete', updatedAt: '2026-07-20T12:00:00.000Z' });
     const stale = report({ id: 'report_stale', title: 'Old result', status: 'stale', updatedAt: '2026-07-19T12:00:00.000Z' });
     expect(reportCatalogGroups([stale, complete])).toEqual({ complete: [complete], stale: [stale] });
-    const html = renderToStaticMarkup(createElement(ReportCatalogItem, { report: complete, selected: false, onOpen: () => undefined }));
+    const html = renderToStaticMarkup(createElement(ReportCatalogItem, {
+      report: complete,
+      nowMs: Date.parse('2026-07-22T12:00:00.000Z'),
+      selected: false,
+      onOpen: () => undefined
+    }));
     expect(html).toContain('A readable result');
     expect(html).toContain('Complete');
     expect(html).toContain('A short report summary.');
+    expect(html).toContain('>2d</time>');
   });
 
   it('filters and groups breakout rooms for the detailed Rooms catalog', () => {
@@ -124,6 +233,7 @@ describe('renderer memory catalog', () => {
 
     const html = renderToStaticMarkup(createElement(BreakoutRoomCatalogItem, {
       room: active,
+      nowMs: Date.parse('2026-07-19T14:04:00.000Z'),
       selected: false,
       onOpen: () => undefined
     }));
@@ -132,6 +242,7 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('Live Parser Review');
     expect(html).toContain('Active');
     expect(html).toContain('Review competing parser hypotheses.');
+    expect(html).toContain('>2h</time>');
   });
 
   it('opens, activates, and closes detailed side views without losing neighboring tabs', () => {
@@ -276,32 +387,117 @@ describe('renderer memory catalog', () => {
     expect(memoryCatalogGroupPreview(nodes, true)).toEqual({ visibleNodes: nodes, hiddenCount: 0 });
 
     const sectionNodes = Array.from({ length: 7 }, (_, index) => memoryNode({
+      authors: index === 0 ? [
+        { provider: 'xai', model: 'grok-4.6' },
+        { provider: 'anthropic', model: 'claude-opus-5' }
+      ] : [],
       id: `suspected_${index + 1}`,
       title: `Suspected memory ${index + 1}`,
       summary: index === 0 ? 'Memory uses `parse_length` before allocation' : 'Memory summary',
       status: 'suspected'
     }));
-    const html = renderToStaticMarkup(createElement(MemoryCatalogSection, {
+    const memoryType = {
+      ...summaryMemoryType('primitive', 10, { confirmed: 'high' }),
+      name: 'Primitive',
+      pluralName: 'Primitives'
+    };
+    const providerModelCatalog = [{
+      providerId: 'xai' as const,
+      providerName: 'xAI',
+      models: [{
+        id: 'grok-4.6',
+        name: 'Grok 4.6',
+        reasoning: true,
+        effortLevels: ['low' as const, 'high' as const],
+        contextWindow: 500_000,
+        maxTokens: 32_000
+      }]
+    }, {
+      providerId: 'anthropic' as const,
+      providerName: 'Anthropic',
+      models: [{
+        id: 'claude-opus-5',
+        name: 'Claude Opus 5',
+        reasoning: true,
+        effortLevels: ['low' as const, 'high' as const],
+        contextWindow: 500_000,
+        maxTokens: 32_000
+      }]
+    }];
+    const html = renderToStaticMarkup(createElement(MemoryTypeCatalogSection, {
       nodes: sectionNodes,
-      label: 'suspected',
+      nowMs: Date.parse('2026-07-22T12:00:00.000Z'),
+      type: 'primitive',
+      memoryTypes: [memoryType],
+      memoryStatuses: [{ id: 'suspected', name: 'Suspected', description: 'Needs confirmation.', order: 10, polarity: 'neutral' }],
+      providerModelCatalog,
       expanded: false,
       selectedNodeId: null,
       onExpand: () => undefined,
       onOpen: () => undefined
     }));
-    expect(html).toContain('7 Suspected');
+    expect(html).toContain('7 Primitives');
+    expect(html).toContain('data-memory-type="primitive"');
     expect(html).toContain('Show 2 More');
     expect(html).toContain('lucide-chevron-down');
     expect(html).toContain('Suspected memory 5');
     expect(html).not.toContain('Suspected memory 6');
-    expect(html).toContain('class="memory-catalog-item-primary"><span class="memory-type-icon memory-type-primitive" aria-hidden="true"><svg');
-    expect(html).toContain('class="lucide lucide-database"');
+    expect(html).toMatch(/class="memory-catalog-item-meta-line"><span class="memory-catalog-item-trailing">[\s\S]*?<span class="memory-catalog-item-primary"><span class="memory-catalog-item-name"/u);
+    expect(html).not.toContain('memory-type-icon');
+    expect(html).not.toContain('class="lucide lucide-database"');
     expect(html).toContain('class="memory-catalog-item-name" title="Suspected memory 1">Suspected memory 1</span>');
-    expect(html).toContain('class="memory-catalog-item-trailing"><span class="memory-type-label memory-type-primitive"><span class="memory-type-text">Primitive</span></span><time');
+    expect(html).toContain('class="memory-catalog-item-trailing"><time');
+    expect(html).toContain('>3d</time>');
+    expect(html).toContain('class="memory-status-dot memory-status-neutral" data-memory-status="suspected" data-memory-status-polarity="neutral" role="img" aria-label="Status: Suspected" title="Suspected: Needs confirmation."');
+    expect(html).toContain('class="memory-type-label memory-type-primitive memory-catalog-item-type" data-memory-heat="high"');
+    expect(html).toContain('style="--memory-type-color:var(--session-heat-high-color)"');
+    expect(html).toContain('class="memory-catalog-item-authors" aria-label="Model authors"');
+    expect(html).toContain('class="memory-catalog-item-author" title="xai/grok-4.6"');
+    expect(html).toContain('class="memory-catalog-item-author-provider"><svg aria-hidden="true"');
+    expect(html).toContain('height="15"');
+    expect(html).toContain('class="memory-catalog-item-author-model">Grok 4.6</span>');
+    expect(html).toContain('class="memory-catalog-item-author" title="anthropic/claude-opus-5"');
+    expect(html).toContain('class="memory-catalog-item-author-model">Opus 5</span>');
+    expect(html.indexOf('title="xai/grok-4.6"')).toBeLessThan(html.indexOf('title="anthropic/claude-opus-5"'));
     expect(html).not.toContain('memory-catalog-item-separator');
-    expect(html).toContain('class="main-trace-inline-code">parse_length</code>');
-    expect(html).toContain('class="memory-catalog-item-description">Memory summary</span>');
+    expect(html).not.toContain('main-trace-inline-code');
+    expect(html).not.toContain('memory-catalog-item-description');
     expect(html).not.toContain('memory-catalog-status');
+
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const compactNameStyles = styles.match(/\.memory-catalog-item\.is-compact \.memory-catalog-item-name\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const compactTrailingStyles = styles.match(/\.memory-catalog-item\.is-compact \.memory-catalog-item-trailing\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const authorListStyles = styles.match(/\.memory-catalog-item-authors\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const authorProviderStyles = styles.match(/\.memory-catalog-item-author-provider\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const authorModelStyles = styles.match(/\.memory-catalog-item-author-model\s*\{([^}]*)\}/u)?.[1] ?? '';
+    expect(compactNameStyles).toContain('white-space: normal');
+    expect(compactNameStyles).toContain('overflow-wrap: anywhere');
+    expect(compactTrailingStyles).toContain('float: right');
+    expect(authorListStyles).toContain('flex-wrap: wrap');
+    expect(authorListStyles).toContain('gap: 6px');
+    expect(authorProviderStyles).toContain('width: 16px');
+    expect(authorProviderStyles).toContain('height: 18px');
+    expect(authorModelStyles).toContain('font-size: 0.9rem');
+  });
+
+  it('groups sidenav memories by canonical type and sorts hotter types first', () => {
+    const finding = summaryMemoryType('finding', 10, { confirmed: 'high' });
+    const note = { ...summaryMemoryType('note', 20, { draft: 'low' }), aliases: ['observation'] };
+    const neutral = summaryMemoryType('neutral', 30);
+    const groups = memoryTypeGroupsByHeat([
+      memoryNode({ id: 'neutral_one', type: 'neutral', status: 'draft' }),
+      memoryNode({ id: 'neutral_two', type: 'neutral', status: 'draft' }),
+      memoryNode({ id: 'finding_one', type: 'finding', status: 'confirmed' }),
+      memoryNode({ id: 'note_one', type: 'observation', status: 'draft' })
+    ], [finding, note, neutral], 'security-research', {
+      'security-research': { note: { draft: 'critical' } }
+    });
+
+    expect(groups.map((group) => [group.type, group.nodes.map((node) => node.id)])).toEqual([
+      ['note', ['note_one']],
+      ['finding', ['finding_one']],
+      ['neutral', ['neutral_one', 'neutral_two']]
+    ]);
   });
 
   it('counts paired memory searches and updates once', () => {

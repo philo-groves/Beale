@@ -107,8 +107,10 @@ describe('memory settings', () => {
     expect(html).toContain(`aria-label="Memory Type Description">${memoryType.description}</textarea>`);
     expect(html).toMatch(/aria-label="Immutable Memory Type ID"[^>]*disabled=""[^>]*value="finding"/u);
     expect(html).toContain('<h2 id="profile-memory-states-heading">Possible States</h2>');
-    expect(html).toContain('>Draft</strong><small>Not established.</small>');
-    expect(html).toContain('>Confirmed</strong><small>Evidence-backed.</small>');
+    expect(html).toContain('class="memory-status-dot memory-status-neutral" data-memory-status="draft" data-memory-status-polarity="neutral" aria-hidden="true"');
+    expect(html).toContain('class="memory-status-dot memory-status-positive" data-memory-status="confirmed" data-memory-status-polarity="positive" aria-hidden="true"');
+    expect(html).toContain('<span>Draft</span></strong><small>Not established.</small>');
+    expect(html).toContain('<span>Confirmed</span></strong><small>Evidence-backed.</small>');
     expect(html).toContain('aria-label="Allow Draft" checked=""');
     expect(html).toContain('aria-label="Allow Confirmed" checked=""');
     expect(html).toContain('<h2 id="profile-memory-heat-heading">Session Heat</h2>');

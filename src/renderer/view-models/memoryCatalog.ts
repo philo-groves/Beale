@@ -28,6 +28,42 @@ export interface MemoryCatalogStatusSection {
   nodes: HoneycrispMemoryNodeSummary[];
 }
 
+export interface MemoryTypeGroup {
+  type: string;
+  nodes: HoneycrispMemoryNodeSummary[];
+}
+
+export function memoryTypeGroupsByHeat(
+  nodes: readonly HoneycrispMemoryNodeSummary[],
+  memoryTypes: readonly ResearchProfileMemoryType[],
+  profileId: string | null | undefined,
+  overrides: SessionHeatPreferenceOverrides = {}
+): MemoryTypeGroup[] {
+  const typeById = new Map(memoryTypes.map((definition) => [definition.id, definition]));
+  const aliasToType = new Map(memoryTypes.flatMap((definition) =>
+    (definition.aliases ?? []).map((alias) => [alias, definition] as const)
+  ));
+  const groups = new Map<string, HoneycrispMemoryNodeSummary[]>();
+  for (const node of nodes) {
+    const definition = typeById.get(node.type) ?? aliasToType.get(node.type) ?? null;
+    const type = definition?.id ?? node.type;
+    groups.set(type, [...(groups.get(type) ?? []), node]);
+  }
+  return [...groups.entries()]
+    .map(([type, groupedNodes]) => ({ type, nodes: groupedNodes }))
+    .sort((left, right) => {
+      const leftDefinition = typeById.get(left.type) ?? null;
+      const rightDefinition = typeById.get(right.type) ?? null;
+      const heatDifference = memoryTypeHeatRank(rightDefinition, profileId, overrides)
+        - memoryTypeHeatRank(leftDefinition, profileId, overrides);
+      if (heatDifference !== 0) return heatDifference;
+      if (right.nodes.length !== left.nodes.length) return right.nodes.length - left.nodes.length;
+      return (leftDefinition?.order ?? Number.MAX_SAFE_INTEGER)
+        - (rightDefinition?.order ?? Number.MAX_SAFE_INTEGER)
+        || (leftDefinition?.name ?? left.type).localeCompare(rightDefinition?.name ?? right.type);
+    });
+}
+
 export function memoryCatalogStatusGroups(
   nodes: readonly HoneycrispMemoryNodeSummary[],
   statuses?: readonly ResearchProfileMemoryStatus[]
@@ -149,10 +185,11 @@ export function memoryTypeSummaryPresentation(
 }
 
 function memoryTypeHeatRank(
-  definition: ResearchProfileMemoryType,
+  definition: ResearchProfileMemoryType | null,
   profileId: string | null | undefined,
   overrides: SessionHeatPreferenceOverrides
 ): number {
+  if (!definition) return 0;
   let rank = 0;
   for (const status of definition.allowedStatuses) {
     const heat = (profileId ? overrides[profileId]?.[definition.id]?.[status] : undefined)

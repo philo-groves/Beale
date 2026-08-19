@@ -31,6 +31,22 @@ export function formatSessionDateTime(value: string): string {
   return formatSessionStart(date);
 }
 
+export function formatCompactTimeSince(value: string, nowMs = Date.now()): string {
+  const timestampMs = Date.parse(value);
+  if (!Number.isFinite(timestampMs)) return '--';
+  const elapsedMs = Math.max(0, nowMs - timestampMs);
+  const units = [
+    { durationMs: 365 * 24 * 60 * 60 * 1_000, suffix: 'y' },
+    { durationMs: 30 * 24 * 60 * 60 * 1_000, suffix: 'M' },
+    { durationMs: 7 * 24 * 60 * 60 * 1_000, suffix: 'w' },
+    { durationMs: 24 * 60 * 60 * 1_000, suffix: 'd' },
+    { durationMs: 60 * 60 * 1_000, suffix: 'h' },
+    { durationMs: 60 * 1_000, suffix: 'm' }
+  ] as const;
+  const unit = units.find((candidate) => elapsedMs >= candidate.durationMs) ?? units.at(-1)!;
+  return `${Math.max(1, Math.floor(elapsedMs / unit.durationMs))}${unit.suffix}`;
+}
+
 export function formatSessionTime(date: Date): string {
   const minutes = String(date.getMinutes()).padStart(2, '0');
   const hour24 = date.getHours();

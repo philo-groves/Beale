@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronRight, Database, FileText, MessagesSquare, Plus, Search, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronRight, Database, FileText, LoaderCircle, MessagesSquare, Plus, Search, X } from 'lucide-react';
 import type {
   BreakoutRoomRecord,
   BreakoutRoomStatus,
@@ -25,10 +25,10 @@ import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import { ModelAuthors } from '../../app/ModelAuthors';
 import { useDevRenderProbe } from '../../devInstrumentation';
-import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
+import { formatCompactTimeSince, formatSessionDateTime, researchModelNameLabel, stateClass, traceLabel } from '../../lib/formatting';
 import { displayBreakoutRoomTitle } from '../../view-models/appHeader';
-import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogStatusSections, memoryCatalogUpdateKey, memoryTypeSummaryPresentation, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
-import type { MemoryStatusGroup, SessionMemoryTypeSummary } from '../../view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogUpdateKey, memoryTypeGroupsByHeat, memoryTypeSummaryPresentation, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
+import type { SessionMemoryTypeSummary } from '../../view-models/memoryCatalog';
 import { filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentOverviewForEvents, subagentOverviewFromSummaries, subagentOverviewStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
 import type { SubagentSummary } from '../../view-models/subagents';
 import { runbookCatalogGroups, runbookDescriptionText } from '../../view-models/runbooks';
@@ -42,6 +42,7 @@ import { SessionUsageSummary } from '../momentum/SessionUsageStatus';
 import { BreakoutRoomView } from '../sessions/BreakoutRoomView';
 import { SessionDurationMetric } from '../sessions/SessionMetrics';
 import { MemoryTypeIcon, MemoryTypeLabel, memoryTypeClassName, memoryTypeDefinition, memoryTypeLabel, memoryTypeStyle } from './MemoryTypeLabel';
+import { MemoryStatusDot } from './MemoryStatusDot';
 import { RunbookView } from './RunbookView';
 import { ReportView } from './ReportView';
 import { renderInlineCodeText } from '../traces/traceMarkup';
@@ -286,6 +287,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [reportQuery, setReportQuery] = useState('');
   const [roomQuery, setRoomQuery] = useState('');
   const [subagentQuery, setSubagentQuery] = useState('');
+  const [catalogNowMs, setCatalogNowMs] = useState(() => Date.now());
   const [scope, setScope] = useState<MemoryLevelFilter>(
     viewSpace === 'workspace' ? DEFAULT_WORKSPACE_MEMORY_LEVEL_FILTER : DEFAULT_MEMORY_LEVEL_FILTER
   );
@@ -293,8 +295,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     viewSpace === 'workspace' ? DEFAULT_WORKSPACE_RUNBOOK_SCOPE_FILTER : DEFAULT_RUNBOOK_SCOPE_FILTER
   );
   const [type, setType] = useState('all');
-  const [expandedMemoryGroups, setExpandedMemoryGroups] = useState<ReadonlySet<MemoryStatusGroup>>(new Set());
+  const [expandedMemoryGroups, setExpandedMemoryGroups] = useState<ReadonlySet<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = window.setInterval(() => setCatalogNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const visibleSelectedNodeId = selectedMemoryNodeId === undefined ? selectedNodeId : selectedMemoryNodeId;
   const restrictedNavigation = restrictResearchSideNavigation(navigation, enabledViews);
   const visibleNavigation = researchSideNavigationForSelectedDetail(
@@ -447,11 +453,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => filterMemoryCatalogNodes(nodes, { query, scope, sessionId: runId, workspaceId, subjectId, type }),
     [nodes, query, runId, scope, subjectId, type, workspaceId]
   );
-  const memoryStatusSections = useMemo(
-    () => memoryStatuses.length > 0
-      ? memoryCatalogStatusSections(filteredNodes, memoryStatuses)
-      : legacyMemoryStatusSections(filteredNodes),
-    [filteredNodes, memoryStatuses]
+  const memoryTypeGroups = useMemo(
+    () => memoryTypeGroupsByHeat(
+      [...filteredNodes].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id)),
+      memoryTypes,
+      researchProfile?.id,
+      sessionHeatPreferences.heatOverrides
+    ),
+    [filteredNodes, memoryTypes, researchProfile?.id, sessionHeatPreferences.heatOverrides]
   );
   const filteredRunbooks = useMemo(
     () => filterRunbookCatalog(runbooks, runbookScope, runId, workspaceId, runbookQuery),
@@ -873,20 +882,21 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             {memory && !memory.lastError && nodes.length === 0 ? <div className="memory-catalog-empty">No {memoryLabel.toLocaleLowerCase()} records yet.</div> : null}
             {memory && nodes.length > 0 && filteredNodes.length === 0 ? <div className="memory-catalog-empty">No records match these filters.</div> : null}
             {filteredNodes.length > 0 ? (
-              <MainSideScrollRegion listClassName="memory-catalog-list memory-status-groups" stickToStart updateKey={updateKey}>
-                {memoryStatusSections.filter((statusSection) => statusSection.nodes.length > 0).map((statusSection) => (
-                  <MemoryCatalogSection
-                    expanded={expandedMemoryGroups.has(statusSection.id)}
-                    key={statusSection.id}
-                    label={statusSection.id}
-                    displayLabel={statusSection.label}
-                    memoryLabel={memoryLabel}
+              <MainSideScrollRegion listClassName="memory-catalog-list memory-type-groups" stickToStart updateKey={updateKey}>
+                {memoryTypeGroups.map((memoryTypeGroup) => (
+                  <MemoryTypeCatalogSection
+                    nowMs={catalogNowMs}
+                    expanded={expandedMemoryGroups.has(memoryTypeGroup.type)}
+                    key={memoryTypeGroup.type}
+                    memoryStatuses={memoryStatuses}
                     memoryTypes={memoryTypes}
-                    nodes={statusSection.nodes}
+                    nodes={memoryTypeGroup.nodes}
                     profileId={researchProfile?.id}
+                    providerModelCatalog={providerModelCatalog}
                     sessionHeatPreferences={sessionHeatPreferences}
                     selectedNodeId={visibleSelectedNodeId}
-                    onExpand={() => setExpandedMemoryGroups((current) => new Set(current).add(statusSection.id))}
+                    type={memoryTypeGroup.type}
+                    onExpand={() => setExpandedMemoryGroups((current) => new Set(current).add(memoryTypeGroup.type))}
                     onOpen={(nodeId) => setSelectedNodeId(nodeId)}
                   />
                 ))}
@@ -906,6 +916,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                   {groupedRunbooks.active.length > 0 ? (
                     <RunbookCatalogSection
                       label="Active"
+                      nowMs={catalogNowMs}
                       runbooks={groupedRunbooks.active}
                       selectedRunbookId={selectedRunbookId}
                       onOpen={onOpenRunbook}
@@ -914,6 +925,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                   {groupedRunbooks.archived.length > 0 ? (
                     <RunbookCatalogSection
                       label="Archived"
+                      nowMs={catalogNowMs}
                       runbooks={groupedRunbooks.archived}
                       selectedRunbookId={selectedRunbookId}
                       onOpen={onOpenRunbook}
@@ -936,6 +948,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                   {groupedReports.complete.length > 0 ? (
                     <ReportCatalogSection
                       label="Complete"
+                      nowMs={catalogNowMs}
                       reports={groupedReports.complete}
                       selectedReportId={selectedReportId}
                       onOpen={onOpenReport}
@@ -944,6 +957,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                   {groupedReports.stale.length > 0 ? (
                     <ReportCatalogSection
                       label="Stale"
+                      nowMs={catalogNowMs}
                       reports={groupedReports.stale}
                       selectedReportId={selectedReportId}
                       onOpen={onOpenReport}
@@ -966,6 +980,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                   <BreakoutRoomCatalogSection
                     key={group.status}
                     label={breakoutRoomStatusLabel(group.status)}
+                    nowMs={catalogNowMs}
                     rooms={group.rooms}
                     selectedRoomId={visibleSelectedBreakoutRoomId}
                     onOpen={onOpenBreakoutRoom}
@@ -991,6 +1006,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                   {groupedSubagents.active.length > 0 ? (
                     <SubagentCatalogSection
                       agents={groupedSubagents.active}
+                      nowMs={catalogNowMs}
+                      providerModelCatalog={providerModelCatalog}
                       label="Active"
                       onSelect={onSelectSubagent}
                       selectedPath={visibleSelectedSubagentPath}
@@ -999,6 +1016,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                   {groupedSubagents.completed.length > 0 ? (
                     <SubagentCatalogSection
                       agents={groupedSubagents.completed}
+                      nowMs={catalogNowMs}
+                      providerModelCatalog={providerModelCatalog}
                       label="Completed"
                       onSelect={onSelectSubagent}
                       selectedPath={visibleSelectedSubagentPath}
@@ -1366,20 +1385,6 @@ export function orderedCatalogMemoryTypes(
     }));
 }
 
-function legacyMemoryStatusSections(nodes: readonly HoneycrispMemoryNodeSummary[]): Array<{
-  id: string;
-  label: string;
-  polarity: ResearchProfileMemoryStatus['polarity'];
-  nodes: HoneycrispMemoryNodeSummary[];
-}> {
-  const groups = memoryCatalogStatusGroups(nodes);
-  return [
-    { id: 'suspected', label: 'Suspected', polarity: 'neutral', nodes: groups.suspected },
-    { id: 'confirmed', label: 'Confirmed', polarity: 'positive', nodes: groups.confirmed },
-    { id: 'rejected', label: 'Rejected', polarity: 'negative', nodes: groups.rejected }
-  ];
-}
-
 export function pluralizePresentationLabel(label: string): string {
   const trimmed = label.trim();
   if (!trimmed || /s$/iu.test(trimmed)) return trimmed;
@@ -1411,12 +1416,24 @@ function researchSideViewIcon(view: ResearchSideView, size: number): JSX.Element
   return <Bot size={size} aria-hidden="true" />;
 }
 
+function CatalogTime({ value, nowMs }: { value: string; nowMs: number }): JSX.Element {
+  return (
+    <time className="catalog-time-since" dateTime={value} title={formatSessionDateTime(value)}>
+      {formatCompactTimeSince(value, nowMs)}
+    </time>
+  );
+}
+
 export function RunbookCatalogItem({
   runbook,
+  compactTime = false,
+  nowMs = Date.now(),
   selected,
   onOpen
 }: {
   runbook: HoneycrispRunbookSummary;
+  compactTime?: boolean;
+  nowMs?: number;
   selected: boolean;
   onOpen: () => void;
 }): JSX.Element {
@@ -1434,7 +1451,9 @@ export function RunbookCatalogItem({
         </span>
         <span className="runbook-catalog-heading-trailing">
           <span className="runbook-catalog-status">{traceLabel(runbook.status)}</span>
-          <time dateTime={runbook.updatedAt} title={formatSessionDateTime(runbook.updatedAt)}>{formatSessionDateTime(runbook.updatedAt)}</time>
+          {compactTime
+            ? <CatalogTime value={runbook.updatedAt} nowMs={nowMs} />
+            : <time dateTime={runbook.updatedAt} title={formatSessionDateTime(runbook.updatedAt)}>{formatSessionDateTime(runbook.updatedAt)}</time>}
         </span>
       </span>
       {runbook.purpose ? <span className="runbook-catalog-purpose">{runbookDescriptionText(runbook.purpose)}</span> : null}
@@ -1445,11 +1464,13 @@ export function RunbookCatalogItem({
 function RunbookCatalogSection({
   runbooks,
   label,
+  nowMs,
   selectedRunbookId,
   onOpen
 }: {
   runbooks: readonly HoneycrispRunbookSummary[];
   label: 'Active' | 'Archived';
+  nowMs: number;
   selectedRunbookId: string | null;
   onOpen: (runbookId: string) => void;
 }): JSX.Element {
@@ -1459,7 +1480,9 @@ function RunbookCatalogSection({
       <div className={`runbook-catalog-items ${runbooks.length === 0 ? 'is-empty' : ''}`}>
         {runbooks.length > 0 ? runbooks.map((runbook) => (
           <RunbookCatalogItem
+            compactTime
             key={runbook.id}
+            nowMs={nowMs}
             runbook={runbook}
             selected={selectedRunbookId === runbook.id}
             onOpen={() => onOpen(runbook.id)}
@@ -1474,8 +1497,9 @@ function RunbookCatalogSection({
   );
 }
 
-export function ReportCatalogItem({ report, selected, onOpen }: {
+export function ReportCatalogItem({ report, nowMs = Date.now(), selected, onOpen }: {
   report: HoneycrispReportSummary;
+  nowMs?: number;
   selected: boolean;
   onOpen: () => void;
 }): JSX.Element {
@@ -1493,7 +1517,7 @@ export function ReportCatalogItem({ report, selected, onOpen }: {
         </span>
         <span className="runbook-catalog-heading-trailing">
           <span className="runbook-catalog-status">{traceLabel(report.status)}</span>
-          <time dateTime={report.updatedAt} title={formatSessionDateTime(report.updatedAt)}>{formatSessionDateTime(report.updatedAt)}</time>
+          <CatalogTime value={report.updatedAt} nowMs={nowMs} />
         </span>
       </span>
       {report.summary ? <span className="runbook-catalog-purpose">{runbookDescriptionText(report.summary)}</span> : null}
@@ -1501,9 +1525,10 @@ export function ReportCatalogItem({ report, selected, onOpen }: {
   );
 }
 
-function ReportCatalogSection({ reports, label, selectedReportId, onOpen }: {
+function ReportCatalogSection({ reports, label, nowMs, selectedReportId, onOpen }: {
   reports: readonly HoneycrispReportSummary[];
   label: 'Complete' | 'Stale';
+  nowMs: number;
   selectedReportId: string | null;
   onOpen: (reportId: string) => void;
 }): JSX.Element {
@@ -1512,7 +1537,7 @@ function ReportCatalogSection({ reports, label, selectedReportId, onOpen }: {
       <h3>{reports.length} {label}</h3>
       <div className={`runbook-catalog-items ${reports.length === 0 ? 'is-empty' : ''}`}>
         {reports.length > 0 ? reports.map((report) => (
-          <ReportCatalogItem key={report.id} report={report} selected={selectedReportId === report.id} onOpen={() => onOpen(report.id)} />
+          <ReportCatalogItem key={report.id} report={report} nowMs={nowMs} selected={selectedReportId === report.id} onOpen={() => onOpen(report.id)} />
         )) : (
           <p className="runbook-catalog-empty">{label === 'Complete' ? 'No complete reports yet.' : 'No stale reports yet.'}</p>
         )}
@@ -1521,8 +1546,9 @@ function ReportCatalogSection({ reports, label, selectedReportId, onOpen }: {
   );
 }
 
-export function BreakoutRoomCatalogItem({ room, selected, onOpen }: {
+export function BreakoutRoomCatalogItem({ room, nowMs = Date.now(), selected, onOpen }: {
   room: BreakoutRoomRecord;
+  nowMs?: number;
   selected: boolean;
   onOpen: () => void;
 }): JSX.Element {
@@ -1541,7 +1567,7 @@ export function BreakoutRoomCatalogItem({ room, selected, onOpen }: {
         </span>
         <span className="runbook-catalog-heading-trailing">
           <span className="runbook-catalog-status">{breakoutRoomStatusLabel(room.status)}</span>
-          <time dateTime={timestamp} title={formatSessionDateTime(timestamp)}>{formatSessionDateTime(timestamp)}</time>
+          <CatalogTime value={timestamp} nowMs={nowMs} />
         </span>
       </span>
       {room.purpose ? <span className="runbook-catalog-purpose">{runbookDescriptionText(room.purpose)}</span> : null}
@@ -1549,9 +1575,10 @@ export function BreakoutRoomCatalogItem({ room, selected, onOpen }: {
   );
 }
 
-function BreakoutRoomCatalogSection({ rooms, label, selectedRoomId, onOpen }: {
+function BreakoutRoomCatalogSection({ rooms, label, nowMs, selectedRoomId, onOpen }: {
   rooms: readonly BreakoutRoomRecord[];
   label: string;
+  nowMs: number;
   selectedRoomId: string | null;
   onOpen: (roomId: string) => void;
 }): JSX.Element {
@@ -1562,6 +1589,7 @@ function BreakoutRoomCatalogSection({ rooms, label, selectedRoomId, onOpen }: {
         {rooms.map((room) => (
           <BreakoutRoomCatalogItem
             key={room.id}
+            nowMs={nowMs}
             room={room}
             selected={selectedRoomId === room.id}
             onOpen={() => onOpen(room.id)}
@@ -1572,13 +1600,17 @@ function BreakoutRoomCatalogSection({ rooms, label, selectedRoomId, onOpen }: {
   );
 }
 
-function SubagentCatalogSection({
+export function SubagentCatalogSection({
   agents,
+  nowMs = Date.now(),
+  providerModelCatalog,
   label,
   selectedPath,
   onSelect
 }: {
   agents: readonly SubagentSummary[];
+  nowMs?: number;
+  providerModelCatalog: readonly ResearchProviderModelCatalog[];
   label: 'Active' | 'Completed';
   selectedPath: string | null;
   onSelect: (path: string) => void;
@@ -1596,12 +1628,24 @@ function SubagentCatalogSection({
               key={agent.path}
               onClick={() => onSelect(agent.path)}
             >
-              <SubagentProviderIcon provider={agent.provider} model={agent.model} />
               <span className="subagent-catalog-heading">
-                <strong className="subagent-catalog-name">{subagentDisplayName(agent.name)}</strong>
+                <span className="subagent-catalog-identity">
+                  <strong className="subagent-catalog-name">{subagentDisplayName(agent.name)}</strong>
+                  <SubagentProviderIcon provider={agent.provider} model={agent.model} />
+                  <span className="subagent-catalog-model">{subagentModelDisplayName(agent.provider, agent.model, providerModelCatalog)}</span>
+                </span>
                 <span className="subagent-catalog-heading-trailing">
-                  <span className={`subagent-catalog-status is-${subagentStatusIconKind(agent.status)}`}>{subagentStatusLabel(agent.status)}</span>
-                  <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
+                  <CatalogTime value={agent.createdAt} nowMs={nowMs} />
+                  <span
+                    className={`subagent-catalog-status is-${subagentStatusIconKind(agent.status)}`}
+                    role="img"
+                    aria-label={subagentStatusLabel(agent.status)}
+                    title={subagentStatusLabel(agent.status)}
+                  >
+                    {subagentStatusIconKind(agent.status) === 'active'
+                      ? <LoaderCircle className="subagent-catalog-status-spinner" size={13} aria-hidden="true" />
+                      : null}
+                  </span>
                 </span>
               </span>
               <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
@@ -1615,6 +1659,24 @@ function SubagentCatalogSection({
       </div>
     </section>
   );
+}
+
+export function subagentModelDisplayName(
+  provider: string | null,
+  model: string | null,
+  catalogs: readonly ResearchProviderModelCatalog[]
+): string {
+  if (!model) return 'Unknown model';
+  const normalizedProvider = provider?.trim().toLowerCase();
+  const catalogProvider = normalizedProvider === 'openai' ? 'openai-codex' : normalizedProvider;
+  const matchingCatalog = catalogs.find((catalog) =>
+    catalog.providerId === catalogProvider
+    && catalog.models.some((candidate) => candidate.id === model)
+  ) ?? catalogs.find((catalog) => catalog.models.some((candidate) => candidate.id === model));
+  const matchingModel = matchingCatalog?.models.find((candidate) => candidate.id === model);
+  return matchingCatalog && matchingModel
+    ? researchModelNameLabel(matchingCatalog.providerId, matchingModel.name)
+    : model;
 }
 
 function SubagentProviderIcon({
@@ -1631,62 +1693,110 @@ function SubagentProviderIcon({
 
 export function MemoryCatalogItem({
   node,
+  compactTime = false,
+  memoryStatuses,
   memoryTypes,
+  nowMs = Date.now(),
   profileId,
+  providerModelCatalog = [],
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
+  showStatusDot = false,
   selected,
   onOpen
 }: {
   node: HoneycrispMemoryNodeSummary;
+  compactTime?: boolean;
+  memoryStatuses?: readonly ResearchProfileMemoryStatus[];
   memoryTypes?: readonly ResearchProfileMemoryType[];
+  nowMs?: number;
   profileId?: string | null;
+  providerModelCatalog?: readonly ResearchProviderModelCatalog[];
   sessionHeatPreferences?: SessionHeatPreferences;
+  showStatusDot?: boolean;
   selected: boolean;
   onOpen: () => void;
 }): JSX.Element {
   return (
-    <article className={`memory-catalog-item type-${stateClass(node.type)} ${selected ? 'selected' : ''}`}>
+    <article className={`memory-catalog-item type-${stateClass(node.type)} ${compactTime ? 'is-compact' : ''} ${selected ? 'selected' : ''}`}>
       <button type="button" className="memory-catalog-toggle" aria-pressed={selected} onClick={onOpen}>
         <span className="memory-catalog-item-heading">
-          <span className="memory-catalog-item-meta-line">
-            <span className="memory-catalog-item-primary">
-              <MemoryTypeIcon
-                type={node.type}
-                definitions={memoryTypes}
-                status={node.status}
-                profileId={profileId}
-                sessionHeatPreferences={sessionHeatPreferences}
-              />
-              <span className="memory-catalog-item-name" title={node.title}>{node.title}</span>
-            </span>
-            <span className="memory-catalog-item-trailing">
-              <MemoryTypeLabel
-                type={node.type}
-                definitions={memoryTypes}
-                status={node.status}
-                profileId={profileId}
-                sessionHeatPreferences={sessionHeatPreferences}
-                showDot={false}
-              />
-              <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
-            </span>
-          </span>
-          {node.summary || node.body ? (
-            <span className="memory-catalog-item-description">{renderInlineCodeText(node.summary || node.body)}</span>
-          ) : null}
+          {compactTime ? (
+            <>
+              <span className="memory-catalog-item-meta-line">
+                <span className="memory-catalog-item-trailing">
+                  <CatalogTime value={node.updatedAt} nowMs={nowMs} />
+                  {showStatusDot ? <MemoryStatusDot status={node.status} definitions={memoryStatuses} /> : null}
+                </span>
+                <span className="memory-catalog-item-primary">
+                  <span className="memory-catalog-item-name" title={node.title}>{node.title}</span>
+                </span>
+              </span>
+              <span className="memory-catalog-item-context">
+                <MemoryTypeLabel
+                  className="memory-catalog-item-type"
+                  type={node.type}
+                  definitions={memoryTypes}
+                  profileId={profileId}
+                  sessionHeatPreferences={sessionHeatPreferences}
+                  showDot={false}
+                />
+                <MemoryCatalogAuthors authors={node.authors} providerModelCatalog={providerModelCatalog} />
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="memory-catalog-item-meta-line">
+                <span className="memory-catalog-item-primary">
+                  <span className="memory-catalog-item-name" title={node.title}>{node.title}</span>
+                </span>
+                <span className="memory-catalog-item-trailing">
+                  <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
+                </span>
+              </span>
+              {node.summary || node.body ? (
+                <span className="memory-catalog-item-description">{renderInlineCodeText(node.summary || node.body)}</span>
+              ) : null}
+            </>
+          )}
         </span>
       </button>
     </article>
   );
 }
 
-export function MemoryCatalogSection({
+function MemoryCatalogAuthors({
+  authors,
+  providerModelCatalog
+}: {
+  authors: HoneycrispMemoryNodeSummary['authors'];
+  providerModelCatalog: readonly ResearchProviderModelCatalog[];
+}): JSX.Element | null {
+  if (!authors?.length) return null;
+  return (
+    <span className="memory-catalog-item-authors" aria-label="Model authors">
+      {authors.map((author) => {
+        const modelName = subagentModelDisplayName(author.provider, author.model, providerModelCatalog);
+        return (
+          <span className="memory-catalog-item-author" key={`${author.provider}\0${author.model}`} title={`${author.provider}/${author.model}`}>
+            <span className="memory-catalog-item-author-provider">
+              <ProviderIcon provider={author.provider || author.model} size={15} aria-hidden="true" />
+            </span>
+            <span className="memory-catalog-item-author-model">{modelName}</span>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+export function MemoryTypeCatalogSection({
   nodes,
-  label,
-  displayLabel,
-  memoryLabel = 'memory',
+  type,
   memoryTypes,
+  memoryStatuses,
+  nowMs = Date.now(),
   profileId,
+  providerModelCatalog = [],
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   expanded,
   selectedNodeId,
@@ -1694,11 +1804,12 @@ export function MemoryCatalogSection({
   onOpen
 }: {
   nodes: readonly HoneycrispMemoryNodeSummary[];
-  label: MemoryStatusGroup;
-  displayLabel?: string;
-  memoryLabel?: string;
+  type: string;
   memoryTypes?: readonly ResearchProfileMemoryType[];
+  memoryStatuses?: readonly ResearchProfileMemoryStatus[];
+  nowMs?: number;
   profileId?: string | null;
+  providerModelCatalog?: readonly ResearchProviderModelCatalog[];
   sessionHeatPreferences?: SessionHeatPreferences;
   expanded: boolean;
   selectedNodeId: string | null;
@@ -1706,27 +1817,36 @@ export function MemoryCatalogSection({
   onOpen: (nodeId: string) => void;
 }): JSX.Element {
   const { visibleNodes, hiddenCount } = memoryCatalogGroupPreview(nodes, expanded);
-  const sectionLabel = displayLabel ?? traceLabel(label);
+  const definition = memoryTypeDefinition(type, memoryTypes);
+  const fallbackLabel = memoryTypeLabel(type, memoryTypes);
+  const sectionLabel = nodes.length === 1
+    ? definition?.name ?? fallbackLabel
+    : definition?.pluralName ?? pluralizePresentationLabel(fallbackLabel);
   return (
-    <section className="memory-status-section" aria-label={`${nodes.length} ${sectionLabel}`} data-memory-status={label}>
-      <h3>{nodes.length} {sectionLabel}</h3>
-      <div className={`memory-status-items ${nodes.length === 0 ? 'is-empty' : ''}`}>
+    <section className="memory-type-section" aria-label={`${nodes.length} ${sectionLabel}`} data-memory-type={type}>
+      <h3>{nodes.length.toLocaleString()} {sectionLabel}</h3>
+      <div className={`memory-type-items ${nodes.length === 0 ? 'is-empty' : ''}`}>
         {visibleNodes.length > 0 ? visibleNodes.map((node) => (
           <MemoryCatalogItem
+            compactTime
             key={node.id}
             node={node}
+            memoryStatuses={memoryStatuses}
             memoryTypes={memoryTypes}
+            nowMs={nowMs}
             profileId={profileId}
+            providerModelCatalog={providerModelCatalog}
             sessionHeatPreferences={sessionHeatPreferences}
+            showStatusDot
             selected={selectedNodeId === node.id}
             onOpen={() => onOpen(node.id)}
           />
         )) : (
-          <p className="memory-status-empty">No {sectionLabel.toLocaleLowerCase()} {pluralizePresentationLabel(memoryLabel).toLocaleLowerCase()} yet.</p>
+          <p className="memory-type-empty">No {sectionLabel.toLocaleLowerCase()} yet.</p>
         )}
       </div>
       {hiddenCount > 0 ? (
-        <button type="button" className="memory-status-show-more" onClick={onExpand}>
+        <button type="button" className="memory-type-show-more" onClick={onExpand}>
           <span>Show {hiddenCount} More</span>
           <ChevronDown size={14} aria-hidden="true" />
         </button>

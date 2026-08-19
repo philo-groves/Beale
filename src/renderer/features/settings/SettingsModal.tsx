@@ -38,6 +38,7 @@ import type {
 } from '@shared/types';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import { CenteredLoadingState } from '../../app/CenteredLoadingState';
+import { MemoryStatusDot } from '../research/MemoryStatusDot';
 import type { FloatingTextPickerOption } from '../../app/FloatingTextPicker';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { researchModelNameLabel, stateClass } from '../../lib/formatting';
@@ -1061,7 +1062,10 @@ export function MemoryTypeSettingsView({
             {statuses.map((status) => (
               <label className="settings-form-control-row" key={status.id}>
                 <span className="settings-form-control-copy">
-                  <strong>{status.name}</strong>
+                  <strong className="profile-memory-status-label">
+                    <MemoryStatusDot status={status.id} definitions={statuses} decorative />
+                    <span>{status.name}</span>
+                  </strong>
                   <small>{status.description}</small>
                 </span>
                 <input

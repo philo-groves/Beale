@@ -16,14 +16,15 @@ import type {
   WorkspaceScopeVersion
 } from '@shared/types';
 import { Modal } from '../../app/Modal';
-import { memoryTypeClassName, memoryTypeDefinition, memoryTypeHeat, memoryTypeLabel, memoryTypeStyle } from '../research/MemoryTypeLabel';
+import { memoryTypeClassName, memoryTypeDefinition, memoryTypeLabel, memoryTypeStyle } from '../research/MemoryTypeLabel';
 import { MemoryCatalogItem, RunbookCatalogItem } from '../research/MemorySidePanel';
+import { memoryTypeGroupsByHeat } from '../../view-models/memoryCatalog';
 import {
   buildWorkspaceTimeline,
   formatWorkspaceTimelineDuration
 } from '../../view-models/workspaceTimeline';
 import type { WorkspaceTimelineResult } from '../../view-models/workspaceTimeline';
-import { EMPTY_SESSION_HEAT_PREFERENCES, SESSION_HEAT_LEVELS } from '../../view-models/sessionHeat';
+import { EMPTY_SESSION_HEAT_PREFERENCES } from '../../view-models/sessionHeat';
 import type { SessionHeat, SessionHeatPreferences } from '../../view-models/sessionHeat';
 import { errorMessage } from '../../lib/errors';
 import { promoteWorkspaceDirectory, WorkspaceDirectoriesWidget } from './WorkspaceDirectoriesWidget';
@@ -775,35 +776,7 @@ export function workspaceMemoryTypeGroups(
   profileId: string | null | undefined,
   sessionHeatPreferences: SessionHeatPreferences
 ): WorkspaceMemoryTypeGroup[] {
-  const groups = new Map<string, HoneycrispMemorySummary['nodes']>();
-  for (const node of nodes) {
-    const type = memoryTypeDefinition(node.type, memoryTypes)?.id ?? node.type;
-    groups.set(type, [...(groups.get(type) ?? []), node]);
-  }
-  return [...groups.entries()]
-    .map(([type, groupedNodes]) => ({ type, nodes: groupedNodes }))
-    .sort((left, right) => {
-      const leftHeat = SESSION_HEAT_LEVELS.indexOf(memoryTypeHeat(
-        left.type,
-        memoryTypes,
-        undefined,
-        profileId,
-        sessionHeatPreferences
-      ));
-      const rightHeat = SESSION_HEAT_LEVELS.indexOf(memoryTypeHeat(
-        right.type,
-        memoryTypes,
-        undefined,
-        profileId,
-        sessionHeatPreferences
-      ));
-      if (rightHeat !== leftHeat) return rightHeat - leftHeat;
-      if (right.nodes.length !== left.nodes.length) return right.nodes.length - left.nodes.length;
-      const leftDefinition = memoryTypeDefinition(left.type, memoryTypes);
-      const rightDefinition = memoryTypeDefinition(right.type, memoryTypes);
-      return (leftDefinition?.order ?? Number.MAX_SAFE_INTEGER) - (rightDefinition?.order ?? Number.MAX_SAFE_INTEGER)
-        || memoryTypeLabel(left.type, memoryTypes).localeCompare(memoryTypeLabel(right.type, memoryTypes));
-    });
+  return memoryTypeGroupsByHeat(nodes, memoryTypes, profileId, sessionHeatPreferences.heatOverrides);
 }
 
 function WorkspaceMemoryPanel({
@@ -848,8 +821,6 @@ function WorkspaceMemoryPanel({
             key={group.type}
             memoryTypes={memoryTypes}
             onOpen={onOpen}
-            profileId={profileId}
-            sessionHeatPreferences={sessionHeatPreferences}
           />
         ))}
         {nodes.length === 0 ? (
@@ -863,15 +834,11 @@ function WorkspaceMemoryPanel({
 function WorkspaceMemoryTypeSection({
   group,
   memoryTypes,
-  onOpen,
-  profileId,
-  sessionHeatPreferences
+  onOpen
 }: {
   group: WorkspaceMemoryTypeGroup;
   memoryTypes: ResearchProfile['memory']['types'];
   onOpen: (nodeId: string) => void;
-  profileId?: string | null;
-  sessionHeatPreferences: SessionHeatPreferences;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const visibleNodes = group.nodes.slice(0, 4);
@@ -884,11 +851,8 @@ function WorkspaceMemoryTypeSection({
   const renderNode = (node: HoneycrispMemorySummary['nodes'][number]): JSX.Element => (
     <MemoryCatalogItem
       key={node.id}
-      memoryTypes={memoryTypes}
       node={node}
-      profileId={profileId}
       selected={false}
-      sessionHeatPreferences={sessionHeatPreferences}
       onOpen={() => onOpen(node.id)}
     />
   );

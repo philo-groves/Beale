@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   clampPriorityScoreForDisplay,
+  formatCompactTimeSince,
   formatDurationHms,
   formatPercent,
   formatPriorityPill,
@@ -37,6 +38,19 @@ describe('renderer formatting helpers', () => {
     expect(researchModelNameLabel('anthropic', 'Claude Opus 5')).toBe('Opus 5');
     expect(researchModelNameLabel('anthropic', 'claude-sonnet-4-6')).toBe('claude-sonnet-4-6');
     expect(researchModelNameLabel('anthropic', 'Legacy Claude Sonnet')).toBe('Legacy Claude Sonnet');
+  });
+
+  it('formats compact time since labels from minutes through years', () => {
+    const nowMs = Date.UTC(2026, 7, 19, 12, 0, 0);
+    const ago = (durationMs: number): string => new Date(nowMs - durationMs).toISOString();
+    expect(formatCompactTimeSince(ago(30_000), nowMs)).toBe('1m');
+    expect(formatCompactTimeSince(ago(60_000), nowMs)).toBe('1m');
+    expect(formatCompactTimeSince(ago(2 * 60 * 60_000), nowMs)).toBe('2h');
+    expect(formatCompactTimeSince(ago(3 * 24 * 60 * 60_000), nowMs)).toBe('3d');
+    expect(formatCompactTimeSince(ago(4 * 7 * 24 * 60 * 60_000), nowMs)).toBe('4w');
+    expect(formatCompactTimeSince(ago(5 * 30 * 24 * 60 * 60_000), nowMs)).toBe('5M');
+    expect(formatCompactTimeSince(ago(6 * 365 * 24 * 60 * 60_000), nowMs)).toBe('6y');
+    expect(formatCompactTimeSince('not-a-date', nowMs)).toBe('--');
   });
 
   it('formats small utility labels consistently', () => {
