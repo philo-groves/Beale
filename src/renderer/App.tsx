@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import 'katex/dist/katex.min.css';
@@ -90,7 +90,12 @@ import {
   windowControlPlatformForState
 } from './view-models/appShell';
 import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
-import { sessionHeatForDetail, sessionHeatPaletteForProfile, sessionHeatPaletteStyle } from './view-models/sessionHeat';
+import {
+  EMPTY_SESSION_HEAT_DISPLAY_STATE,
+  sessionHeatDisplayStateForSelection,
+  sessionHeatPaletteForProfile,
+  sessionHeatPaletteStyle
+} from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
@@ -1496,11 +1501,17 @@ export function App(): JSX.Element {
     if (!selectedSubagentPath || activeSubagents.some((agent) => agent.path === selectedSubagentPath)) return;
     setSelectedSubagentPath(null);
   }, [activeSubagents, selectedSubagentPath]);
-  const sessionHeat = useMemo(
-    () => sessionHeatForDetail(activeRunDetail, sessionHeatPreferences),
-    [activeRunDetail, sessionHeatPreferences]
-  );
-  const sessionHeatProfile = activeRunDetail?.researchProfile?.profile ?? snapshot?.researchProfile.profile ?? null;
+  const [sessionHeatDisplay, setSessionHeatDisplay] = useState(EMPTY_SESSION_HEAT_DISPLAY_STATE);
+  useLayoutEffect(() => {
+    setSessionHeatDisplay((previous) => sessionHeatDisplayStateForSelection(
+      previous,
+      selectedRunId,
+      activeRunDetail,
+      sessionHeatPreferences
+    ));
+  }, [activeRunDetail, selectedRunId, sessionHeatPreferences]);
+  const sessionHeat = sessionHeatDisplay.heat;
+  const sessionHeatProfile = sessionHeatDisplay.profile ?? snapshot?.researchProfile.profile ?? null;
   const shellStyle = {
     '--sidebar-width': `${sidebarWidth}px`,
     ...sessionHeatPaletteStyle(sessionHeatPaletteForProfile(sessionHeatProfile, sessionHeatPreferences, appearanceTheme))

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, ResearchProfile, RunDetail } from '@shared/types';
 import {
+  EMPTY_SESSION_HEAT_DISPLAY_STATE,
   readSessionHeatPreferences,
+  sessionHeatDisplayStateForSelection,
   sessionHeatForDetail,
   sessionHeatForHoneycrispMemory,
   sessionHeatPaletteForProfile,
@@ -46,6 +48,25 @@ describe('renderer session heat view models', () => {
 
     const rejectedChain = { ...suspectedChain, status: 'rejected', revision: 2 };
     expect(sessionHeatForDetail(runDetail({ nodes: [rejectedChain, confirmedPrimitive] }))).toBe('medium');
+  });
+
+  it('retains the prior heat and palette while the next selected session detail loads', () => {
+    const highDetail = runDetail({ nodes: [memoryNode({ type: 'chain', status: 'suspected' })] });
+    const highState = sessionHeatDisplayStateForSelection(
+      EMPTY_SESSION_HEAT_DISPLAY_STATE,
+      'run_current',
+      highDetail
+    );
+
+    expect(highState.heat).toBe('high');
+    expect(sessionHeatDisplayStateForSelection(highState, 'run_next', null)).toBe(highState);
+
+    const lowDetail = {
+      ...runDetail({ nodes: [memoryNode({ type: 'sink', status: 'confirmed', sessionIds: ['run_next'] })] }),
+      run: { id: 'run_next' }
+    } as RunDetail;
+    expect(sessionHeatDisplayStateForSelection(highState, 'run_next', lowDetail).heat).toBe('low');
+    expect(sessionHeatDisplayStateForSelection(highState, null, null)).toBe(EMPTY_SESSION_HEAT_DISPLAY_STATE);
   });
 
   it('uses the recorded profile instead of security-specific type semantics', () => {

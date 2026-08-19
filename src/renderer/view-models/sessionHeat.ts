@@ -22,6 +22,11 @@ export interface SessionHeatPreferences {
   paletteOverrides: SessionHeatPalettePreferenceOverrides;
 }
 
+export interface SessionHeatDisplayState {
+  heat: SessionHeat;
+  profile: ResearchProfile | null;
+}
+
 export const SESSION_HEAT_LEVELS: readonly SessionHeat[] = ['none', 'low', 'medium', 'high', 'critical'];
 export const SESSION_HEAT_COLOR_LEVELS: readonly SessionHeatColorLevel[] = ['low', 'medium', 'high', 'critical'];
 export const SESSION_HEAT_THEMES: readonly SessionHeatTheme[] = ['light', 'dark', 'cream', 'midnight'];
@@ -55,6 +60,23 @@ export const EMPTY_SESSION_HEAT_PREFERENCES: SessionHeatPreferences = {
   heatOverrides: {},
   paletteOverrides: {}
 };
+export const EMPTY_SESSION_HEAT_DISPLAY_STATE: SessionHeatDisplayState = {
+  heat: 'none',
+  profile: null
+};
+
+export function sessionHeatDisplayStateForSelection(
+  previous: SessionHeatDisplayState,
+  selectedRunId: string | null,
+  detail: RunDetail | null,
+  preferences: SessionHeatPreferences | SessionHeatPreferenceOverrides = EMPTY_SESSION_HEAT_PREFERENCES
+): SessionHeatDisplayState {
+  if (!selectedRunId) return EMPTY_SESSION_HEAT_DISPLAY_STATE;
+  if (!detail || detail.run.id !== selectedRunId) return previous;
+  const profile = detail.researchProfile?.profile ?? null;
+  const heat = sessionHeatForDetail(detail, preferences);
+  return previous.heat === heat && previous.profile === profile ? previous : { heat, profile };
+}
 
 export function sessionHeatForDetail(
   detail: RunDetail | null,

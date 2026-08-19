@@ -40,6 +40,7 @@
 
 ### Fixed
 
+- Switching directly between sessions now retains the prior session heat and palette while the next detail loads, then transitions straight to the newly resolved heat without briefly resetting to the neutral background.
 - Completed sessions resumed after app recovery now show the successful terminal response instead of letting the historical recovery marker suppress an otherwise empty result area.
 - Detailed Windows computer-use observations no longer let Terminator SDK diagnostics corrupt the MCP JSON-RPC stdout stream and terminate the active research session.
 - Workspace registry loading now shows a compact spinner beside the Workspaces sidenav heading instead of adding a separate loading-text row to the workspace list.
