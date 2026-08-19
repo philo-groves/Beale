@@ -587,96 +587,96 @@ function WorkspaceOverviewPanel({
         <div className="workspace-overview-form">
           <div className="settings-form-squircle" aria-labelledby="workspace-overview-heading">
             <div className="settings-form-control-list">
-            <label className="settings-form-control-row workspace-overview-control-row">
-              <span className="settings-form-control-copy">
-                <strong>Workspace Name</strong>
-                <small>Choose the name shown throughout Beale.</small>
-              </span>
-              <input
-                aria-label="Workspace Name"
-                className="workspace-overview-input"
-                disabled={busy}
-                required
-                value={workspaceNameDraft}
-                onChange={(event) => setWorkspaceNameDraft(event.target.value)}
-                onBlur={saveInPlace}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') event.currentTarget.blur();
-                }}
-              />
-            </label>
-            <label className="settings-form-control-row workspace-overview-control-row">
-              <span className="settings-form-control-copy">
-                <strong>Subject</strong>
-                <small>The research subject shared across related workspaces.</small>
-              </span>
-              <input
-                aria-label="Subject"
-                className="workspace-overview-input"
-                disabled
-                value={researchSubjectName}
-              />
-            </label>
-            <label className="settings-form-control-row workspace-overview-control-row">
-              <span className="settings-form-control-copy">
-                <strong>Profile</strong>
-                <small>The research profile that defines this workspace.</small>
-              </span>
-              <input
-                aria-label="Profile"
-                className="workspace-overview-input"
-                disabled
-                value={workspaceResearchProfileLabel(researchProfile)}
-              />
-            </label>
-            <label className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
-              <span className="settings-form-control-copy">
-                <strong>Workspace Description</strong>
-                <small>Describe the workspace's research purpose and intended use.</small>
-              </span>
-              <textarea
-                aria-label="Workspace Description"
-                disabled={busy}
-                rows={5}
-                value={descriptionDraft}
-                onChange={(event) => setDescriptionDraft(event.target.value)}
-                onBlur={saveInPlace}
-              />
-            </label>
-            <label className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
-              <span className="settings-form-control-copy">
-                <strong>Scope &amp; Rules</strong>
-                <small>Record the authorized scope, exclusions, constraints, and operating rules.</small>
-              </span>
-              <textarea
-                aria-label="Scope & Rules"
-                disabled={busy}
-                rows={8}
-                value={rulesDraft}
-                onChange={(event) => setRulesDraft(event.target.value)}
-                onBlur={saveInPlace}
-              />
-            </label>
+              <label className="settings-form-control-row workspace-overview-control-row">
+                <span className="settings-form-control-copy">
+                  <strong>Workspace Name</strong>
+                  <small>Choose the name shown throughout Beale.</small>
+                </span>
+                <input
+                  aria-label="Workspace Name"
+                  className="workspace-overview-input"
+                  disabled={busy}
+                  required
+                  value={workspaceNameDraft}
+                  onChange={(event) => setWorkspaceNameDraft(event.target.value)}
+                  onBlur={saveInPlace}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                  }}
+                />
+              </label>
+              <label className="settings-form-control-row workspace-overview-control-row">
+                <span className="settings-form-control-copy">
+                  <strong>Subject</strong>
+                  <small>The research subject shared across related workspaces.</small>
+                </span>
+                <input
+                  aria-label="Subject"
+                  className="workspace-overview-input"
+                  disabled
+                  value={researchSubjectName}
+                />
+              </label>
+              <label className="settings-form-control-row workspace-overview-control-row">
+                <span className="settings-form-control-copy">
+                  <strong>Profile</strong>
+                  <small>The research profile that defines this workspace.</small>
+                </span>
+                <input
+                  aria-label="Profile"
+                  className="workspace-overview-input"
+                  disabled
+                  value={workspaceResearchProfileLabel(researchProfile)}
+                />
+              </label>
+              <label className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
+                <span className="settings-form-control-copy">
+                  <strong>Workspace Description</strong>
+                  <small>Describe the workspace's research purpose and intended use.</small>
+                </span>
+                <textarea
+                  aria-label="Workspace Description"
+                  disabled={busy}
+                  rows={5}
+                  value={descriptionDraft}
+                  onChange={(event) => setDescriptionDraft(event.target.value)}
+                  onBlur={saveInPlace}
+                />
+              </label>
+              <label className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
+                <span className="settings-form-control-copy">
+                  <strong>Scope &amp; Rules</strong>
+                  <small>Record the authorized scope, exclusions, constraints, and operating rules.</small>
+                </span>
+                <textarea
+                  aria-label="Scope & Rules"
+                  disabled={busy}
+                  rows={8}
+                  value={rulesDraft}
+                  onChange={(event) => setRulesDraft(event.target.value)}
+                  onBlur={saveInPlace}
+                />
+              </label>
             </div>
+            <WorkspaceDirectoriesWidget
+              directories={workspaceDirectories}
+              disabled={busy}
+              lockedDirectory={workspacePath}
+              onAdd={async (selection) => {
+                const selectedPath = selection.path;
+                if (!selectedPath || workspaceDirectories.some((directory) => workspaceDirectoryKey(directory) === workspaceDirectoryKey(selectedPath))) return;
+                if (selection.knownWorkspace) {
+                  throw new Error(`Directory already belongs to workspace ${selection.knownWorkspace.workspaceName}.`);
+                }
+                await onChangeDirectories([...workspaceDirectories, selectedPath]);
+              }}
+              onMakePrimary={(directory) => onChangeDirectories(promoteWorkspaceDirectory(workspaceDirectories, directory))}
+              onRemove={(directory) => onChangeDirectories(workspaceDirectories.filter((item) => workspaceDirectoryKey(item) !== workspaceDirectoryKey(directory)))}
+            />
           </div>
           {saveError ? <p className="workspace-overview-error" role="alert">{saveError}</p> : null}
           {saving ? <span className="workspace-overview-saving" role="status">Saving…</span> : null}
         </div>
-        <WorkspaceDirectoriesWidget
-          directories={workspaceDirectories}
-          disabled={busy}
-          lockedDirectory={workspacePath}
-          onAdd={async (selection) => {
-            const selectedPath = selection.path;
-            if (!selectedPath || workspaceDirectories.some((directory) => workspaceDirectoryKey(directory) === workspaceDirectoryKey(selectedPath))) return;
-            if (selection.knownWorkspace) {
-              throw new Error(`Directory already belongs to workspace ${selection.knownWorkspace.workspaceName}.`);
-            }
-            await onChangeDirectories([...workspaceDirectories, selectedPath]);
-          }}
-          onMakePrimary={(directory) => onChangeDirectories(promoteWorkspaceDirectory(workspaceDirectories, directory))}
-          onRemove={(directory) => onChangeDirectories(workspaceDirectories.filter((item) => workspaceDirectoryKey(item) !== workspaceDirectoryKey(directory)))}
-        />
       </div>
     </section>
   );

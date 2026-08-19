@@ -2342,14 +2342,16 @@ body.is-resizing-research-side .main-session-grid {
 .workspace-overview-layout {
   --settings-view-font-size: 14px;
   width: 100%;
+  max-width: var(--session-content-max-width);
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, var(--research-side-panel-width, 360px));
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    'heading .'
-    'form directories';
+    'heading'
+    'form';
   align-items: start;
-  gap: 6px 10px;
+  gap: 6px;
+  margin-inline: auto;
 }
 
 .workspace-overview-heading {
@@ -2372,8 +2374,12 @@ body.is-resizing-research-side .main-session-grid {
   font-size: var(--settings-view-font-size);
 }
 
-.workspace-overview-layout > .workspace-directories-widget {
-  grid-area: directories;
+.workspace-overview-form .workspace-directories-widget {
+  border-top: 1px solid var(--line);
+}
+
+.workspace-overview-form .workspace-directories-widget-heading {
+  padding-top: 10px;
 }
 
 .workspace-overview-control-row {
@@ -2445,12 +2451,15 @@ body.is-resizing-research-side .main-session-grid {
 .workspace-cleaning-form {
   width: 100%;
   max-width: var(--session-content-max-width);
+  margin-inline: auto;
 }
 
 .workspace-catalog-view > .workspace-catalog-list {
   width: 100%;
+  max-width: var(--session-content-max-width);
   height: 100%;
   min-height: 0;
+  margin-inline: auto;
   overflow: auto;
   gap: 0;
   border-top: 1px solid var(--panel-border);
@@ -2602,6 +2611,7 @@ body.is-resizing-research-side .main-session-grid {
   width: 100%;
   max-width: var(--session-content-max-width);
   min-width: 0;
+  margin-inline: auto;
 }
 
 .workspace-directories-widget {
@@ -2894,10 +2904,13 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-timeline-chart {
+  width: 100%;
+  max-width: var(--session-content-max-width);
   min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-rows: 22px minmax(0, 1fr);
+  margin-inline: auto;
 }
 
 .workspace-timeline-axis,
@@ -3124,11 +3137,14 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-resource-tabs-bar {
+  width: 100%;
+  max-width: var(--session-content-max-width);
   min-width: 0;
   display: flex;
   align-items: flex-start;
   gap: 6px;
   border-bottom: 1px solid var(--panel-border);
+  margin-inline: auto;
   padding: 0 0 7px;
 }
 
@@ -3218,9 +3234,12 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-surface-scroll {
+  width: 100%;
+  max-width: var(--session-content-max-width);
   min-width: 0;
   min-height: 0;
   position: relative;
+  margin-inline: auto;
   overflow: hidden;
 }
 
@@ -3399,10 +3418,13 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-surface-empty {
+  width: 100%;
+  max-width: var(--session-content-max-width);
   min-height: 72px;
   display: grid;
   place-items: center;
   color: var(--muted);
+  margin-inline: auto;
   padding: 12px;
   font-size: 0.86rem;
 }

@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Workspace views now center their content at the standard session width. Overview includes Directories inside its primary form, while the Activity Gantt and Resources, Memory, and Runbooks lists use the same centered maximum width.
 - Computer-use approvals now use the compact inline steering overlay instead of a modal. Computer Use settings adds persisted Every Action and Once Per Session permission modes, defaulting to Every Action; session grants remain scoped to each approved target binary.
 - General settings now includes persisted, enabled-by-default controls for session-ending, response, and New Research prompt suggestions; disabling a type hides its UI, and dedicated suggestion requests are not started while their surface is disabled.
 - Agent Settings now includes a persisted Appearance view with Light, Dark, warm Cream, and dark-blue Midnight themes; Dark remains the default, and profile Session Heat palettes provide customizable variants with theme-appropriate defaults.

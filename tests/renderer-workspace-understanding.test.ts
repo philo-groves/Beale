@@ -27,7 +27,7 @@ import { testResearchProfile } from './researchProfileFixture';
 const NOW = Date.parse('2026-08-12T12:00:00.000Z');
 
 describe('workspace dashboard', () => {
-  it('left-aligns bounded workspace forms in a full-width dashboard with on-demand detail views', () => {
+  it('centers workspace forms, catalogs, and activity at the standard content width', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const dashboardStyles = styles.match(/\.workspace-dashboard\s*\{([^}]*)\}/)?.[1] ?? '';
     const tabsStyles = styles.match(/\.workspace-dashboard-tabs\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -39,7 +39,8 @@ describe('workspace dashboard', () => {
     const overviewFieldStyles = styles.match(/\.workspace-overview-form :is\(input, textarea\)\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewStatusStyles = styles.match(/\.workspace-overview-error,\s*\.workspace-overview-saving\s*\{([^}]*)\}/)?.[1] ?? '';
     const directoriesWidgetStyles = styles.match(/^\.workspace-directories-widget\s*\{([^}]*)\}/m)?.[1] ?? '';
-    const directoriesHeadingStyles = styles.match(/\.workspace-directories-widget-heading\s*\{([^}]*)\}/)?.[1] ?? '';
+    const overviewDirectoriesStyles = styles.match(/\.workspace-overview-form\s+\.workspace-directories-widget\s*\{([^}]*)\}/)?.[1] ?? '';
+    const directoriesHeadingStyles = styles.match(/^\.workspace-directories-widget-heading\s*\{([^}]*)\}/m)?.[1] ?? '';
     const directoryItemStyles = styles.match(/\.workspace-directory-item\s*\{([^}]*)\}/)?.[1] ?? '';
     const dividedDirectoryItemStyles = styles.match(/\.workspace-directory-item \+ \.workspace-directory-item\s*\{([^}]*)\}/)?.[1] ?? '';
     const primaryDirectoryIndicatorStyles = styles.match(/\.workspace-directory-primary-indicator::before\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -47,12 +48,16 @@ describe('workspace dashboard', () => {
     const workspaceHeatmapStyles = styles.match(/\.workspace-activity-grid-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewDisabledStyles = styles.match(/\.workspace-overview-form :is\(input, textarea\):disabled\s*\{([^}]*)\}/)?.[1] ?? '';
     const timelinePanelStyles = styles.match(/\.workspace-timeline-card\s*\{([^}]*)\}/)?.[1] ?? '';
+    const activityFormStyles = styles.match(/\.workspace-activity-form\s*\{([^}]*)\}/)?.[1] ?? '';
     const chartStyles = styles.match(/\.workspace-timeline-chart\s*\{([^}]*)\}/)?.[1] ?? '';
     const axisStyles = styles.match(/\.workspace-timeline-axis\s*\{([^}]*)\}/)?.[1] ?? '';
     const timelineRowsStyles = styles.match(/\.workspace-timeline-rows\s*\{([^}]*)\}/)?.[1] ?? '';
     const timelineResultStyles = styles.match(/\.workspace-timeline-result\s*\{([^}]*)\}/)?.[1] ?? '';
     const timelineLegendButtonStyles = styles.match(/\.workspace-timeline-legend-button\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceAreaStyles = styles.match(/\.workspace-surface-area\s*\{([^}]*)\}/)?.[1] ?? '';
+    const resourceTabsBarStyles = styles.match(/\.workspace-resource-tabs-bar\s*\{([^}]*)\}/)?.[1] ?? '';
+    const surfaceScrollStyles = styles.match(/\.workspace-surface-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
+    const surfaceEmptyStyles = styles.match(/\.workspace-surface-empty\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceListStyles = styles.match(/\.workspace-surface-list\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceItemStyles = styles.match(/\.workspace-surface-item\s*\{([^}]*)\}/)?.[1] ?? '';
     const mainOnlyStyles = styles.match(/\.main-session-grid\.workspace-main-only\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -60,6 +65,7 @@ describe('workspace dashboard', () => {
     const hiddenWorkspaceDetailColumnStyles = styles.match(/\.main-session-grid\.workspace-context\.workspace-main-only\s+\.research-side-column\s*\{([^}]*)\}/)?.[1] ?? '';
     const catalogViewStyles = styles.match(/\.workspace-catalog-view\s*\{([^}]*)\}/)?.[1] ?? '';
     const catalogListStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.workspace-catalog-list\s*\{([^}]*)\}/)?.[1] ?? '';
+    const cleaningFormStyles = styles.match(/\.workspace-cleaning-form\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceMemoryItemStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.memory-catalog-list\s+\.memory-catalog-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceMemoryDescriptionStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.memory-catalog-list\s+\.memory-catalog-item-description\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceRunbookItemStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.runbook-catalog-list\s+\.runbook-catalog-item\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -88,22 +94,23 @@ describe('workspace dashboard', () => {
     expect(overviewStyles).not.toContain('padding');
     expect(overviewLayoutStyles).toContain('width: 100%');
     expect(overviewLayoutStyles).toContain('--settings-view-font-size: 14px');
-    expect(overviewLayoutStyles).not.toContain('max-width');
-    expect(overviewLayoutStyles).toContain('grid-template-columns: minmax(0, 1fr) minmax(280px, var(--research-side-panel-width, 360px))');
-    expect(overviewLayoutStyles).toContain("'heading .'\n    'form directories'");
+    expect(overviewLayoutStyles).toContain('max-width: var(--session-content-max-width)');
+    expect(overviewLayoutStyles).toContain('grid-template-columns: minmax(0, 1fr)');
+    expect(overviewLayoutStyles).toContain("'heading'\n    'form'");
+    expect(overviewLayoutStyles).toContain('margin-inline: auto');
     expect(overviewFormStyles).toContain('font-size: var(--settings-view-font-size)');
     expect(overviewControlStyles).toContain('font-size: var(--settings-view-font-size)');
     expect(overviewFieldStyles).toContain('font-size: var(--settings-view-font-size)');
     expect(overviewStatusStyles).toContain('font-size: var(--settings-view-font-size)');
     expect(directoriesWidgetStyles).toContain('background: transparent');
     expect(directoriesWidgetStyles).toContain('padding: 0');
+    expect(overviewDirectoriesStyles).toContain('border-top: 1px solid var(--line)');
     expect(directoriesHeadingStyles).toContain('border-bottom: 1px solid var(--line)');
     expect(directoryItemStyles).toContain('background: transparent');
     expect(dividedDirectoryItemStyles).toContain('border-top: 1px solid var(--line)');
     expect(primaryDirectoryIndicatorStyles).toContain('background: var(--green)');
     expect(workspaceHeadingStyles).toContain('padding-left: 0');
     expect(workspaceHeatmapStyles).toContain('padding-left: 0');
-    expect(overviewLayoutStyles).not.toContain('margin-inline: auto');
     expect(overviewDisabledStyles).toContain('background: var(--panel-strong)');
     expect(overviewDisabledStyles).toContain('color: var(--muted)');
     expect(overviewDisabledStyles).toContain('cursor: not-allowed');
@@ -113,7 +120,13 @@ describe('workspace dashboard', () => {
     expect(timelinePanelStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
     expect(timelinePanelStyles).toContain('gap: 10px');
     expect(timelinePanelStyles).not.toContain('padding');
+    expect(activityFormStyles).toContain('max-width: var(--session-content-max-width)');
+    expect(activityFormStyles).toContain('margin-inline: auto');
+    expect(cleaningFormStyles).toContain('max-width: var(--session-content-max-width)');
+    expect(cleaningFormStyles).toContain('margin-inline: auto');
     expect(chartStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
+    expect(chartStyles).toContain('max-width: var(--session-content-max-width)');
+    expect(chartStyles).toContain('margin-inline: auto');
     expect(axisStyles).toContain('border-bottom: 1px solid var(--panel-border)');
     expect(axisStyles).not.toContain('padding-bottom');
     expect(timelineRowsStyles).toContain('padding-top: 8px');
@@ -122,6 +135,12 @@ describe('workspace dashboard', () => {
     expect(timelineLegendButtonStyles).toContain('top: -6px');
     expect(surfaceAreaStyles).toContain('grid-template-rows: auto 40px minmax(0, 1fr)');
     expect(surfaceAreaStyles).not.toContain('padding');
+    expect(resourceTabsBarStyles).toContain('max-width: var(--session-content-max-width)');
+    expect(resourceTabsBarStyles).toContain('margin-inline: auto');
+    expect(surfaceScrollStyles).toContain('max-width: var(--session-content-max-width)');
+    expect(surfaceScrollStyles).toContain('margin-inline: auto');
+    expect(surfaceEmptyStyles).toContain('max-width: var(--session-content-max-width)');
+    expect(surfaceEmptyStyles).toContain('margin-inline: auto');
     expect(surfaceListStyles).not.toContain('scrollbar-gutter');
     expect(surfaceListStyles).toContain('gap: 10px');
     expect(surfaceItemStyles).toContain('min-height: 86px');
@@ -134,7 +153,9 @@ describe('workspace dashboard', () => {
     expect(catalogViewStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
     expect(catalogViewStyles).toContain('overflow: hidden');
     expect(catalogListStyles).toContain('width: 100%');
+    expect(catalogListStyles).toContain('max-width: var(--session-content-max-width)');
     expect(catalogListStyles).toContain('height: 100%');
+    expect(catalogListStyles).toContain('margin-inline: auto');
     expect(workspaceMemoryItemStyles).toContain('padding-block: 7px');
     expect(workspaceMemoryDescriptionStyles).toContain('color: var(--muted)');
     expect(workspaceRunbookItemStyles).toContain('padding-block: 7px');
