@@ -57,6 +57,14 @@ export function visibleCacheHitRateLabel(contextMeter: ContextMeter): string {
 
 function contextTokenLimitForDetail(detail: RunDetail | null): number {
   if (!detail) return DEFAULT_CONTEXT_TOKEN_LIMIT;
+  const latestModelContext = [...detail.traceEvents]
+    .reverse()
+    .find((event) => traceEventContextUsageEligible(event.payload)
+      && (numberRecordValue(event.payload, 'contextWindow') ?? 0) > 0);
+  const reportedContextWindow = latestModelContext
+    ? numberRecordValue(latestModelContext.payload, 'contextWindow')
+    : null;
+  if (reportedContextWindow && reportedContextWindow > 0) return reportedContextWindow;
   for (const compaction of [...detail.contextCompactions].reverse()) {
     const limit = numberRecordValue(compaction.tokenPressure, 'inputTokenLimit');
     if (limit && limit > 0) return limit;

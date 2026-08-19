@@ -976,7 +976,10 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'OpenAI compacted retry recovered from context window pressure.') return 'Recover compacted retry';
   if (summary === 'OpenAI previous response state was unavailable; retrying with compacted Beale replay context.') return 'Retry with compacted replay';
   if (summary === 'OpenAI backend rejected previous_response_id; retrying with compacted Beale replay context.') return 'Retry with compacted replay';
-  if (summary === 'OpenAI context window pressure triggered compacted retry.') return 'Compact context for retry';
+  if (
+    summary === 'Provider context window pressure triggered a Honeycrisp compacted retry.'
+    || summary === 'OpenAI context window pressure triggered compacted retry.'
+  ) return 'Compact context for retry';
   if (summary === 'OpenAI Responses run failed.') return 'Fail Responses run';
   if (/^Honeycrisp tool\.requested(?::|$)/.test(summary)) return honeycrispToolTraceTitle(event, summary, 'Requested');
   if (/^Honeycrisp tool\.observed(?::|$)/.test(summary)) return honeycrispToolTraceTitle(event, summary, 'Observed');

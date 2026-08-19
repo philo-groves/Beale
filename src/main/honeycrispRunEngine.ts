@@ -1899,7 +1899,7 @@ export class HoneycrispRunEngine {
       type: 'model_message',
       source: 'system',
       summary: reactive
-        ? 'OpenAI context window pressure triggered compacted retry.'
+        ? 'Provider context window pressure triggered a Honeycrisp compacted retry.'
         : 'Honeycrisp compacted agent context.',
       payload: {
         honeycrispLiveKind: event.kind,

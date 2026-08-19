@@ -26,6 +26,28 @@ describe('renderer session usage view models', () => {
     expect(meter.fraction).toBeCloseTo(136 / 200);
   });
 
+  it('uses the active provider model context window when Honeycrisp reports it', () => {
+    const meter = contextMeterForDetail(
+      runDetail({
+        traceEvents: [
+          traceEvent({
+            payload: {
+              provider: 'xai',
+              model: 'grok-4.6',
+              contextWindow: 500_000,
+              usage: { input_tokens: 200_000 }
+            }
+          })
+        ]
+      })
+    );
+
+    expect(meter.label).toBe('200k/500k');
+    expect(visibleContextMeterLabel(meter)).toBe('200k/500k');
+    expect(visibleContextWindowPercentageLabel(meter)).toBe('40%');
+    expect(meter.tokenLimit).toBe(500_000);
+  });
+
   it('formats cumulative session token usage with decimals starting at millions', () => {
     const meter = contextMeterForDetail(
       runDetail({
