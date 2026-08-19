@@ -598,6 +598,40 @@ export interface HoneycrispReportLocator {
   reportId: string;
 }
 
+export type TicketingProviderId = 'github' | 'linear';
+export type TicketingMode = 'local' | TicketingProviderId;
+export type TicketingCredentialSource = 'managed' | 'environment' | null;
+
+export interface TicketingProviderSettings {
+  credentialConfigured: boolean;
+  credentialSource: TicketingCredentialSource;
+  targetId: string | null;
+  targetLabel: string | null;
+}
+
+export interface TicketingAutomationSettings {
+  humanInTheLoop: boolean;
+}
+
+export interface TicketingSettings {
+  provider: TicketingMode;
+  automation: TicketingAutomationSettings;
+  github: TicketingProviderSettings;
+  linear: TicketingProviderSettings;
+}
+
+export interface TicketingTarget {
+  id: string;
+  label: string;
+}
+
+export interface TicketSubmissionResult {
+  provider: TicketingProviderId;
+  ticketId: string;
+  title: string;
+  url: string;
+}
+
 export interface ReportResourceContext {
   kind: 'report';
   resourceId: string;
@@ -1793,6 +1827,13 @@ export interface BealeApi {
   setProviderOptionalModelEnabled(providerId: ResearchModelProviderId, modelId: string, enabled: boolean): Promise<ProviderSettings>;
   setProviderCyberPolicyRiskAcknowledged(providerId: ResearchModelProviderId, acknowledged: boolean): Promise<ProviderSettings>;
   setProviderPreferredAuthenticationMethod(providerId: ResearchModelProviderId, method: ProviderAuthenticationMethod): Promise<ProviderSettings>;
+  getTicketingSettings(): Promise<TicketingSettings>;
+  setTicketingProvider(providerId: TicketingMode): Promise<TicketingSettings>;
+  setTicketingHumanInTheLoop(enabled: boolean): Promise<TicketingSettings>;
+  configureTicketingCredential(providerId: TicketingProviderId, apiKey: string): Promise<TicketingSettings>;
+  removeTicketingCredential(providerId: TicketingProviderId): Promise<TicketingSettings>;
+  listTicketingTargets(providerId: TicketingProviderId): Promise<TicketingTarget[]>;
+  setTicketingTarget(providerId: TicketingProviderId, target: TicketingTarget): Promise<TicketingSettings>;
   getResearchProfiles(): Promise<ResolvedResearchProfile[]>;
   getAgentPlugins(): Promise<AgentPluginRegistryState>;
   addAgentPluginFromFilesystem(): Promise<AgentPluginRegistryState>;
@@ -1850,6 +1891,8 @@ export interface BealeApi {
   listReportingReports(): Promise<HoneycrispReportSummary[]>;
   getHoneycrispReport(locator: HoneycrispReportLocator): Promise<HoneycrispReportDocument>;
   openReportSubmissionPacket(locator: HoneycrispReportLocator): Promise<void>;
+  submitReportTicket(locator: HoneycrispReportLocator): Promise<TicketSubmissionResult>;
+  openExternalUrl(url: string): Promise<void>;
   startReportSession(input: ReportSessionStartInput): Promise<ReportSessionStartResult>;
   getWorkspaceDejunkSummary(workspaceId: string): Promise<WorkspaceDejunkSummary>;
   runWorkspaceDejunk(): Promise<WorkspaceSnapshot>;

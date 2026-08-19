@@ -9,6 +9,11 @@ import type {
   ProviderSettings,
   ProviderAuthenticationMethod,
   ProviderModelDefaults,
+  TicketingMode,
+  TicketingProviderId,
+  TicketingSettings,
+  TicketingTarget,
+  TicketSubmissionResult,
   AgentPluginRegistryState,
   MemorySettings,
   MemoryTypeDescriptions,
@@ -140,6 +145,27 @@ const api: BealeApi = {
     method: ProviderAuthenticationMethod
   ): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setProviderPreferredAuthenticationMethod, providerId, method);
+  },
+  getTicketingSettings(): Promise<TicketingSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getTicketingSettings);
+  },
+  setTicketingProvider(providerId: TicketingMode): Promise<TicketingSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setTicketingProvider, providerId);
+  },
+  setTicketingHumanInTheLoop(enabled: boolean): Promise<TicketingSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setTicketingHumanInTheLoop, enabled);
+  },
+  configureTicketingCredential(providerId: TicketingProviderId, apiKey: string): Promise<TicketingSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.configureTicketingCredential, providerId, apiKey);
+  },
+  removeTicketingCredential(providerId: TicketingProviderId): Promise<TicketingSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.removeTicketingCredential, providerId);
+  },
+  listTicketingTargets(providerId: TicketingProviderId): Promise<TicketingTarget[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.listTicketingTargets, providerId);
+  },
+  setTicketingTarget(providerId: TicketingProviderId, target: TicketingTarget): Promise<TicketingSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setTicketingTarget, providerId, target);
   },
   getResearchProfiles(): Promise<ResolvedResearchProfile[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.getResearchProfiles);
@@ -321,6 +347,12 @@ const api: BealeApi = {
   },
   openReportSubmissionPacket(locator: HoneycrispReportLocator): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.openReportSubmissionPacket, locator);
+  },
+  submitReportTicket(locator: HoneycrispReportLocator): Promise<TicketSubmissionResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.submitReportTicket, locator);
+  },
+  openExternalUrl(url: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openExternalUrl, url);
   },
   startReportSession(input: ReportSessionStartInput): Promise<ReportSessionStartResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.startReportSession, input);

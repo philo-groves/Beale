@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Ticketing settings now includes a default-on Human In The Loop automation control. Disabling it automatically submits newly completed reports to the configured provider while durable submission records prevent duplicate tickets across refreshes and restarts.
 - Automations, Reporting, Plugins, and Agent Settings now have transparent resting states in the left sidenav and reveal their former subtle fill on hover.
 - Active header sidenav and bottom-panel controls now use the same subtle background as the workspace editor opener.
 - Workspace views now center their content at the standard session width. Overview includes Directories inside its primary form, while the Activity Gantt and Resources, Memory, and Runbooks lists use the same centered maximum width.
@@ -91,6 +92,8 @@
 - Restored native macOS copy and paste menu roles so Command-C and Command-V work in focused renderer content and editable fields.
 
 ### Added
+
+- Agent Settings now includes Ticketing with Local Reports Only as the default plus opt-in GitHub Issues and Linear integrations. Beale encrypts managed tokens in the host process, discovers accessible repositories or teams, and creates tickets directly from durable report Markdown.
 
 - Workspace and session views now provide a real interactive PTY terminal in a separate 250px bottom panel. The terminal opens in the active workspace's primary directory, streams through a typed host boundary, closes with its owning window or panel, and defaults to collapsed behind a context-matched header toggle with animated vertical transitions.
 - Workspace and session headers now open the active workspace's primary directory in a detected local editor. The compact control sits directly beside the details-sidenav button, prefers the system-configured editor when identifiable, falls back to Visual Studio Code, and lists only available editors with their native installed-app icons.

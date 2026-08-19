@@ -5,7 +5,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   DEFAULT_RESEARCH_REASONING_EFFORT
 } from '../../../shared/modelDefaults';
-import { ArrowLeft, KeyRound, Monitor, Palette, Plus, RefreshCw, ServerCog, Settings, UserRoundCog, X } from 'lucide-react';
+import { ArrowLeft, KeyRound, Monitor, Palette, Plus, RefreshCw, ServerCog, Settings, Ticket, UserRoundCog, X } from 'lucide-react';
 import type {
   AgentPluginRegistryState,
   ComputerUsePermissionMode,
@@ -30,7 +30,11 @@ import type {
   ResearchProviderOAuthStartResult,
   ResearchProviderReadiness,
   ResearchProviderStatus,
-  ShellSafetyMode
+  ShellSafetyMode,
+  TicketingMode,
+  TicketingProviderId,
+  TicketingSettings,
+  TicketingTarget
 } from '@shared/types';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import { CenteredLoadingState } from '../../app/CenteredLoadingState';
@@ -62,9 +66,9 @@ import {
   type SessionHeatTheme
 } from '../../view-models/sessionHeat';
 
-export type SettingsSection = 'general' | 'appearance' | 'providers' | 'profile' | 'computer-use';
+export type SettingsSection = 'general' | 'appearance' | 'providers' | 'ticketing' | 'profile' | 'computer-use';
 
-const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'appearance', 'providers', 'profile', 'computer-use'];
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'appearance', 'providers', 'ticketing', 'profile', 'computer-use'];
 
 export function SettingsSidebar({
   collapsed,
@@ -111,6 +115,8 @@ export function SettingsSidebar({
                     <Palette size={15} aria-hidden="true" />
                   ) : item === 'providers' ? (
                     <ServerCog size={15} aria-hidden="true" />
+                  ) : item === 'ticketing' ? (
+                    <Ticket size={15} aria-hidden="true" />
                   ) : item === 'profile' ? (
                     <UserRoundCog size={15} aria-hidden="true" />
                   ) : (
@@ -148,6 +154,10 @@ export function SettingsView({
   providerStatusesLoaded,
   computerUsePlatform,
   computerUseSettings,
+  ticketingSettings = null,
+  ticketingTargets = [],
+  ticketingLoading = false,
+  ticketingError = null,
   agentPluginState,
   agentPluginsLoading,
   agentPluginsBusy,
@@ -173,6 +183,12 @@ export function SettingsView({
   onSetProviderPreferredAuthenticationMethod = async () => undefined,
   onSetAgentPluginEnabled,
   onChangeComputerUsePermissionMode,
+  onSetTicketingProvider = async () => undefined,
+  onSetTicketingHumanInTheLoop = async () => undefined,
+  onConfigureTicketingCredential = async () => undefined,
+  onRemoveTicketingCredential = async () => undefined,
+  onRefreshTicketingTargets = async () => undefined,
+  onSetTicketingTarget = async () => undefined,
   onSetSessionHeatPreference = () => undefined,
   onSetSessionHeatPalettePreference = () => undefined
 }: {
@@ -194,6 +210,10 @@ export function SettingsView({
   providerStatusesLoaded: boolean;
   computerUsePlatform: HostEnvironment['platform'] | null;
   computerUseSettings: ComputerUseSettings | null;
+  ticketingSettings?: TicketingSettings | null;
+  ticketingTargets?: TicketingTarget[];
+  ticketingLoading?: boolean;
+  ticketingError?: string | null;
   agentPluginState: AgentPluginRegistryState | null;
   agentPluginsLoading: boolean;
   agentPluginsBusy: boolean;
@@ -229,6 +249,12 @@ export function SettingsView({
   ) => Promise<void>;
   onSetAgentPluginEnabled: (pluginId: string, enabled: boolean) => void;
   onChangeComputerUsePermissionMode: (permissionMode: ComputerUsePermissionMode) => void;
+  onSetTicketingProvider?: (providerId: TicketingMode) => Promise<void>;
+  onSetTicketingHumanInTheLoop?: (enabled: boolean) => Promise<void>;
+  onConfigureTicketingCredential?: (providerId: TicketingProviderId, apiKey: string) => Promise<void>;
+  onRemoveTicketingCredential?: (providerId: TicketingProviderId) => Promise<void>;
+  onRefreshTicketingTargets?: (providerId: TicketingProviderId) => Promise<void>;
+  onSetTicketingTarget?: (providerId: TicketingProviderId, target: TicketingTarget) => Promise<void>;
   onSetSessionHeatPreference?: (profileId: string, memoryTypeId: string, status: string, heat: SessionHeat | null) => void;
   onSetSessionHeatPalettePreference?: (
     profileId: string,
@@ -281,6 +307,19 @@ export function SettingsView({
             onSetProviderCyberPolicyRiskAcknowledged={onSetProviderCyberPolicyRiskAcknowledged}
             onSetProviderPreferredAuthenticationMethod={onSetProviderPreferredAuthenticationMethod}
           />
+        ) : activeSection === 'ticketing' ? (
+          <TicketingSettingsView
+            settings={ticketingSettings}
+            targets={ticketingTargets}
+            loading={ticketingLoading}
+            error={ticketingError}
+            onSetProvider={onSetTicketingProvider}
+            onSetHumanInTheLoop={onSetTicketingHumanInTheLoop}
+            onConfigureCredential={onConfigureTicketingCredential}
+            onRemoveCredential={onRemoveTicketingCredential}
+            onRefreshTargets={onRefreshTicketingTargets}
+            onSetTarget={onSetTicketingTarget}
+          />
         ) : activeSection === 'profile' ? (
           <ProfileSettingsView
             researchProfile={researchProfile}
@@ -310,6 +349,195 @@ export function SettingsView({
 
 function activeSettingsSection(section: SettingsSection): SettingsSection {
   return SETTINGS_SECTIONS.includes(section) ? section : 'general';
+}
+
+const TICKETING_MODE_DETAILS: ReadonlyArray<{ id: TicketingMode; name: string; description: string }> = [
+  {
+    id: 'local',
+    name: 'Local Reports Only',
+    description: 'Keep reports in Beale without creating external tickets.'
+  },
+  {
+    id: 'github',
+    name: 'GitHub Issues',
+    description: 'Create issues in a repository available to a GitHub token.'
+  },
+  {
+    id: 'linear',
+    name: 'Linear',
+    description: 'Create issues for a team available to a Linear API key.'
+  }
+];
+
+export function TicketingSettingsView({
+  settings,
+  targets,
+  loading,
+  error,
+  onSetProvider,
+  onSetHumanInTheLoop,
+  onConfigureCredential,
+  onRemoveCredential,
+  onRefreshTargets,
+  onSetTarget
+}: {
+  settings: TicketingSettings | null;
+  targets: readonly TicketingTarget[];
+  loading: boolean;
+  error: string | null;
+  onSetProvider: (providerId: TicketingMode) => Promise<void>;
+  onSetHumanInTheLoop: (enabled: boolean) => Promise<void>;
+  onConfigureCredential: (providerId: TicketingProviderId, apiKey: string) => Promise<void>;
+  onRemoveCredential: (providerId: TicketingProviderId) => Promise<void>;
+  onRefreshTargets: (providerId: TicketingProviderId) => Promise<void>;
+  onSetTarget: (providerId: TicketingProviderId, target: TicketingTarget) => Promise<void>;
+}): JSX.Element {
+  const [apiKey, setApiKey] = useState('');
+  const selectedMode = settings?.provider ?? 'local';
+  const selectedProvider = selectedMode === 'local' ? null : selectedMode;
+  const providerSettings = selectedProvider ? settings?.[selectedProvider] ?? null : null;
+  const destinationLabel = selectedProvider === 'github' ? 'Repository' : 'Team';
+  const credentialLabel = selectedProvider === 'github' ? 'GitHub token' : 'Linear API key';
+
+  useEffect(() => setApiKey(''), [selectedProvider]);
+
+  return (
+    <div className="settings-page general-settings-page ticketing-settings-page" aria-busy={loading}>
+      <section className="settings-form">
+        <header className="settings-form-heading">
+          <h2 id="ticketing-system-heading">Ticketing</h2>
+          <p>Choose where completed Beale reports can be submitted.</p>
+        </header>
+        <fieldset className="settings-form-squircle" aria-labelledby="ticketing-system-heading" disabled={loading}>
+          <div className="settings-form-radio-list">
+            {TICKETING_MODE_DETAILS.map((option) => (
+              <label className="settings-form-control-row" key={option.id}>
+                <span className="settings-form-control-copy">
+                  <strong>{option.name}</strong>
+                  <small>{option.description}</small>
+                </span>
+                <input
+                  aria-label={option.name}
+                  checked={selectedMode === option.id}
+                  name="ticketing-system"
+                  onChange={() => void onSetProvider(option.id)}
+                  type="radio"
+                />
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </section>
+
+      {selectedProvider && providerSettings ? (
+        <section className="settings-form ticketing-connection-form">
+          <header className="settings-form-heading">
+            <h2 id="ticketing-connection-heading">Connection</h2>
+            <p>Credentials stay encrypted in the trusted host process and are never exposed to research agents.</p>
+          </header>
+          <div className="settings-form-squircle" aria-labelledby="ticketing-connection-heading">
+            <div className="settings-form-control-list">
+              <div className="settings-form-control-row ticketing-credential-row">
+                <span className="settings-form-control-copy">
+                  <strong>{credentialLabel}</strong>
+                  <small>{providerSettings.credentialConfigured
+                    ? providerSettings.credentialSource === 'environment'
+                      ? 'Configured by the host environment.'
+                      : 'Stored securely by Beale.'
+                    : selectedProvider === 'github'
+                      ? 'Use a fine-grained token with Issues write access to the destination repository.'
+                      : 'Use a personal API key with access to the destination team.'}</small>
+                </span>
+                <span className="ticketing-inline-controls">
+                  <input
+                    aria-label={credentialLabel}
+                    autoComplete="off"
+                    disabled={loading}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    placeholder={providerSettings.credentialConfigured ? 'Replace token' : 'Paste token'}
+                    type="password"
+                    value={apiKey}
+                  />
+                  <button
+                    disabled={loading || !apiKey.trim()}
+                    onClick={async () => {
+                      try {
+                        await onConfigureCredential(selectedProvider, apiKey);
+                        setApiKey('');
+                      } catch {
+                        // The owning settings view renders the host validation error.
+                      }
+                    }}
+                    type="button"
+                  >Save</button>
+                  {providerSettings.credentialConfigured ? (
+                    <button
+                      disabled={loading || providerSettings.credentialSource === 'environment'}
+                      onClick={() => void onRemoveCredential(selectedProvider)}
+                      type="button"
+                    >Remove</button>
+                  ) : null}
+                </span>
+              </div>
+              <label className="settings-form-control-row ticketing-target-row">
+                <span className="settings-form-control-copy">
+                  <strong>{destinationLabel}</strong>
+                  <small>{providerSettings.credentialConfigured
+                    ? `Choose the ${destinationLabel.toLowerCase()} that receives new report tickets.`
+                    : `Configure a credential before choosing a ${destinationLabel.toLowerCase()}.`}</small>
+                </span>
+                <span className="ticketing-inline-controls">
+                  <select
+                    aria-label={`Ticketing ${destinationLabel.toLowerCase()}`}
+                    disabled={loading || !providerSettings.credentialConfigured || targets.length === 0}
+                    onChange={(event) => {
+                      const target = targets.find((candidate) => candidate.id === event.target.value);
+                      if (target) void onSetTarget(selectedProvider, target);
+                    }}
+                    value={providerSettings.targetId ?? ''}
+                  >
+                    <option value="">Select {destinationLabel.toLowerCase()}</option>
+                    {targets.map((target) => <option key={target.id} value={target.id}>{target.label}</option>)}
+                  </select>
+                  <button
+                    aria-label={`Refresh ${destinationLabel.toLowerCase()} list`}
+                    disabled={loading || !providerSettings.credentialConfigured}
+                    onClick={() => void onRefreshTargets(selectedProvider)}
+                    title={`Refresh ${destinationLabel.toLowerCase()} list`}
+                    type="button"
+                  ><RefreshCw aria-hidden="true" size={14} /></button>
+                </span>
+              </label>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      <section className="settings-form ticketing-automation-form">
+        <header className="settings-form-heading">
+          <h2 id="ticketing-automation-heading">Automation</h2>
+          <p>Control how completed reports are submitted to the configured ticketing system.</p>
+        </header>
+        <fieldset className="settings-form-squircle" aria-labelledby="ticketing-automation-heading" disabled={loading}>
+          <div className="settings-form-control-list">
+            <label className="settings-form-control-row">
+              <span className="settings-form-control-copy">
+                <strong>Human In The Loop</strong>
+                <small>Require an explicit Create action before a completed report is submitted. When disabled, newly completed reports are submitted automatically.</small>
+              </span>
+              <input
+                aria-label="Human In The Loop"
+                checked={settings?.automation.humanInTheLoop ?? true}
+                onChange={(event) => void onSetHumanInTheLoop(event.target.checked)}
+                type="checkbox"
+              />
+            </label>
+          </div>
+        </fieldset>
+      </section>
+      {error ? <p className="ticketing-settings-error" role="alert">{error}</p> : null}
+    </div>
+  );
 }
 
 const SESSION_HEAT_THEME_LABELS: Record<SessionHeatTheme, string> = {
@@ -2531,6 +2759,8 @@ export function settingsSectionLabel(section: SettingsSection): string {
       return 'Computer Use';
     case 'providers':
       return 'Providers';
+    case 'ticketing':
+      return 'Ticketing';
     case 'profile':
       return 'Profiles';
     default:

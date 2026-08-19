@@ -35,6 +35,11 @@ import type {
   RunDetail,
   ShellSafetyMode,
   SteeringAction,
+  TicketingMode,
+  TicketingProviderId,
+  TicketingSettings,
+  TicketingTarget,
+  TicketSubmissionResult,
   WorkspaceEditorCatalog,
   WorkspaceEditorId,
   WorkspaceSnapshot
@@ -218,6 +223,10 @@ export function App(): JSX.Element {
   const [reportSessionRefreshVersion, setReportSessionRefreshVersion] = useState(0);
   const [agentPluginState, setAgentPluginState] = useState<AgentPluginRegistryState | null>(null);
   const [computerUseSettings, setComputerUseSettings] = useState<ComputerUseSettings | null>(null);
+  const [ticketingSettings, setTicketingSettings] = useState<TicketingSettings | null>(null);
+  const [ticketingTargets, setTicketingTargets] = useState<TicketingTarget[]>([]);
+  const [ticketingLoading, setTicketingLoading] = useState(false);
+  const [ticketingError, setTicketingError] = useState<string | null>(null);
   const [agentPluginsLoading, setAgentPluginsLoading] = useState(false);
   const [agentPluginsBusy, setAgentPluginsBusy] = useState(false);
   const [agentPluginsError, setAgentPluginsError] = useState<string | null>(null);
@@ -481,6 +490,115 @@ export function App(): JSX.Element {
     void loadComputerUseSettings();
   }, [hostEnvironment?.platform, loadAgentPlugins, loadComputerUseSettings, settingsOpen, settingsSection]);
 
+  const loadTicketingTargets = useCallback(async (providerId: TicketingProviderId): Promise<void> => {
+    setTicketingLoading(true);
+    setTicketingError(null);
+    try {
+      setTicketingTargets(await window.beale.listTicketingTargets(providerId));
+    } catch (caught) {
+      setTicketingTargets([]);
+      setTicketingError(errorMessage(caught));
+    } finally {
+      setTicketingLoading(false);
+    }
+  }, []);
+
+  const loadTicketingSettings = useCallback(async (loadTargets: boolean): Promise<void> => {
+    setTicketingLoading(true);
+    setTicketingError(null);
+    try {
+      const next = await window.beale.getTicketingSettings();
+      setTicketingSettings(next);
+      if (loadTargets && next.provider !== 'local' && next[next.provider].credentialConfigured) {
+        setTicketingTargets(await window.beale.listTicketingTargets(next.provider));
+      } else {
+        setTicketingTargets([]);
+      }
+    } catch (caught) {
+      setTicketingError(errorMessage(caught));
+    } finally {
+      setTicketingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTicketingSettings(false);
+  }, [loadTicketingSettings]);
+
+  useEffect(() => {
+    if (!settingsOpen || settingsSection !== 'ticketing') return;
+    void loadTicketingSettings(true);
+  }, [loadTicketingSettings, settingsOpen, settingsSection]);
+
+  const changeTicketingProvider = useCallback(async (providerId: TicketingMode): Promise<void> => {
+    setTicketingLoading(true);
+    setTicketingError(null);
+    try {
+      const next = await window.beale.setTicketingProvider(providerId);
+      setTicketingSettings(next);
+      if (providerId !== 'local' && next[providerId].credentialConfigured) {
+        setTicketingTargets(await window.beale.listTicketingTargets(providerId));
+      } else {
+        setTicketingTargets([]);
+      }
+    } catch (caught) {
+      setTicketingError(errorMessage(caught));
+    } finally {
+      setTicketingLoading(false);
+    }
+  }, []);
+
+  const changeTicketingHumanInTheLoop = useCallback(async (enabled: boolean): Promise<void> => {
+    setTicketingLoading(true);
+    setTicketingError(null);
+    try {
+      setTicketingSettings(await window.beale.setTicketingHumanInTheLoop(enabled));
+    } catch (caught) {
+      setTicketingError(errorMessage(caught));
+    } finally {
+      setTicketingLoading(false);
+    }
+  }, []);
+
+  const configureTicketingCredential = useCallback(async (providerId: TicketingProviderId, apiKey: string): Promise<void> => {
+    setTicketingLoading(true);
+    setTicketingError(null);
+    try {
+      setTicketingSettings(await window.beale.configureTicketingCredential(providerId, apiKey));
+      setTicketingTargets(await window.beale.listTicketingTargets(providerId));
+    } catch (caught) {
+      setTicketingError(errorMessage(caught));
+      throw caught;
+    } finally {
+      setTicketingLoading(false);
+    }
+  }, []);
+
+  const removeTicketingCredential = useCallback(async (providerId: TicketingProviderId): Promise<void> => {
+    setTicketingLoading(true);
+    setTicketingError(null);
+    try {
+      setTicketingSettings(await window.beale.removeTicketingCredential(providerId));
+      setTicketingTargets([]);
+    } catch (caught) {
+      setTicketingError(errorMessage(caught));
+    } finally {
+      setTicketingLoading(false);
+    }
+  }, []);
+
+  const changeTicketingTarget = useCallback(async (providerId: TicketingProviderId, target: TicketingTarget): Promise<void> => {
+    setTicketingLoading(true);
+    setTicketingError(null);
+    try {
+      setTicketingSettings(await window.beale.setTicketingTarget(providerId, target));
+    } catch (caught) {
+      setTicketingError(errorMessage(caught));
+    } finally {
+      setTicketingLoading(false);
+    }
+  }, []);
+
   const openPlugins = useCallback((): void => {
     clearRunDetail();
     setSelectedRunId(null);
@@ -653,25 +771,32 @@ export function App(): JSX.Element {
   const activeWorkspaceReportCatalogKey = snapshot?.honeycrispMemory.reports
     .map((report) => `${report.id}:${report.revision}:${report.updatedAt}`)
     .join('|') ?? '';
+  const automaticTicketingEnabled = ticketingSettings?.provider !== undefined
+    && ticketingSettings.provider !== 'local'
+    && !ticketingSettings.automation.humanInTheLoop
+    && ticketingSettings[ticketingSettings.provider].credentialConfigured
+    && Boolean(ticketingSettings[ticketingSettings.provider].targetId);
   useEffect(() => {
-    if (!reportsOpen) return undefined;
+    if (!reportsOpen && !automaticTicketingEnabled) return undefined;
     let cancelled = false;
-    setReportingReportsLoading(true);
-    setReportingReportsError(null);
+    if (reportsOpen) {
+      setReportingReportsLoading(true);
+      setReportingReportsError(null);
+    }
     void window.beale.listReportingReports()
       .then((reports) => {
         if (!cancelled) setReportingReports(reports);
       })
       .catch((caught: unknown) => {
-        if (!cancelled) setReportingReportsError(errorMessage(caught));
+        if (!cancelled && reportsOpen) setReportingReportsError(errorMessage(caught));
       })
       .finally(() => {
-        if (!cancelled) setReportingReportsLoading(false);
+        if (!cancelled && reportsOpen) setReportingReportsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspaceReportCatalogKey, reportingWorkspaceCatalogKey, reportsOpen]);
+  }, [activeWorkspaceReportCatalogKey, automaticTicketingEnabled, reportingWorkspaceCatalogKey, reportsOpen]);
 
   useEffect(() => {
     if (!workspaceRegistry || !reportingScopeWorkspaceId) return;
@@ -1586,6 +1711,10 @@ export function App(): JSX.Element {
             providerStatusesLoaded={researchProviderStatusesLoaded}
             computerUsePlatform={hostEnvironment?.platform ?? null}
             computerUseSettings={computerUseSettings}
+            ticketingSettings={ticketingSettings}
+            ticketingTargets={ticketingTargets}
+            ticketingLoading={ticketingLoading}
+            ticketingError={ticketingError}
             agentPluginState={agentPluginState}
             agentPluginsLoading={agentPluginsLoading}
             agentPluginsBusy={agentPluginsBusy}
@@ -1611,6 +1740,12 @@ export function App(): JSX.Element {
             onSetProviderPreferredAuthenticationMethod={setProviderPreferredAuthenticationMethod}
             onSetAgentPluginEnabled={setAgentPluginEnabled}
             onChangeComputerUsePermissionMode={changeComputerUsePermissionMode}
+            onSetTicketingProvider={changeTicketingProvider}
+            onSetTicketingHumanInTheLoop={changeTicketingHumanInTheLoop}
+            onConfigureTicketingCredential={configureTicketingCredential}
+            onRemoveTicketingCredential={removeTicketingCredential}
+            onRefreshTicketingTargets={loadTicketingTargets}
+            onSetTicketingTarget={changeTicketingTarget}
             onSetSessionHeatPreference={setSessionHeatPreference}
             onSetSessionHeatPalettePreference={setSessionHeatPalettePreference}
           />
@@ -1670,6 +1805,7 @@ export function App(): JSX.Element {
                   shellApproval={inlineApproval}
                   shellApprovalBusy={Boolean(inlineApproval && (busy || shellApprovalDecisionInFlight === inlineApproval.id))}
                   busy={busy}
+                  ticketingSettings={ticketingSettings}
                   onInitialInstruction={(instruction, modelSelection, shellSafetyMode) => {
                     void startReportTurn(instruction, modelSelection, shellSafetyMode).catch(() => undefined);
                   }}
@@ -1690,6 +1826,11 @@ export function App(): JSX.Element {
                       throw new Error(message);
                     }
                   }}
+                  onSubmitTicket={async (): Promise<TicketSubmissionResult> => window.beale.submitReportTicket({
+                    workspaceId: selectedReport.workspaceId,
+                    reportId: selectedReport.id
+                  })}
+                  onOpenTicket={(url) => window.beale.openExternalUrl(url)}
                   onSteerInstruction={handleSteerInstruction}
                 />
               ) : (

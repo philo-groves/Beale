@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { CircleAlert, FileArchive, FileText, LoaderCircle } from 'lucide-react';
+import { CircleAlert, ExternalLink, FileArchive, FileText, LoaderCircle, Ticket } from 'lucide-react';
 import type {
   ApprovalRecord,
   HoneycrispReportDocument,
@@ -11,6 +11,8 @@ import type {
   RunDetail,
   ShellSafetyMode,
   SteeringAction,
+  TicketingSettings,
+  TicketSubmissionResult,
   WorkspaceRegistryEntry
 } from '@shared/types';
 import { CenteredLoadingState } from '../../app/CenteredLoadingState';
@@ -150,6 +152,9 @@ export function ReportSessionWorkspace({
   onSessionAction,
   onReportChange,
   onOpenSubmissionPacket,
+  ticketingSettings = null,
+  onSubmitTicket = async () => { throw new Error('Ticketing is unavailable.'); },
+  onOpenTicket = async () => undefined,
   onSteerInstruction
 }: {
   report: HoneycrispReportSummary;
@@ -174,6 +179,9 @@ export function ReportSessionWorkspace({
   onSessionAction: (action: SteeringAction) => void;
   onReportChange: (instruction: string) => Promise<void>;
   onOpenSubmissionPacket: () => Promise<void>;
+  ticketingSettings?: TicketingSettings | null;
+  onSubmitTicket?: () => Promise<TicketSubmissionResult>;
+  onOpenTicket?: (url: string) => Promise<void>;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element {
   return (
@@ -207,18 +215,34 @@ export function ReportSessionWorkspace({
         error={error}
         onChange={onReportChange}
         onOpenSubmissionPacket={onOpenSubmissionPacket}
+        ticketingSettings={ticketingSettings}
+        onSubmitTicket={onSubmitTicket}
+        onOpenTicket={onOpenTicket}
       />
     </div>
   );
 }
 
-export function EditableReport({ report, document, loading, error, onChange, onOpenSubmissionPacket }: {
+export function EditableReport({
+  report,
+  document,
+  loading,
+  error,
+  onChange,
+  onOpenSubmissionPacket,
+  ticketingSettings = null,
+  onSubmitTicket = async () => { throw new Error('Ticketing is unavailable.'); },
+  onOpenTicket = async () => undefined
+}: {
   report: HoneycrispReportSummary;
   document: HoneycrispReportDocument | null;
   loading: boolean;
   error: string | null;
   onChange: (instruction: string) => Promise<void>;
   onOpenSubmissionPacket: () => Promise<void>;
+  ticketingSettings?: TicketingSettings | null;
+  onSubmitTicket?: () => Promise<TicketSubmissionResult>;
+  onOpenTicket?: (url: string) => Promise<void>;
 }): JSX.Element {
   const blocks = useMemo(() => reportMarkdownBlocks(document?.content ?? ''), [document?.content]);
   const blockIds = useMemo(() => blocks.map((block) => block.id), [blocks]);
@@ -231,6 +255,9 @@ export function EditableReport({ report, document, loading, error, onChange, onO
   const [changeError, setChangeError] = useState<string | null>(null);
   const [packetOpening, setPacketOpening] = useState(false);
   const [packetError, setPacketError] = useState<string | null>(null);
+  const [ticketSubmitting, setTicketSubmitting] = useState(false);
+  const [ticketResult, setTicketResult] = useState<TicketSubmissionResult | null>(null);
+  const [ticketError, setTicketError] = useState<string | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     if (editingBlockId) editorRef.current?.focus();
@@ -245,6 +272,9 @@ export function EditableReport({ report, document, loading, error, onChange, onO
     setChangeError(null);
     setPacketOpening(false);
     setPacketError(null);
+    setTicketSubmitting(false);
+    setTicketResult(null);
+    setTicketError(null);
   }, [document?.content, report.id]);
 
   const selectBlock = (blockIndex: number, shiftKey: boolean, toggleKey: boolean): void => {
@@ -276,6 +306,42 @@ export function EditableReport({ report, document, loading, error, onChange, onO
           <h1>{report.title}</h1>
           {report.summary ? <p>{report.summary}</p> : null}
           <div className="report-session-meta"><span>{traceLabel(report.status)}</span><span>Update {report.revision}</span></div>
+          {ticketingSettings?.provider !== undefined && ticketingSettings.provider !== 'local' ? (
+            <div className="report-ticketing-action">
+              <Ticket size={18} aria-hidden="true" />
+              <div className="report-ticketing-copy">
+                <strong>{ticketingSettings.provider === 'github' ? 'GitHub Issues' : 'Linear'}</strong>
+                <span>{ticketingSettings[ticketingSettings.provider].targetLabel ?? 'Configure a destination in Agent Settings > Ticketing.'}</span>
+              </div>
+              {ticketResult ? (
+                <button type="button" onClick={() => void onOpenTicket(ticketResult.url)}>
+                  <span>{ticketResult.ticketId}</span>
+                  <ExternalLink aria-hidden="true" size={13} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={ticketSubmitting
+                    || !document
+                    || report.status !== 'complete'
+                    || !ticketingSettings[ticketingSettings.provider].credentialConfigured
+                    || !ticketingSettings[ticketingSettings.provider].targetId}
+                  onClick={async () => {
+                    setTicketSubmitting(true);
+                    setTicketError(null);
+                    try {
+                      setTicketResult(await onSubmitTicket());
+                    } catch (caught: unknown) {
+                      setTicketError(caught instanceof Error ? caught.message : String(caught));
+                    } finally {
+                      setTicketSubmitting(false);
+                    }
+                  }}
+                >{ticketSubmitting ? 'Creating…' : `Create ${ticketingSettings.provider === 'github' ? 'issue' : 'ticket'}`}</button>
+              )}
+              {ticketError ? <p role="alert">{ticketError}</p> : null}
+            </div>
+          ) : null}
           {report.submissionPacket ? (
             <div className="report-submission-packet">
               <FileArchive size={19} aria-hidden="true" />

@@ -22,6 +22,9 @@ import type {
   ResearchModelProviderId,
   ProviderModelDefaults,
   ProviderAuthenticationMethod,
+  TicketingMode,
+  TicketingProviderId,
+  TicketingTarget,
   HoneycrispReportLocator,
   ReportSessionStartInput,
   RunDetailUpdateCursor,
@@ -43,12 +46,14 @@ import { restoreAndFocusWindow } from './windowLifecycle';
 import { IosDeviceCaptureService } from './iosDeviceCaptureService';
 import { getWorkspaceEditorCatalogForHost, openWorkspaceInEditor } from './workspaceEditors';
 import { WorkspaceTerminalService } from './workspaceTerminalService';
+import { TicketingService } from './ticketingService';
 
 const APP_NAME = 'Beale';
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
 let iosDeviceCaptureService: IosDeviceCaptureService;
 let workspaceTerminalService: WorkspaceTerminalService;
+let ticketingService: TicketingService;
 const runDetailRequestControllers = new Map<number, AbortController>();
 const smokeTestMode = process.argv.includes('--smoke-test');
 const NATIVE_WINDOW_SHAPE_RADIUS_PX = 8;
@@ -537,6 +542,25 @@ function registerIpc(): void {
     providerId: ResearchModelProviderId,
     method: ProviderAuthenticationMethod
   ) => workspaceService.setProviderPreferredAuthenticationMethod(providerId, method));
+  ipcMain.handle(IPC_CHANNELS.getTicketingSettings, () => ticketingService.getSettings());
+  ipcMain.handle(IPC_CHANNELS.setTicketingProvider, (_event, providerId: TicketingMode) =>
+    ticketingService.setProvider(providerId)
+  );
+  ipcMain.handle(IPC_CHANNELS.setTicketingHumanInTheLoop, (_event, enabled: boolean) =>
+    ticketingService.setHumanInTheLoop(enabled)
+  );
+  ipcMain.handle(IPC_CHANNELS.configureTicketingCredential, (_event, providerId: TicketingProviderId, apiKey: string) =>
+    ticketingService.configureCredential(providerId, apiKey)
+  );
+  ipcMain.handle(IPC_CHANNELS.removeTicketingCredential, (_event, providerId: TicketingProviderId) =>
+    ticketingService.removeCredential(providerId)
+  );
+  ipcMain.handle(IPC_CHANNELS.listTicketingTargets, (_event, providerId: TicketingProviderId) =>
+    ticketingService.listTargets(providerId)
+  );
+  ipcMain.handle(IPC_CHANNELS.setTicketingTarget, (_event, providerId: TicketingProviderId, target: TicketingTarget) =>
+    ticketingService.setTarget(providerId, target)
+  );
   ipcMain.handle(IPC_CHANNELS.getResearchProfiles, () => workspaceService.getResearchProfiles());
   ipcMain.handle(IPC_CHANNELS.getAgentPlugins, () => workspaceService.getAgentPlugins());
   ipcMain.handle(IPC_CHANNELS.addAgentPluginFromFilesystem, async () => {
@@ -668,7 +692,14 @@ function registerIpc(): void {
       timedMainIpc('updateAutomation', { run: shortMetricId(input.runId) }, () => workspaceService.updateAutomation(input))
     );
     ipcMain.handle(IPC_CHANNELS.listReportingReports, () =>
-    timedMainIpc('listReportingReports', {}, () => workspaceService.listReportingReports())
+    timedMainIpcAsync('listReportingReports', {}, async () => {
+      const reports = await workspaceService.listReportingReports();
+      void ticketingService.submitAutomatically(reports, (report) => workspaceService.getHoneycrispReport({
+        workspaceId: report.workspaceId,
+        reportId: report.id
+      }));
+      return reports;
+    })
   );
   ipcMain.handle(IPC_CHANNELS.getHoneycrispReport, (_event, locator: HoneycrispReportLocator) =>
     timedMainIpc('getHoneycrispReport', { report: shortMetricId(locator.reportId) }, () =>
@@ -682,6 +713,19 @@ function registerIpc(): void {
       if (error) throw new Error(error);
     })
   );
+  ipcMain.handle(IPC_CHANNELS.submitReportTicket, async (_event, locator: HoneycrispReportLocator) => {
+    const report = (await workspaceService.listReportingReports()).find((candidate) =>
+      candidate.workspaceId === locator.workspaceId.trim() && candidate.id === locator.reportId.trim());
+    if (!report) throw new Error(`Report not found: ${locator.reportId}`);
+    return ticketingService.submit(report, workspaceService.getHoneycrispReport(locator));
+  });
+  ipcMain.handle(IPC_CHANNELS.openExternalUrl, async (_event, value: string) => {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || (url.hostname !== 'github.com' && url.hostname !== 'linear.app')) {
+      throw new Error('Only GitHub and Linear HTTPS ticket links can be opened externally.');
+    }
+    await shell.openExternal(url.toString());
+  });
   ipcMain.handle(IPC_CHANNELS.startReportSession, (_event, input: ReportSessionStartInput) =>
     timedMainIpc('startReportSession', { report: shortMetricId(input.reportId) }, () =>
       workspaceService.startReportSession(input)
@@ -825,6 +869,14 @@ if (!hasSingleInstanceLock) {
       { deferLoad: true }
     );
     workspaceService = new WorkspaceService(broadcastSnapshot, { providerCredentialStore });
+    ticketingService = new TicketingService(
+      join(app.getPath('userData'), 'ticketing-settings.json'),
+      {
+        available: () => safeStorage.isEncryptionAvailable(),
+        encrypt: (value) => safeStorage.encryptString(value),
+        decrypt: (value) => safeStorage.decryptString(value)
+      }
+    );
     iosDeviceCaptureService = new IosDeviceCaptureService(
       broadcastIosDeviceCaptureState,
       broadcastIosDeviceCaptureFrame
