@@ -3727,9 +3727,23 @@ function toolAuthorizationProjectionMatches(
   );
 }
 
-function shellAuthorizationAuditPayload(payload: Record<string, unknown>): Record<string, unknown> {
+const SHELL_REVIEW_FAILURE_CATEGORIES = new Set([
+  'aborted',
+  'timeout',
+  'authentication',
+  'rate_limited',
+  'model_unavailable',
+  'provider_error',
+  'empty_response',
+  'invalid_json',
+  'invalid_schema'
+]);
+const SHELL_REVIEW_FAILURE_PHASES = new Set(['request', 'response']);
+
+export function shellAuthorizationAuditPayload(payload: Record<string, unknown>): Record<string, unknown> {
   const command = recordValue(payload.command) ?? {};
   const reviewer = recordValue(payload.reviewer);
+  const reviewFailure = shellReviewFailureAuditPayload(payload.reviewFailure);
   const rawArgs = Array.isArray(command.args) ? command.args : [];
   const audit = {
     approvalKind: boundedAuditString(payload.approvalKind, 64),
@@ -3761,10 +3775,25 @@ function shellAuthorizationAuditPayload(payload: Record<string, unknown>): Recor
             reasoningEffort: boundedAuditString(reviewer.reasoningEffort, 64)
           }
         }
-      : {})
+      : {}),
+    ...(reviewFailure ? { reviewFailure } : {})
   };
   const redacted = redactJsonForModel(audit);
   return recordValue(redacted) ?? {};
+}
+
+function shellReviewFailureAuditPayload(value: unknown): Record<string, unknown> | null {
+  const failure = recordValue(value);
+  if (!failure) return null;
+  const category = typeof failure.category === 'string' && SHELL_REVIEW_FAILURE_CATEGORIES.has(failure.category)
+    ? failure.category
+    : null;
+  const phase = typeof failure.phase === 'string' && SHELL_REVIEW_FAILURE_PHASES.has(failure.phase)
+    ? failure.phase
+    : null;
+  const attempts = boundedAuditNumber(failure.attempts);
+  if (!category || !phase || attempts === null || attempts > 10) return null;
+  return { category, phase, attempts };
 }
 
 function shellAuthorizationExecutableAuditMismatches(
