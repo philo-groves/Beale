@@ -71,7 +71,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - Honeycrisp-owned workspace housekeeping with separate Dejunk and Dream maintenance: Dejunk organizes recognizable loose research material under `research/` and reclaims large rebuildable or extracted resources outside protected Beale metadata and detected repositories
 - Same-session provider failure recovery with capped retry backoff and transcript-aware safety-guardrail steering
 - Trace UI with model, tool, system, user-steering, memory-producing, and compaction events
-- iOS 27 ScreenCaptureKit companion capture over a loopback-only USB tunnel; selecting a research session automatically establishes the channel for a physically connected iPhone, fits live pixels into the lower-right space below the compact summary, and can expand them to fill the detailed sidenav while navigating other iPhone apps
+- Host integration for the separately maintained Beale-iOS ScreenCaptureKit companion over a loopback-only USB tunnel; selecting a research session automatically establishes the channel for a physically connected iPhone, fits live pixels into the lower-right space below the compact summary, and can expand them to fill the detailed sidenav while navigating other iPhone apps
 - Session transcripts persisted separately from trace metadata
 - List-only Honeycrisp memory catalog with search, session/workspace/subject scope and type filters, inline details, references, and textual relationships
 - Workspace-scoped Jupyter-format runbooks with whole-run and per-cell controls, durable status and duration tracking, bounded outputs, healthy-runbook guidance, and dedicated Honeycrisp tools and Beale sidebar visibility

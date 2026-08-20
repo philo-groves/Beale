@@ -26,6 +26,8 @@ import type {
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
   ResearchProviderModelCatalog,
+  ResearchKitRefreshInput,
+  ResearchKitRefreshResult,
   ResolvedResearchProfile,
   ResearchProviderStatus,
   RunStatus,
@@ -442,6 +444,18 @@ export function App(): JSX.Element {
     setError(null);
     try {
       applySnapshot(await window.beale.addWorkspaceRule(text));
+    } catch (caught) {
+      setError(errorMessage(caught));
+      throw caught;
+    }
+  }, [applySnapshot]);
+
+  const refreshWorkspaceResearchKit = useCallback(async (input: ResearchKitRefreshInput): Promise<ResearchKitRefreshResult> => {
+    setError(null);
+    try {
+      const result = await window.beale.refreshResearchKit(input);
+      applySnapshot(result.snapshot);
+      return result;
     } catch (caught) {
       setError(errorMessage(caught));
       throw caught;
@@ -1929,6 +1943,7 @@ export function App(): JSX.Element {
               onAddWorkspaceResource={addWorkspaceResource}
               onChangeWorkspaceResource={changeWorkspaceResource}
               onCloneWorkspaceRepository={cloneWorkspaceRepository}
+              onRefreshWorkspaceResearchKit={refreshWorkspaceResearchKit}
               onAddWorkspaceRule={addWorkspaceRule}
               onSaveWorkspaceConfiguration={saveWorkspaceConfiguration}
               onChangeWorkspaceDirectories={changeWorkspaceDirectories}

@@ -22,6 +22,9 @@ export interface ScopeAssetAttributes {
   repositoryUrl?: string;
   clonedDirectory?: string;
   legacyKind?: LegacyScopeAssetKind;
+  researchKitId?: ResearchKitId;
+  researchKitSourceUrl?: string;
+  researchKitRefreshedAt?: string;
 }
 
 export type RunStatus =
@@ -1131,6 +1134,19 @@ export interface HackerOneScopeLookupResult {
   importedScopeCount: number;
 }
 
+export interface ResearchKitRefreshInput {
+  sourceIdentifier?: string;
+}
+
+export interface ResearchKitRefreshResult {
+  researchKitId: ResearchKitId;
+  refreshedAt: string;
+  resourcesRefreshed: number;
+  rulesRefreshed: number;
+  guidanceRefreshed: boolean;
+  snapshot: WorkspaceSnapshot;
+}
+
 export interface GitHubRepositorySummary {
   name: string;
   url: string;
@@ -1915,6 +1931,7 @@ export interface BealeApi {
   getShellOptions(): Promise<ShellOptions>;
   setShellOptions(options: ShellOptions): Promise<ShellOptions>;
   lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult>;
+  refreshResearchKit(input: ResearchKitRefreshInput): Promise<ResearchKitRefreshResult>;
   listGitHubOrganizationRepositories(organization: string): Promise<GitHubRepositorySummary[]>;
   createScopedWorkspace(input: WorkspaceOnboardingInput): Promise<WorkspaceSnapshot>;
   updateWorkspaceDirectories(directories: string[]): Promise<WorkspaceSnapshot>;

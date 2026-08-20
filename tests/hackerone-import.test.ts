@@ -34,7 +34,7 @@ describe('HackerOne workspace import', () => {
             policy: 'Stop immediately if customer data is encountered.',
             submission_state: 'open',
             structured_scopes: {
-              total_count: 1,
+              total_count: 2,
               nodes: [{
                 asset_type: 'URL',
                 asset_identifier: 'api.example.test',
@@ -42,6 +42,13 @@ describe('HackerOne workspace import', () => {
                 eligible_for_bounty: true,
                 eligible_for_submission: true,
                 max_severity: 'critical'
+              }, {
+                asset_type: 'SOURCE_CODE',
+                asset_identifier: 'https://github.com/example/research-target',
+                instruction: 'Public source repository.',
+                eligible_for_bounty: true,
+                eligible_for_submission: true,
+                max_severity: 'high'
               }]
             }
           }
@@ -76,9 +83,10 @@ describe('HackerOne workspace import', () => {
         'Stop immediately if customer data is encountered.',
         'Report findings privately through HackerOne.'
       ]);
-      expect(imported.assets).toEqual([
-        expect.objectContaining({ direction: 'in_scope', kind: 'domain', value: 'api.example.test' })
-      ]);
+      expect(imported.assets).toEqual(expect.arrayContaining([
+        expect.objectContaining({ direction: 'in_scope', kind: 'domain', value: 'api.example.test' }),
+        expect.objectContaining({ direction: 'in_scope', kind: 'repo', value: 'https://github.com/example/research-target' })
+      ]));
 
       const snapshot = service.createScopedWorkspace({
         workspacePath,
@@ -89,14 +97,54 @@ describe('HackerOne workspace import', () => {
         descriptionMarkdown: imported.descriptionMarkdown,
         rules: imported.rules,
         expiresAt: imported.expiresAt,
-        assets: imported.assets
+        assets: [
+          ...imported.assets.map((asset) => ({
+            ...asset,
+            attributes: {
+              ...asset.attributes,
+              ...(asset.kind === 'repo' ? { clonedDirectory: '/tmp/example-checkout' } : {})
+            }
+          })),
+          {
+            direction: 'in_scope',
+            kind: 'documentation',
+            value: 'https://docs.example.test/manual',
+            sensitivity: 'public',
+            attributes: { source: 'manual' }
+          }
+        ]
       });
       expect(snapshot.activeScope.rulesMarkdown).toBe('');
       expect(snapshot.workspace.researchKitId).toBe('hackerone');
       expect(snapshot.workspaceRules.map((rule) => rule.text)).toEqual(imported.rules);
-      expect(snapshot.activeScope.assets).toEqual([
-        expect.objectContaining({ direction: 'in_scope', kind: 'domain', value: 'api.example.test' })
-      ]);
+      expect(snapshot.activeScope.assets).toEqual(expect.arrayContaining([
+        expect.objectContaining({ direction: 'in_scope', kind: 'domain', value: 'api.example.test' }),
+        expect.objectContaining({ kind: 'documentation', value: 'https://docs.example.test/manual' })
+      ]));
+
+      const refreshed = await service.refreshResearchKit({ sourceIdentifier: 'example' });
+      expect(refreshed).toMatchObject({
+        researchKitId: 'hackerone',
+        resourcesRefreshed: 2,
+        rulesRefreshed: 2,
+        guidanceRefreshed: true
+      });
+      expect(completionCalls).toHaveLength(2);
+      expect(refreshed.snapshot.activeScope.assets).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          direction: 'in_scope',
+          kind: 'repo',
+          value: 'https://github.com/example/research-target',
+          attributes: expect.objectContaining({
+            clonedDirectory: '/tmp/example-checkout',
+            researchKitId: 'hackerone',
+            researchKitSourceUrl: 'https://hackerone.com/example',
+            researchKitRefreshedAt: refreshed.refreshedAt
+          })
+        }),
+        expect.objectContaining({ kind: 'documentation', value: 'https://docs.example.test/manual' })
+      ]));
+      expect(refreshed.snapshot.workspaceRules.map((rule) => rule.text)).toEqual(imported.rules);
     } finally {
       service.close();
     }

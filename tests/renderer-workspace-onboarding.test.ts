@@ -26,11 +26,15 @@ describe('renderer workspace onboarding view model', () => {
     ]);
     expect(researchKitsForProfile('mathematics').map((kit) => kit.id)).toEqual(['general']);
     expect(researchKitDefinition('hackerone').scopeLookup).toBe('hackerone');
+    expect(researchKitDefinition('hackerone').refresh?.imports).toEqual(['resources', 'rules', 'guidance']);
     expect(researchKitDefinition('apple-security-bounty').repositoryCatalog).toMatchObject({
       provider: 'github-organization',
       organization: 'apple-oss-distributions',
       resourceSource: 'apple-oss'
     });
+    expect(researchKitDefinition('apple-security-bounty').refresh?.fixedSource).toBe('apple-oss-distributions');
+    expect(researchKitDefinition('msrc').refresh?.imports).toEqual(['rules', 'guidance']);
+    expect(researchKitDefinition('general').refresh).toBeUndefined();
   });
 
   it('converts host defaults into an editable onboarding form', () => {

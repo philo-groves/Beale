@@ -280,7 +280,7 @@ describe('workspace dashboard', () => {
     expect(html).toContain('disabled=""');
   });
 
-  it('shows seven workspace tabs while mounting only the initial overview panel', () => {
+  it('shows the active Research Kit tab while mounting only the initial overview panel', () => {
     const memory = memorySummary();
     const html = renderToStaticMarkup(createElement(MainSessionWorkspace, {
       detail: null,
@@ -337,10 +337,15 @@ describe('workspace dashboard', () => {
     expect(html).toContain('lucide-brain');
     expect(html).toContain('lucide-book-open');
     expect(html).toContain('lucide-wrench');
-    expect(html.match(/workspace-dashboard-tab-icon/g)).toHaveLength(7);
+    expect(html).toContain('<span>Apple Security Bounty</span>');
+    expect(html).not.toContain('<span>HackerOne</span>');
+    expect(html).not.toContain('<span>MSRC</span>');
+    expect(html).toContain('lucide-refresh-cw');
+    expect(html.match(/workspace-dashboard-tab-icon/g)).toHaveLength(8);
     expect(html).toContain('aria-controls="workspace-dashboard-overview-panel" aria-selected="true"');
     expect(html).not.toContain('id="workspace-dashboard-activity-panel"');
     expect(html).not.toContain('id="workspace-dashboard-resources-panel"');
+    expect(html).not.toContain('id="workspace-dashboard-kit-panel"');
     expect(html).not.toContain('id="workspace-dashboard-rules-panel"');
     expect(html).not.toContain('id="workspace-dashboard-memory-panel"');
     expect(html).not.toContain('id="workspace-dashboard-runbooks-panel"');
@@ -397,6 +402,41 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('class="workspace-catalog-list runbook-catalog-list');
     expect(html).not.toContain('>Dejunk Now</button>');
     expect(html).not.toContain('>Dream Now</button>');
+  });
+
+  it('renders the shared refresh form for only the active Research Kit', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: false,
+      initialView: 'kit',
+      memoryDreamingInProgress: false,
+      honeycrispMemory: memorySummary(),
+      researchKitId: 'apple-security-bounty',
+      researchProfile: testResearchProfile(),
+      workspaceName: 'Apple Research',
+      runs: [],
+      onRunMemoryDreaming: () => undefined
+    }));
+
+    expect(html).toContain('id="workspace-dashboard-kit-panel"');
+    expect(html).toContain('aria-label="Apple Security Bounty Research Kit"');
+    expect(html).toContain('<h2>Apple Security Bounty Research Kit</h2>');
+    expect(html).toMatch(/aria-label="Repository Catalog"[^>]*disabled=""[^>]*value="apple-oss-distributions"/u);
+    expect(html).toContain('<strong>Refresh Imports</strong>');
+    expect(html).toContain('Refresh resources, rules, workspace guidance.');
+    expect(html).toContain('Manually added resources and cloned directories are preserved.');
+    expect(html).not.toContain('HackerOne Program');
+
+    const generalHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: false,
+      memoryDreamingInProgress: false,
+      honeycrispMemory: memorySummary(),
+      researchKitId: 'general',
+      researchProfile: testResearchProfile(),
+      workspaceName: 'General Research',
+      runs: [],
+      onRunMemoryDreaming: () => undefined
+    }));
+    expect(generalHtml).not.toContain('aria-controls="workspace-dashboard-kit-panel"');
   });
 
   it('shows a confirmed registry-only workspace removal form in Utilities', () => {

@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchKitId, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceDejunkSummary, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
+import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchKitId, ResearchKitRefreshInput, ResearchKitRefreshResult, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceDejunkSummary, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
@@ -68,6 +68,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onAddWorkspaceResource = async () => undefined,
   onChangeWorkspaceResource = async () => undefined,
   onCloneWorkspaceRepository = async () => undefined,
+  onRefreshWorkspaceResearchKit = async () => { throw new Error('Research Kit refresh is unavailable.'); },
   onAddWorkspaceRule = async () => undefined,
   onSaveWorkspaceConfiguration = async () => undefined,
   onChangeWorkspaceDirectories = async () => undefined,
@@ -134,6 +135,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onAddWorkspaceResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeWorkspaceResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onCloneWorkspaceRepository?: (assetId: string) => Promise<void>;
+  onRefreshWorkspaceResearchKit?: (input: ResearchKitRefreshInput) => Promise<ResearchKitRefreshResult>;
   onAddWorkspaceRule?: (text: string) => Promise<void>;
   onSaveWorkspaceConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onChangeWorkspaceDirectories?: (directories: string[]) => Promise<void>;
@@ -332,6 +334,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onAddResource={onAddWorkspaceResource}
           onChangeResource={onChangeWorkspaceResource}
           onCloneRepository={onCloneWorkspaceRepository}
+          onRefreshResearchKit={onRefreshWorkspaceResearchKit}
           onAddRule={onAddWorkspaceRule}
           onSaveConfiguration={onSaveWorkspaceConfiguration}
           onChangeWorkspaceDirectories={onChangeWorkspaceDirectories}

@@ -97,7 +97,7 @@ import {
 import { resolveGoalObjective } from '../shared/goalObjective';
 import { normalizeResearchCollaboration } from '../shared/collaboration';
 import { isResearchProfileId, RESEARCH_PROFILE_IDS } from '../shared/researchProfile';
-import { researchKitSupportsProfile } from '../shared/researchKits';
+import { researchKitDefinition, researchKitSupportsProfile } from '../shared/researchKits';
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { DEFAULT_SHELL_SAFETY_MODE, normalizeShellSafetyMode } from '../shared/shellSafety';
 import { isProviderModelEnabled } from '../shared/optionalProviderModels';
@@ -164,6 +164,8 @@ import type {
   ResearchGoalSuggestionSelectionInput,
   ResearchPromptGenerationInput,
   ResearchKitId,
+  ResearchKitRefreshInput,
+  ResearchKitRefreshResult,
   RunDetail,
   RunDetailProjection,
   RunDetailUpdate,
@@ -1727,6 +1729,97 @@ export class WorkspaceService {
       expiresAt: null,
       assets,
       importedScopeCount: assets.length
+    };
+  }
+
+  public async refreshResearchKit(input: ResearchKitRefreshInput): Promise<ResearchKitRefreshResult> {
+    const initialRuntime = this.getForegroundRuntime();
+    if (!initialRuntime) throw new Error('No Beale workspace is open');
+    const workspacePath = initialRuntime.workspacePath;
+    const researchKitId = initialRuntime.db.getResearchKitId();
+    const kit = researchKitDefinition(researchKitId);
+    if (!kit.refresh) throw new Error('The General Research Kit has no imports to refresh.');
+
+    let importedAssets: ScopeAssetInput[] | null = null;
+    let importedRules: readonly string[] = kit.onboardingDefaults?.rules ?? [];
+    let importedGuidance = kit.onboardingDefaults?.descriptionMarkdown ?? null;
+    if (researchKitId === 'hackerone') {
+      const lookup = await this.lookupHackerOneScope(input.sourceIdentifier ?? '');
+      importedAssets = lookup.assets;
+      importedRules = lookup.rules;
+      importedGuidance = lookup.descriptionMarkdown;
+    } else if (researchKitId === 'apple-security-bounty') {
+      const catalog = kit.repositoryCatalog;
+      if (!catalog) throw new Error('The Apple Research Kit repository catalog is unavailable.');
+      this.githubOrganizationRepositoryCache.delete(catalog.organization.toLowerCase());
+      const repositories = await this.listGitHubOrganizationRepositories(catalog.organization);
+      const repositoriesByUrl = new Map(repositories.map((repository) => [repository.url.toLowerCase(), repository]));
+      importedAssets = initialRuntime.db.getActiveScope().assets
+        .filter((asset) => isResearchKitAsset(asset, researchKitId, catalog.resourceSource))
+        .map((asset) => {
+          const current = scopeAssetInput(asset);
+          const repositoryUrl = asset.attributes?.repositoryUrl;
+          const repository = repositoriesByUrl.get((typeof repositoryUrl === 'string' ? repositoryUrl : asset.value).toLowerCase());
+          return repository ? {
+            ...current,
+            value: repository.url,
+            attributes: {
+              ...current.attributes,
+              source: catalog.resourceSource,
+              repositoryUrl: repository.url,
+              displayName: repository.name,
+              archived: repository.archived
+            }
+          } : current;
+        });
+    }
+
+    const runtime = this.getForegroundRuntime();
+    if (!runtime || runtime.workspacePath !== workspacePath || runtime.db.getResearchKitId() !== researchKitId) {
+      throw new Error('The active workspace changed before the Research Kit refresh completed.');
+    }
+    const refreshedAt = nowIso();
+    const activeScope = runtime.db.getActiveScope();
+    let resourcesRefreshed = 0;
+    if (importedAssets) {
+      const source = kit.repositoryCatalog?.resourceSource ?? researchKitId;
+      const existingManagedAssets = activeScope.assets.filter((asset) => isResearchKitAsset(asset, researchKitId, source));
+      const existingByKey = new Map(existingManagedAssets.map((asset) => [researchKitAssetKey(asset), asset]));
+      const refreshedAssets = importedAssets.map((asset) => {
+        const existing = existingByKey.get(researchKitAssetKey(asset));
+        return {
+          ...asset,
+          attributes: {
+            ...existing?.attributes,
+            ...asset.attributes,
+            researchKitId,
+            researchKitRefreshedAt: refreshedAt
+          }
+        };
+      });
+      const retainedAssets = activeScope.assets
+        .filter((asset) => !isResearchKitAsset(asset, researchKitId, source))
+        .map(scopeAssetInput);
+      runtime.db.saveScope({
+        workspaceName: activeScope.workspaceName,
+        scopeOwner: activeScope.scopeOwner,
+        descriptionMarkdown: '',
+        rulesMarkdown: '',
+        expiresAt: activeScope.expiresAt,
+        assets: [...retainedAssets, ...refreshedAssets]
+      });
+      resourcesRefreshed = refreshedAssets.length;
+    }
+    runtime.db.addWorkspaceRules(importedRules, `research_kit:${researchKitId}`);
+    if (importedGuidance !== null) writeWorkspaceDescription(runtime.workspacePath, importedGuidance);
+    this.emitChange();
+    return {
+      researchKitId,
+      refreshedAt,
+      resourcesRefreshed,
+      rulesRefreshed: importedRules.length,
+      guidanceRefreshed: importedGuidance !== null,
+      snapshot: this.requireSnapshot()
     };
   }
 
@@ -5249,6 +5342,18 @@ function scopeAssetInput(asset: WorkspaceScopeVersion['assets'][number]): ScopeA
   };
 }
 
+function researchKitAssetKey(asset: Pick<ScopeAssetInput, 'direction' | 'kind' | 'value'>): string {
+  return `${asset.direction}\u0000${asset.kind}\u0000${asset.value.trim().toLowerCase()}`;
+}
+
+function isResearchKitAsset(
+  asset: Pick<ScopeAssetInput, 'attributes'>,
+  researchKitId: ResearchKitId,
+  legacySource: string
+): boolean {
+  return asset.attributes?.researchKitId === researchKitId || asset.attributes?.source === legacySource;
+}
+
 function repositoryResourceUrl(asset: Pick<ScopeAssetInput, 'kind' | 'value' | 'attributes'>): string | null {
   if (asset.kind !== 'repo') return null;
   return normalizeSourceRepositoryUrl(stringValue(asset.attributes?.repositoryUrl, ''))
@@ -5362,6 +5467,9 @@ function annotateHackerOneImportedAsset(asset: ScopeAssetInput, handle: string, 
     ...asset,
     attributes: {
       ...(asset.attributes ?? {}),
+      source: 'hackerone',
+      researchKitId: 'hackerone',
+      researchKitSourceUrl: sourceUrl,
       hackerOneHandle: handle,
       hackerOneSourceUrl: sourceUrl
     }

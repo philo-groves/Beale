@@ -4,10 +4,12 @@
 
 ### Added
 
+- Specialized workspaces now expose an active-kit-only dashboard view with a shared refresh form. HackerOne re-imports current program resources, rules, and guidance; Apple refreshes selected repository metadata plus bundled rules and guidance; MSRC refreshes bundled rules and guidance while preserving manual resources and repository checkout metadata.
 - Research Kits formalize General, HackerOne, Apple Security Bounty, and MSRC workspace creation behind typed resource, scope, rule, and repository-catalog acquisition metadata. The selected kit is immutable workspace metadata, survives registry removal and re-import, and appears read-only beneath Research Profile in Workspace Overview; registry migration 10 records it for known workspaces.
 
 ### Changed
 
+- Moved the iOS capture companion's Xcode project, Swift sources, metadata validation, and documentation into the dedicated Beale-iOS repository; Beale retains the desktop-side USB capture integration.
 - Workspace rows in the left sidebar now expose a direct New Research action that switches to the owning workspace before opening the research dialog.
 - Workspace Utilities now includes a confirmed registry-only removal form that leaves workspace directories, metadata, repositories, scoped resources, and Honeycrisp data intact.
 - Loading session summaries now reserve duration, token, cache-hit, context, and memory rows with animated placeholders instead of briefly reporting zero memories.

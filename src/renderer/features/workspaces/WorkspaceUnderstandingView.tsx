@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, JSX } from 'react';
-import { Activity, Binary, BookOpen, Boxes, Brain, Download, GitBranch, Globe2, Info, Layers3, LayoutDashboard, ListChecks, MoonStar, Plus, Server, Sparkles, Trash2, Wrench } from 'lucide-react';
+import { Activity, Binary, BookOpen, Boxes, Brain, Download, GitBranch, Globe2, Info, Layers3, LayoutDashboard, ListChecks, MoonStar, Plus, RefreshCw, Server, Sparkles, Trash2, Wrench } from 'lucide-react';
 import { isLiveResearchRunStatus, repositoryClonedDirectory } from '../../../shared/types';
-import { researchKitLabel } from '../../../shared/researchKits';
+import { researchKitDefinition, researchKitLabel } from '../../../shared/researchKits';
 import type {
   HoneycrispMemorySummary,
   MemoryDreamingProgressPhase,
   MemoryDreamingProgressUpdate,
   ResearchProfile,
   ResearchKitId,
+  ResearchKitRefreshInput,
+  ResearchKitRefreshResult,
   RunRow,
   ScopeAsset,
   ScopeAssetInput,
@@ -37,7 +39,7 @@ const TIMELINE_WINDOW_HOURS = 4;
 const TIMELINE_TICK_HOURS = [0, 1, 2, 3, 4] as const;
 const WORKSPACE_ACTIVITY_DAY_COUNT = 365;
 const DAY_DURATION_MS = 24 * 60 * 60 * 1_000;
-const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources', 'memory', 'runbooks', 'rules', 'utilities'] as const;
+const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources', 'kit', 'memory', 'runbooks', 'rules', 'utilities'] as const;
 
 export type WorkspaceDashboardView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
 
@@ -45,6 +47,7 @@ const WORKSPACE_DASHBOARD_VIEW_ICONS: Record<WorkspaceDashboardView, typeof Info
   overview: LayoutDashboard,
   activity: Activity,
   resources: Boxes,
+  kit: RefreshCw,
   rules: ListChecks,
   memory: Brain,
   runbooks: BookOpen,
@@ -184,6 +187,7 @@ export function WorkspaceUnderstandingView({
   onAddResource = async () => undefined,
   onChangeResource = async () => undefined,
   onCloneRepository = async () => undefined,
+  onRefreshResearchKit = async () => { throw new Error('Research Kit refresh is unavailable.'); },
   onAddRule = async () => undefined,
   onSaveConfiguration = async () => undefined,
   onChangeWorkspaceDirectories = async () => undefined,
@@ -219,6 +223,7 @@ export function WorkspaceUnderstandingView({
   onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onCloneRepository?: (assetId: string) => Promise<void>;
+  onRefreshResearchKit?: (input: ResearchKitRefreshInput) => Promise<ResearchKitRefreshResult>;
   onAddRule?: (text: string) => Promise<void>;
   onSaveConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onChangeWorkspaceDirectories?: (directories: string[]) => Promise<void>;
@@ -232,6 +237,10 @@ export function WorkspaceUnderstandingView({
   const [activeView, setActiveView] = useState<WorkspaceDashboardView>(initialView);
   const [clockNowMs, setClockNowMs] = useState(() => Date.now());
   const [timelineLegendOpen, setTimelineLegendOpen] = useState(false);
+  const researchKit = researchKitDefinition(researchKitId);
+  const dashboardViews = researchKit.refresh
+    ? WORKSPACE_DASHBOARD_VIEWS
+    : WORKSPACE_DASHBOARD_VIEWS.filter((view) => view !== 'kit');
   const timelineLegendRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (nowMs !== undefined) return undefined;
@@ -254,8 +263,8 @@ export function WorkspaceUnderstandingView({
     };
   }, [timelineLegendOpen]);
   useEffect(() => {
-    onActiveViewChange?.(workspaceDashboardViewLabel(activeView));
-  }, [activeView, onActiveViewChange]);
+    onActiveViewChange?.(workspaceDashboardViewLabel(activeView, researchKitId));
+  }, [activeView, onActiveViewChange, researchKitId]);
   const timelineNowMs = nowMs ?? clockNowMs;
   const memoryTypes = researchProfile?.memory.types ?? [];
   const timeline = useMemo(
@@ -299,7 +308,7 @@ export function WorkspaceUnderstandingView({
   return (
     <main className="workspace-dashboard" aria-label="Workspace dashboard">
       <div className="workspace-dashboard-tabs research-side-view-tabs" role="tablist" aria-label="Workspace dashboard views">
-        {WORKSPACE_DASHBOARD_VIEWS.map((view) => {
+        {dashboardViews.map((view) => {
           const selected = activeView === view;
           const ViewIcon = WORKSPACE_DASHBOARD_VIEW_ICONS[view];
           return (
@@ -313,7 +322,7 @@ export function WorkspaceUnderstandingView({
                 type="button"
               >
                 <ViewIcon aria-hidden="true" className="workspace-dashboard-tab-icon" size={14} />
-                <span>{workspaceDashboardViewLabel(view)}</span>
+                <span>{workspaceDashboardViewLabel(view, researchKitId)}</span>
               </button>
             </div>
           );
@@ -468,6 +477,13 @@ export function WorkspaceUnderstandingView({
         workspaceName={activeScope?.workspaceName || workspaceName}
       /> : null}
 
+      {activeView === 'kit' && researchKit.refresh ? <WorkspaceResearchKitPanel
+        activeScope={activeScope}
+        busy={busy}
+        onRefresh={onRefreshResearchKit}
+        researchKitId={researchKitId}
+      /> : null}
+
       {activeView === 'rules' ? <WorkspaceRulesPanel
         busy={busy}
         onAddRule={onAddRule}
@@ -515,8 +531,102 @@ export function WorkspaceUnderstandingView({
   );
 }
 
-function workspaceDashboardViewLabel(view: WorkspaceDashboardView): string {
+function workspaceDashboardViewLabel(view: WorkspaceDashboardView, researchKitId: ResearchKitId): string {
+  if (view === 'kit') return researchKitLabel(researchKitId);
   return view.charAt(0).toUpperCase() + view.slice(1);
+}
+
+export function hackerOneProgramIdentifier(scope: WorkspaceScopeVersion | null): string {
+  if (!scope) return '';
+  for (const asset of scope.assets) {
+    const handle = asset.attributes?.hackerOneHandle;
+    if (typeof handle === 'string' && handle.trim()) return handle.trim();
+  }
+  return '';
+}
+
+export function WorkspaceResearchKitPanel({
+  activeScope,
+  busy,
+  onRefresh,
+  researchKitId
+}: {
+  activeScope: WorkspaceScopeVersion | null;
+  busy: boolean;
+  onRefresh: (input: ResearchKitRefreshInput) => Promise<ResearchKitRefreshResult>;
+  researchKitId: ResearchKitId;
+}): JSX.Element {
+  const kit = researchKitDefinition(researchKitId);
+  const refresh = kit.refresh;
+  const initialSource = researchKitId === 'hackerone' ? hackerOneProgramIdentifier(activeScope) : (refresh?.fixedSource ?? '');
+  const [sourceIdentifier, setSourceIdentifier] = useState(initialSource);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ResearchKitRefreshResult | null>(null);
+  useEffect(() => setSourceIdentifier(initialSource), [initialSource]);
+  if (!refresh) throw new Error(`Research Kit ${researchKitId} does not define refresh behavior.`);
+  const editableSource = Boolean(refresh.sourceIdentifierPlaceholder);
+  const submit = async (event: FormEvent): Promise<void> => {
+    event.preventDefault();
+    if (editableSource && !sourceIdentifier.trim()) return;
+    setSubmitting(true);
+    setError(null);
+    setResult(null);
+    try {
+      setResult(await onRefresh({ ...(editableSource ? { sourceIdentifier: sourceIdentifier.trim() } : {}) }));
+    } catch (caught: unknown) {
+      setError(errorMessage(caught));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const importLabels = refresh.imports.map((kind) => kind === 'guidance' ? 'workspace guidance' : kind).join(', ');
+  return (
+    <section
+      aria-label={`${kit.label} Research Kit`}
+      className="workspace-dashboard-panel workspace-research-kit-view"
+      id="workspace-dashboard-kit-panel"
+      role="tabpanel"
+    >
+      <form className="settings-form workspace-research-kit-form" onSubmit={(event) => void submit(event)}>
+        <header className="settings-form-heading">
+          <h2>{kit.label} Research Kit</h2>
+          <p>{kit.description}</p>
+        </header>
+        <div className="settings-form-squircle">
+          <div className="settings-form-control-list">
+            <label className="settings-form-control-row workspace-research-kit-source">
+              <span className="settings-form-control-copy">
+                <strong>{refresh.sourceLabel}</strong>
+                <small>{refresh.sourceDescription}</small>
+              </span>
+              <input
+                aria-label={refresh.sourceLabel}
+                disabled={busy || submitting || !editableSource}
+                onChange={(event) => setSourceIdentifier(event.target.value)}
+                placeholder={refresh.sourceIdentifierPlaceholder}
+                value={sourceIdentifier}
+              />
+            </label>
+            <div className="settings-form-control-row workspace-research-kit-refresh">
+              <span className="settings-form-control-copy">
+                <strong>Refresh Imports</strong>
+                <small>Refresh {importLabels}. Manually added resources and cloned directories are preserved.</small>
+              </span>
+              <button className="secondary-button" disabled={busy || submitting || (editableSource && !sourceIdentifier.trim())} type="submit">
+                <RefreshCw aria-hidden="true" className={submitting ? 'is-spinning' : ''} size={14} />
+                {submitting ? 'Refreshing…' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+          {error ? <p className="workspace-research-kit-status is-error" role="alert">{error}</p> : null}
+          {result ? <p className="workspace-research-kit-status" role="status">
+            Refreshed {result.resourcesRefreshed} resources and {result.rulesRefreshed} rules{result.guidanceRefreshed ? ', plus workspace guidance' : ''}.
+          </p> : null}
+        </div>
+      </form>
+    </section>
+  );
 }
 
 function WorkspaceRulesPanel({

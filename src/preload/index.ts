@@ -29,6 +29,8 @@ import type {
   IosDeviceCaptureFrame,
   IosDeviceCaptureState,
   HackerOneScopeLookupResult,
+  ResearchKitRefreshInput,
+  ResearchKitRefreshResult,
   GitHubRepositorySummary,
   HoneycrispMemoryDirectorySummary,
   AutomationSummary,
@@ -199,6 +201,9 @@ const api: BealeApi = {
   },
   lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.lookupHackerOneScope, identifier);
+  },
+  refreshResearchKit(input: ResearchKitRefreshInput): Promise<ResearchKitRefreshResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.refreshResearchKit, input);
   },
   listGitHubOrganizationRepositories(organization: string): Promise<GitHubRepositorySummary[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.listGitHubOrganizationRepositories, organization);

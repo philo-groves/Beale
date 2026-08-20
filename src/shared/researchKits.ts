@@ -4,6 +4,8 @@ export const RESEARCH_KIT_IDS = ['general', 'hackerone', 'apple-security-bounty'
 
 export type ResearchKitId = typeof RESEARCH_KIT_IDS[number];
 
+export type ResearchKitImportKind = 'resources' | 'rules' | 'guidance';
+
 export interface ResearchKitDefinition {
   id: ResearchKitId;
   label: string;
@@ -20,6 +22,13 @@ export interface ResearchKitDefinition {
     provider: 'github-organization';
     organization: string;
     resourceSource: string;
+  };
+  refresh?: {
+    sourceLabel: string;
+    sourceDescription: string;
+    sourceIdentifierPlaceholder?: string;
+    fixedSource?: string;
+    imports: readonly ResearchKitImportKind[];
   };
 }
 
@@ -59,7 +68,13 @@ export const RESEARCH_KITS: readonly ResearchKitDefinition[] = [{
   label: 'HackerOne',
   description: 'Import a public HackerOne program scope and normalize its resources and rules.',
   supportedResearchProfileIds: ['security-research'],
-  scopeLookup: 'hackerone'
+  scopeLookup: 'hackerone',
+  refresh: {
+    sourceLabel: 'HackerOne Program',
+    sourceDescription: 'The public program handle or HackerOne URL used for this workspace.',
+    sourceIdentifierPlaceholder: 'program-handle',
+    imports: ['resources', 'rules', 'guidance']
+  }
 }, {
   id: 'apple-security-bounty',
   label: 'Apple Security Bounty',
@@ -75,6 +90,12 @@ export const RESEARCH_KITS: readonly ResearchKitDefinition[] = [{
     provider: 'github-organization',
     organization: 'apple-oss-distributions',
     resourceSource: 'apple-oss'
+  },
+  refresh: {
+    sourceLabel: 'Repository Catalog',
+    sourceDescription: 'Refreshes metadata for Apple repositories already selected as workspace resources.',
+    fixedSource: 'apple-oss-distributions',
+    imports: ['resources', 'rules', 'guidance']
   }
 }, {
   id: 'msrc',
@@ -86,6 +107,12 @@ export const RESEARCH_KITS: readonly ResearchKitDefinition[] = [{
     researchSubjectName: 'Microsoft',
     descriptionMarkdown: 'Authorized research under Microsoft Security Response Center bounty programs for eligible Microsoft cloud, endpoint, on-premises, developer, AI, identity, and service vulnerabilities described by MSRC.',
     rules: MSRC_RULES
+  },
+  refresh: {
+    sourceLabel: 'Program Guidance',
+    sourceDescription: 'Refreshes the MSRC guidance bundled with this version of Beale.',
+    fixedSource: 'Microsoft Security Response Center',
+    imports: ['rules', 'guidance']
   }
 }] as const;
 

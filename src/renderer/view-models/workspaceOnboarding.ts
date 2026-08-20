@@ -307,6 +307,10 @@ function selectedOnboardingAssets(form: WorkspaceOnboardingFormState): ScopeAsse
       sensitivity: 'public',
       attributes: {
         source: candidate.source,
+        researchKitId: form.researchKitId,
+        researchKitSourceUrl: researchKitDefinition(form.researchKitId).repositoryCatalog
+          ? `https://github.com/${researchKitDefinition(form.researchKitId).repositoryCatalog?.organization}`
+          : undefined,
         repositoryUrl: candidate.url,
         displayName: candidate.label,
         archived: candidate.archived

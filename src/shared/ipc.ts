@@ -33,6 +33,7 @@ export const IPC_CHANNELS = {
   getShellOptions: 'beale:get-shell-options',
   setShellOptions: 'beale:set-shell-options',
   lookupHackerOneScope: 'beale:lookup-hackerone-scope',
+  refreshResearchKit: 'beale:refresh-research-kit',
   listGitHubOrganizationRepositories: 'beale:list-github-organization-repositories',
   createScopedWorkspace: 'beale:create-scoped-workspace',
   updateWorkspaceDirectories: 'beale:update-workspace-directories',

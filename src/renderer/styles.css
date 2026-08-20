@@ -2644,10 +2644,57 @@ body.is-resizing-research-side .main-session-grid {
   overflow: auto;
 }
 
+.workspace-research-kit-view {
+  overflow: auto;
+}
+
 .workspace-cleaning-form {
   width: 100%;
   max-width: var(--session-content-max-width);
   margin-inline: auto;
+}
+
+.workspace-research-kit-form {
+  width: 100%;
+  max-width: var(--session-content-max-width);
+  margin-inline: auto;
+}
+
+.workspace-research-kit-form > .settings-form-heading {
+  padding-left: 0;
+}
+
+.workspace-research-kit-form .settings-form-control-list > * + * {
+  border-top: 1px solid var(--line);
+}
+
+.workspace-research-kit-source input {
+  width: 240px;
+  min-height: 32px;
+  border: 0;
+  background: var(--panel-strong);
+}
+
+.workspace-research-kit-refresh button {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-research-kit-refresh svg.is-spinning {
+  animation: beale-spin 900ms linear infinite;
+}
+
+.workspace-research-kit-status {
+  margin: 0;
+  padding: 0 var(--settings-form-inline-padding) var(--settings-form-inline-padding);
+  color: var(--muted-strong);
+  font-size: inherit;
+}
+
+.workspace-research-kit-status.is-error {
+  color: var(--red);
 }
 
 .workspace-catalog-view > .workspace-catalog-list {
