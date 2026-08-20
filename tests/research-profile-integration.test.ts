@@ -501,8 +501,15 @@ describe('research profile host integration', () => {
         }
       });
       expect(promptPayload.workspace).toMatchObject({
-        researchSubject: { id: 'climate-model', name: 'Regional Climate Model' }
+        researchSubject: { id: 'climate-model', name: 'Regional Climate Model' },
+        hostDiscoveredAgentInstructions: {
+          sourceFile: 'AGENTS.md',
+          content: 'A collection of local literature and model outputs.'
+        }
       });
+      expect(promptPayload.workspace).not.toHaveProperty('descriptionMarkdown');
+      expect(readFileSync(join(workspace, 'AGENTS.md'), 'utf8'))
+        .toBe('A collection of local literature and model outputs.');
 
       delete process.env.BEALE_OPENAI_ACCESS_TOKEN;
       const started = service.startRun(runInput('literature-synthesis'));
@@ -595,6 +602,8 @@ describe('research profile host integration', () => {
         expect.stringContaining('Topic: Regional Climate Model'),
         expect.stringContaining('Collection boundary instruction: Stay within the recorded collection.')
       ]));
+      expect(JSON.stringify(workspaceContext?.projectNotes))
+        .not.toContain('A collection of local literature and model outputs.');
       expect(JSON.stringify(workspaceContext?.projectNotes)).not.toMatch(/authorized security research|Authorization:/i);
 
       process.env.BEALE_HONEYCRISP_PROFILE_TOOL_FAMILY_CEILING_JSON = JSON.stringify([

@@ -14,6 +14,22 @@ afterEach(() => {
 });
 
 describe('workspace registry synchronization', () => {
+  it('does not duplicate the AGENTS.md-backed description in registry metadata', () => {
+    const registryDirectory = mkdtempSync(join(tmpdir(), 'beale-registry-description-'));
+    temporaryDirectories.push(registryDirectory);
+    const registry = new WorkspaceRegistry(registryDirectory);
+    const snapshot = registrySnapshot();
+    snapshot.activeScope.descriptionMarkdown = '# Workspace instructions';
+    snapshot.runs = [];
+
+    try {
+      registry.syncWorkspace(snapshot);
+      expect(registry.getState().workspaces[0]?.descriptionMarkdown).toBe('');
+    } finally {
+      registry.close();
+    }
+  });
+
   it('commits workspace metadata and session rows atomically', () => {
     const registryDirectory = mkdtempSync(join(tmpdir(), 'beale-registry-sync-'));
     temporaryDirectories.push(registryDirectory);

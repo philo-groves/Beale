@@ -164,7 +164,7 @@ export function WorkspaceOnboardingModal({
             </select>
           </label>
           <label>
-            Description
+            Description (AGENTS.md)
             <textarea rows={3} value={form.descriptionMarkdown} disabled={submitting} onChange={(event) => update('descriptionMarkdown', event.target.value)} />
           </label>
           <label>

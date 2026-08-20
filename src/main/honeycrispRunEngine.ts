@@ -3496,10 +3496,7 @@ function honeycrispScopeNotes(
     modelVisibleRules ? `Rules and constraints: ${modelVisibleRules}` : '',
     scope.expiresAt
       ? `${boundedContextText(workspaceContract.boundaryNoun)} expiry or review date: ${scope.expiresAt}`
-      : `${boundedContextText(workspaceContract.boundaryNoun)} expiry or review date: no expiry recorded.`,
-    scope.descriptionMarkdown.trim()
-      ? `${boundedContextText(workspaceContract.boundaryNoun)} description: ${boundedContextText(scope.descriptionMarkdown)}`
-      : ''
+      : `${boundedContextText(workspaceContract.boundaryNoun)} expiry or review date: no expiry recorded.`
   ];
   appendHoneycrispScopeAssetNotes(
     notes,
@@ -3521,8 +3518,7 @@ function legacyHoneycrispScopeNotes(
     scope.workspaceName.trim() ? `Scope: ${boundedContextText(scope.workspaceName)}` : '',
     scope.scopeOwner.trim() ? `Scope owner or subject: ${boundedContextText(scope.scopeOwner)}` : '',
     modelVisibleRules ? `Rules and constraints: ${modelVisibleRules}` : '',
-    scope.expiresAt ? `Authorization expiry or review date: ${scope.expiresAt}` : 'Authorization expiry or review date: no expiry recorded.',
-    scope.descriptionMarkdown.trim() ? `Scope description: ${boundedContextText(scope.descriptionMarkdown)}` : ''
+    scope.expiresAt ? `Authorization expiry or review date: ${scope.expiresAt}` : 'Authorization expiry or review date: no expiry recorded.'
   ];
   appendHoneycrispScopeAssetNotes(notes, scope, 'scope', modelVisibleRules, knownRepositories);
   return notes.filter(Boolean);
@@ -3599,7 +3595,6 @@ function isRecordedWorkspaceScope(scope: WorkspaceScopeVersion): boolean {
     scope.workspaceName.trim() !== '' && scope.workspaceName !== 'Untitled Workspace'
   ) || Boolean(
     scope.scopeOwner.trim() ||
-      scope.descriptionMarkdown.trim() ||
       scope.rulesMarkdown.trim() ||
       scope.assets.length > 0
   );

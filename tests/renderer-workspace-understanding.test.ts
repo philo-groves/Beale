@@ -321,6 +321,7 @@ describe('workspace dashboard', () => {
     expect(html).toMatch(/aria-label="Profile"[^>]*disabled=""[^>]*value="Security"/u);
     expect(html).toContain('<strong>Workspace Description</strong>');
     expect(html).toContain('aria-label="Workspace Description"');
+    expect(html).toContain('AGENTS.md instructions.');
     expect(html).toContain('<strong>Scope &amp; Rules</strong>');
     expect(html).toContain('aria-label="Scope &amp; Rules"');
     expect(html).not.toContain('Save changes');

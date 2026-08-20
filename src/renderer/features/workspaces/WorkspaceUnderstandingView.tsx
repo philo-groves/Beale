@@ -633,7 +633,7 @@ function WorkspaceOverviewPanel({
               <label className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
                 <span className="settings-form-control-copy">
                   <strong>Workspace Description</strong>
-                  <small>Describe the workspace's research purpose and intended use.</small>
+                  <small>Reads and writes the primary workspace's AGENTS.md instructions.</small>
                 </span>
                 <textarea
                   aria-label="Workspace Description"

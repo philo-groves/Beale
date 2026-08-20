@@ -31,6 +31,7 @@ import type { HoneycrispSessionSummary } from './honeycrispCliClient';
 import type { ResearchProfileId } from '@shared/types';
 import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, isResearchProfileId, MEMORY_NODE_TYPES } from '../shared/types';
 import { isOptionalProviderModel, isOptionalProviderModelEnabled } from '../shared/optionalProviderModels';
+import { readWorkspaceDescription } from './workspaceDescription';
 
 interface SqlRow {
   [key: string]: unknown;
@@ -739,7 +740,7 @@ export class WorkspaceRegistry {
           scope.workspaceName,
           researchProfileId,
           scope.scopeOwner,
-          scope.descriptionMarkdown,
+          '',
           scope.rulesMarkdown,
           scope.expiresAt,
           now,
@@ -767,7 +768,7 @@ export class WorkspaceRegistry {
         scope.workspaceName,
         researchProfileId,
         scope.scopeOwner,
-        scope.descriptionMarkdown,
+        '',
         scope.rulesMarkdown,
         scope.expiresAt,
         now,
@@ -983,7 +984,7 @@ export function defaultsForWorkspaceDirectory(workspacePath: string): WorkspaceO
     workspaceDirectories: [resolvedWorkspacePath],
     workspaceName: titleFromDirectoryName(basename(resolvedWorkspacePath)),
     scopeOwner: '',
-    descriptionMarkdown: '',
+    descriptionMarkdown: readWorkspaceDescription(resolvedWorkspacePath),
     rulesMarkdown: '',
     expiresAt: null,
     assets: []

@@ -26,6 +26,12 @@ import { OpenAiAuthService } from './openaiAuth';
 import { ResearchProviderAuthService } from './researchProviderAuth';
 import { ProviderCredentialStore } from './providerCredentialStore';
 import {
+  migrateWorkspaceDescription,
+  readWorkspaceDescription,
+  WORKSPACE_DESCRIPTION_FILE,
+  writeWorkspaceDescription
+} from './workspaceDescription';
+import {
   HoneycrispRunEngine,
   invokeHoneycrispToolsConfig,
   invokeHoneycrispToolsList,
@@ -994,7 +1000,7 @@ export class WorkspaceService {
     runtime.db.saveScope({
       workspaceName: scope.workspaceName,
       scopeOwner: scope.scopeOwner,
-      descriptionMarkdown: scope.descriptionMarkdown,
+      descriptionMarkdown: '',
       rulesMarkdown: scope.rulesMarkdown,
       expiresAt: scope.expiresAt,
       assets: resources
@@ -1730,10 +1736,11 @@ export class WorkspaceService {
     }
     this.open(workspacePath, true, false, profileId);
     const db = this.requireDb();
+    writeWorkspaceDescription(workspacePath, input.descriptionMarkdown);
     db.saveScope({
       workspaceName,
       scopeOwner: researchSubjectName,
-      descriptionMarkdown: input.descriptionMarkdown.trim(),
+      descriptionMarkdown: '',
       rulesMarkdown: input.rulesMarkdown.trim(),
       expiresAt: optionalDateOrNever(input.expiresAt),
       assets: input.assets ?? []
@@ -1836,7 +1843,7 @@ export class WorkspaceService {
       runtime.db.saveScope({
         workspaceName: latestScope.workspaceName,
         scopeOwner: latestScope.scopeOwner,
-        descriptionMarkdown: latestScope.descriptionMarkdown,
+        descriptionMarkdown: '',
         rulesMarkdown: latestScope.rulesMarkdown,
         expiresAt: latestScope.expiresAt,
         assets: [
@@ -2052,7 +2059,7 @@ export class WorkspaceService {
       {
         workspaceName: latestScope.workspaceName,
         scopeOwner: latestScope.scopeOwner,
-        descriptionMarkdown: latestScope.descriptionMarkdown,
+        descriptionMarkdown: '',
         rulesMarkdown: latestScope.rulesMarkdown,
         expiresAt: latestScope.expiresAt,
         assets: nextAssets
@@ -2787,8 +2794,10 @@ export class WorkspaceService {
   }
 
   public saveScope(scope: WorkspaceScopeDraft): WorkspaceSnapshot {
-    const db = this.requireDb();
-    db.saveScope(scope);
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) throw new Error('No Beale workspace is open');
+    writeWorkspaceDescription(runtime.workspacePath, scope.descriptionMarkdown);
+    runtime.db.saveScope({ ...scope, descriptionMarkdown: '' });
     this.emitChange();
     return this.requireSnapshot();
   }
@@ -2948,7 +2957,7 @@ export class WorkspaceService {
       {
         workspaceName: scope.workspaceName,
         scopeOwner: scope.scopeOwner,
-        descriptionMarkdown: scope.descriptionMarkdown,
+        descriptionMarkdown: '',
         rulesMarkdown: scope.rulesMarkdown,
         expiresAt: scope.expiresAt,
         assets: nextAssets
@@ -3857,6 +3866,7 @@ export class WorkspaceService {
       ...(registryWorkspace?.workspaceId ? { workspaceId: registryWorkspace.workspaceId } : {})
     });
     db.initialize();
+    migrateWorkspaceDescription(workspacePath, db.getActiveScope().descriptionMarkdown);
     const openedAt = new Date().toISOString();
     try {
       const researchProfile = db.activateResearchProfileSnapshot(this.resolveResearchProfile(workspacePath, profileId));
@@ -4137,11 +4147,18 @@ export class WorkspaceService {
   }
 
   private snapshotForRuntime(runtime: WorkspaceRuntime): WorkspaceSnapshot {
-    const fingerprint = honeycrispStorageFingerprint(this.honeycrispStorage(runtime));
+    const fingerprint = [
+      honeycrispStorageFingerprint(this.honeycrispStorage(runtime)),
+      fileFingerprint(join(runtime.workspacePath, WORKSPACE_DESCRIPTION_FILE))
+    ].join('|');
     const cached = this.snapshotCache.get(runtime.workspacePath);
     if (cached?.fingerprint === fingerprint) return cached.snapshot;
     const detail = { workspace: runtime.workspacePath.split(/[\\/]/).pop() ?? 'workspace' };
-    const activeScope = this.profileMainTiming('snapshot.activeScope', detail, () => runtime.db.getActiveScope());
+    const storedScope = this.profileMainTiming('snapshot.activeScope', detail, () => runtime.db.getActiveScope());
+    const activeScope: WorkspaceScopeVersion = {
+      ...storedScope,
+      descriptionMarkdown: readWorkspaceDescription(runtime.workspacePath)
+    };
     const snapshot: WorkspaceSnapshot = {
       version: `${runtime.openedAt}:${++this.snapshotVersion}`,
       workspace: this.profileMainTiming('snapshot.workspaceSummary', detail, () => this.getWorkspaceSummary(runtime)),
@@ -4157,7 +4174,7 @@ export class WorkspaceService {
             ? this.loadingMemorySummaryForRuntime(runtime)
             : this.memorySummaryForRuntime(runtime, activeScope))),
       recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),
-      policyReview: this.profileMainTiming('snapshot.policyReview', detail, () => buildPolicyReview(activeScope)),
+      policyReview: this.profileMainTiming('snapshot.policyReview', detail, () => buildPolicyReview(storedScope)),
       runs: this.profileMainTiming('snapshot.runs', detail, () => runtime.db.listRunRows()),
       pendingShellApprovals: this.profileMainTiming(
         'snapshot.pendingShellApprovals',
@@ -5184,7 +5201,7 @@ function scopeAssetInput(asset: WorkspaceScopeVersion['assets'][number]): ScopeA
 function isRecordedWorkspaceScope(scope: WorkspaceScopeVersion): boolean {
   return (
     (scope.workspaceName.trim() !== '' && scope.workspaceName !== 'Untitled Workspace') ||
-    Boolean(scope.scopeOwner.trim() || scope.descriptionMarkdown.trim() || scope.rulesMarkdown.trim() || scope.assets.length > 0)
+    Boolean(scope.scopeOwner.trim() || scope.rulesMarkdown.trim() || scope.assets.length > 0)
   );
 }
 
@@ -5736,7 +5753,6 @@ function buildResearchPromptRecommendationInput(
         id: researchSubject.id ? trimRedactedText(researchSubject.id, 240) : null,
         name: trimRedactedText(researchSubject.name, 240)
       },
-      descriptionMarkdown: trimRedactedText(scope.descriptionMarkdown, 2400),
       rulesMarkdown: trimRedactedText(scope.rulesMarkdown, 3600),
       expiresAt: scope.expiresAt,
       scopeVersion: scope.version,
@@ -5885,7 +5901,7 @@ function buildResearchGoalSuggestionGroundingContext(
     allowedRefs.add(ref);
     catalog.push({ ref, kind, label: trimRedactedText(label, 220), ...(summary ? { summary: trimRedactedText(summary, 420) } : {}) });
   };
-  add('workspace:scope', 'scope', scope.workspaceName, `${scope.descriptionMarkdown} ${scope.rulesMarkdown}`);
+  add('workspace:scope', 'scope', scope.workspaceName, scope.rulesMarkdown);
   for (const asset of scope.assets.slice(0, 80)) {
     add(`asset:${asset.id}`, `asset:${asset.kind}`, asset.value, asset.direction);
   }
@@ -6880,7 +6896,6 @@ function buildSecurityResearchObjectiveInput(
         id: researchSubject.id ? trimRedactedText(researchSubject.id, 240) : null,
         name: trimRedactedText(researchSubject.name, 240)
       },
-      description: trimRedactedText(scope.descriptionMarkdown, 800),
       accessContext: hasUsableCredentialAssets
         ? 'Recorded account or credential reference material exists; its runtime boundary still controls use.'
         : 'No recorded account or credential reference material is available.',
