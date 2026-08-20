@@ -72,6 +72,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - Same-session provider failure recovery with capped retry backoff and transcript-aware safety-guardrail steering
 - Trace UI with model, tool, system, user-steering, memory-producing, and compaction events
 - Host integration for the separately maintained Beale-iOS ScreenCaptureKit companion over a loopback-only USB tunnel; selecting a research session prepares an authenticated channel for a physically connected iPhone, while the operator opens the companion and approves capture on the device. Live pixels fit into the lower-right space below the compact summary and can expand to fill the detailed sidenav while navigating other iPhone apps
+- A read-only remote workspace catalog for Beale-iOS binds only to the Mac's Tailscale IPv4 address on TCP port `59728`; Tailscale connectivity and ACLs are the authorization boundary, and the response omits workspace paths, rules, descriptions, database metadata, and session content
 - Session transcripts persisted separately from trace metadata
 - List-only Honeycrisp memory catalog with search, session/workspace/subject scope and type filters, inline details, references, and textual relationships
 - Workspace-scoped Jupyter-format runbooks with whole-run and per-cell controls, durable status and duration tracking, bounded outputs, healthy-runbook guidance, and dedicated Honeycrisp tools and Beale sidebar visibility

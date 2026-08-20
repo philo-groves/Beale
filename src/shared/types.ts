@@ -948,6 +948,35 @@ export interface WorkspaceRegistryState {
   researchSessions: ResearchSessionSummary[];
 }
 
+export interface BealeRemoteHostSummary {
+  name: string;
+  address: string;
+  port: number;
+}
+
+export interface BealeRemoteWorkspaceSummary {
+  id: string;
+  name: string;
+  researchProfileId: ResearchProfileId;
+  researchKitId: ResearchKitId;
+  runCount: number;
+  lastRunAt: string | null;
+  updatedAt: string;
+}
+
+export type BealeRemoteResponse =
+  | {
+      ok: true;
+      version: 1;
+      host: BealeRemoteHostSummary;
+      workspaces: BealeRemoteWorkspaceSummary[];
+    }
+  | {
+      ok: false;
+      version: 1;
+      error: string;
+    };
+
 export type AgentPluginSourceKind = 'filesystem' | 'repository' | 'builtin';
 export type AgentPluginStatus = 'ready' | 'invalid';
 export type AgentPluginMcpTransport = 'stdio' | 'streamable-http' | 'sse' | 'unknown';
