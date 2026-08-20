@@ -80,7 +80,6 @@ describe('renderer workspace display view models', () => {
       busy: false,
       collapsed: false,
       error: null,
-      openRegisteredWorkspaceMenuId: null,
       workspaceRegistry: null,
       selectedRunId: null,
       snapshot: {
@@ -94,10 +93,9 @@ describe('renderer workspace display view models', () => {
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
       onOpenResearchSession: () => undefined,
-      onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
-      onSetOpenWorkspaceMenuId: () => undefined,
-      onStartNewResearch: () => undefined
+      onStartNewResearch: () => undefined,
+      onStartNewResearchForWorkspace: () => undefined
     }));
 
     expect(html).toContain('<div class="workspace-list-title"><span>Workspaces</span></div>');
@@ -163,7 +161,6 @@ describe('renderer workspace display view models', () => {
       busy: false,
       collapsed: false,
       error: null,
-      openRegisteredWorkspaceMenuId: null,
       workspaceRegistry: null,
       workspaceRegistryLoading: true,
       selectedRunId: null,
@@ -171,10 +168,9 @@ describe('renderer workspace display view models', () => {
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
       onOpenResearchSession: () => undefined,
-      onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
-      onSetOpenWorkspaceMenuId: () => undefined,
-      onStartNewResearch: () => undefined
+      onStartNewResearch: () => undefined,
+      onStartNewResearchForWorkspace: () => undefined
     }));
 
     expect(html).toContain('<div class="workspace-list-title"><span>Workspaces</span><span class="workspace-list-title-loading" role="status" aria-label="Loading workspaces">');
@@ -200,7 +196,6 @@ describe('renderer workspace display view models', () => {
       busy: false,
       collapsed: false,
       error: null,
-      openRegisteredWorkspaceMenuId: null,
       workspaceRegistry: registry,
       selectedRunId: null,
       snapshot: {
@@ -211,10 +206,9 @@ describe('renderer workspace display view models', () => {
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
       onOpenResearchSession: () => undefined,
-      onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
-      onSetOpenWorkspaceMenuId: () => undefined,
-      onStartNewResearch: () => undefined
+      onStartNewResearch: () => undefined,
+      onStartNewResearchForWorkspace: () => undefined
     }));
 
     expect(html).toMatch(/class="workspace-item-row active\b/u);
@@ -223,6 +217,24 @@ describe('renderer workspace display view models', () => {
     expect(html).not.toContain('More Sessions...');
     expect(html).not.toContain('More Snapchat Sessions');
     expect(html).not.toContain('More Research Sessions');
+    expect(html).toContain('class="workspace-new-research-button"');
+    expect(html).toContain('title="Start new research in Snapchat"');
+    expect(html).toContain('aria-label="Start new research in Snapchat"');
+    expect(html.match(/lucide-square-pen/gu)).toHaveLength(2);
+    expect(html).not.toContain('workspace-menu-button');
+    expect(html).not.toContain('aria-haspopup="menu"');
+  });
+
+  it('switches workspaces before opening New Research from a workspace row', () => {
+    const appSource = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
+    const actionSource = appSource.match(
+      /const startNewResearchForWorkspace = useCallback[\s\S]*?const startNewResearchFromSuggestion/u
+    )?.[0] ?? '';
+
+    expect(actionSource).toContain('snapshot?.workspace.workspacePath === workspace.workspacePath');
+    expect(actionSource).toContain('applySnapshot(await window.beale.openRegisteredWorkspace(workspace.id));');
+    expect(actionSource.indexOf('applySnapshot(await window.beale.openRegisteredWorkspace(workspace.id));'))
+      .toBeLessThan(actionSource.lastIndexOf('startNewResearch();'));
   });
 
   it('moves an active session spinner to the leading slot and keeps its timestamp on the right', () => {
@@ -238,7 +250,6 @@ describe('renderer workspace display view models', () => {
       busy: false,
       collapsed: false,
       error: null,
-      openRegisteredWorkspaceMenuId: null,
       workspaceRegistry: registry,
       selectedRunId: activeSession.runId,
       snapshot: {
@@ -249,10 +260,9 @@ describe('renderer workspace display view models', () => {
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
       onOpenResearchSession: () => undefined,
-      onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
-      onSetOpenWorkspaceMenuId: () => undefined,
-      onStartNewResearch: () => undefined
+      onStartNewResearch: () => undefined,
+      onStartNewResearchForWorkspace: () => undefined
     }));
 
     expect(html).toContain('class="workspace-session-leading-status" title="Active"');
@@ -276,17 +286,15 @@ describe('renderer workspace display view models', () => {
       busy: false,
       collapsed: false,
       error: null,
-      openRegisteredWorkspaceMenuId: null,
       workspaceRegistry: registry,
       selectedRunId: null,
       snapshot: null,
       onAddWorkspace: () => undefined,
       onOpenWorkspace: () => undefined,
       onOpenResearchSession: () => undefined,
-      onRemoveWorkspace: () => undefined,
       onResizePointerDown: () => undefined,
-      onSetOpenWorkspaceMenuId: () => undefined,
-      onStartNewResearch: () => undefined
+      onStartNewResearch: () => undefined,
+      onStartNewResearchForWorkspace: () => undefined
     }));
 
     expect(html.match(/workspace-session-unviewed-dot/gu)).toHaveLength(1);

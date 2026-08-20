@@ -42,6 +42,7 @@ import type {
   TicketSubmissionResult,
   WorkspaceEditorCatalog,
   WorkspaceEditorId,
+  WorkspaceRegistryEntry,
   WorkspaceSnapshot
 } from '@shared/types';
 import { AppModals } from './app/AppModals';
@@ -68,7 +69,6 @@ import { subagentSummaries, traceEventsForSubagent } from './view-models/subagen
 import { SettingsSidebar, SettingsView, settingsSectionLabel, type SettingsSection } from './features/settings/SettingsModal';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useWorkspaceActions, type WorkspaceActionOptions } from './hooks/useWorkspaceActions';
-import { useWorkspaceOverlayState } from './hooks/useWorkspaceOverlayState';
 import { useProfilingRuntime } from './hooks/useProfilingRuntime';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
@@ -260,10 +260,6 @@ export function App(): JSX.Element {
   const [shellApprovalDecisionInFlight, setShellApprovalDecisionInFlight] = useState<string | null>(null);
   const shellApprovalDecisionRef = useRef<string | null>(null);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
-  const {
-    openRegisteredWorkspaceMenuId,
-    setOpenWorkspaceMenuId
-  } = useWorkspaceOverlayState(workspaceRegistry);
   const {
     profilingState,
     lastProfilingReport,
@@ -1264,8 +1260,7 @@ export function App(): JSX.Element {
     clearRunDetail,
     setSelectedRunId,
     setWorkspaceDraft,
-    setWorkspaceOnboardingProgress,
-    setOpenWorkspaceMenuId
+    setWorkspaceOnboardingProgress
   });
   const removeActiveWorkspace = useCallback(async (): Promise<void> => {
     const workspaceId = snapshot?.workspace.workspaceId;
@@ -1592,6 +1587,19 @@ export function App(): JSX.Element {
     setNewResearchInitialGoal(null);
     setNewResearchOpen(true);
   }, [clearRunDetail, reportsOpen, setSelectedRunId]);
+  const startNewResearchForWorkspace = useCallback((workspace: WorkspaceRegistryEntry): void => {
+    if (snapshot?.workspace.workspacePath === workspace.workspacePath) {
+      startNewResearch();
+      return;
+    }
+    void runWorkspaceAction(async () => {
+      clearRunDetail();
+      setSelectedRunId(null);
+      applySnapshot(await window.beale.openRegisteredWorkspace(workspace.id));
+      setSelectedRunId(null);
+      startNewResearch();
+    }, { reloadRegistry: false });
+  }, [applySnapshot, clearRunDetail, runWorkspaceAction, setSelectedRunId, snapshot?.workspace.workspacePath, startNewResearch]);
   const startNewResearchFromSuggestion = useCallback((goal: ResearchGoalSeed) => {
     setNewResearchInitialGoal(goal);
     setNewResearchOpen(true);
@@ -1683,7 +1691,6 @@ export function App(): JSX.Element {
           busy={busy}
           collapsed={sidebarCollapsed}
           error={error}
-          openRegisteredWorkspaceMenuId={openRegisteredWorkspaceMenuId}
           workspaceRegistry={workspaceRegistry}
           workspaceRegistryLoading={startupPhase === 'shell' || startupPhase === 'registry'}
           selectedRunId={reportsOpen || automationsOpen || pluginsOpen ? null : selectedRunId}
@@ -1707,13 +1714,12 @@ export function App(): JSX.Element {
             setSelectedBreakoutRoomId(null);
             openResearchSession(workspace, session);
           }}
-          onRemoveWorkspace={removeRegisteredWorkspace}
           onResizePointerDown={beginSidebarResize}
-          onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
           onOpenAutomations={openAutomations}
           onOpenReports={openReports}
           onOpenPlugins={openPlugins}
           onStartNewResearch={startNewResearch}
+          onStartNewResearchForWorkspace={startNewResearchForWorkspace}
         />
       )}
 

@@ -1797,7 +1797,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: var(--text);
 }
 
-.workspace-menu-button {
+.workspace-new-research-button {
   grid-column: 2;
   grid-row: 1;
   z-index: 2;
@@ -1811,51 +1811,15 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   padding: 0;
 }
 
-.workspace-item-row:hover .workspace-menu-button,
-.workspace-item-row:focus-within .workspace-menu-button,
-.workspace-item-row.menu-open .workspace-menu-button {
+.workspace-item-row:hover .workspace-new-research-button,
+.workspace-item-row:focus-within .workspace-new-research-button {
   opacity: 1;
 }
 
-.workspace-menu-button:hover:not(:disabled) {
+.workspace-new-research-button:hover:not(:disabled) {
   border-color: transparent;
   background: var(--gray-18);
   color: var(--text);
-}
-
-.workspace-menu {
-  position: absolute;
-  top: calc(100% + 3px);
-  right: 0;
-  z-index: 12;
-  width: 190px;
-  display: grid;
-  gap: 2px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--gray-10);
-  padding: 4px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-}
-
-.workspace-menu button {
-  width: 100%;
-  min-height: 28px;
-  justify-content: flex-start;
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted-strong);
-  padding: 0 8px;
-}
-
-.workspace-menu button:hover:not(:disabled) {
-  border-color: transparent;
-  background: var(--gray-18);
-  color: var(--text);
-}
-
-.workspace-menu button.danger {
-  color: var(--red);
 }
 
 .workspace-group {

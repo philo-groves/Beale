@@ -37,8 +37,7 @@ export function useWorkspaceActions({
   clearRunDetail,
   setSelectedRunId,
   setWorkspaceDraft,
-  setWorkspaceOnboardingProgress,
-  setOpenWorkspaceMenuId
+  setWorkspaceOnboardingProgress
 }: {
   snapshot: WorkspaceSnapshot | null;
   selectedRunId: string | null;
@@ -49,7 +48,6 @@ export function useWorkspaceActions({
   setSelectedRunId: Dispatch<SetStateAction<string | null>>;
   setWorkspaceDraft: Dispatch<SetStateAction<WorkspaceOnboardingFormState | null>>;
   setWorkspaceOnboardingProgress: Dispatch<SetStateAction<WorkspaceOnboardingProgressUpdate | null>>;
-  setOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
 }): WorkspaceActions {
   const addWorkspace = useCallback((): void => {
     setWorkspaceDraft(emptyWorkspaceOnboardingForm());
@@ -86,11 +84,10 @@ export function useWorkspaceActions({
   const removeRegisteredWorkspace = useCallback(
     (workspace: WorkspaceRegistryEntry): Promise<void> => {
       return runWorkspaceAction(async () => {
-        setOpenWorkspaceMenuId(null);
         applySnapshot(await window.beale.removeRegisteredWorkspace(workspace.id));
       });
     },
-    [applySnapshot, runWorkspaceAction, setOpenWorkspaceMenuId]
+    [applySnapshot, runWorkspaceAction]
   );
 
   const submitWorkspaceOnboarding = useCallback((): void => {

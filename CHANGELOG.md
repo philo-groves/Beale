@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Workspace rows in the left sidebar now expose a direct New Research action that switches to the owning workspace before opening the research dialog.
 - Workspace Utilities now includes a confirmed registry-only removal form that leaves workspace directories, metadata, repositories, scoped resources, and Honeycrisp data intact.
 - Loading session summaries now reserve duration, token, cache-hit, context, and memory rows with animated placeholders instead of briefly reporting zero memories.
 - The workspace Rules tab now sits beside Utilities, uses the workspace name in its heading, and has balanced composer and Add Rule spacing.

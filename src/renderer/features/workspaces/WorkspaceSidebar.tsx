@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { CalendarClock, FileText, Folder, FolderPlus, LoaderCircle, MoreVertical, Plug, RefreshCw, Search, SquarePen, X } from 'lucide-react';
+import { CalendarClock, FileText, Folder, FolderPlus, LoaderCircle, Plug, RefreshCw, Search, SquarePen, X } from 'lucide-react';
 import type { WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { useDevRenderProbe } from '../../devInstrumentation';
@@ -12,7 +12,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   busy,
   collapsed,
   error,
-  openRegisteredWorkspaceMenuId,
   workspaceRegistry,
   workspaceRegistryLoading = false,
   selectedRunId,
@@ -23,18 +22,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onAddWorkspace,
   onOpenWorkspace,
   onOpenResearchSession,
-  onRemoveWorkspace,
   onResizePointerDown,
-  onSetOpenWorkspaceMenuId,
   onOpenAutomations = () => undefined,
   onOpenReports = () => undefined,
   onOpenPlugins = () => undefined,
-  onStartNewResearch
+  onStartNewResearch,
+  onStartNewResearchForWorkspace
 }: {
   busy: boolean;
   collapsed: boolean;
   error: string | null;
-  openRegisteredWorkspaceMenuId: string | null;
   workspaceRegistry: WorkspaceRegistryState | null;
   workspaceRegistryLoading?: boolean;
   selectedRunId: string | null;
@@ -45,13 +42,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onAddWorkspace: () => void;
   onOpenWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   onOpenResearchSession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
-  onRemoveWorkspace: (workspace: WorkspaceRegistryEntry) => Promise<void> | void;
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onSetOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
   onOpenAutomations?: () => void;
   onOpenReports?: () => void;
   onOpenPlugins?: () => void;
   onStartNewResearch: () => void;
+  onStartNewResearchForWorkspace: (workspace: WorkspaceRegistryEntry) => void;
 }): JSX.Element {
   useDevRenderProbe('sidebar.workspaces', () => ({
     collapsed,
@@ -165,7 +161,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             {workspaceRows.map(({ workspace, sessions }) => {
               const workspaceLoaded = snapshot?.workspace.workspacePath === workspace.workspacePath;
               const dashboardActive = workspaceLoaded && selectedRunId === null && !automationsActive && !reportsActive && !pluginsActive;
-              const menuOpen = openRegisteredWorkspaceMenuId === workspace.id;
               const sessionsExpanded = expandedWorkspaceIds.has(workspace.id);
               const visibleSessions = filteringSessions ? sessions : sessions.slice(0, SIDEBAR_SESSION_LIMIT);
               const hiddenSessions = filteringSessions ? [] : sessions.slice(SIDEBAR_SESSION_LIMIT);
@@ -187,31 +182,24 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               };
               return (
                 <div className="workspace-group" key={workspace.id}>
-                  <div className={`workspace-item-row ${dashboardActive ? 'active' : ''} ${menuOpen ? 'menu-open' : ''}`} data-workspace-menu-root>
+                  <div className={`workspace-item-row ${dashboardActive ? 'active' : ''}`}>
                     <button type="button" className="workspace-item" title={workspace.workspacePath} onClick={() => onOpenWorkspace(workspace)}>
                       <Folder size={15} aria-hidden="true" />
                       <span>{workspace.workspaceName}</span>
                     </button>
                     <button
                       type="button"
-                      className="workspace-menu-button"
-                      title={`${workspace.workspaceName} options`}
-                      aria-haspopup="menu"
-                      aria-expanded={menuOpen}
+                      className="workspace-new-research-button"
+                      title={`Start new research in ${workspace.workspaceName}`}
+                      aria-label={`Start new research in ${workspace.workspaceName}`}
+                      disabled={busy}
                       onClick={(event) => {
                         event.stopPropagation();
-                        onSetOpenWorkspaceMenuId(menuOpen ? null : workspace.id);
+                        onStartNewResearchForWorkspace(workspace);
                       }}
                     >
-                      <MoreVertical size={14} />
+                      <SquarePen size={14} aria-hidden="true" />
                     </button>
-                    {menuOpen ? (
-                      <div className="workspace-menu" role="menu">
-                        <button type="button" role="menuitem" className="danger" onClick={() => void onRemoveWorkspace(workspace)}>
-                          Remove
-                        </button>
-                      </div>
-                    ) : null}
                   </div>
                   <div className="workspace-session-list">
                     {visibleSessions.length > 0 ? (
