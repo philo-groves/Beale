@@ -8,9 +8,9 @@ import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePa
 import { expandedDeviceCapturePanelWidth, isIosDeviceOs, latestOverallRunbookExecution, shouldShowSessionNextSteps } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
 import { SessionNextSteps, SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
-import { WorkspaceOnboardingModal } from '../src/renderer/features/workspaces/WorkspaceOnboardingModal';
+import { WorkspaceCreationView } from '../src/renderer/features/workspaces/WorkspaceCreationView';
 import { INSET_SCROLLBAR_SELECTOR } from '../src/renderer/hooks/useInsetScrollbarActivation';
-import { emptyWorkspaceOnboardingForm, onboardingFormFromDefaults } from '../src/renderer/view-models/workspaceOnboarding';
+import { applyResearchKit, emptyWorkspaceOnboardingForm, onboardingFormFromDefaults } from '../src/renderer/view-models/workspaceOnboarding';
 
 describe('renderer dialog surfaces', () => {
   it('sizes expanded device capture from the available height instead of half the workspace', () => {
@@ -81,7 +81,7 @@ describe('renderer dialog surfaces', () => {
     expect(html).not.toContain('bottom-sheet');
   });
 
-  it('hides cybersecurity workspace autofill controls for Mathematics', () => {
+  it('renders workspace creation as sequential workspace views instead of a dialog', () => {
     const form = onboardingFormFromDefaults({
       workspacePath: '/math/erdos-straus',
       workspaceName: 'Erdos-Straus Conjecture',
@@ -92,7 +92,7 @@ describe('renderer dialog surfaces', () => {
       assets: []
     });
     const render = (researchProfileId: 'security-research' | 'mathematics'): string => renderToStaticMarkup(
-      createElement(WorkspaceOnboardingModal, {
+      createElement(WorkspaceCreationView, {
         form: { ...form, researchProfileId },
         busy: false,
         progress: null,
@@ -106,7 +106,7 @@ describe('renderer dialog surfaces', () => {
 
     const securityHtml = render('security-research');
     const mathematicsHtml = render('mathematics');
-    const emptyHtml = renderToStaticMarkup(createElement(WorkspaceOnboardingModal, {
+    const emptyHtml = renderToStaticMarkup(createElement(WorkspaceCreationView, {
       form: emptyWorkspaceOnboardingForm(),
       busy: false,
       progress: null,
@@ -119,9 +119,10 @@ describe('renderer dialog surfaces', () => {
     expect(securityHtml).toContain('aria-label="Research Kit"');
     expect(securityHtml).toContain('aria-label="Workspace directories"');
     expect(securityHtml).toContain('aria-label="Add workspace directory"');
-    expect(emptyHtml).toContain('Select at least one directory.');
-    expect(emptyHtml).toMatch(/<button class="primary-button" type="submit"[^>]*disabled=""/u);
-    expect(securityHtml).toContain('start-run-dialog workspace-onboarding-modal');
+    expect(emptyHtml).toContain('aria-label="Choose workspace directory"');
+    expect(securityHtml).toContain('class="workspace-dashboard workspace-creation"');
+    expect(securityHtml).toContain('aria-label="New Workspace views"');
+    expect(securityHtml).not.toContain('role="dialog"');
     expect(securityHtml).toContain('<select');
     expect(securityHtml).toContain('<option value="security-research" selected="">Security</option>');
     expect(securityHtml).not.toContain('Authorization owner');
@@ -130,17 +131,37 @@ describe('renderer dialog surfaces', () => {
     expect(securityHtml).not.toContain('Repository cloning');
     expect(securityHtml).not.toContain('Clone Later');
     expect(securityHtml).not.toContain('>Repositories<');
-    expect(securityHtml).not.toContain('>Cancel</button>');
-    expect(securityHtml).toContain('>HackerOne</button>');
-    expect(securityHtml).toContain('>Apple Security Bounty</button>');
-    expect(securityHtml).toContain('>MSRC</button>');
+    expect(securityHtml).toContain('>Cancel</button>');
+    expect(securityHtml).toContain('<option value="hackerone">HackerOne</option>');
+    expect(securityHtml).toContain('<option value="apple-security-bounty">Apple Security Bounty</option>');
+    expect(securityHtml).toContain('<option value="msrc">MSRC</option>');
+    expect(securityHtml).toContain('<span>Overview</span>');
+    expect(securityHtml).toContain('<span>Resources</span>');
+    expect(securityHtml).toContain('<span>Rules</span>');
+    expect(securityHtml).not.toContain('aria-controls="workspace-creation-kit-panel"');
+    expect(securityHtml).toMatch(/aria-controls="workspace-creation-resources-panel"[^>]*disabled=""/u);
+    expect(securityHtml).toMatch(/aria-controls="workspace-creation-rules-panel"[^>]*disabled=""/u);
+    expect(securityHtml).toContain('class="primary-button" type="button">Next</button>');
     expect(mathematicsHtml).toContain('aria-label="Research Kit"');
-    expect(mathematicsHtml).toContain('>General</button>');
-    expect(mathematicsHtml).not.toContain('>HackerOne</button>');
+    expect(mathematicsHtml).toContain('<option value="general" selected="">General</option>');
+    expect(mathematicsHtml).not.toContain('<option value="hackerone">HackerOne</option>');
     expect(mathematicsHtml).toContain('<option value="mathematics" selected="">Mathematics</option>');
-    expect(mathematicsHtml).not.toContain('>HackerOne</button>');
-    expect(mathematicsHtml).not.toContain('>Apple Security Bounty</button>');
-    expect(mathematicsHtml).not.toContain('>MSRC</button>');
+    expect(mathematicsHtml).not.toContain('<option value="apple-security-bounty">Apple Security Bounty</option>');
+    expect(mathematicsHtml).not.toContain('<option value="msrc">MSRC</option>');
+
+    const appleHtml = renderToStaticMarkup(createElement(WorkspaceCreationView, {
+      form: applyResearchKit(form, 'apple-security-bounty'),
+      busy: false,
+      progress: null,
+      onChange: () => undefined,
+      onCancel: () => undefined,
+      onLookupHackerOne: async () => undefined,
+      onResearchKit: () => undefined,
+      onSubmit: () => undefined
+    }));
+    expect(appleHtml).toContain('<span>Apple Security Bounty</span>');
+    expect(appleHtml).toMatch(/aria-controls="workspace-creation-kit-panel"[^>]*disabled=""/u);
+    expect(appleHtml.match(/role="tab"/gu)).toHaveLength(4);
   });
 
   it('shows one lazily selected suggestion workflow at a time', () => {
@@ -230,7 +251,7 @@ describe('renderer dialog surfaces', () => {
     const selectHoverStyles = styles.match(/\.collaboration-inline-control select:hover:not\(:disabled\),\s*\.collaboration-inline-control select:focus-visible\s*\{([^}]*)\}/)?.[1] ?? '';
     const teamLabelStyles = styles.match(/\.research-model-team-label\s*\{([^}]*)\}/)?.[1] ?? '';
     const modelSurfaceStyles = styles.match(/\.research-model-squircle\s*\{([^}]*)\}/)?.[1] ?? '';
-    const workspaceInputStyles = styles.match(/\.workspace-onboarding-modal \.modal-form :is\(input, textarea, select\),\s*\.workspace-onboarding-modal \.workspace-repository-add input\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceKitInputStyles = styles.match(/\.workspace-research-kit-source input\s*\{([^}]*)\}/)?.[1] ?? '';
     const startRunDialogStyles = styles.match(/\.modal-panel\.start-run-dialog\s*\{([^}]*)\}/)?.[1] ?? '';
     const startRunBodyStyles = styles.match(/\.modal-panel\.start-run-dialog \.modal-body\s*\{([^}]*)\}/)?.[1] ?? '';
     const startRunTitleStyles = styles.match(/\.modal-panel\.start-run-dialog \.modal-header h2\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -262,7 +283,7 @@ describe('renderer dialog surfaces', () => {
     expect(teamLabelStyles).toContain('font-weight: 400');
     expect(teamLabelStyles).toContain('line-height: normal');
     expect(modelSurfaceStyles).toContain('background: var(--panel-column)');
-    expect(workspaceInputStyles).toContain('background: var(--panel-column)');
+    expect(workspaceKitInputStyles).toContain('background: var(--panel-strong)');
     expect(startRunDialogStyles).toContain('min-height: 0');
     expect(startRunDialogStyles).toContain('border-radius: 34px');
     expect(startRunDialogStyles).toContain('corner-shape: squircle');

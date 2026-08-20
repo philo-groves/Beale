@@ -55,6 +55,7 @@ import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { WorkspaceStartupView } from './features/workspaces/WorkspaceStartupView';
+import { WorkspaceCreationView } from './features/workspaces/WorkspaceCreationView';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { workspaceScopeDraftForConfigurationUpdate } from './features/workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput } from './features/workspaces/WorkspaceUnderstandingView';
@@ -707,6 +708,7 @@ export function App(): JSX.Element {
   const closeWorkspaceOnboarding = useCallback((): void => {
     setWorkspaceDraft(null);
     setWorkspaceOnboardingProgress(null);
+    setError(null);
   }, []);
 
   const openWorkspaceAlert = useCallback((_alert: WorkspaceAlert) => undefined, []);
@@ -1276,6 +1278,10 @@ export function App(): JSX.Element {
     setWorkspaceDraft,
     setWorkspaceOnboardingProgress
   });
+  const beginWorkspaceCreation = useCallback((): void => {
+    setError(null);
+    addWorkspace();
+  }, [addWorkspace]);
   const removeActiveWorkspace = useCallback(async (): Promise<void> => {
     const workspaceId = snapshot?.workspace.workspaceId;
     const workspace = workspaceRegistry?.workspaces.find((candidate) => candidate.workspaceId === workspaceId);
@@ -1283,7 +1289,7 @@ export function App(): JSX.Element {
     await removeRegisteredWorkspace(workspace);
   }, [removeRegisteredWorkspace, snapshot?.workspace.workspaceId, workspaceRegistry?.workspaces]);
 
-  useEffect(() => window.beale.onNativeMenuAction(() => addWorkspace()), [addWorkspace]);
+  useEffect(() => window.beale.onNativeMenuAction(() => beginWorkspaceCreation()), [beginWorkspaceCreation]);
 
   const handleSessionAction = useCallback(
     (action: SteeringAction): void => {
@@ -1675,8 +1681,8 @@ export function App(): JSX.Element {
                 ? { primary: 'Plugins', secondary: 'Installed Plugins', icon: 'plugins' }
               : null}
         platform={windowControlPlatform}
-        workspaceName={currentWorkspaceName}
-        workspaceViewTitle={snapshot && !selectedRunId ? workspaceDashboardViewName : null}
+        workspaceName={workspaceDraft ? 'New Workspace' : currentWorkspaceName}
+        workspaceViewTitle={workspaceDraft ? workspaceDashboardViewName : (snapshot && !selectedRunId ? workspaceDashboardViewName : null)}
         activeRunDetail={activeRunDetail}
         activeBreakoutRoomTitle={activeBreakoutRoomTitle}
         profilingEnabled={profilingState?.enabled ?? false}
@@ -1686,7 +1692,7 @@ export function App(): JSX.Element {
         onToggleBottomPanel={() => setBottomPanelOpen((current) => !current)}
         onOpenWorkspaceInEditor={openWorkspaceInEditor}
         onAddWorkspace={() => {
-          addWorkspace();
+          beginWorkspaceCreation();
         }}
         onToggleRightSidenav={() => setRightSidenavExpanded((current) => !current)}
         onToggleSidebar={toggleSidebar}
@@ -1713,7 +1719,7 @@ export function App(): JSX.Element {
           pluginsActive={pluginsOpen}
           snapshot={snapshot}
           onAddWorkspace={() => {
-            addWorkspace();
+            beginWorkspaceCreation();
           }}
           onOpenWorkspace={(workspace) => {
             setReportsOpen(false);
@@ -1798,7 +1804,20 @@ export function App(): JSX.Element {
           />
         ) : (
           <div className="workspace-page">
-            {pluginsOpen ? (
+            {workspaceDraft ? (
+              <WorkspaceCreationView
+                busy={busy}
+                form={workspaceDraft}
+                progress={workspaceOnboardingProgress}
+                submissionError={error}
+                onCancel={closeWorkspaceOnboarding}
+                onChange={setWorkspaceDraft}
+                onLookupHackerOne={lookupHackerOneScope}
+                onResearchKit={applyOnboardingResearchKit}
+                onSubmit={submitWorkspaceOnboarding}
+                onViewChange={setWorkspaceDashboardViewName}
+              />
+            ) : pluginsOpen ? (
               <PluginManagerWorkspace
                 state={agentPluginState}
                 loading={agentPluginsLoading}
@@ -1966,7 +1985,7 @@ export function App(): JSX.Element {
               }}
               onSessionAction={handleSessionAction}
               onSteerInstruction={handleSteerInstruction}
-            /> : <WorkspaceStartupView onAddWorkspace={addWorkspace} />}
+            /> : <WorkspaceStartupView onAddWorkspace={beginWorkspaceCreation} />}
           </div>
         )}
       </main>
@@ -2004,19 +2023,13 @@ export function App(): JSX.Element {
         profilingOpen={profilingOpen}
         profilingState={profilingState}
         lastProfilingReport={lastProfilingReport}
-        workspaceDraft={workspaceDraft}
-        workspaceOnboardingProgress={workspaceOnboardingProgress}
         snapshot={snapshot}
         onCancelNewResearch={() => {
           setNewResearchInitialGoal(null);
           setNewResearchOpen(false);
         }}
-        onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
-        onChangeWorkspaceDraft={setWorkspaceDraft}
         onCloseNotification={() => setActiveNotification(null)}
         onCloseProfiling={closeProfiling}
-        onLookupHackerOne={lookupHackerOneScope}
-        onWorkspaceResearchKit={applyOnboardingResearchKit}
         onFlushProfilingReport={flushProfilingReport}
         onLoadResearchGoalSuggestions={researchGoalSuggestionState.load}
         onSelectResearchGoalSuggestion={researchGoalSuggestionState.consume}
@@ -2026,7 +2039,6 @@ export function App(): JSX.Element {
           void runAction(() => window.beale.steerRun({ type: 'steer', runId: notification.runId, instruction }));
           setActiveNotification(null);
         }}
-        onSubmitWorkspaceOnboarding={submitWorkspaceOnboarding}
         runAction={runAction}
       />
       {activeManualShellApproval ? (

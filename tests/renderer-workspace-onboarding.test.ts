@@ -13,6 +13,8 @@ import {
   onboardingRepositories,
   removeDirectoryFromOnboardingForm,
   setOnboardingRepositorySelected,
+  workspaceCreationViewError,
+  workspaceCreationViews,
   workspaceOnboardingFormForProfile
 } from '../src/renderer/view-models/workspaceOnboarding';
 
@@ -79,6 +81,29 @@ describe('renderer workspace onboarding view model', () => {
     expect(removeDirectoryFromOnboardingForm(promoted, '/workspaces/protocol')).toBe(promoted);
   });
 
+  it('gates the sequential creation views with profile-appropriate requirements', () => {
+    const empty = emptyWorkspaceOnboardingForm();
+    expect(workspaceCreationViews(empty)).toEqual(['overview', 'resources', 'rules']);
+    expect(workspaceCreationViewError(empty, 'overview')).toBe('Select at least one workspace directory.');
+
+    const missingName = addDirectoryToOnboardingForm(empty, '/workspaces/unnamed');
+    expect(workspaceCreationViewError(missingName, 'overview')).toBe('Workspace name is required.');
+    expect(workspaceCreationViewError({ ...missingName, workspaceName: 'Unnamed' }, 'overview')).toBe('Research subject is required.');
+
+    const general = onboardingFormFromDefaults(defaults());
+    expect(workspaceCreationViewError(general, 'overview')).toBeNull();
+    expect(workspaceCreationViewError(general, 'resources')).toBe('Add at least one in-scope resource for security research.');
+    expect(workspaceCreationViewError(general, 'rules')).toBe('Add at least one workspace rule for security research.');
+
+    const mathematics = workspaceOnboardingFormForProfile({ ...general, researchProfileId: 'mathematics' }, 'mathematics');
+    expect(workspaceCreationViewError(mathematics, 'resources')).toBeNull();
+    expect(workspaceCreationViewError(mathematics, 'rules')).toBeNull();
+
+    const hackerOne = applyResearchKit(general, 'hackerone');
+    expect(workspaceCreationViews(hackerOne)).toEqual(['overview', 'kit', 'resources', 'rules']);
+    expect(workspaceCreationViewError(hackerOne, 'kit')).toBe('Import the HackerOne program before continuing.');
+  });
+
   it('keeps repository additions as references when submitting', () => {
     const withRepository = addRepositoryToOnboardingForm(onboardingFormFromDefaults(defaults()), 'github.com/example/project.git');
 
@@ -94,14 +119,16 @@ describe('renderer workspace onboarding view model', () => {
     expect(onboardingInputFromForm(withRepository).assets?.[0]?.attributes).not.toHaveProperty('bealeOnboardingIndexNow');
   });
 
-  it('applies global Apple and MSRC template defaults', () => {
+  it('applies kit guidance and rules without replacing the workspace identity', () => {
     const base = onboardingFormFromDefaults(defaults());
     const apple = applyResearchKit(base, 'apple-security-bounty');
     const msrc = applyResearchKit(base, 'msrc');
 
-    expect(apple.workspaceName).toBe('Apple Security Bounty');
+    expect(apple.workspaceName).toBe(base.workspaceName);
+    expect(apple.researchSubjectName).toBe(base.researchSubjectName);
     expect(apple.rules).toEqual(expect.arrayContaining([expect.stringContaining('Target Flags')]));
-    expect(msrc.workspaceName).toBe('Microsoft Security Response Center');
+    expect(msrc.workspaceName).toBe(base.workspaceName);
+    expect(msrc.researchSubjectName).toBe(base.researchSubjectName);
     expect(msrc.rules).toEqual(expect.arrayContaining([expect.stringContaining('Researcher Portal')]));
   });
 
@@ -138,8 +165,9 @@ describe('renderer workspace onboarding view model', () => {
     expect(workspaceOnboardingFormForProfile(apple, 'security-research')).toBe(apple);
   });
 
-  it('applies a HackerOne lookup without changing the workspace directory', () => {
-    const form = onboardingFormFromHackerOneLookup(onboardingFormFromDefaults(defaults()), {
+  it('applies a HackerOne lookup without changing the workspace identity or directory', () => {
+    const base = onboardingFormFromDefaults(defaults());
+    const form = onboardingFormFromHackerOneLookup(base, {
       handle: 'example',
       sourceUrl: 'https://hackerone.com/example',
       workspaceName: 'Example Bounty',
@@ -161,7 +189,8 @@ describe('renderer workspace onboarding view model', () => {
 
     expect(form.researchKitId).toBe('hackerone');
     expect(form.workspacePath).toBe('/bounty/example');
-    expect(form.workspaceName).toBe('Example Bounty');
+    expect(form.workspaceName).toBe(base.workspaceName);
+    expect(form.researchSubjectName).toBe(base.researchSubjectName);
     expect(form.rules).toEqual(['Verify current HackerOne scope.']);
     expect(form).not.toHaveProperty('expiresAt');
     expect(form.assets).toHaveLength(1);

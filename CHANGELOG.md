@@ -9,6 +9,7 @@
 
 ### Changed
 
+- New Workspace now reuses the main workspace Overview, active Research Kit, Resources, and Rules views instead of a separate onboarding dialog. Creation advances through explicitly unlocked steps with per-view validation, kit imports preserve the entered workspace identity, and the final Rules header creates the workspace.
 - Moved the iOS capture companion's Xcode project, Swift sources, metadata validation, and documentation into the dedicated Beale-iOS repository; Beale retains the desktop-side USB capture integration.
 - Workspace rows in the left sidebar now expose a direct New Research action that switches to the owning workspace before opening the research dialog.
 - Workspace Utilities now includes a confirmed registry-only removal form that leaves workspace directories, metadata, repositories, scoped resources, and Honeycrisp data intact.
@@ -61,6 +62,8 @@
 - Pruned the overlapping 4,300-line workbench catch-all and brittle renderer presentation/source-shape tests. Expensive process, SQLite, filesystem, and loopback-server boundaries now run serially under `npm run test:integration`; `npm run test:all` retains the focused critical suite while the default `npm test` stays fast.
 
 ### Fixed
+
+- Workspace removal confirmation now tolerates invisible and compatibility Unicode differences in otherwise identical workspace names while remaining case- and punctuation-sensitive.
 
 - Auto-Review failures now retain bounded timeout, authentication, quota, model, provider, and response-shape diagnostics from Honeycrisp without exposing raw provider errors; malformed reviewer output receives one bounded repair attempt before remaining fail-closed.
 

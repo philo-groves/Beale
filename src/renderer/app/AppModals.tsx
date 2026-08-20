@@ -12,17 +12,13 @@ import type {
   ResearchGoalSuggestionStateByPhase,
   ProfilingReport,
   ProfilingState,
-  WorkspaceOnboardingProgressUpdate,
   ShellSafetyMode,
   WorkspaceSnapshot
 } from '@shared/types';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
-import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import type { ResearchGoalSeed } from '../features/sessions/SessionNextSteps';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
-import type { ResearchKitId } from '@shared/types';
-import type { WorkspaceOnboardingFormState } from '../view-models/workspaceOnboarding';
 
 export function AppModals({
   activeNotification,
@@ -44,23 +40,16 @@ export function AppModals({
   profilingOpen,
   profilingState,
   lastProfilingReport,
-  workspaceDraft,
-  workspaceOnboardingProgress,
   snapshot,
   onCancelNewResearch,
-  onCancelWorkspaceOnboarding,
-  onChangeWorkspaceDraft,
   onCloseNotification,
   onCloseProfiling,
-  onLookupHackerOne,
-  onWorkspaceResearchKit,
   onFlushProfilingReport,
   onLoadResearchGoalSuggestions,
   onSelectResearchGoalSuggestion,
   onRetryResearchGoalSuggestions,
   onStartedNewResearch,
   onSteerNotification,
-  onSubmitWorkspaceOnboarding,
   runAction
 }: {
   activeNotification: NotificationRecord | null;
@@ -82,39 +71,20 @@ export function AppModals({
   profilingOpen: boolean;
   profilingState: ProfilingState | null;
   lastProfilingReport: ProfilingReport | null;
-  workspaceDraft: WorkspaceOnboardingFormState | null;
-  workspaceOnboardingProgress: WorkspaceOnboardingProgressUpdate | null;
   snapshot: WorkspaceSnapshot | null;
   onCancelNewResearch: () => void;
-  onCancelWorkspaceOnboarding: () => void;
-  onChangeWorkspaceDraft: (next: WorkspaceOnboardingFormState) => void;
   onCloseNotification: () => void;
   onCloseProfiling: () => void;
-  onLookupHackerOne: (identifier: string) => Promise<void>;
-  onWorkspaceResearchKit: (researchKitId: ResearchKitId) => void;
   onFlushProfilingReport: () => void;
   onLoadResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onSelectResearchGoalSuggestion: (phase: ResearchGoalPhase, suggestion: string) => void;
   onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
-  onSubmitWorkspaceOnboarding: () => void;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
   return (
     <>
-      {workspaceDraft ? (
-        <WorkspaceOnboardingModal
-          busy={busy}
-          form={workspaceDraft}
-          progress={workspaceOnboardingProgress}
-          onCancel={onCancelWorkspaceOnboarding}
-          onChange={onChangeWorkspaceDraft}
-          onLookupHackerOne={onLookupHackerOne}
-          onResearchKit={onWorkspaceResearchKit}
-          onSubmit={onSubmitWorkspaceOnboarding}
-        />
-      ) : null}
       {newResearchOpen && snapshot ? (
         <StartRunForm
           snapshot={snapshot}
