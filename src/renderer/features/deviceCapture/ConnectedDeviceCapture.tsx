@@ -158,7 +158,7 @@ export function ConnectedDeviceCapture({
           && attemptedDeviceIdRef.current !== current.device.id
         ) {
           attemptedDeviceIdRef.current = current.device.id;
-          receiveState({ ...current, phase: 'starting', detail: 'Launching Beale Capture on the iPhone…' });
+          receiveState({ ...current, phase: 'starting', detail: 'Open Beale Capture on the iPhone to connect.' });
           const started = await window.beale.startIosDeviceCapture();
           if (!cancelled) receiveState(started);
         }

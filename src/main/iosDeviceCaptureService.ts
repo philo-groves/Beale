@@ -1,13 +1,18 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, createConnection, type Socket } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { IosDeviceCaptureDevice, IosDeviceCaptureFrame, IosDeviceCaptureState } from '@shared/types';
 
 const COMPANION_BUNDLE_ID = 'com.phillipgroves.BealeCaptureCompanion';
 const DEVICE_PORT = 59_727;
 const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_BUFFER_BYTES = MAX_FRAME_BYTES * 2;
+const COMPANION_SESSION_PATH = 'Library/Caches/beale-capture-session.json';
+const COMPANION_SESSION_LIFETIME_MS = 15 * 60 * 1_000;
+const COMPANION_OPEN_TIMEOUT_MS = 10 * 60 * 1_000;
 
 type StateListener = (state: IosDeviceCaptureState) => void;
 type FrameListener = (frame: IosDeviceCaptureFrame) => void;
@@ -28,6 +33,25 @@ interface DeviceCtlRecord {
 
 interface DeviceCtlDocument {
   result?: { devices?: unknown };
+}
+
+export function iosCaptureSessionDocument(token: string, now = Date.now()): string {
+  return `${JSON.stringify({
+    version: 1,
+    token,
+    expiresAt: Math.floor((now + COMPANION_SESSION_LIFETIME_MS) / 1_000)
+  })}\n`;
+}
+
+export function iosCaptureSessionCopyArgs(device: IosDeviceCaptureDevice, source: string): string[] {
+  return [
+    'devicectl', 'device', 'copy', 'to',
+    '--device', device.udid,
+    '--source', source,
+    '--destination', COMPANION_SESSION_PATH,
+    '--domain-type', 'appDataContainer',
+    '--domain-identifier', COMPANION_BUNDLE_ID
+  ];
 }
 
 export function parseConnectedIosDevice(stdout: string): IosDeviceCaptureDevice | null {
@@ -121,7 +145,7 @@ export class IosDeviceCaptureService {
       const device = await this.discoverDevice();
       if (generation !== this.generation || isActiveCapturePhase(this.state.phase)) return this.state;
       this.setState(device
-        ? { supported: true, phase: 'ready', device, detail: 'Ready to launch the iOS capture companion.' }
+        ? { supported: true, phase: 'ready', device, detail: 'Ready for you to open Beale Capture on the iPhone.' }
         : { supported: true, phase: 'idle', device: null, detail: 'Connect and unlock an iOS 27 iPhone over USB-C.' });
     } catch (error) {
       if (generation !== this.generation) return this.state;
@@ -150,18 +174,12 @@ export class IosDeviceCaptureService {
       return this.state;
     }
 
-    this.setState({ supported: true, phase: 'starting', device, detail: 'Launching Beale Capture on the iPhone…' });
+    this.setState({ supported: true, phase: 'starting', device, detail: 'Open Beale Capture on the iPhone to connect.' });
     try {
       const localPort = await reserveLoopbackPort();
       const token = randomBytes(32).toString('hex');
       this.sessionToken = token;
-      await runXcrun([
-        'devicectl', 'device', 'process', 'launch',
-        '--device', device.udid,
-        '--terminate-existing',
-        '--environment-variables', JSON.stringify({ BEALE_CAPTURE_TOKEN: token }),
-        COMPANION_BUNDLE_ID
-      ], 30_000);
+      await provisionSessionToken(device, token);
       if (generation !== this.generation) return this.state;
       const proxy = spawn(iproxy, ['--udid', device.udid, '--local', `${localPort}:${DEVICE_PORT}`], {
         stdio: ['ignore', 'pipe', 'pipe']
@@ -170,7 +188,7 @@ export class IosDeviceCaptureService {
       proxy.once('exit', () => {
         if (this.proxy === proxy) this.fail('The USB tunnel to the iPhone closed.');
       });
-      const socket = await connectWithRetry(localPort, 8_000);
+      const socket = await connectWithRetry(localPort, COMPANION_OPEN_TIMEOUT_MS);
       if (generation !== this.generation) {
         socket.destroy();
         return this.state;
@@ -291,6 +309,17 @@ function runXcrun(args: string[], timeout: number): Promise<{ stdout: string; st
       resolve({ stdout, stderr });
     });
   });
+}
+
+async function provisionSessionToken(device: IosDeviceCaptureDevice, token: string): Promise<void> {
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), 'beale-ios-capture-'));
+  const source = join(temporaryDirectory, 'beale-capture-session.json');
+  try {
+    writeFileSync(source, iosCaptureSessionDocument(token), { encoding: 'utf8', mode: 0o600 });
+    await runXcrun(iosCaptureSessionCopyArgs(device, source), 30_000);
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 }
 
 function reserveLoopbackPort(): Promise<number> {
