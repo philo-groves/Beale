@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Workspace resource tabs now match the workspace view tabs' padding, typography, and icon sizing, and repository Clone actions no longer have an outline.
 - Workspace Overview now uses the workspace name as its heading and orders its metadata as Research Profile, Research Subject, Workspace Name, Description, then Directories.
 - Workspace view tabs now show distinct left-side icons for Overview, Activity, Resources, Rules, Memory, Runbooks, and Utilities.
 - Workspace rules now use a durable append-only text list in a dedicated Rules view, while Resources define formal scope. Migration 25 moves legacy active Scope & Rules text into the rule list and clears the retired scope field; HackerOne imports use the configured default provider model to extract formal rules separately from imported scope resources.

@@ -56,6 +56,8 @@ describe('workspace dashboard', () => {
     const timelineLegendButtonStyles = styles.match(/\.workspace-timeline-legend-button\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceAreaStyles = styles.match(/\.workspace-surface-area\s*\{([^}]*)\}/)?.[1] ?? '';
     const resourceTabsBarStyles = styles.match(/\.workspace-resource-tabs-bar\s*\{([^}]*)\}/)?.[1] ?? '';
+    const resourceTabButtonStyles = styles.match(/\.workspace-resource-tab \.research-side-view-tab-activate\s*\{([^}]*)\}/)?.[1] ?? '';
+    const repositoryCloneButtonStyles = styles.match(/\.workspace-repository-clone-button\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceScrollStyles = styles.match(/\.workspace-surface-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceEmptyStyles = styles.match(/\.workspace-surface-empty\s*\{([^}]*)\}/)?.[1] ?? '';
     const surfaceListStyles = styles.match(/\.workspace-surface-list\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -111,6 +113,9 @@ describe('workspace dashboard', () => {
     expect(primaryDirectoryIndicatorStyles).toContain('background: var(--green)');
     expect(workspaceHeadingStyles).toContain('padding-left: 0');
     expect(workspaceHeatmapStyles).toContain('padding-left: 0');
+    expect(resourceTabButtonStyles).toContain('padding: 0 9px');
+    expect(resourceTabButtonStyles).toContain('font-size: 1rem');
+    expect(repositoryCloneButtonStyles).toContain('border: 0');
     expect(overviewDisabledStyles).toContain('background: var(--panel-strong)');
     expect(overviewDisabledStyles).toContain('color: var(--muted)');
     expect(overviewDisabledStyles).toContain('cursor: not-allowed');

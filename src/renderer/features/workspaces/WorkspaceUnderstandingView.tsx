@@ -1446,7 +1446,7 @@ function WorkspaceResearchSurface({
                 role="tab"
                 type="button"
               >
-                <WorkspaceAssetIcon kind={kind} />
+                <WorkspaceAssetIcon kind={kind} size={14} />
                 <span>{workspaceAssetKindLabel(kind)}</span>
               </button>
               <button
@@ -1707,14 +1707,14 @@ function workspaceAssetPlaceholder(kind: ScopeAssetKind): string {
   return `Enter ${workspaceAssetKindLabel(kind).toLowerCase()} reference`;
 }
 
-function WorkspaceAssetIcon({ kind }: { kind: ScopeAssetKind }): JSX.Element {
-  if (kind === 'repo') return <GitBranch size={16} />;
-  if (kind === 'documentation') return <BookOpen size={16} />;
-  if (kind === 'binary') return <Binary size={16} />;
-  if (kind === 'path') return <Folder size={16} />;
-  if (kind === 'service' || kind === 'host') return <Server size={16} />;
-  if (kind === 'domain' || kind === 'ip_range') return <Globe2 size={16} />;
-  return <Layers3 size={16} />;
+function WorkspaceAssetIcon({ kind, size = 16 }: { kind: ScopeAssetKind; size?: number }): JSX.Element {
+  if (kind === 'repo') return <GitBranch size={size} />;
+  if (kind === 'documentation') return <BookOpen size={size} />;
+  if (kind === 'binary') return <Binary size={size} />;
+  if (kind === 'path') return <Folder size={size} />;
+  if (kind === 'service' || kind === 'host') return <Server size={size} />;
+  if (kind === 'domain' || kind === 'ip_range') return <Globe2 size={size} />;
+  return <Layers3 size={size} />;
 }
 
 function workspaceAssetLabel(asset: ScopeAsset): string {

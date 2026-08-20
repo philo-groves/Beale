@@ -3225,7 +3225,8 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-resource-tab .research-side-view-tab-activate {
-  padding-left: 8px;
+  padding: 0 9px;
+  font-size: 1rem;
 }
 
 .workspace-resource-tab-add {
@@ -3410,7 +3411,7 @@ body.is-resizing-research-side .main-session-grid {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 7px;
   background: color-mix(in srgb, var(--text) 5.5%, transparent);
   color: var(--text);
