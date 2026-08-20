@@ -379,6 +379,57 @@ describe('research profile persistence', () => {
     promotedReopened.close();
   }, 10_000);
 
+  it('unregisters a workspace without deleting its files or scoped resources', () => {
+    const root = tempDirectory();
+    const workspacePath = join(root, 'workspace');
+    const databasePath = join(root, 'global', 'memory.sqlite');
+    const artifactRoot = join(root, 'global', 'artifacts');
+    const markerPath = join(workspacePath, 'keep.txt');
+    mkdirSync(workspacePath, { recursive: true });
+    writeFileSync(markerPath, 'keep');
+    const service = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: join(root, 'registry'),
+      honeycrispDatabasePath: databasePath,
+      honeycrispArtifactDirectory: artifactRoot,
+      researchProfileResolver: () => resolvedTestResearchProfile()
+    });
+    const created = service.createScopedWorkspace({
+      workspacePath,
+      workspaceName: 'Removable Workspace',
+      researchSubjectName: 'Removable Workspace',
+      scopeOwner: 'Authorization Owner',
+      descriptionMarkdown: 'Retained workspace metadata.',
+      rules: [],
+      expiresAt: null,
+      assets: [{
+        direction: 'in_scope',
+        kind: 'other',
+        value: 'retained-resource',
+        sensitivity: 'public',
+        attributes: { displayName: 'Retained Resource' }
+      }]
+    });
+    const registryEntry = service.getWorkspaceRegistryState().workspaces[0];
+
+    expect(registryEntry).toBeTruthy();
+    expect(created.activeScope.assets).toEqual([
+      expect.objectContaining({ kind: 'other', value: 'retained-resource' })
+    ]);
+    expect(service.removeRegisteredWorkspace(registryEntry!.id)).toBeNull();
+    expect(service.getWorkspaceRegistryState().workspaces).toHaveLength(0);
+    expect(service.getSnapshot()).toBeNull();
+    expect(existsSync(markerPath)).toBe(true);
+    expect(existsSync(join(workspacePath, '.beale'))).toBe(true);
+
+    const retainedDatabase = new WorkspaceDatabase(databasePath, artifactRoot, { workspacePath });
+    retainedDatabase.initialize();
+    expect(retainedDatabase.getActiveScope().assets).toEqual([
+      expect.objectContaining({ kind: 'other', value: 'retained-resource' })
+    ]);
+    retainedDatabase.close();
+    service.close();
+  }, 10_000);
+
   it('clones an in-scope repository resource and records its managed checkout once', async () => {
     const root = tempDirectory();
     const workspacePath = join(root, 'workspace');

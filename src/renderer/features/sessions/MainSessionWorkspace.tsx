@@ -70,6 +70,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onAddWorkspaceRule = async () => undefined,
   onSaveWorkspaceConfiguration = async () => undefined,
   onChangeWorkspaceDirectories = async () => undefined,
+  onRemoveWorkspace = async () => undefined,
   onOpenSession = () => undefined,
   onWorkspaceViewChange,
   onResearchDetailsOpenChange,
@@ -134,6 +135,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onAddWorkspaceRule?: (text: string) => Promise<void>;
   onSaveWorkspaceConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onChangeWorkspaceDirectories?: (directories: string[]) => Promise<void>;
+  onRemoveWorkspace?: () => Promise<void>;
   onOpenSession?: (runId: string) => void;
   onWorkspaceViewChange?: (viewName: string) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
@@ -330,6 +332,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onAddRule={onAddWorkspaceRule}
           onSaveConfiguration={onSaveWorkspaceConfiguration}
           onChangeWorkspaceDirectories={onChangeWorkspaceDirectories}
+          onRemoveWorkspace={onRemoveWorkspace}
           onOpenSession={onOpenSession}
           onActiveViewChange={onWorkspaceViewChange}
           onOpenMemory={openWorkspaceMemory}

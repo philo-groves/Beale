@@ -45,7 +45,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onAddWorkspace: () => void;
   onOpenWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   onOpenResearchSession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
-  onRemoveWorkspace: (workspace: WorkspaceRegistryEntry) => void;
+  onRemoveWorkspace: (workspace: WorkspaceRegistryEntry) => Promise<void> | void;
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onSetOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
   onOpenAutomations?: () => void;
@@ -207,7 +207,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                     </button>
                     {menuOpen ? (
                       <div className="workspace-menu" role="menu">
-                        <button type="button" role="menuitem" className="danger" onClick={() => onRemoveWorkspace(workspace)}>
+                        <button type="button" role="menuitem" className="danger" onClick={() => void onRemoveWorkspace(workspace)}>
                           Remove
                         </button>
                       </div>

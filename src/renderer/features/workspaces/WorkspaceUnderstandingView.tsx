@@ -184,6 +184,7 @@ export function WorkspaceUnderstandingView({
   onAddRule = async () => undefined,
   onSaveConfiguration = async () => undefined,
   onChangeWorkspaceDirectories = async () => undefined,
+  onRemoveWorkspace = async () => undefined,
   onOpenSession = () => undefined,
   onOpenMemory = () => undefined,
   onOpenRunbook = () => undefined,
@@ -217,6 +218,7 @@ export function WorkspaceUnderstandingView({
   onAddRule?: (text: string) => Promise<void>;
   onSaveConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onChangeWorkspaceDirectories?: (directories: string[]) => Promise<void>;
+  onRemoveWorkspace?: () => Promise<void>;
   onOpenSession?: (runId: string) => void;
   onOpenMemory?: (nodeId: string) => void;
   onOpenRunbook?: (runbookId: string) => void;
@@ -501,6 +503,7 @@ export function WorkspaceUnderstandingView({
         workspaceDejunkInProgress={workspaceDejunkInProgress}
         onRunMemoryDreaming={onRunMemoryDreaming}
         onRunWorkspaceDejunk={onRunWorkspaceDejunk}
+        onRemoveWorkspace={onRemoveWorkspace}
         workspaceName={activeScope?.workspaceName || workspaceName}
       /> : null}
     </main>
@@ -1069,6 +1072,7 @@ function WorkspaceUtilitiesPanel({
   workspaceDejunkInProgress,
   onRunMemoryDreaming,
   onRunWorkspaceDejunk,
+  onRemoveWorkspace,
   workspaceName
 }: {
   busy: boolean;
@@ -1082,6 +1086,7 @@ function WorkspaceUtilitiesPanel({
   workspaceDejunkInProgress: boolean;
   onRunMemoryDreaming: () => void;
   onRunWorkspaceDejunk: () => void;
+  onRemoveWorkspace: () => Promise<void>;
   workspaceName: string;
 }): JSX.Element {
   const memoryEnabled = researchProfile?.capabilities.memoryEnabled !== false;
@@ -1130,10 +1135,67 @@ function WorkspaceUtilitiesPanel({
               </span>
               <button className="workspace-cleaning-action" disabled={dreamDisabled} onClick={onRunMemoryDreaming} type="button">Dream Now</button>
             </div>
+            <WorkspaceRemovalForm busy={busy} onRemove={onRemoveWorkspace} workspaceName={workspaceName} />
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function WorkspaceRemovalForm({
+  busy,
+  onRemove,
+  workspaceName
+}: {
+  busy: boolean;
+  onRemove: () => Promise<void>;
+  workspaceName: string;
+}): JSX.Element {
+  const [confirmation, setConfirmation] = useState('');
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const confirmed = confirmation.trim() === workspaceName.trim();
+  const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (!confirmed || busy || removing) return;
+    setRemoving(true);
+    setError(null);
+    try {
+      await onRemove();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setRemoving(false);
+    }
+  };
+  return (
+    <form className="settings-form-control-row workspace-cleaning-row workspace-removal-form" onSubmit={(event) => void submit(event)}>
+      <span className="settings-form-control-copy">
+        <strong>Remove Workspace</strong>
+        <small>
+          Unregisters this workspace from Beale only. Directories, .beale metadata, repository clones, scoped resources, and Honeycrisp memory remain on disk.
+        </small>
+      </span>
+      <div className="workspace-removal-controls">
+        <input
+          aria-label={`Type ${workspaceName} to confirm workspace removal`}
+          autoComplete="off"
+          disabled={busy || removing}
+          placeholder={`Type ${workspaceName} to confirm`}
+          spellCheck={false}
+          value={confirmation}
+          onChange={(event) => setConfirmation(event.target.value)}
+        />
+        <button
+          className="workspace-removal-action"
+          disabled={busy || removing || !confirmed}
+          type="submit"
+        >
+          {removing ? 'Removing…' : 'Remove from Beale'}
+        </button>
+        {error ? <p className="workspace-removal-error" role="alert">{error}</p> : null}
+      </div>
+    </form>
   );
 }
 

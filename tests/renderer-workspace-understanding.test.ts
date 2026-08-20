@@ -75,6 +75,9 @@ describe('workspace dashboard', () => {
     const catalogViewStyles = styles.match(/\.workspace-catalog-view\s*\{([^}]*)\}/)?.[1] ?? '';
     const catalogListStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.workspace-catalog-list\s*\{([^}]*)\}/)?.[1] ?? '';
     const cleaningFormStyles = styles.match(/\.workspace-cleaning-form\s*\{([^}]*)\}/)?.[1] ?? '';
+    const removalFormStyles = styles.match(/\.settings-form-control-row\.workspace-removal-form\s*\{([^}]*)\}/)?.[1] ?? '';
+    const removalControlsStyles = styles.match(/\.workspace-removal-controls\s*\{([^}]*)\}/)?.[1] ?? '';
+    const removalActionStyles = styles.match(/\.workspace-removal-action\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceMemoryItemStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.memory-catalog-list\s+\.memory-catalog-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceMemoryDescriptionStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.memory-catalog-list\s+\.memory-catalog-item-description\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceRunbookItemStyles = styles.match(/\.workspace-catalog-view\s*>\s*\.runbook-catalog-list\s+\.runbook-catalog-item\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -146,6 +149,11 @@ describe('workspace dashboard', () => {
     expect(activityFormStyles).toContain('margin-inline: auto');
     expect(cleaningFormStyles).toContain('max-width: var(--session-content-max-width)');
     expect(cleaningFormStyles).toContain('margin-inline: auto');
+    expect(removalFormStyles).toContain('grid-template-columns: minmax(0, 1fr)');
+    expect(removalFormStyles).toContain('gap: 9px');
+    expect(removalControlsStyles).toContain('grid-template-columns: minmax(180px, 220px) auto');
+    expect(removalActionStyles).toContain('border: 0');
+    expect(removalActionStyles).toContain('color: var(--red)');
     expect(chartStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
     expect(chartStyles).toContain('max-width: var(--session-content-max-width)');
     expect(chartStyles).toContain('margin-inline: auto');
@@ -385,6 +393,28 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('class="workspace-catalog-list runbook-catalog-list');
     expect(html).not.toContain('>Dejunk Now</button>');
     expect(html).not.toContain('>Dream Now</button>');
+  });
+
+  it('shows a confirmed registry-only workspace removal form in Utilities', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: false,
+      initialView: 'utilities',
+      memoryDreamingInProgress: false,
+      honeycrispMemory: memorySummary(),
+      researchProfile: testResearchProfile(),
+      workspaceName: 'Parser Workspace',
+      runs: [],
+      onRunMemoryDreaming: () => undefined,
+      onRemoveWorkspace: async () => undefined
+    }));
+
+    expect(html).toContain('<h2>Parser Workspace Utilities</h2>');
+    expect(html).toContain('<strong>Remove Workspace</strong>');
+    expect(html).toContain('Unregisters this workspace from Beale only.');
+    expect(html).toContain('Directories, .beale metadata, repository clones, scoped resources, and Honeycrisp memory remain on disk.');
+    expect(html).toContain('aria-label="Type Parser Workspace to confirm workspace removal"');
+    expect(html).toContain('placeholder="Type Parser Workspace to confirm"');
+    expect(html).toMatch(/<button class="workspace-removal-action" disabled="" type="submit">Remove from Beale<\/button>/u);
   });
 
   it('uses the blank workspace directories field as the initial directory chooser', () => {

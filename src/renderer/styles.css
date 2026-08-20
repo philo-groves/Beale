@@ -2804,6 +2804,48 @@ body.is-resizing-research-side .main-session-grid {
   cursor: default;
 }
 
+.settings-form-control-row.workspace-removal-form {
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 9px;
+}
+
+.workspace-removal-controls {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) auto;
+  align-items: start;
+  gap: 7px;
+}
+
+.workspace-removal-controls input {
+  min-height: 32px;
+  border: 0;
+  background: var(--panel-strong);
+}
+
+.workspace-removal-action {
+  min-height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--red) 12%, var(--panel-strong));
+  color: var(--red);
+  padding: 0 11px;
+  font: inherit;
+}
+
+.workspace-removal-action:hover:not(:disabled),
+.workspace-removal-action:focus-visible {
+  background: color-mix(in srgb, var(--red) 20%, var(--panel-strong));
+}
+
+.workspace-removal-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--red);
+  font-size: inherit;
+}
+
 .workspace-cleaning-status {
   min-width: 0;
   display: flex;

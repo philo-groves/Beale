@@ -17,7 +17,7 @@ export interface WorkspaceActions {
   addWorkspace: () => void;
   openRegisteredWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   openResearchSession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
-  removeRegisteredWorkspace: (workspace: WorkspaceRegistryEntry) => void;
+  removeRegisteredWorkspace: (workspace: WorkspaceRegistryEntry) => Promise<void>;
   submitWorkspaceOnboarding: () => void;
   applyOnboardingTemplate: (templateKind: WorkspaceTemplateKind) => void;
   lookupHackerOneScope: (identifier: string) => Promise<void>;
@@ -84,8 +84,8 @@ export function useWorkspaceActions({
   );
 
   const removeRegisteredWorkspace = useCallback(
-    (workspace: WorkspaceRegistryEntry): void => {
-      void runWorkspaceAction(async () => {
+    (workspace: WorkspaceRegistryEntry): Promise<void> => {
+      return runWorkspaceAction(async () => {
         setOpenWorkspaceMenuId(null);
         applySnapshot(await window.beale.removeRegisteredWorkspace(workspace.id));
       });

@@ -1267,6 +1267,12 @@ export function App(): JSX.Element {
     setWorkspaceOnboardingProgress,
     setOpenWorkspaceMenuId
   });
+  const removeActiveWorkspace = useCallback(async (): Promise<void> => {
+    const workspaceId = snapshot?.workspace.workspaceId;
+    const workspace = workspaceRegistry?.workspaces.find((candidate) => candidate.workspaceId === workspaceId);
+    if (!workspace) throw new Error('The active workspace registry entry is unavailable.');
+    await removeRegisteredWorkspace(workspace);
+  }, [removeRegisteredWorkspace, snapshot?.workspace.workspaceId, workspaceRegistry?.workspaces]);
 
   useEffect(() => window.beale.onNativeMenuAction(() => addWorkspace()), [addWorkspace]);
 
@@ -1919,6 +1925,7 @@ export function App(): JSX.Element {
               onAddWorkspaceRule={addWorkspaceRule}
               onSaveWorkspaceConfiguration={saveWorkspaceConfiguration}
               onChangeWorkspaceDirectories={changeWorkspaceDirectories}
+              onRemoveWorkspace={removeActiveWorkspace}
               onOpenSession={openWorkspaceDashboardSession}
               onWorkspaceViewChange={setWorkspaceDashboardViewName}
               onResearchDetailsOpenChange={(expanded) => setRightSidenavExpanded(researchDetailsAvailable && expanded)}
