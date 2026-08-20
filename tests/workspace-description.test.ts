@@ -15,7 +15,7 @@ afterEach(() => {
   }
 });
 
-describe('workspace description', () => {
+describe('workspace guidance', () => {
   it('migrates a legacy stored description only when AGENTS.md is missing', () => {
     const workspace = temporaryDirectory();
 

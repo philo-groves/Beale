@@ -4,6 +4,105 @@ import type { WorkspaceDirectorySelection } from '@shared/types';
 import { errorMessage } from '../../lib/errors';
 import { compactUserPath } from '../../lib/paths';
 
+export function WorkspaceDirectoriesField({
+  directories,
+  disabled = false,
+  lockedDirectory = null,
+  onAdd,
+  onRemove
+}: {
+  directories: readonly string[];
+  disabled?: boolean;
+  lockedDirectory?: string | null;
+  onAdd: (selection: WorkspaceDirectorySelection) => Promise<void> | void;
+  onRemove: (directory: string) => Promise<void> | void;
+}): JSX.Element {
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const addDirectory = (): void => {
+    setAdding(true);
+    setError(null);
+    void window.beale.selectWorkspaceDirectory()
+      .then(async (selection) => {
+        if (!selection.canceled && selection.path) await onAdd(selection);
+      })
+      .catch((caught: unknown) => setError(errorMessage(caught)))
+      .finally(() => setAdding(false));
+  };
+  const removeDirectory = (directory: string): void => {
+    setError(null);
+    void Promise.resolve(onRemove(directory)).catch((caught: unknown) => setError(errorMessage(caught)));
+  };
+
+  return (
+    <div className="settings-form-control-row workspace-overview-control-row workspace-directories-field">
+      <span className="settings-form-control-copy">
+        <strong>Workspace Directories</strong>
+        <small>Local directories included in this workspace.</small>
+      </span>
+      <div className="workspace-directories-field-control">
+        {directories.length > 0 ? (
+          <button
+            aria-label="Add workspace directory"
+            className="workspace-directories-field-add"
+            disabled={disabled || adding}
+            onClick={addDirectory}
+            title="Add workspace directory"
+            type="button"
+          >
+            <Plus aria-hidden="true" size={14} />
+          </button>
+        ) : null}
+        <div
+          aria-label="Workspace directories"
+          className={`workspace-directories-input-area ${directories.length === 0 ? 'is-empty' : ''}`}
+          role="group"
+        >
+          {directories.length === 0 ? (
+            <button
+              aria-label="Choose workspace directory"
+              className="workspace-directories-empty-input"
+              disabled={disabled || adding}
+              onClick={addDirectory}
+              title="Choose workspace directory"
+              type="button"
+            >
+              <span aria-hidden="true">&nbsp;</span>
+            </button>
+          ) : directories.map((directory, index) => {
+            const locked = lockedDirectory !== null && directoryKey(directory) === directoryKey(lockedDirectory);
+            return (
+              <div className="workspace-directories-input-row" key={directoryKey(directory)} title={directory}>
+                <span className="workspace-directories-input-path">{compactUserPath(directory)}</span>
+                {index === 0 ? (
+                  <span
+                    aria-label="Primary directory"
+                    className="workspace-directory-primary-indicator"
+                    role="img"
+                    title="Primary directory"
+                  />
+                ) : (
+                  <button
+                    aria-label={`Remove workspace directory ${directory}`}
+                    className="workspace-directories-input-remove"
+                    disabled={disabled || locked}
+                    onClick={() => removeDirectory(directory)}
+                    title={locked ? 'The workspace storage directory cannot be removed.' : 'Remove directory'}
+                    type="button"
+                  >
+                    <Trash2 aria-hidden="true" size={13} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {error ? <p className="workspace-directories-error" role="alert">{error}</p> : null}
+      </div>
+    </div>
+  );
+}
+
 export function WorkspaceDirectoriesWidget({
   directories,
   disabled = false,

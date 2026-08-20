@@ -2364,7 +2364,7 @@ body.is-resizing-research-side .main-session-grid {
 .workspace-rule-composer {
   display: flex;
   gap: 8px;
-  padding: 12px var(--settings-form-inline-padding);
+  padding: 12px;
 }
 
 .workspace-rule-composer input {
@@ -2377,6 +2377,7 @@ body.is-resizing-research-side .main-session-grid {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 0 10px;
 }
 
 .workspace-rule-list {
@@ -2446,17 +2447,13 @@ body.is-resizing-research-side .main-session-grid {
   font-size: var(--settings-view-font-size);
 }
 
-.workspace-overview-form .workspace-directories-widget {
-  border-top: 1px solid var(--line);
-}
-
-.workspace-overview-form .workspace-directories-widget-heading {
-  padding-top: 10px;
-}
-
 .workspace-overview-control-row {
   cursor: text;
   font-size: var(--settings-view-font-size);
+}
+
+.workspace-overview-form .settings-form-control-list > * + * {
+  border-top: 1px solid var(--line);
 }
 
 .workspace-overview-form :is(input, textarea) {
@@ -2492,6 +2489,169 @@ body.is-resizing-research-side .main-session-grid {
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   gap: 8px;
+  cursor: default;
+}
+
+.workspace-guidance-field-heading {
+  min-width: 0;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workspace-guidance-show-markdown {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 4px 7px;
+  font: inherit;
+}
+
+.workspace-guidance-show-markdown:hover,
+.workspace-guidance-show-markdown:focus-visible {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.workspace-overview-form .workspace-guidance-editor,
+.workspace-guidance-preview {
+  width: 100%;
+  min-height: 150px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  background: var(--panel-strong);
+}
+
+.workspace-guidance-preview {
+  overflow: hidden;
+  resize: vertical;
+}
+
+.workspace-guidance-preview-content {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 8px 9px;
+  color: var(--text);
+  cursor: text;
+}
+
+.workspace-guidance-preview-content[aria-disabled='true'] {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.workspace-guidance-preview-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.workspace-directories-field {
+  align-items: start;
+  cursor: default;
+}
+
+.workspace-directories-field-control {
+  width: fit-content;
+  max-width: 50vw;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 26px auto;
+  align-items: start;
+  gap: 6px;
+}
+
+.workspace-directories-field-control > .workspace-directories-input-area:first-child {
+  grid-column: 1 / -1;
+}
+
+.workspace-directories-field-add,
+.workspace-directories-input-remove,
+.workspace-directories-empty-input {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.workspace-directories-field-add,
+.workspace-directories-input-remove {
+  width: 26px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  padding: 0;
+}
+
+.workspace-directories-field-add:hover:not(:disabled),
+.workspace-directories-field-add:focus-visible,
+.workspace-directories-input-remove:hover:not(:disabled),
+.workspace-directories-input-remove:focus-visible,
+.workspace-directories-empty-input:hover:not(:disabled),
+.workspace-directories-empty-input:focus-visible {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.workspace-directories-field-add:disabled,
+.workspace-directories-input-remove:disabled,
+.workspace-directories-empty-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.workspace-directories-input-area {
+  width: 220px;
+  max-width: calc(50vw - 32px);
+  min-width: 0;
+  min-height: 32px;
+  box-sizing: border-box;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--panel-strong);
+  resize: horizontal;
+}
+
+.workspace-directories-input-row {
+  min-width: 0;
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  align-items: center;
+  gap: 4px;
+  padding-left: 10px;
+}
+
+.workspace-directories-input-row + .workspace-directories-input-row {
+  border-top: 1px solid var(--line);
+}
+
+.workspace-directories-input-path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-directories-empty-input {
+  width: 100%;
+  min-height: 32px;
+  display: block;
+  border-radius: 6px;
+  padding: 0 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace-directories-field-control > .workspace-directories-error {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 
 .workspace-overview-error,

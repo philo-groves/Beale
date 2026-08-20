@@ -4,6 +4,9 @@
 
 ### Changed
 
+- The workspace Rules tab now sits beside Utilities, uses the workspace name in its heading, and has balanced composer and Add Rule spacing.
+- Workspace Guidance now opens as a vertically resizable Markdown preview and switches to an equally sized editor with an explicit Show Markdown action.
+- Workspace directory management now appears as an inline field below Workspace Name, with a primary-directory indicator and compact controls for adding or removing secondary directories.
 - Workspace repositories now retain their editable cloned directory and checkout revision metadata on the repository resource itself instead of creating a second local-path resource. Migration 26 attaches legacy checkout paths where possible and consolidates Path, Host, IP range, Account, and Credential ref resources into Other while retaining their former kind as compatibility metadata.
 - Workspace resource tabs now match the workspace view tabs' padding, typography, and icon sizing, and repository Clone actions no longer have an outline.
 - Workspace Overview now uses the workspace name as its heading and orders its metadata as Research Profile, Research Subject, Workspace Name, Description, then Directories.

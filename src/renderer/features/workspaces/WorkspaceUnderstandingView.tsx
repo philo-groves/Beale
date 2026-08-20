@@ -28,13 +28,14 @@ import type { WorkspaceTimelineResult } from '../../view-models/workspaceTimelin
 import { EMPTY_SESSION_HEAT_PREFERENCES } from '../../view-models/sessionHeat';
 import type { SessionHeat, SessionHeatPreferences } from '../../view-models/sessionHeat';
 import { errorMessage } from '../../lib/errors';
-import { promoteWorkspaceDirectory, WorkspaceDirectoriesWidget } from './WorkspaceDirectoriesWidget';
+import { renderTraceProseText } from '../traces/traceMarkup';
+import { WorkspaceDirectoriesField } from './WorkspaceDirectoriesWidget';
 
 const TIMELINE_WINDOW_HOURS = 4;
 const TIMELINE_TICK_HOURS = [0, 1, 2, 3, 4] as const;
 const WORKSPACE_ACTIVITY_DAY_COUNT = 365;
 const DAY_DURATION_MS = 24 * 60 * 60 * 1_000;
-const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources', 'rules', 'memory', 'runbooks', 'utilities'] as const;
+const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources', 'memory', 'runbooks', 'rules', 'utilities'] as const;
 
 export type WorkspaceDashboardView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
 
@@ -548,7 +549,7 @@ function WorkspaceRulesPanel({
     >
       <div className="workspace-rules-layout settings-form">
         <header className="settings-form-heading">
-          <h2>Rules</h2>
+          <h2>{workspaceName} Rules</h2>
           <p>Append concise operating constraints for every research session in this workspace.</p>
         </header>
         <div className="settings-form-squircle workspace-rules-surface">
@@ -605,8 +606,12 @@ function WorkspaceOverviewPanel({
   const resolvedDescription = activeScope?.descriptionMarkdown ?? '';
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState(resolvedWorkspaceName);
   const [descriptionDraft, setDescriptionDraft] = useState(resolvedDescription);
+  const [guidanceEditing, setGuidanceEditing] = useState(false);
+  const [guidanceHeight, setGuidanceHeight] = useState(150);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const guidancePreviewRef = useRef<HTMLDivElement>(null);
+  const guidanceEditorRef = useRef<HTMLTextAreaElement>(null);
   const resolvedConfigurationRef = useRef({
     workspaceName: resolvedWorkspaceName,
     descriptionMarkdown: resolvedDescription
@@ -618,6 +623,8 @@ function WorkspaceOverviewPanel({
     const previous = resolvedConfigurationRef.current;
     setWorkspaceNameDraft((current) => current === previous.workspaceName ? resolvedWorkspaceName : current);
     setDescriptionDraft((current) => current === previous.descriptionMarkdown ? resolvedDescription : current);
+    setGuidanceEditing(false);
+    setGuidanceHeight(150);
     resolvedConfigurationRef.current = {
       workspaceName: resolvedWorkspaceName,
       descriptionMarkdown: resolvedDescription
@@ -655,6 +662,17 @@ function WorkspaceOverviewPanel({
         pendingSaveCountRef.current -= 1;
         if (pendingSaveCountRef.current === 0) setSaving(false);
       });
+  };
+  const showGuidanceEditor = (): void => {
+    if (busy) return;
+    const previewHeight = guidancePreviewRef.current?.getBoundingClientRect().height;
+    if (previewHeight && previewHeight >= 150) setGuidanceHeight(previewHeight);
+    setGuidanceEditing(true);
+  };
+  const showGuidancePreview = (): void => {
+    const editorHeight = guidanceEditorRef.current?.getBoundingClientRect().height;
+    if (editorHeight && editorHeight >= 150) setGuidanceHeight(editorHeight);
+    setGuidanceEditing(false);
   };
   return (
     <section
@@ -714,36 +732,73 @@ function WorkspaceOverviewPanel({
                   }}
                 />
               </label>
-              <label className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
-                <span className="settings-form-control-copy">
-                  <strong>Workspace Description</strong>
-                  <small>Reads and writes the primary workspace's AGENTS.md instructions.</small>
-                </span>
-                <textarea
-                  aria-label="Workspace Description"
-                  disabled={busy}
-                  rows={5}
-                  value={descriptionDraft}
-                  onChange={(event) => setDescriptionDraft(event.target.value)}
-                  onBlur={saveInPlace}
-                />
-              </label>
+              <WorkspaceDirectoriesField
+                directories={workspaceDirectories}
+                disabled={busy}
+                lockedDirectory={workspacePath}
+                onAdd={async (selection) => {
+                  const selectedPath = selection.path;
+                  if (!selectedPath || workspaceDirectories.some((directory) => workspaceDirectoryKey(directory) === workspaceDirectoryKey(selectedPath))) return;
+                  if (selection.knownWorkspace) {
+                    throw new Error(`Directory already belongs to workspace ${selection.knownWorkspace.workspaceName}.`);
+                  }
+                  await onChangeDirectories([...workspaceDirectories, selectedPath]);
+                }}
+                onRemove={(directory) => onChangeDirectories(workspaceDirectories.filter((item) => workspaceDirectoryKey(item) !== workspaceDirectoryKey(directory)))}
+              />
+              <div className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
+                <div className="workspace-guidance-field-heading">
+                  <span className="settings-form-control-copy">
+                    <strong>Workspace Guidance</strong>
+                    <small>Reads and writes the primary workspace's AGENTS.md instructions.</small>
+                  </span>
+                  {guidanceEditing ? (
+                    <button className="workspace-guidance-show-markdown" onClick={showGuidancePreview} type="button">
+                      Show Markdown
+                    </button>
+                  ) : null}
+                </div>
+                {guidanceEditing ? (
+                  <textarea
+                    aria-label="Workspace Guidance"
+                    autoFocus
+                    className="workspace-guidance-editor"
+                    disabled={busy}
+                    ref={guidanceEditorRef}
+                    rows={5}
+                    style={{ height: guidanceHeight }}
+                    value={descriptionDraft}
+                    onChange={(event) => setDescriptionDraft(event.target.value)}
+                    onBlur={saveInPlace}
+                  />
+                ) : (
+                  <div
+                    className="workspace-guidance-preview"
+                    ref={guidancePreviewRef}
+                    style={{ height: guidanceHeight }}
+                  >
+                    <div
+                      aria-label="Workspace Guidance"
+                      aria-disabled={busy || undefined}
+                      className="workspace-guidance-preview-content"
+                      onClick={showGuidanceEditor}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
+                        event.preventDefault();
+                        showGuidanceEditor();
+                      }}
+                      role="button"
+                      tabIndex={busy ? -1 : 0}
+                      title="Edit Workspace Guidance"
+                    >
+                      {descriptionDraft.trim()
+                        ? renderTraceProseText(descriptionDraft, 'agent_output')
+                        : <p className="workspace-guidance-preview-empty">Click to add workspace guidance.</p>}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-            <WorkspaceDirectoriesWidget
-              directories={workspaceDirectories}
-              disabled={busy}
-              lockedDirectory={workspacePath}
-              onAdd={async (selection) => {
-                const selectedPath = selection.path;
-                if (!selectedPath || workspaceDirectories.some((directory) => workspaceDirectoryKey(directory) === workspaceDirectoryKey(selectedPath))) return;
-                if (selection.knownWorkspace) {
-                  throw new Error(`Directory already belongs to workspace ${selection.knownWorkspace.workspaceName}.`);
-                }
-                await onChangeDirectories([...workspaceDirectories, selectedPath]);
-              }}
-              onMakePrimary={(directory) => onChangeDirectories(promoteWorkspaceDirectory(workspaceDirectories, directory))}
-              onRemove={(directory) => onChangeDirectories(workspaceDirectories.filter((item) => workspaceDirectoryKey(item) !== workspaceDirectoryKey(directory)))}
-            />
           </div>
           {saveError ? <p className="workspace-overview-error" role="alert">{saveError}</p> : null}
           {saving ? <span className="workspace-overview-saving" role="status">Saving…</span> : null}

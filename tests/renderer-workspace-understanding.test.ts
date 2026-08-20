@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { isLiveResearchRunStatus } from '../src/shared/types';
 import type { HoneycrispMemorySummary, RunRow, ScopeAsset, SessionRunActivity } from '../src/shared/types';
 import { MainSessionWorkspace } from '../src/renderer/features/sessions/MainSessionWorkspace';
-import { promoteWorkspaceDirectory } from '../src/renderer/features/workspaces/WorkspaceDirectoriesWidget';
+import { promoteWorkspaceDirectory, WorkspaceDirectoriesField } from '../src/renderer/features/workspaces/WorkspaceDirectoriesWidget';
 import {
   memoryCountSinceLastDream,
   memoryDreamHeat,
@@ -36,13 +36,20 @@ describe('workspace dashboard', () => {
     const overviewLayoutStyles = styles.match(/\.workspace-overview-layout\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewFormStyles = styles.match(/\.workspace-overview-form\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewControlStyles = styles.match(/\.workspace-overview-control-row\s*\{([^}]*)\}/)?.[1] ?? '';
+    const overviewRowDividerStyles = styles.match(/\.workspace-overview-form \.settings-form-control-list > \* \+ \*\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewFieldStyles = styles.match(/\.workspace-overview-form :is\(input, textarea\)\s*\{([^}]*)\}/)?.[1] ?? '';
+    const guidanceHeadingStyles = styles.match(/\.workspace-guidance-field-heading\s*\{([^}]*)\}/)?.[1] ?? '';
+    const guidanceSurfaceStyles = styles.match(/\.workspace-overview-form \.workspace-guidance-editor,\s*\.workspace-guidance-preview\s*\{([^}]*)\}/)?.[1] ?? '';
+    const guidancePreviewStyles = [...styles.matchAll(/^\.workspace-guidance-preview\s*\{([^}]*)\}/gm)].at(-1)?.[1] ?? '';
     const overviewStatusStyles = styles.match(/\.workspace-overview-error,\s*\.workspace-overview-saving\s*\{([^}]*)\}/)?.[1] ?? '';
+    const ruleComposerStyles = styles.match(/\.workspace-rule-composer\s*\{([^}]*)\}/)?.[1] ?? '';
+    const ruleComposerButtonStyles = styles.match(/\.workspace-rule-composer button\s*\{([^}]*)\}/)?.[1] ?? '';
     const directoriesWidgetStyles = styles.match(/^\.workspace-directories-widget\s*\{([^}]*)\}/m)?.[1] ?? '';
-    const overviewDirectoriesStyles = styles.match(/\.workspace-overview-form\s+\.workspace-directories-widget\s*\{([^}]*)\}/)?.[1] ?? '';
-    const directoriesHeadingStyles = styles.match(/^\.workspace-directories-widget-heading\s*\{([^}]*)\}/m)?.[1] ?? '';
-    const directoryItemStyles = styles.match(/\.workspace-directory-item\s*\{([^}]*)\}/)?.[1] ?? '';
-    const dividedDirectoryItemStyles = styles.match(/\.workspace-directory-item \+ \.workspace-directory-item\s*\{([^}]*)\}/)?.[1] ?? '';
+    const directoriesFieldStyles = styles.match(/\.workspace-directories-field\s*\{([^}]*)\}/)?.[1] ?? '';
+    const directoriesFieldControlStyles = styles.match(/\.workspace-directories-field-control\s*\{([^}]*)\}/)?.[1] ?? '';
+    const directoriesInputStyles = styles.match(/\.workspace-directories-input-area\s*\{([^}]*)\}/)?.[1] ?? '';
+    const directoryInputRowStyles = styles.match(/\.workspace-directories-input-row\s*\{([^}]*)\}/)?.[1] ?? '';
+    const dividedDirectoryInputRowStyles = styles.match(/\.workspace-directories-input-row \+ \.workspace-directories-input-row\s*\{([^}]*)\}/)?.[1] ?? '';
     const primaryDirectoryIndicatorStyles = styles.match(/\.workspace-directory-primary-indicator::before\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceHeadingStyles = styles.match(/\.workspace-overview-layout\s*>\s*\.workspace-overview-heading,\s*\.workspace-activity-form\s*>\s*:is\(\.settings-form-heading\),\s*\.workspace-cleaning-form\s*>\s*:is\(\.settings-form-heading\)\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceHeatmapStyles = styles.match(/\.workspace-activity-grid-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -102,14 +109,24 @@ describe('workspace dashboard', () => {
     expect(overviewLayoutStyles).toContain('margin-inline: auto');
     expect(overviewFormStyles).toContain('font-size: var(--settings-view-font-size)');
     expect(overviewControlStyles).toContain('font-size: var(--settings-view-font-size)');
+    expect(overviewRowDividerStyles).toContain('border-top: 1px solid var(--line)');
     expect(overviewFieldStyles).toContain('font-size: var(--settings-view-font-size)');
+    expect(guidanceHeadingStyles).toContain('justify-content: space-between');
+    expect(guidanceSurfaceStyles).toContain('min-height: 150px');
+    expect(guidanceSurfaceStyles).toContain('background: var(--panel-strong)');
+    expect(guidancePreviewStyles).toContain('resize: vertical');
     expect(overviewStatusStyles).toContain('font-size: var(--settings-view-font-size)');
+    expect(ruleComposerStyles).toContain('padding: 12px');
+    expect(ruleComposerButtonStyles).toContain('padding: 0 10px');
     expect(directoriesWidgetStyles).toContain('background: transparent');
     expect(directoriesWidgetStyles).toContain('padding: 0');
-    expect(overviewDirectoriesStyles).toContain('border-top: 1px solid var(--line)');
-    expect(directoriesHeadingStyles).toContain('border-bottom: 1px solid var(--line)');
-    expect(directoryItemStyles).toContain('background: transparent');
-    expect(dividedDirectoryItemStyles).toContain('border-top: 1px solid var(--line)');
+    expect(directoriesFieldStyles).toContain('align-items: start');
+    expect(directoriesFieldControlStyles).toContain('grid-template-columns: 26px auto');
+    expect(directoriesInputStyles).toContain('width: 220px');
+    expect(directoriesInputStyles).toContain('background: var(--panel-strong)');
+    expect(directoriesInputStyles).toContain('resize: horizontal');
+    expect(directoryInputRowStyles).toContain('grid-template-columns: minmax(0, 1fr) 26px');
+    expect(dividedDirectoryInputRowStyles).toContain('border-top: 1px solid var(--line)');
     expect(primaryDirectoryIndicatorStyles).toContain('background: var(--green)');
     expect(workspaceHeadingStyles).toContain('padding-left: 0');
     expect(workspaceHeatmapStyles).toContain('padding-left: 0');
@@ -302,6 +319,8 @@ describe('workspace dashboard', () => {
     expect(html).toContain('<span>Memory</span>');
     expect(html).toContain('<span>Runbooks</span>');
     expect(html).toContain('<span>Utilities</span>');
+    expect(html.indexOf('<span>Runbooks</span>')).toBeLessThan(html.indexOf('<span>Rules</span>'));
+    expect(html.indexOf('<span>Rules</span>')).toBeLessThan(html.indexOf('<span>Utilities</span>'));
     expect(html).toContain('lucide-layout-dashboard');
     expect(html).toContain('lucide-activity');
     expect(html).toContain('lucide-boxes');
@@ -319,26 +338,36 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('id="workspace-dashboard-utilities-panel"');
     expect(html).toContain('<h2 id="workspace-overview-heading">Parser Workspace</h2>');
     expect(html).toContain('class="settings-form-squircle" aria-labelledby="workspace-overview-heading"');
+    expect(html).toContain('class="settings-form-control-row workspace-overview-control-row workspace-directories-field"');
+    expect(html).not.toContain('class="workspace-directories-widget"');
+    expect(html).toContain('<strong>Workspace Directories</strong>');
+    expect(html).toContain('Local directories included in this workspace.');
     expect(html).toContain('aria-label="Workspace directories"');
     expect(html).toContain('title="/workspaces/parser"');
     expect(html).toContain('title="C:\\Users\\alice\\shared"');
-    expect(html).toContain('<span>~/shared</span>');
+    expect(html).toContain('class="workspace-directories-input-path">~/shared</span>');
     expect(html).toContain('aria-label="Primary directory"');
     expect(html).toContain('title="Primary directory"');
-    expect(html).toContain('aria-label="Make workspace directory primary C:\\Users\\alice\\shared"');
-    expect(html).toContain('title="Make primary directory"');
+    expect(html).not.toContain('Make workspace directory primary');
+    expect(html).not.toContain('title="Make primary directory"');
+    expect(html).toContain('aria-label="Remove workspace directory C:\\Users\\alice\\shared"');
     expect(html).not.toContain('>Primary</small>');
     expect(html).toContain('aria-label="Add workspace directory"');
-    expect(html).not.toContain('Local folders included in this workspace.');
     expect(html).not.toContain('aria-label="Working Directory"');
     expect(html).toMatch(/aria-label="Research Profile"[^>]*disabled=""[^>]*value="Security"/u);
     expect(html).toMatch(/aria-label="Research Subject"[^>]*disabled=""[^>]*value="Parser"/u);
     expect(html).toMatch(/aria-label="Workspace Name"[^>]*required=""[^>]*value="Parser Workspace"/u);
     expect(html.indexOf('aria-label="Research Profile"')).toBeLessThan(html.indexOf('aria-label="Research Subject"'));
     expect(html.indexOf('aria-label="Research Subject"')).toBeLessThan(html.indexOf('aria-label="Workspace Name"'));
-    expect(html.indexOf('aria-label="Workspace Name"')).toBeLessThan(html.indexOf('aria-label="Workspace Description"'));
-    expect(html).toContain('<strong>Workspace Description</strong>');
-    expect(html).toContain('aria-label="Workspace Description"');
+    expect(html.indexOf('aria-label="Workspace Name"')).toBeLessThan(html.indexOf('aria-label="Workspace directories"'));
+    expect(html.indexOf('aria-label="Workspace directories"')).toBeLessThan(html.indexOf('aria-label="Workspace Guidance"'));
+    expect(html).toContain('<strong>Workspace Guidance</strong>');
+    expect(html).toContain('aria-label="Workspace Guidance"');
+    expect(html).toContain('class="workspace-guidance-preview"');
+    expect(html).toContain('title="Edit Workspace Guidance"');
+    expect(html).toContain('Click to add workspace guidance.');
+    expect(html).not.toContain('class="workspace-guidance-editor"');
+    expect(html).not.toContain('>Show Markdown</button>');
     expect(html).toContain('AGENTS.md instructions.');
     expect(html).not.toContain('<strong>Scope &amp; Rules</strong>');
     expect(html).not.toContain('aria-label="Scope &amp; Rules"');
@@ -356,6 +385,49 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('class="workspace-catalog-list runbook-catalog-list');
     expect(html).not.toContain('>Dejunk Now</button>');
     expect(html).not.toContain('>Dream Now</button>');
+  });
+
+  it('uses the blank workspace directories field as the initial directory chooser', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceDirectoriesField, {
+      directories: [],
+      onAdd: () => undefined,
+      onRemove: () => undefined
+    }));
+
+    expect(html).toContain('class="workspace-directories-input-area is-empty"');
+    expect(html).toContain('aria-label="Choose workspace directory"');
+    expect(html).not.toContain('aria-label="Add workspace directory"');
+    expect(html).not.toContain('workspace-directories-input-row');
+  });
+
+  it('renders stored workspace guidance as markdown before editing', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      activeScope: {
+        id: 'scope_guidance',
+        version: 1,
+        status: 'active',
+        workspaceName: 'Parser Workspace',
+        scopeOwner: 'Parser Team',
+        descriptionMarkdown: '# Authorized targets\n\nUse **staging** only.',
+        rulesMarkdown: '',
+        activeFrom: '2026-08-12T00:00:00.000Z',
+        expiresAt: null,
+        createdAt: '2026-08-12T00:00:00.000Z',
+        createdBy: 'local_user',
+        assets: []
+      },
+      busy: false,
+      honeycrispMemory: memorySummary(),
+      memoryDreamingInProgress: false,
+      onRunMemoryDreaming: () => undefined,
+      runs: [],
+      workspaceName: 'Parser Workspace'
+    }));
+
+    expect(html).toContain('class="workspace-guidance-preview"');
+    expect(html).toContain('class="main-trace-markdown"');
+    expect(html).toContain('<h1>Authorized targets</h1>');
+    expect(html).toContain('Use <strong>staging</strong> only.');
   });
 
   it('promotes a workspace directory without dropping the storage root', () => {
@@ -434,6 +506,7 @@ describe('workspace dashboard', () => {
     }));
 
     expect(html).toContain('id="workspace-dashboard-rules-panel"');
+    expect(html).toContain('<h2>Parser Workspace Rules</h2>');
     expect(html).toContain('aria-label="New workspace rule"');
     expect(html).toContain('>Add Rule</button>');
     expect(html).toContain('<li>Do not test production accounts.</li>');
