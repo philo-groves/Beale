@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { RunDetail } from '@shared/types';
-import { activeRunDetailPollMs, shouldReportRunDetailError } from '../src/renderer/hooks/useRunDetailPolling';
+import type { RunDetail, RunRecord } from '@shared/types';
+import { activeRunDetailPollMs, optimisticRunDetail, sessionSetupComplete, shouldReportRunDetailError } from '../src/renderer/hooks/useRunDetailPolling';
 
 describe('renderer run-detail polling', () => {
   it('backs off live polling as retained session history grows', () => {
@@ -18,6 +18,25 @@ describe('renderer run-detail polling', () => {
     expect(shouldReportRunDetailError(detail, 'run_loaded')).toBe(false);
     expect(shouldReportRunDetailError(detail, 'run_other')).toBe(true);
     expect(shouldReportRunDetailError(null, 'run_loaded')).toBe(true);
+  });
+
+  it('primes a new session detail from its durable run record', () => {
+    const detail = optimisticRunDetail({
+      id: 'run_new',
+      status: 'active',
+      promptMarkdown: 'Inspect the parser boundary.',
+      createdAt: '2026-08-20T12:00:00.000Z'
+    } as RunRecord);
+
+    expect(detail.run.id).toBe('run_new');
+    expect(detail.run.promptMarkdown).toBe('Inspect the parser boundary.');
+    expect(detail.traceEvents).toEqual([]);
+    expect(detail.transcriptMessages).toEqual([]);
+    expect(sessionSetupComplete(detail, 'database:1')).toBe(false);
+    expect(sessionSetupComplete(detail, 'honeycrisp:1')).toBe(true);
+
+    detail.attempts = [{}] as RunDetail['attempts'];
+    expect(sessionSetupComplete(detail, 'database:2')).toBe(true);
   });
 });
 

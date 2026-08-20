@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { JSX } from 'react';
-import { ArrowRight, Square } from 'lucide-react';
+import type { JSX, ReactNode } from 'react';
+import { ArrowRight, Shield, Square } from 'lucide-react';
 import type {
   ApprovalRecord,
   PolicyReviewDecision,
@@ -43,9 +43,17 @@ export const MainSteerArea = memo(function MainSteerArea({
   shellApproval = null,
   shellApprovalBusy = false,
   initialModelSelection,
+  initialSafetyMode,
+  initialInstruction = '',
   initialSuggestion,
+  inputPlaceholder,
+  safetyModeOptions = SHELL_SAFETY_MODE_OPTIONS,
+  preComposerContent,
+  postComposerContent,
+  ariaLabel = 'Steer research session',
   responseSuggestionsEnabled = true,
   onInitialInstruction,
+  onCancel,
   onShellApprovalDecision = () => undefined,
   onSessionAction,
   onSteerInstruction
@@ -57,18 +65,26 @@ export const MainSteerArea = memo(function MainSteerArea({
   shellApproval?: ApprovalRecord | null;
   shellApprovalBusy?: boolean;
   initialModelSelection?: ResearchModelSelection;
+  initialSafetyMode?: ShellSafetyMode;
+  initialInstruction?: string;
   initialSuggestion?: string;
+  inputPlaceholder?: string;
+  safetyModeOptions?: Array<{ value: ShellSafetyMode; label: string }>;
+  preComposerContent?: ReactNode;
+  postComposerContent?: ReactNode;
+  ariaLabel?: string;
   responseSuggestionsEnabled?: boolean;
   onInitialInstruction?: (
     instruction: string,
     modelSelection: ResearchModelSelection,
     shellSafetyMode: ShellSafetyMode
   ) => void;
+  onCancel?: () => void;
   onShellApprovalDecision?: (decision: PolicyReviewDecision) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element {
-  const [instruction, setInstruction] = useState('');
+  const [instruction, setInstruction] = useState(initialInstruction);
   const [tabSuggestionVisible, setTabSuggestionVisible] = useState(false);
   const runProviderId = runModelProvider(detail, providerModelCatalog);
   const initialProviderId = detail ? runProviderId : initialModelSelection?.provider ?? runProviderId;
@@ -84,9 +100,11 @@ export const MainSteerArea = memo(function MainSteerArea({
     ? researchEffort(detail.run.reasoningEffort)
     : preferredResearchEffort(initialModel?.effortLevels ?? [], initialModelSelection?.reasoningEffort ?? 'high'));
   const [initialShellSafetyMode, setInitialShellSafetyMode] = useState<ShellSafetyMode>(() =>
-    normalizeShellSafetyMode(detail?.run.shellSafetyMode)
+    normalizeShellSafetyMode(detail?.run.shellSafetyMode ?? initialSafetyMode)
   );
   const footerRef = useRef<HTMLElement | null>(null);
+  const preComposerRef = useRef<HTMLDivElement | null>(null);
+  const postComposerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const focusedRunIdRef = useRef<string | null>(null);
   const trimmedInstruction = instruction.trim();
@@ -161,6 +179,9 @@ export const MainSteerArea = memo(function MainSteerArea({
   ]);
 
   useEffect(() => setTabSuggestionVisible(false), [runId, status, steeringSuggestion]);
+  useEffect(() => {
+    if (!detail) setInstruction(initialInstruction);
+  }, [detail, initialInstruction]);
 
   const resizeTextarea = useCallback((): void => {
     const textarea = textareaRef.current;
@@ -175,7 +196,18 @@ export const MainSteerArea = memo(function MainSteerArea({
     const minHeight = baseMinHeight + lineHeight * STEER_TEXTAREA_DEFAULT_EXTRA_LINES;
     const maxHeight = lineHeight * STEER_TEXTAREA_MAX_LINES + paddingTop + paddingBottom;
     const nextHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
-    const nextFooterHeight = nextHeight + STEER_ACTION_ROW_HEIGHT + STEER_COMPOSER_ROW_GAP;
+    const accessoryOuterHeight = (element: HTMLDivElement | null): number => {
+      if (!element) return 0;
+      const style = window.getComputedStyle(element);
+      const marginTop = Number.parseFloat(style.marginTop) || 0;
+      const marginBottom = Number.parseFloat(style.marginBottom) || 0;
+      return element.offsetHeight + marginTop + marginBottom;
+    };
+    const nextFooterHeight = accessoryOuterHeight(preComposerRef.current)
+      + nextHeight
+      + STEER_ACTION_ROW_HEIGHT
+      + STEER_COMPOSER_ROW_GAP
+      + accessoryOuterHeight(postComposerRef.current);
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
     const sessionView = footer.parentElement;
@@ -183,7 +215,7 @@ export const MainSteerArea = memo(function MainSteerArea({
     sessionView?.style.setProperty('--trace-footer-content-height', `${nextFooterHeight}px`);
   }, []);
 
-  useLayoutEffect(() => resizeTextarea(), [instruction, resizeTextarea, shellApproval, status]);
+  useLayoutEffect(() => resizeTextarea(), [instruction, postComposerContent, preComposerContent, resizeTextarea, shellApproval, status]);
   useEffect(() => {
     window.addEventListener('resize', resizeTextarea);
     return () => window.removeEventListener('resize', resizeTextarea);
@@ -210,10 +242,17 @@ export const MainSteerArea = memo(function MainSteerArea({
   const sessionActive = status === 'active';
   const placeholder = suggestionShowing && steeringSuggestion
     ? steeringSuggestion
-    : sessionActive ? 'Steer the research' : 'Your move';
+    : inputPlaceholder ?? (sessionActive ? 'Steer the research' : 'Your move');
 
   return (
-    <footer className="main-trace-footer" ref={footerRef} aria-label="Steer research session">
+    <footer
+      className={`main-trace-footer${preComposerContent ? ' has-pre-composer-content' : ''}${postComposerContent ? ' has-post-composer-content' : ''}`}
+      ref={footerRef}
+      aria-label={ariaLabel}
+    >
+      {preComposerContent ? (
+        <div className="main-steer-pre-composer-content" ref={preComposerRef}>{preComposerContent}</div>
+      ) : null}
       <div className="main-steer-input-row without-trace-filters">
         <textarea
           ref={textareaRef}
@@ -225,6 +264,11 @@ export const MainSteerArea = memo(function MainSteerArea({
             setTabSuggestionVisible(false);
           }}
           onKeyDown={(event) => {
+            if (event.key === 'Escape' && onCancel) {
+              event.preventDefault();
+              onCancel();
+              return;
+            }
             if (event.key === 'Tab' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
               const action = steeringInputTabAction({ instruction, suggestion: steeringSuggestion, suggestionShowing });
               if (action !== 'none') {
@@ -246,8 +290,9 @@ export const MainSteerArea = memo(function MainSteerArea({
         />
         <FloatingTextPicker
           className={`main-steer-safety-mode-picker mode-${shellSafetyMode}`}
+          leadingIcon={<Shield aria-hidden="true" className="main-steer-safety-mode-icon" size={13} />}
           value={shellSafetyMode}
-          options={SHELL_SAFETY_MODE_OPTIONS}
+          options={safetyModeOptions}
           title="Shell safety mode"
           ariaLabel="Shell safety mode"
           disabled={busy || status === 'paused' || (!runId && !onInitialInstruction)}
@@ -307,6 +352,9 @@ export const MainSteerArea = memo(function MainSteerArea({
           </button>
         )}
       </div>
+      {postComposerContent ? (
+        <div className="main-steer-post-composer-content" ref={postComposerRef}>{postComposerContent}</div>
+      ) : null}
     </footer>
   );
 });

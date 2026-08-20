@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import type { RunDetail, RunDetailProjection, RunStatus } from '@shared/types';
+import type { RunDetail, RunDetailProjection, RunRecord, RunStatus } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming } from '../devInstrumentation';
 import { errorMessage } from '../lib/errors';
 import {
@@ -28,9 +28,12 @@ export function useRunDetailPolling({
   onError: (message: string) => void;
 }): {
   runDetail: RunDetail | null;
+  sessionSetupPending: boolean;
   clearRunDetail: () => void;
+  primeRunDetail: (run: RunRecord) => void;
 } {
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
+  const [setupPendingRunId, setSetupPendingRunId] = useState<string | null>(null);
   const requestSeqRef = useRef(0);
   const versionRef = useRef<string | null>(null);
   const projectionRef = useRef<RunDetailProjection | null>(null);
@@ -45,7 +48,19 @@ export function useRunDetailPolling({
     projectionRef.current = null;
     detailRef.current = null;
     setRunDetail(null);
+    setSetupPendingRunId(null);
   }, []);
+
+  const primeRunDetail = useCallback((run: RunRecord): void => {
+    requestSeqRef.current += 1;
+    window.beale.cancelRunDetailRequests();
+    const detail = optimisticRunDetail(run);
+    versionRef.current = null;
+    projectionRef.current = projection;
+    detailRef.current = detail;
+    setRunDetail(detail);
+    setSetupPendingRunId(run.id);
+  }, [projection]);
 
   useEffect(() => {
     const requestSeq = ++requestSeqRef.current;
@@ -59,6 +74,7 @@ export function useRunDetailPolling({
       projectionRef.current = projection;
       detailRef.current = null;
       setRunDetail(null);
+      setSetupPendingRunId(null);
     } else if (projectionRef.current !== projection) {
       versionRef.current = null;
       projectionRef.current = projection;
@@ -108,6 +124,9 @@ export function useRunDetailPolling({
           consecutiveFailures = 0;
           if (!result) return;
           const { detail, version, update } = result;
+          if (!disposed && requestSeq === requestSeqRef.current && sessionSetupComplete(detail, version)) {
+            setSetupPendingRunId((current) => current === selectedRunId ? null : current);
+          }
           if (update) {
             devInstrumentation.recordPayload('ipc.getRunDetailUpdate.payload', update, runDetailUpdateMetricDetail(update));
           } else {
@@ -167,7 +186,41 @@ export function useRunDetailPolling({
     };
   }, [clearRunDetail, onError, projection, refreshKey, selectedRunId, selectedRunState]);
 
-  return { runDetail, clearRunDetail };
+  return {
+    runDetail,
+    sessionSetupPending: setupPendingRunId === runDetail?.run.id,
+    clearRunDetail,
+    primeRunDetail
+  };
+}
+
+export function optimisticRunDetail(run: RunRecord): RunDetail {
+  return {
+    run,
+    researchProfile: null,
+    nextStepSuggestions: null,
+    attempts: [],
+    traceEvents: [],
+    transcriptMessages: [],
+    breakoutRooms: [],
+    breakoutRoomMembers: [],
+    breakoutRoomMessages: [],
+    artifacts: [],
+    verifierContracts: [],
+    verifierRuns: [],
+    modelSessions: [],
+    contextCompactions: [],
+    policyEvents: [],
+    exports: []
+  };
+}
+
+export function sessionSetupComplete(detail: RunDetail, version: string): boolean {
+  return version.startsWith('honeycrisp:')
+    || detail.run.status !== 'active'
+    || detail.attempts.length > 0
+    || detail.traceEvents.length > 0
+    || detail.transcriptMessages.length > 0;
 }
 
 export function activeRunDetailPollMs(detail: RunDetail | null, consecutiveFailures = 0): number {

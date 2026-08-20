@@ -222,8 +222,9 @@ describe('workspace dashboard', () => {
     expect(housekeepingCardStyles).not.toContain('--workspace-card-glass');
     expect(housekeepingCardStyles).not.toContain('outline');
     expect(mediumHeatCardStyles).toContain(
-      '--session-heat-edge: color-mix(in srgb, var(--session-heat-medium-color) 48%, var(--panel-border))'
+      '--session-heat-edge: var(--session-heat-medium-color)'
     );
+    expect(mediumHeatCardStyles).not.toContain('color-mix');
     expect(mediumHeatCardStyles).toContain(
       '--workspace-card-surface: var(--session-heat-edge)'
     );

@@ -15,6 +15,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry,
   workspaceRegistryLoading = false,
   selectedRunId,
+  newResearchActive = false,
   automationsActive = false,
   reportsActive = false,
   pluginsActive = false,
@@ -35,6 +36,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry: WorkspaceRegistryState | null;
   workspaceRegistryLoading?: boolean;
   selectedRunId: string | null;
+  newResearchActive?: boolean;
   automationsActive?: boolean;
   reportsActive?: boolean;
   pluginsActive?: boolean;
@@ -74,7 +76,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           : sessions
       };
     })
-    .filter(({ sessions }) => !filteringSessions || sessions.length > 0);
+    .filter(({ workspace, sessions }) => (
+      !filteringSessions
+      || sessions.length > 0
+      || (newResearchActive && snapshot?.workspace.workspacePath === workspace.workspacePath)
+    ));
   const listUpdateKey = [
     workspaceRegistryLoading,
     workspaces.length,
@@ -160,7 +166,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             ) : null}
             {workspaceRows.map(({ workspace, sessions }) => {
               const workspaceLoaded = snapshot?.workspace.workspacePath === workspace.workspacePath;
-              const dashboardActive = workspaceLoaded && selectedRunId === null && !automationsActive && !reportsActive && !pluginsActive;
+              const newResearchSessionActive = workspaceLoaded && newResearchActive;
+              const dashboardActive = workspaceLoaded && selectedRunId === null && !newResearchActive && !automationsActive && !reportsActive && !pluginsActive;
               const sessionsExpanded = expandedWorkspaceIds.has(workspace.id);
               const visibleSessions = filteringSessions ? sessions : sessions.slice(0, SIDEBAR_SESSION_LIMIT);
               const hiddenSessions = filteringSessions ? [] : sessions.slice(SIDEBAR_SESSION_LIMIT);
@@ -169,7 +176,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                   <div className="workspace-session-row" key={session.id}>
                     <button
                       type="button"
-                      className={`workspace-session-item ${selectedRunId === session.runId ? 'active' : ''}`}
+                      className={`workspace-session-item ${!newResearchActive && selectedRunId === session.runId ? 'active' : ''}`}
                       title={promptSessionTitle(session)}
                       onClick={() => onOpenResearchSession(workspace, session)}
                     >
@@ -202,11 +209,24 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                     </button>
                   </div>
                   <div className="workspace-session-list">
+                    {newResearchSessionActive ? (
+                      <div className="workspace-session-row workspace-new-research-session-row">
+                        <button
+                          type="button"
+                          className="workspace-session-item workspace-new-research-session-item active"
+                          aria-current="page"
+                          onClick={onStartNewResearch}
+                        >
+                          <span className="workspace-new-research-session-indent" aria-hidden="true" />
+                          <span className="workspace-session-title">{newResearchLabel}</span>
+                        </button>
+                      </div>
+                    ) : null}
                     {visibleSessions.length > 0 ? (
                       visibleSessions.map(renderSession)
-                    ) : (
+                    ) : !newResearchSessionActive ? (
                       <span className="workspace-session-empty">No {sessionLabel} Yet...</span>
-                    )}
+                    ) : null}
                     {hiddenSessions.length > 0 ? (
                       <>
                         <div

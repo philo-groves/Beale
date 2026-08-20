@@ -20,9 +20,13 @@ export const AppHeaderTitle = memo(function AppHeaderTitle({
   breakoutRoomTitle?: string | null;
 }): JSX.Element {
   const workspaceLabel = displayWorkspaceHeaderName(workspaceName);
-  const sessionTitle = detail ? displaySessionTitle(detail.run.title, detail.run.promptMarkdown) : null;
-  const workspaceViewLabel = !detail && workspaceViewTitle?.trim() ? workspaceViewTitle.trim() : null;
-  const breakoutRoomLabel = breakoutRoomTitle ? displayBreakoutRoomTitle(breakoutRoomTitle) : null;
+  const workspaceViewLabel = workspaceViewTitle?.trim() || null;
+  const sessionTitle = !workspaceViewLabel && detail
+    ? displaySessionTitle(detail.run.title, detail.run.promptMarkdown)
+    : null;
+  const breakoutRoomLabel = !workspaceViewLabel && breakoutRoomTitle
+    ? displayBreakoutRoomTitle(breakoutRoomTitle)
+    : null;
   const headerSegments = [
     workspaceLabel,
     ...(workspaceViewLabel ? [workspaceViewLabel] : []),
