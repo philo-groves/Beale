@@ -18,7 +18,7 @@ const TOOLS = [
         workspacePath: { type: 'string' },
         kind: {
           type: 'string',
-          enum: ['domain', 'host', 'ip_range', 'repo', 'binary', 'path', 'account', 'credential_ref', 'service', 'documentation', 'other']
+          enum: ['domain', 'repo', 'binary', 'service', 'documentation', 'other']
         },
         direction: { type: 'string', enum: ['in_scope', 'out_of_scope'] }
       },
@@ -35,12 +35,13 @@ const TOOLS = [
         workspacePath: { type: 'string' },
         kind: {
           type: 'string',
-          enum: ['domain', 'host', 'ip_range', 'repo', 'binary', 'path', 'account', 'credential_ref', 'service', 'documentation', 'other']
+          enum: ['domain', 'repo', 'binary', 'service', 'documentation', 'other']
         },
         value: { type: 'string' },
         direction: { type: 'string', enum: ['in_scope', 'out_of_scope'], default: 'in_scope' },
         sensitivity: { type: 'string', default: 'internal' },
         displayName: { type: 'string' },
+        clonedDirectory: { type: 'string', description: 'Repository checkout directory. Only valid for repository resources.' },
         attributes: { type: 'object', additionalProperties: true }
       },
       required: ['kind', 'value'],
@@ -58,12 +59,13 @@ const TOOLS = [
         resourceId: { type: 'string' },
         kind: {
           type: 'string',
-          enum: ['domain', 'host', 'ip_range', 'repo', 'binary', 'path', 'account', 'credential_ref', 'service', 'documentation', 'other']
+          enum: ['domain', 'repo', 'binary', 'service', 'documentation', 'other']
         },
         value: { type: 'string' },
         direction: { type: 'string', enum: ['in_scope', 'out_of_scope'] },
         sensitivity: { type: 'string' },
         displayName: { type: 'string', description: 'Set to an empty string to remove the display name.' },
+        clonedDirectory: { type: 'string', description: 'Set the repository checkout directory, or use an empty string to clear it.' },
         attributes: { type: 'object', description: 'Attributes to merge into the existing resource metadata.', additionalProperties: true }
       },
       required: ['resourceId'],

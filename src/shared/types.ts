@@ -6,16 +6,21 @@ export type ScopeAssetDirection = 'in_scope' | 'out_of_scope';
 
 export type ScopeAssetKind =
   | 'domain'
-  | 'host'
-  | 'ip_range'
   | 'repo'
   | 'binary'
-  | 'path'
-  | 'account'
-  | 'credential_ref'
   | 'service'
   | 'documentation'
   | 'other';
+
+export type LegacyScopeAssetKind = 'path' | 'host' | 'ip_range' | 'account' | 'credential_ref';
+
+export interface ScopeAssetAttributes {
+  [key: string]: unknown;
+  displayName?: string;
+  repositoryUrl?: string;
+  clonedDirectory?: string;
+  legacyKind?: LegacyScopeAssetKind;
+}
 
 export type RunStatus =
   | 'queued'
@@ -130,13 +135,47 @@ export interface ScopeAssetInput {
   kind: ScopeAssetKind;
   value: string;
   sensitivity: string;
-  attributes?: Record<string, unknown>;
+  attributes?: ScopeAssetAttributes;
 }
 
 export interface ScopeAsset extends ScopeAssetInput {
   id: string;
   scopeVersionId: string;
   createdAt: string;
+}
+
+export const SCOPE_ASSET_KINDS: readonly ScopeAssetKind[] = [
+  'domain',
+  'repo',
+  'binary',
+  'service',
+  'documentation',
+  'other'
+];
+
+const LEGACY_SCOPE_ASSET_KINDS: ReadonlySet<string> = new Set([
+  'path',
+  'host',
+  'ip_range',
+  'account',
+  'credential_ref'
+]);
+
+export function scopeAssetLegacyKind(asset: Pick<ScopeAssetInput, 'attributes'>): LegacyScopeAssetKind | null {
+  const value = asset.attributes?.legacyKind;
+  return typeof value === 'string' && LEGACY_SCOPE_ASSET_KINDS.has(value)
+    ? value as LegacyScopeAssetKind
+    : null;
+}
+
+export function isCredentialReferenceResource(asset: Pick<ScopeAssetInput, 'attributes'>): boolean {
+  const legacyKind = scopeAssetLegacyKind(asset);
+  return legacyKind === 'account' || legacyKind === 'credential_ref';
+}
+
+export function repositoryClonedDirectory(asset: Pick<ScopeAssetInput, 'kind' | 'attributes'>): string | null {
+  const value = asset.kind === 'repo' ? asset.attributes?.clonedDirectory : null;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 export interface WorkspaceScopeDraft {

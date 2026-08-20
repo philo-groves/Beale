@@ -312,7 +312,7 @@ describe('architecture conformance', () => {
       descriptionMarkdown: 'Architecture conformance scope.',
       rulesMarkdown: 'Stay inside local fixtures.',
       expiresAt: null,
-      assets: [asset('in_scope', 'path', '/targets/architecture-fixture'), asset('out_of_scope', 'domain', 'blocked.example.test')]
+      assets: [asset('in_scope', 'other', '/targets/architecture-fixture'), asset('out_of_scope', 'domain', 'blocked.example.test')]
     });
 
     const snapshot = startRunForTest(service, { ...runInput(), fixtureScenario: 'verifier_pass' });

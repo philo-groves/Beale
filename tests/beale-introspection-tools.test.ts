@@ -90,6 +90,7 @@ describe('Beale introspection tools', () => {
         kind: 'repo',
         value: 'https://github.com/example/first',
         displayName: 'First repository',
+        clonedDirectory: join(workspace, 'repositories', 'first'),
         attributes: { branch: 'main' }
       }) as ResourceToolResult;
       expect(added.scopeVersion).toBe(2);
@@ -102,7 +103,8 @@ describe('Beale introspection tools', () => {
         attributes: {
           branch: 'main',
           displayName: 'First repository',
-          repositoryUrl: 'https://github.com/example/first'
+          repositoryUrl: 'https://github.com/example/first',
+          clonedDirectory: join(workspace, 'repositories', 'first')
         }
       });
 
@@ -116,6 +118,7 @@ describe('Beale introspection tools', () => {
       const edited = await introspection.invokeBealeIntrospectionTool('edit_resource', {
         resourceId: added.resources[0].id,
         value: 'https://github.com/example/second',
+        clonedDirectory: join(workspace, 'repositories', 'second'),
         displayName: 'Second repository',
         sensitivity: 'public'
       }) as ResourceToolResult;
@@ -126,7 +129,8 @@ describe('Beale introspection tools', () => {
         attributes: {
           branch: 'main',
           displayName: 'Second repository',
-          repositoryUrl: 'https://github.com/example/second'
+          repositoryUrl: 'https://github.com/example/second',
+          clonedDirectory: join(workspace, 'repositories', 'second')
         }
       });
 

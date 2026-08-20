@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs';
 import { basename, isAbsolute, resolve } from 'node:path';
+import { repositoryClonedDirectory } from '../shared/types';
 import type { RunRecord, ScopeAsset } from '@shared/types';
 
-const LOCAL_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['path', 'repo', 'binary', 'documentation', 'other']);
+const LOCAL_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['repo', 'binary', 'documentation', 'other']);
 const GENERIC_ALIASES: ReadonlySet<string> = new Set(['asset', 'assets', 'code', 'edit', 'github', 'primary', 'repo', 'scope', 'scopes', 'source', 'target']);
 
 export interface RunTargetSelectionInput {
@@ -82,7 +83,7 @@ export function localRunTargetPath(assets: ScopeAsset[], run: Pick<RunRecord, 't
 
 export function scopedLocalPath(asset: ScopeAsset): string | null {
   if (!isScopedLocalAsset(asset)) return null;
-  return resolve(asset.value);
+  return resolve(repositoryClonedDirectory(asset) ?? asset.value);
 }
 
 function isScopedLocalPath(path: string, assets: ScopeAsset[]): boolean {
@@ -105,15 +106,17 @@ function scoreTargetAsset(asset: ScopeAsset, input: RunTargetSelectionInput): nu
 
 function targetAliases(asset: ScopeAsset): string[] {
   const aliases = new Set<string>();
+  const localPath = repositoryClonedDirectory(asset) ?? asset.value;
   aliases.add(asset.value);
   aliases.add(wildcardStrippedValue(asset.value));
-  if (isScopedLocalAsset(asset)) aliases.add(basename(asset.value));
-  if (isAbsolute(asset.value)) aliases.add(resolve(asset.value));
+  if (isScopedLocalAsset(asset)) aliases.add(basename(localPath));
+  if (isAbsolute(localPath)) aliases.add(resolve(localPath));
   if (looksLikeUrl(asset.value)) aliases.add(repositoryNameFromUrl(asset.value));
   addStringAttributeAlias(aliases, asset.attributes?.displayName);
   addStringAttributeAlias(aliases, asset.attributes?.repositoryUrl);
   addStringAttributeAlias(aliases, asset.attributes?.sourcePath);
   addStringAttributeAlias(aliases, asset.attributes?.localPath);
+  addStringAttributeAlias(aliases, asset.attributes?.clonedDirectory);
   if (asset.kind === 'repo') {
     addRepositoryNameAlias(aliases, asset.value);
     addRepositoryNameAlias(aliases, stringAttribute(asset.attributes?.repositoryUrl));
@@ -184,7 +187,12 @@ function repositoryNameFromMaterializedSlug(value: string): string | null {
 }
 
 function isScopedLocalAsset(asset: ScopeAsset): boolean {
-  return asset.direction === 'in_scope' && LOCAL_ASSET_KINDS.has(asset.kind) && isAbsolute(asset.value) && existsSync(asset.value) && !looksLikeUrl(asset.value);
+  const localPath = repositoryClonedDirectory(asset) ?? asset.value;
+  return asset.direction === 'in_scope'
+    && LOCAL_ASSET_KINDS.has(asset.kind)
+    && isAbsolute(localPath)
+    && existsSync(localPath)
+    && !looksLikeUrl(localPath);
 }
 
 function repositoryNameFromUrl(value: string): string {

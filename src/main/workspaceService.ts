@@ -100,7 +100,13 @@ import { isResearchProfileId, RESEARCH_PROFILE_IDS } from '../shared/researchPro
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { DEFAULT_SHELL_SAFETY_MODE, normalizeShellSafetyMode } from '../shared/shellSafety';
 import { isProviderModelEnabled } from '../shared/optionalProviderModels';
-import { isLiveResearchRunStatus } from '../shared/types';
+import {
+  isCredentialReferenceResource,
+  isLiveResearchRunStatus,
+  repositoryClonedDirectory,
+  SCOPE_ASSET_KINDS,
+  scopeAssetLegacyKind
+} from '../shared/types';
 import { isHoneycrispToolTraceEvent, projectRunDetailForRenderer } from '../shared/runDetailProjection';
 import type {
   ApprovalRecord,
@@ -1805,9 +1811,8 @@ export class WorkspaceService {
     const existing = runtime.db.getActiveScope().assets.find((asset) => (
       asset.kind === 'repo'
       && asset.direction === 'in_scope'
-      && isAbsolute(asset.value)
-      && existsSync(join(asset.value, '.git'))
-      && normalizeSourceRepositoryUrl(stringValue(asset.attributes?.repositoryUrl, ''))?.toLowerCase() === repositoryUrl.toLowerCase()
+      && repositoryResourceUrl(asset)?.toLowerCase() === repositoryUrl.toLowerCase()
+      && repositoryCheckoutExists(asset)
     ));
     if (existing) return this.snapshotForRuntime(runtime);
 
@@ -1820,59 +1825,34 @@ export class WorkspaceService {
       label: sourceAsset.value,
       sourceAssetId,
       sourceAssetKind: sourceAsset.kind,
-      sensitivity: sourceAsset.sensitivity
+      sensitivity: sourceAsset.sensitivity,
+      clonedDirectory: repositoryClonedDirectory(sourceAsset)
     }, '', {
       repositoryStoreDirectory:
         this.options.repositoryStoreDirectory ?? defaultSourceRepositoryStoreDirectory(this.options.workspaceRegistryDirectory)
     });
 
     const latestScope = runtime.db.getActiveScope();
-    const latestSourceAsset = latestScope.assets.find((asset) => (
-      asset.kind === 'repo'
-      && asset.direction === 'in_scope'
-      && (normalizeSourceRepositoryUrl(stringValue(asset.attributes?.repositoryUrl, ''))
-        ?? normalizeSourceRepositoryUrl(asset.value))?.toLowerCase() === repositoryUrl.toLowerCase()
-    ));
+    const latestSourceAssetId = preferredRepositoryResourceId(
+      latestScope.assets.filter((asset) => asset.kind === 'repo' && asset.direction === 'in_scope'),
+      repositoryUrl
+    );
+    const latestSourceAsset = latestScope.assets.find((asset) => asset.id === latestSourceAssetId);
     if (!latestSourceAsset) {
       throw new Error('Repository resource is no longer in scope; the managed checkout was not attached to the workspace.');
     }
-    const alreadyRecorded = latestScope.assets.some((asset) => (
-      asset.kind === 'repo'
-      && isAbsolute(asset.value)
-      && resolve(asset.value).toLowerCase() === resolve(materialized.localPath).toLowerCase()
-    ));
-    if (!alreadyRecorded) {
-      runtime.db.saveScope({
-        workspaceName: latestScope.workspaceName,
-        scopeOwner: latestScope.scopeOwner,
-        descriptionMarkdown: '',
-        rulesMarkdown: '',
-        expiresAt: latestScope.expiresAt,
-        assets: [
-          ...latestScope.assets.map(scopeAssetInput),
-          {
-            direction: 'in_scope',
-            kind: 'repo',
-            value: materialized.localPath,
-            sensitivity: latestSourceAsset.sensitivity,
-            attributes: {
-              source: 'beale_workspace_resource',
-              sourceStorage: 'user_global',
-              sourceReferenceVersion: 1,
-              repositoryUrl: materialized.repositoryUrl,
-              sourceAssetId: latestSourceAsset.id,
-              head: materialized.head,
-              materializedRef: materialized.ref ?? '',
-              cloned: materialized.cloned,
-              headRefName: materialized.headRefName,
-              headDescribe: materialized.headDescribe,
-              requestedRefHead: materialized.requestedRefHead,
-              requestedRefMatchesHead: materialized.requestedRefMatchesHead
-            }
-          }
-        ]
-      }, { refreshInventory: false });
-    }
+    runtime.db.saveScope({
+      workspaceName: latestScope.workspaceName,
+      scopeOwner: latestScope.scopeOwner,
+      descriptionMarkdown: '',
+      rulesMarkdown: '',
+      expiresAt: latestScope.expiresAt,
+      assets: latestScope.assets
+        .filter((asset) => asset.id === latestSourceAsset.id || !isLegacyRepositoryCheckout(asset, repositoryUrl))
+        .map((asset) => asset.id === latestSourceAsset.id
+          ? repositoryResourceWithCheckout(asset, materialized, 'beale_workspace_resource')
+          : scopeAssetInput(asset))
+    }, { refreshInventory: false });
     this.emitRuntimeChange(runtime.workspacePath);
     return this.snapshotForRuntime(runtime);
   }
@@ -1961,7 +1941,7 @@ export class WorkspaceService {
     const candidates = sourceRepositoryCandidates(scope).filter((candidate) => job.repositories.has(candidate.url.toLowerCase()));
     if (candidates.length === 0) return;
 
-    const materializedAssets: ScopeAssetInput[] = [];
+    const materializedRepositories = new Map<string, Awaited<ReturnType<typeof materializeGitRepositoryAsync>>>();
     for (const candidate of candidates) {
       const key = candidate.url.toLowerCase();
       const row = job.repositories.get(key);
@@ -1982,26 +1962,7 @@ export class WorkspaceService {
             this.options.repositoryStoreDirectory ?? defaultSourceRepositoryStoreDirectory(this.options.workspaceRegistryDirectory)
         });
         const latest = job.repositories.get(key) ?? row;
-        materializedAssets.push({
-          direction: 'in_scope',
-          kind: 'repo',
-          value: materialized.localPath,
-          sensitivity: candidate.sensitivity,
-          attributes: {
-            source: 'beale_onboarding_index',
-            sourceStorage: 'user_global',
-            sourceReferenceVersion: 1,
-            repositoryUrl: materialized.repositoryUrl,
-            sourceAssetId: candidate.sourceAssetId,
-            head: materialized.head,
-            materializedRef: materialized.ref ?? '',
-            cloned: materialized.cloned,
-            headRefName: materialized.headRefName,
-            headDescribe: materialized.headDescribe,
-            requestedRefHead: materialized.requestedRefHead,
-            requestedRefMatchesHead: materialized.requestedRefMatchesHead
-          }
-        });
+        materializedRepositories.set(key, materialized);
         job.repositories.set(key, {
           ...latest,
           stage: 'index_queued',
@@ -2029,7 +1990,7 @@ export class WorkspaceService {
         this.emitOnboardingRepositoryProgress(job);
       }
     }
-    if (materializedAssets.length === 0) {
+    if (materializedRepositories.size === 0) {
       job.phase = 'complete';
       this.emitOnboardingRepositoryProgress(job);
       return;
@@ -2038,15 +1999,37 @@ export class WorkspaceService {
     const latestRuntime = this.runtimeForWorkspacePath(job.workspacePath);
     if (!latestRuntime) return;
     const latestScope = latestRuntime.db.getActiveScope();
-    const existingLocalPaths = new Set(latestScope.assets.map((asset) => (isAbsolute(asset.value) ? resolve(asset.value).toLowerCase() : asset.value.toLowerCase())));
-    const nextAssets: ScopeAssetInput[] = latestScope.assets.map(scopeAssetInput);
-    for (const asset of materializedAssets) {
-      const localKey = resolve(asset.value).toLowerCase();
-      if (existingLocalPaths.has(localKey)) continue;
-      nextAssets.push(asset);
-      existingLocalPaths.add(localKey);
-    }
-    if (nextAssets.length === latestScope.assets.length) {
+    const repositoryResourceIds = new Map(
+      [...materializedRepositories.keys()].map((repositoryUrl) => [
+        repositoryUrl,
+        preferredRepositoryResourceId(latestScope.assets, repositoryUrl)
+      ])
+    );
+    let changed = false;
+    const nextAssets = latestScope.assets
+      .filter((asset) => {
+        const repositoryUrl = repositoryResourceUrl(asset);
+        const key = repositoryUrl?.toLowerCase() ?? '';
+        const remove = Boolean(
+          key
+          && materializedRepositories.has(key)
+          && repositoryResourceIds.get(key) !== asset.id
+          && isAbsolute(asset.value)
+        );
+        if (remove) changed = true;
+        return !remove;
+      })
+      .map((asset) => {
+        const repositoryUrl = repositoryResourceUrl(asset);
+        const key = repositoryUrl?.toLowerCase() ?? '';
+        const materialized = key && repositoryResourceIds.get(key) === asset.id
+          ? materializedRepositories.get(key)
+          : null;
+        if (!materialized) return scopeAssetInput(asset);
+        changed = true;
+        return repositoryResourceWithCheckout(asset, materialized, 'beale_onboarding_index');
+      });
+    if (!changed) {
       for (const [key, row] of job.repositories) {
         if (row.stage === 'index_queued') {
           job.repositories.set(key, { ...row, stage: 'indexed', message: 'Repository already available in the workspace.', updatedAt: nowIso() });
@@ -2900,16 +2883,16 @@ export class WorkspaceService {
 
     const existingLocalUrls = new Set(
       scope.assets
-        .filter((asset) => asset.direction === 'in_scope' && isAbsolute(asset.value) && existsSync(asset.value))
-        .map((asset) => normalizeSourceRepositoryUrl(stringValue(asset.attributes?.repositoryUrl, '')))
+        .filter((asset) => asset.direction === 'in_scope' && repositoryCheckoutExists(asset))
+        .map(repositoryResourceUrl)
         .filter((url): url is string => Boolean(url))
         .map((url) => url.toLowerCase())
     );
     const pendingUrls = repositoryUrls.filter((url) => !existingLocalUrls.has(url.toLowerCase()));
     if (pendingUrls.length === 0) return;
     const candidatesByUrl = new Map(sourceRepositoryCandidates(scope).map((candidate) => [candidate.url.toLowerCase(), candidate]));
-    const materializedAssets: ScopeAssetInput[] = [];
     const repositoryAssets: ScopeAssetInput[] = [];
+    const materializedRepositories = new Map<string, Awaited<ReturnType<typeof materializeGitRepositoryAsync>>>();
     for (const repositoryUrl of pendingUrls) {
       const key = repositoryUrl.toLowerCase();
       const existingCandidate = candidatesByUrl.get(key);
@@ -2918,14 +2901,15 @@ export class WorkspaceService {
         label: repositoryUrl,
         sourceAssetId: `run_prompt:${repositoryUrl}`,
         sourceAssetKind: 'repo' as const,
-        sensitivity: 'public'
+        sensitivity: 'public',
+        clonedDirectory: null
       };
       const materialized = await materializeGitRepositoryAsync(candidate, '', {
         repositoryStoreDirectory:
           this.options.repositoryStoreDirectory ?? defaultSourceRepositoryStoreDirectory(this.options.workspaceRegistryDirectory)
       });
       if (!existingCandidate) {
-        repositoryAssets.push({
+        repositoryAssets.push(repositoryResourceWithCheckout({
           direction: 'in_scope',
           kind: 'repo',
           value: repositoryUrl,
@@ -2935,39 +2919,49 @@ export class WorkspaceService {
             repositoryUrl,
             explicitlyRequestedByUser: true
           }
-        });
+        }, materialized, 'beale_run_source'));
       }
-      materializedAssets.push({
-        direction: 'in_scope',
-        kind: 'repo',
-        value: materialized.localPath,
-        sensitivity: candidate.sensitivity,
-        attributes: {
-          source: 'beale_run_source',
-          sourceStorage: 'user_global',
-          sourceReferenceVersion: 1,
-          repositoryUrl: materialized.repositoryUrl,
-          sourceAssetId: candidate.sourceAssetId,
-          head: materialized.head,
-          materializedRef: materialized.ref ?? '',
-          cloned: materialized.cloned,
-          headRefName: materialized.headRefName,
-          headDescribe: materialized.headDescribe,
-          requestedRefHead: materialized.requestedRefHead,
-          requestedRefMatchesHead: materialized.requestedRefMatchesHead
-        }
-      });
+      materializedRepositories.set(key, materialized);
     }
 
-    const nextAssets = scope.assets.map(scopeAssetInput);
+    const repositoryResourceIds = new Map(
+      [...materializedRepositories.keys()].map((repositoryUrl) => [
+        repositoryUrl,
+        preferredRepositoryResourceId(scope.assets, repositoryUrl)
+      ])
+    );
+    let changed = repositoryAssets.length > 0;
+    const nextAssets = scope.assets
+      .filter((asset) => {
+        const repositoryUrl = repositoryResourceUrl(asset);
+        const key = repositoryUrl?.toLowerCase() ?? '';
+        const remove = Boolean(
+          key
+          && materializedRepositories.has(key)
+          && repositoryResourceIds.get(key) !== asset.id
+          && isAbsolute(asset.value)
+        );
+        if (remove) changed = true;
+        return !remove;
+      })
+      .map((asset) => {
+        const repositoryUrl = repositoryResourceUrl(asset);
+        const key = repositoryUrl?.toLowerCase() ?? '';
+        const materialized = key && repositoryResourceIds.get(key) === asset.id
+          ? materializedRepositories.get(key)
+          : null;
+        if (!materialized) return scopeAssetInput(asset);
+        changed = true;
+        return repositoryResourceWithCheckout(asset, materialized, 'beale_run_source');
+      });
     const existingValues = new Set(nextAssets.map((asset) => `${asset.kind}:${asset.value.toLowerCase()}`));
-    for (const asset of [...repositoryAssets, ...materializedAssets]) {
+    for (const asset of repositoryAssets) {
       const key = `${asset.kind}:${asset.value.toLowerCase()}`;
       if (existingValues.has(key)) continue;
       nextAssets.push(asset);
       existingValues.add(key);
     }
-    if (nextAssets.length === scope.assets.length) return;
+    if (!changed) return;
     db.saveScope(
       {
         workspaceName: scope.workspaceName,
@@ -4963,8 +4957,13 @@ function mergeRecoveryReports(
 function buildPolicyReview(scope: WorkspaceScopeVersion): WorkspacePolicyReview {
   const inScope = scope.assets.filter((asset) => asset.direction === 'in_scope');
   const outOfScope = scope.assets.filter((asset) => asset.direction === 'out_of_scope');
-  const localImportAssetCount = inScope.filter((asset) => ['path', 'repo', 'binary', 'documentation', 'other'].includes(asset.kind)).length;
-  const credentialReferenceCount = inScope.filter((asset) => asset.kind === 'credential_ref' || asset.kind === 'account').length;
+  const localImportAssetCount = inScope.filter((asset) => (
+    asset.kind === 'repo'
+    || asset.kind === 'binary'
+    || asset.kind === 'documentation'
+    || (asset.kind === 'other' && (!scopeAssetLegacyKind(asset) || scopeAssetLegacyKind(asset) === 'path'))
+  )).length;
+  const credentialReferenceCount = inScope.filter(isCredentialReferenceResource).length;
   const warnings: string[] = [];
   if (inScope.length === 0) warnings.push('No in-scope assets are recorded.');
   if (credentialReferenceCount > 0) warnings.push('Credential references require explicit host-side approval before injection.');
@@ -5218,6 +5217,74 @@ function scopeAssetInput(asset: WorkspaceScopeVersion['assets'][number]): ScopeA
   };
 }
 
+function repositoryResourceUrl(asset: Pick<ScopeAssetInput, 'kind' | 'value' | 'attributes'>): string | null {
+  if (asset.kind !== 'repo') return null;
+  return normalizeSourceRepositoryUrl(stringValue(asset.attributes?.repositoryUrl, ''))
+    ?? normalizeSourceRepositoryUrl(asset.value);
+}
+
+function repositoryCheckoutExists(asset: Pick<ScopeAssetInput, 'kind' | 'value' | 'attributes'>): boolean {
+  const directory = repositoryClonedDirectory(asset) ?? (isAbsolute(asset.value) ? asset.value : null);
+  return Boolean(directory && existsSync(join(directory, '.git')));
+}
+
+function preferredRepositoryResourceId(assets: readonly ScopeAsset[], repositoryUrl: string): string | null {
+  const matching = assets.filter((asset) => repositoryResourceUrl(asset)?.toLowerCase() === repositoryUrl.toLowerCase());
+  return matching.find((asset) => !isAbsolute(asset.value))?.id ?? matching[0]?.id ?? null;
+}
+
+function isLegacyRepositoryCheckout(asset: ScopeAsset, repositoryUrl: string): boolean {
+  return asset.kind === 'repo'
+    && isAbsolute(asset.value)
+    && repositoryResourceUrl(asset)?.toLowerCase() === repositoryUrl.toLowerCase();
+}
+
+function repositoryResourceWithCheckout(
+  asset: ScopeAsset | ScopeAssetInput,
+  materialized: Awaited<ReturnType<typeof materializeGitRepositoryAsync>>,
+  cloneSource: string
+): ScopeAssetInput {
+  return {
+    direction: asset.direction,
+    kind: 'repo',
+    value: repositoryResourceUrl(asset) ?? materialized.repositoryUrl,
+    sensitivity: asset.sensitivity,
+    attributes: {
+      ...(asset.attributes ?? {}),
+      repositoryUrl: materialized.repositoryUrl,
+      clonedDirectory: materialized.localPath,
+      cloneSource,
+      sourceStorage: 'user_global',
+      sourceReferenceVersion: 1,
+      head: materialized.head,
+      materializedRef: materialized.ref ?? '',
+      cloned: materialized.cloned,
+      headRefName: materialized.headRefName,
+      headDescribe: materialized.headDescribe,
+      requestedRefHead: materialized.requestedRefHead,
+      requestedRefMatchesHead: materialized.requestedRefMatchesHead
+    }
+  };
+}
+
+function clearRepositoryCheckoutAttributes(attributes: Record<string, unknown>): void {
+  for (const key of [
+    'clonedDirectory',
+    'cloneSource',
+    'sourceStorage',
+    'sourceReferenceVersion',
+    'head',
+    'materializedRef',
+    'cloned',
+    'headRefName',
+    'headDescribe',
+    'requestedRefHead',
+    'requestedRefMatchesHead'
+  ]) {
+    delete attributes[key];
+  }
+}
+
 function isRecordedWorkspaceScope(scope: WorkspaceScopeVersion): boolean {
   return scope.assets.some((asset) => asset.direction === 'in_scope');
 }
@@ -5321,7 +5388,7 @@ function hackerOneAssetKind(assetType: string, value: string): ScopeAssetInput['
   const normalized = assetType.toUpperCase();
   if (normalized.includes('SOURCE')) return 'repo';
   if (normalized.includes('EXECUTABLE') || normalized.includes('BINARY')) return 'binary';
-  if (normalized.includes('IP') || /^\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?$/.test(value)) return 'ip_range';
+  if (normalized.includes('IP') || /^\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?$/.test(value)) return 'other';
   if (normalized.includes('URL') || normalized.includes('DOMAIN') || value.includes('*') || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value)) return 'domain';
   return 'other';
 }
@@ -5606,10 +5673,11 @@ function coveragePathsMatch(left: string, right: string): boolean {
 
 function sourceCoverageComponent(path: string, assetId: ProjectSourceCoveragePathRecord['assetId'], scope: WorkspaceScopeVersion): string {
   const asset = scope.assets.find((item) => item.id === assetId);
+  const assetRoot = asset ? repositoryClonedDirectory(asset) ?? asset.value : '';
   const normalizedPath = path.replace(/\\/g, '/');
   let relativePath = normalizedPath;
-  if (asset && isAbsolute(asset.value) && isAbsolute(path)) {
-    const candidate = relative(asset.value, path).replace(/\\/g, '/');
+  if (asset && isAbsolute(assetRoot) && isAbsolute(path)) {
+    const candidate = relative(assetRoot, path).replace(/\\/g, '/');
     if (candidate && candidate !== '..' && !candidate.startsWith('../')) relativePath = candidate;
   }
   const segments = relativePath.split('/').filter(Boolean);
@@ -5662,7 +5730,7 @@ function buildResearchPromptRecommendationInput(
   const includeMemoryContext = profile.capabilities.memoryEnabled;
   const recentDetails = details.slice(0, 12);
   const inScopeAssets = scope.assets.filter((asset) => asset.direction === 'in_scope');
-  const hasUsableCredentialAssets = inScopeAssets.some((asset) => asset.kind === 'account' || asset.kind === 'credential_ref');
+  const hasUsableCredentialAssets = inScopeAssets.some(isCredentialReferenceResource);
   const goalSentence = input?.goalSentence?.trim() ? trimRedactedText(input.goalSentence, 600) : null;
   const researchPhase = workflow.id;
   const draftPromptMarkdown = input?.draftPromptMarkdown?.trim() ? trimRedactedText(input.draftPromptMarkdown, 6000) : null;
@@ -6063,15 +6131,10 @@ function assetPriority(asset: Pick<ScopeAssetInput, 'direction' | 'kind' | 'sens
   const directionWeight = asset.direction === 'in_scope' ? 100 : 0;
   const sensitivityWeight = asset.sensitivity === 'sensitive' ? 40 : asset.sensitivity === 'internal' ? 20 : 0;
   const kindWeight: Record<ScopeAssetInput['kind'], number> = {
-    credential_ref: 34,
-    account: 32,
     service: 30,
-    host: 28,
     domain: 26,
     repo: 24,
     binary: 22,
-    path: 20,
-    ip_range: 18,
     documentation: 8,
     other: 0
   };
@@ -6788,20 +6851,6 @@ function compactSecuritySourceCoverage(coverage: SourceCoverageSummary): Record<
   };
 }
 
-const SCOPE_ASSET_KINDS: readonly ScopeAssetKind[] = [
-  'domain',
-  'host',
-  'ip_range',
-  'repo',
-  'binary',
-  'path',
-  'account',
-  'credential_ref',
-  'service',
-  'documentation',
-  'other'
-];
-
 function isScopeAssetKind(value: string): value is ScopeAssetKind {
   return (SCOPE_ASSET_KINDS as readonly string[]).includes(value);
 }
@@ -6838,8 +6887,22 @@ function introspectionResourceInput(
     if (displayName) attributes.displayName = displayName;
     else delete attributes.displayName;
   }
-  if (rawKind === 'repo') attributes.repositoryUrl = value;
-  else delete attributes.repositoryUrl;
+  if (rawKind === 'repo') {
+    const previousRepositoryUrl = existing ? repositoryResourceUrl(existing) : null;
+    attributes.repositoryUrl = value;
+    if (previousRepositoryUrl && normalizeSourceRepositoryUrl(value)?.toLowerCase() !== previousRepositoryUrl.toLowerCase()) {
+      clearRepositoryCheckoutAttributes(attributes);
+    }
+    if (Object.prototype.hasOwnProperty.call(args, 'clonedDirectory')) {
+      if (typeof args.clonedDirectory !== 'string') throw new Error('clonedDirectory must be a string.');
+      const clonedDirectory = args.clonedDirectory.trim();
+      if (clonedDirectory) attributes.clonedDirectory = clonedDirectory;
+      else clearRepositoryCheckoutAttributes(attributes);
+    }
+  } else {
+    delete attributes.repositoryUrl;
+    clearRepositoryCheckoutAttributes(attributes);
+  }
 
   return {
     direction: rawDirection,
@@ -6879,9 +6942,7 @@ function buildSecurityResearchObjectiveInput(
   const inScopeAssets = scope.assets
     .filter((asset) => asset.direction === 'in_scope')
     .sort((left, right) => assetPriority(right) - assetPriority(left));
-  const hasUsableCredentialAssets = inScopeAssets.some((asset) =>
-    asset.kind === 'account' || asset.kind === 'credential_ref'
-  );
+  const hasUsableCredentialAssets = inScopeAssets.some(isCredentialReferenceResource);
 
   return {
     task: operation,

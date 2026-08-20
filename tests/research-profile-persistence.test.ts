@@ -432,21 +432,23 @@ describe('research profile persistence', () => {
       expect(() => service.cloneWorkspaceRepository(excludedAssetId as string)).toThrow('Only in-scope repository resources can be cloned.');
 
       const cloned = await service.cloneWorkspaceRepository(sourceAssetId as string);
-      const checkoutAssets = cloned.activeScope.assets.filter((asset) => asset.attributes?.source === 'beale_workspace_resource');
-      expect(checkoutAssets).toHaveLength(1);
-      expect(checkoutAssets[0]?.attributes).toMatchObject({
+      const repositoryAssets = cloned.activeScope.assets.filter((asset) => asset.kind === 'repo');
+      expect(repositoryAssets).toHaveLength(2);
+      const clonedRepository = repositoryAssets.find((asset) => asset.direction === 'in_scope');
+      expect(clonedRepository?.value).toBe('https://gitlab.com/gitlab-org/gitlab');
+      expect(clonedRepository?.attributes).toMatchObject({
         repositoryUrl: 'https://gitlab.com/gitlab-org/gitlab',
-        sourceAssetId
+        cloneSource: 'beale_workspace_resource'
       });
-      expect(existsSync(join(checkoutAssets[0]?.value ?? '', '.git'))).toBe(true);
+      expect(existsSync(join(String(clonedRepository?.attributes?.clonedDirectory ?? ''), '.git'))).toBe(true);
 
       const currentSourceAssetId = cloned.activeScope.assets.find((asset) => asset.value === 'https://gitlab.com/gitlab-org/gitlab')?.id;
       const clonedAgain = await service.cloneWorkspaceRepository(currentSourceAssetId as string);
-      expect(clonedAgain.activeScope.assets.filter((asset) => asset.attributes?.source === 'beale_workspace_resource')).toHaveLength(1);
+      expect(clonedAgain.activeScope.assets.filter((asset) => asset.kind === 'repo')).toHaveLength(2);
     } finally {
       service.close();
     }
-  });
+  }, 10_000);
 
   it('adopts the legacy scope-owner subject id during migration 14', () => {
     const fixture = createDatabaseFixture();
@@ -485,7 +487,7 @@ describe('research profile persistence', () => {
       'Stay within the recorded targets.\nReport through the authorized channel.'
     );
     legacy.exec('DROP TABLE workspace_rules;');
-    legacy.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 25").run();
+    legacy.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version >= 25").run();
     legacy.close();
 
     const migrated = new WorkspaceDatabase(fixture.databasePath, fixture.artifactRoot, { workspacePath: fixture.workspacePath });
@@ -497,6 +499,59 @@ describe('research profile persistence', () => {
       })
     ]);
     expect(migrated.getActiveScope().rulesMarkdown).toBe('');
+    migrated.close();
+  });
+
+  it('migrates legacy resource kinds to Other and attaches cloned directories to repository resources', () => {
+    const fixture = createDatabaseFixture();
+    const checkoutDirectory = join(fixture.workspacePath, 'managed-repository');
+    fixture.database.saveScope({
+      workspaceName: 'Legacy Resources',
+      scopeOwner: 'Example Org',
+      descriptionMarkdown: '',
+      rulesMarkdown: '',
+      expiresAt: null,
+      assets: [{
+        direction: 'in_scope',
+        kind: 'repo',
+        value: 'https://github.com/example/project',
+        sensitivity: 'public',
+        attributes: { repositoryUrl: 'https://github.com/example/project' }
+      }, {
+        direction: 'in_scope',
+        kind: 'repo',
+        value: checkoutDirectory,
+        sensitivity: 'public',
+        attributes: {
+          repositoryUrl: 'https://github.com/example/project',
+          head: '0123456789abcdef'
+        }
+      }, {
+        direction: 'in_scope',
+        kind: 'other',
+        value: 'vault-entry-name',
+        sensitivity: 'restricted',
+        attributes: {}
+      }]
+    });
+    fixture.database.close();
+
+    const legacy = new DatabaseSync(fixture.databasePath);
+    legacy.prepare("UPDATE scope_assets SET kind = 'credential_ref' WHERE value = 'vault-entry-name'").run();
+    legacy.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 26").run();
+    legacy.close();
+
+    const migrated = new WorkspaceDatabase(fixture.databasePath, fixture.artifactRoot, { workspacePath: fixture.workspacePath });
+    migrated.initialize();
+    const assets = migrated.getActiveScope().assets;
+    expect(assets.find((asset) => asset.value === 'https://github.com/example/project')?.attributes).toMatchObject({
+      clonedDirectory: checkoutDirectory,
+      head: '0123456789abcdef'
+    });
+    expect(assets.find((asset) => asset.value === 'vault-entry-name')).toMatchObject({
+      kind: 'other',
+      attributes: { legacyKind: 'credential_ref' }
+    });
     migrated.close();
   });
 });

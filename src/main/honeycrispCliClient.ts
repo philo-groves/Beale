@@ -231,6 +231,7 @@ export interface HoneycrispSourceRepositoryCandidate {
   sourceAssetId: string;
   sourceAssetKind: string;
   sensitivity: string;
+  clonedDirectory: string | null;
 }
 
 export interface HoneycrispMaterializedSourceRepository {

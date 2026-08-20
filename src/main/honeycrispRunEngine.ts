@@ -38,6 +38,11 @@ import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { generateSessionTitle, SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
 import { getHoneycrispProviderSemantics } from './honeycrispCliClient';
 import { resolveGoalObjective } from '../shared/goalObjective';
+import {
+  isCredentialReferenceResource,
+  repositoryClonedDirectory,
+  scopeAssetLegacyKind
+} from '../shared/types';
 import { decodeResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
 import { redactCommandArgumentsForModel, redactForModelText, redactJsonForModel } from './redaction';
 import type { AgentPluginHoneycrispRuntime } from './agentPluginRegistry';
@@ -3346,7 +3351,7 @@ function honeycrispWorkspaceContext(
     if (!materializedSourcePaths.includes(root)) {
       materializedSourcePaths.push(root);
     }
-    if ((asset.kind === 'repo' || asset.kind === 'path') && !knownRepositories.some((repository) => repository.rootPath === root)) {
+    if ((asset.kind === 'repo' || scopeAssetLegacyKind(asset) === 'path') && !knownRepositories.some((repository) => repository.rootPath === root)) {
       const repositoryUrl = stringAttribute(asset.attributes?.repositoryUrl);
       knownRepositories.push({
         rootPath: root,
@@ -3456,7 +3461,7 @@ function honeycrispResearchSubject(
 }
 
 function isLocalResearchMaterialKind(kind: ScopeAsset['kind']): boolean {
-  return kind === 'repo' || kind === 'path' || kind === 'binary';
+  return kind === 'repo' || kind === 'binary' || kind === 'documentation' || kind === 'other';
 }
 
 function honeycrispScopeNotes(
@@ -3544,13 +3549,13 @@ function appendHoneycrispScopeAssetNotes(
   for (const asset of orderedAssets.slice(0, 200)) {
     const instruction = stringAttribute(asset.attributes?.instruction);
     const assetValue = honeycrispScopeAssetValue(asset);
-    const representedInRules = asset.kind !== 'credential_ref'
+    const representedInRules = !isCredentialReferenceResource(asset)
       && scopeAssetRepresentedInRules(modelVisibleRules, asset, assetValue, instruction);
     if (representedInRules) continue;
     const localRoot = localRootForAsset(asset);
     if (
       asset.direction === 'in_scope'
-      && (asset.kind === 'repo' || asset.kind === 'path')
+      && (asset.kind === 'repo' || scopeAssetLegacyKind(asset) === 'path')
       && !instruction
       && localRoot
       && repositoryRoots.has(resolve(localRoot).toLocaleLowerCase())
@@ -3603,7 +3608,7 @@ function isRecordedWorkspaceScope(scope: WorkspaceScopeVersion): boolean {
 }
 
 function honeycrispScopeAssetValue(asset: ScopeAsset): string {
-  if (asset.kind === 'credential_ref') return '[host-held credential reference; value withheld from agent context]';
+  if (isCredentialReferenceResource(asset)) return '[host-held credential reference; value withheld from agent context]';
   return boundedContextText(asset.value, 1_000);
 }
 
@@ -3613,7 +3618,7 @@ function boundedContextText(value: string, maxChars = 6_000): string {
 }
 
 function localRootForAsset(asset: ScopeAsset): string | null {
-  const value = asset.value.trim();
+  const value = repositoryClonedDirectory(asset) ?? asset.value.trim();
   if (!isAbsolute(value) || /^[a-z][a-z0-9+.-]*:\/\//i.test(value) || !existsSync(value)) {
     return null;
   }

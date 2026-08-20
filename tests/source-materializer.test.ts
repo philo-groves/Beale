@@ -23,8 +23,12 @@ afterEach(() => {
 
 describe('source materializer', () => {
   it('recognizes GitLab source repository scope entries', () => {
+    const clonedDirectory = join(tempDir(), 'repositories', 'gitlab');
     const scope = scopeWithAssets([
-      sourceAsset('repo_gitlab', 'https://gitlab.com/gitlab-org/gitlab'),
+      {
+        ...sourceAsset('repo_gitlab', 'https://gitlab.com/gitlab-org/gitlab'),
+        attributes: { clonedDirectory }
+      },
       sourceAsset('repo_opstrace', 'https://gitlab.com/gitlab-org/opstrace/opstrace')
     ]);
 
@@ -33,6 +37,7 @@ describe('source materializer', () => {
       'https://gitlab.com/gitlab-org/opstrace/opstrace'
     ]);
     expect(selectSourceRepository(scope, 'https://gitlab.com/gitlab-org/gitlab').reason).toBe('matched');
+    expect(sourceRepositoryCandidates(scope)[0]?.clonedDirectory).toBe(clonedDirectory);
     expect(normalizeSourceRepositoryUrl('git@gitlab.com:gitlab-org/gitlab.git')).toBe('https://gitlab.com/gitlab-org/gitlab');
   });
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, JSX } from 'react';
-import { Activity, Binary, BookOpen, Boxes, Brain, Download, Folder, GitBranch, Globe2, Info, Layers3, LayoutDashboard, ListChecks, MoonStar, Plus, Server, Sparkles, Trash2, Wrench } from 'lucide-react';
-import { isLiveResearchRunStatus } from '../../../shared/types';
+import { Activity, Binary, BookOpen, Boxes, Brain, Download, GitBranch, Globe2, Info, Layers3, LayoutDashboard, ListChecks, MoonStar, Plus, Server, Sparkles, Trash2, Wrench } from 'lucide-react';
+import { isLiveResearchRunStatus, repositoryClonedDirectory } from '../../../shared/types';
 import type {
   HoneycrispMemorySummary,
   MemoryDreamingProgressPhase,
@@ -1257,15 +1257,18 @@ export function workspaceResearchSurfaceItems(
     const repositoryLocalAsset = asset.kind === 'repo'
       ? groupAssets.find((candidate) => !repositoryNameFromUrl(candidate.value) && repositoryIdentityFromPath(candidate.value)) ?? null
       : null;
+    const clonedDirectory = asset.kind === 'repo'
+      ? repositoryClonedDirectory(repositorySourceAsset ?? asset) ?? repositoryLocalAsset?.value ?? null
+      : null;
     const memoryIds = new Set(assetIds.flatMap((assetId) => [...(memoryIdsByAssetId.get(assetId) ?? [])]));
     const runStats = assetIds.map((assetId) => runStatsByAssetId.get(assetId));
     return {
       asset,
       assetIds,
       label: workspaceAssetLabel(asset),
-      repositoryCloned: asset.kind === 'repo' ? repositoryLocalAsset !== null : null,
+      repositoryCloned: asset.kind === 'repo' ? clonedDirectory !== null : null,
       repositoryCloneAssetId: repositorySourceAsset?.id ?? null,
-      repositoryLocalPath: repositoryLocalAsset?.value ?? null,
+      repositoryLocalPath: clonedDirectory,
       sessionCount: runStats.reduce((count, stats) => count + (stats?.count ?? 0), 0),
       memoryCount: memoryIds.size,
       lastResearchedAt: runStats.reduce<string | null>(
@@ -1305,13 +1308,8 @@ const WORKSPACE_ASSET_KINDS: ScopeAssetKind[] = [
   'repo',
   'documentation',
   'binary',
-  'path',
   'service',
-  'host',
   'domain',
-  'ip_range',
-  'account',
-  'credential_ref',
   'other'
 ];
 
@@ -1554,6 +1552,7 @@ function WorkspaceResearchSurface({
       )}
       {dialogState ? (
         <WorkspaceResourceDialog
+          initialClonedDirectory={dialogState.item?.repositoryLocalPath ?? null}
           initialAsset={dialogState.item?.asset ?? null}
           kind={dialogState.kind}
           onClose={() => setDialogState(null)}
@@ -1570,12 +1569,14 @@ function WorkspaceResearchSurface({
 }
 
 export function WorkspaceResourceDialog({
+  initialClonedDirectory,
   initialAsset,
   kind,
   onClose,
   onRemove,
   onSubmit
 }: {
+  initialClonedDirectory?: string | null;
   initialAsset: ScopeAsset | null;
   kind: ScopeAssetKind;
   onClose: () => void;
@@ -1588,6 +1589,9 @@ export function WorkspaceResourceDialog({
     : '';
   const [value, setValue] = useState(initialAsset?.value ?? '');
   const [displayName, setDisplayName] = useState(initialDisplayName);
+  const [clonedDirectory, setClonedDirectory] = useState(
+    initialClonedDirectory ?? (initialAsset ? repositoryClonedDirectory(initialAsset) : null) ?? ''
+  );
   const [direction, setDirection] = useState<ScopeAssetInput['direction']>(initialAsset?.direction ?? 'in_scope');
   const [sensitivity, setSensitivity] = useState(initialAsset?.sensitivity ?? 'internal');
   const [pendingAction, setPendingAction] = useState<'save' | 'remove' | null>(null);
@@ -1605,7 +1609,17 @@ export function WorkspaceResourceDialog({
       };
       if (displayName.trim()) attributes.displayName = displayName.trim();
       else delete attributes.displayName;
-      if (kind === 'repo') attributes.repositoryUrl = trimmedValue;
+      if (kind === 'repo') {
+        const previousRepositoryUrl = typeof initialAsset?.attributes?.repositoryUrl === 'string'
+          ? initialAsset.attributes.repositoryUrl.trim()
+          : initialAsset?.value.trim() ?? '';
+        attributes.repositoryUrl = trimmedValue;
+        if (previousRepositoryUrl && previousRepositoryUrl.toLowerCase() !== trimmedValue.toLowerCase()) {
+          clearRepositoryCheckoutAttributes(attributes);
+        }
+        if (clonedDirectory.trim()) attributes.clonedDirectory = clonedDirectory.trim();
+        else clearRepositoryCheckoutAttributes(attributes);
+      }
       await onSubmit({ direction, kind, value: trimmedValue, sensitivity, attributes });
       onClose();
     } catch (caught) {
@@ -1673,6 +1687,16 @@ export function WorkspaceResourceDialog({
           Display name
           <input onChange={(event) => setDisplayName(event.target.value)} placeholder="Optional" value={displayName} />
         </label>
+        {kind === 'repo' ? (
+          <label>
+            Cloned directory
+            <input
+              onChange={(event) => setClonedDirectory(event.target.value)}
+              placeholder="Optional local checkout directory"
+              value={clonedDirectory}
+            />
+          </label>
+        ) : null}
         <div className="workspace-resource-form-row">
           <label>
             Scope
@@ -1699,9 +1723,6 @@ export function WorkspaceResourceDialog({
 function workspaceAssetPlaceholder(kind: ScopeAssetKind): string {
   if (kind === 'repo') return 'https://github.com/owner/repository';
   if (kind === 'domain') return 'example.com';
-  if (kind === 'host') return 'research-host';
-  if (kind === 'ip_range') return '192.0.2.0/24';
-  if (kind === 'path') return 'C:\\path\\to\\resource';
   if (kind === 'service') return 'https://service.example.com';
   if (kind === 'documentation') return 'https://docs.example.com';
   return `Enter ${workspaceAssetKindLabel(kind).toLowerCase()} reference`;
@@ -1711,9 +1732,8 @@ function WorkspaceAssetIcon({ kind, size = 16 }: { kind: ScopeAssetKind; size?: 
   if (kind === 'repo') return <GitBranch size={size} />;
   if (kind === 'documentation') return <BookOpen size={size} />;
   if (kind === 'binary') return <Binary size={size} />;
-  if (kind === 'path') return <Folder size={size} />;
-  if (kind === 'service' || kind === 'host') return <Server size={size} />;
-  if (kind === 'domain' || kind === 'ip_range') return <Globe2 size={size} />;
+  if (kind === 'service') return <Server size={size} />;
+  if (kind === 'domain') return <Globe2 size={size} />;
   return <Layers3 size={size} />;
 }
 
@@ -1798,15 +1818,31 @@ function repositoryIdentityFromMaterializedSlug(value: string): string | null {
 }
 
 function workspaceAssetKindOrder(kind: ScopeAssetKind): number {
-  const order: ScopeAssetKind[] = ['repo', 'documentation', 'binary', 'path', 'service', 'host', 'domain', 'ip_range', 'account', 'credential_ref', 'other'];
+  const order: ScopeAssetKind[] = ['repo', 'documentation', 'binary', 'service', 'domain', 'other'];
   return order.indexOf(kind);
 }
 
 function workspaceAssetKindLabel(kind: ScopeAssetKind): string {
   if (kind === 'repo') return 'Repository';
-  if (kind === 'ip_range') return 'IP range';
-  if (kind === 'credential_ref') return 'Credential ref';
   return `${kind.slice(0, 1).toUpperCase()}${kind.slice(1)}`;
+}
+
+function clearRepositoryCheckoutAttributes(attributes: Record<string, unknown>): void {
+  for (const key of [
+    'clonedDirectory',
+    'cloneSource',
+    'sourceStorage',
+    'sourceReferenceVersion',
+    'head',
+    'materializedRef',
+    'cloned',
+    'headRefName',
+    'headDescribe',
+    'requestedRefHead',
+    'requestedRefMatchesHead'
+  ]) {
+    delete attributes[key];
+  }
 }
 
 function formatSurfaceRecency(value: string, nowMs: number): string {

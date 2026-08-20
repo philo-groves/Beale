@@ -1,4 +1,5 @@
 import type { RunDetail, TraceEventRecord, WorkspaceScopeVersion } from '@shared/types';
+import { repositoryClonedDirectory, scopeAssetLegacyKind } from '../../shared/types';
 import {
   commentaryMessageCorrelationKey,
   nativeCommentaryCorrelationKeys
@@ -539,8 +540,9 @@ export function commentaryRepositoryMetadataForScope(
     if (repositoryUrl) displayNamesByRepositoryUrl.set(repositoryUrl, displayName);
   }
   return scope.assets.flatMap((asset) => {
-    if (asset.direction !== 'in_scope' || (asset.kind !== 'repo' && asset.kind !== 'path')) return [];
-    if (!looksLikeLocalPath(asset.value)) return [];
+    if (asset.direction !== 'in_scope' || (asset.kind !== 'repo' && scopeAssetLegacyKind(asset) !== 'path')) return [];
+    const localPath = repositoryClonedDirectory(asset) ?? asset.value;
+    if (!looksLikeLocalPath(localPath)) return [];
     const repositoryUrl = repositoryUrlForAsset(asset.value, asset.attributes?.repositoryUrl);
     const sourceAssetId = stringMetadataValue(asset.attributes?.sourceAssetId);
     const name = stringMetadataValue(asset.attributes?.displayName)
@@ -548,7 +550,7 @@ export function commentaryRepositoryMetadataForScope(
       ?? (sourceAssetId ? displayNamesByAssetId.get(sourceAssetId) : null)
       ?? (repositoryUrl ? displayNamesByRepositoryUrl.get(repositoryUrl) : null)
       ?? repositoryNameFromUrlMetadata(asset.attributes?.repositoryUrl);
-    return name ? [{ path: asset.value, name }] : [];
+    return name ? [{ path: localPath, name }] : [];
   });
 }
 

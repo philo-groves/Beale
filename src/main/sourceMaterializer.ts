@@ -13,6 +13,7 @@ export interface SourceRepositoryCandidate {
   sourceAssetId: string;
   sourceAssetKind: ScopeAsset['kind'];
   sensitivity: string;
+  clonedDirectory: string | null;
 }
 
 export interface SourceRepositorySelection {

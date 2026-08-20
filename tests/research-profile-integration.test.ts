@@ -448,7 +448,7 @@ describe('research profile host integration', () => {
         expiresAt: null,
         assets: [{
           direction: 'in_scope',
-          kind: 'path',
+          kind: 'other',
           value: workspace,
           sensitivity: 'internal',
           attributes: { source: 'local-library' }
@@ -670,15 +670,15 @@ describe('research profile host integration', () => {
         expiresAt: null,
         assets: [
           { direction: 'in_scope', kind: 'domain', value: 'data.example.test', sensitivity: 'public' },
-          { direction: 'in_scope', kind: 'host', value: '192.0.2.15', sensitivity: 'public' },
+          { direction: 'in_scope', kind: 'other', value: '192.0.2.15', sensitivity: 'public', attributes: { legacyKind: 'host' } },
           { direction: 'in_scope', kind: 'service', value: 'https://catalog.example.test/api', sensitivity: 'public' },
           { direction: 'in_scope', kind: 'repo', value: workspace, sensitivity: 'internal' },
           {
             direction: 'in_scope',
-            kind: 'path',
+            kind: 'other',
             value: workspace,
             sensitivity: 'internal',
-            attributes: { instruction: 'Preserve the recorded collection during analysis.' }
+            attributes: { legacyKind: 'path', instruction: 'Preserve the recorded collection during analysis.' }
           },
           { direction: 'out_of_scope', kind: 'domain', value: 'misplaced.example.test', sensitivity: 'public' },
           { direction: 'out_of_scope', kind: 'domain', value: 'excluded.example.test', sensitivity: 'public' }
@@ -700,9 +700,9 @@ describe('research profile host integration', () => {
       expect(networkProjectNotes).toContain('Excluded from Collection boundary (domain, public): excluded.example.test');
       expect(networkProjectNotes).not.toContain(`Included in Collection boundary (repo, internal): ${workspace}`);
       expect(networkProjectNotes).toContain(
-        `Included in Collection boundary (path, internal): ${workspace} — Preserve the recorded collection during analysis.`
+        `Included in Collection boundary (other, internal): ${workspace} — Preserve the recorded collection during analysis.`
       );
-      expect(networkProjectNotes).toContain('Included in Collection boundary (host, public): 192.0.2.15');
+      expect(networkProjectNotes).toContain('Included in Collection boundary (other, public): 192.0.2.15');
       expect(networkProjectNotes).toContain('Excluded from Collection boundary (domain, public): misplaced.example.test');
 
       service.setProviderCyberPolicyRiskAcknowledged('openai-codex', true);

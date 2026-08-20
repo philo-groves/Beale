@@ -10,6 +10,7 @@ import { decodeResearchProfileJson, decodeResolvedResearchProfile, serializeRese
 import { normalizeShellSafetyMode } from '../shared/shellSafety';
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { normalizeResearchCollaboration } from '../shared/collaboration';
+import { repositoryClonedDirectory } from '../shared/types';
 import type {
   ApprovalRecord,
   ArtifactRecord,
@@ -5576,13 +5577,14 @@ export class WorkspaceDatabase {
       for (const scopeRow of scopeRows) {
         const scope = this.getScopeVersion(text(scopeRow, 'id'));
         for (const asset of scope.assets) {
+          const sourcePath = repositoryClonedDirectory(asset) ?? (isAbsolute(asset.value) ? asset.value : null);
           this.upsertProjectSearchDocument({
             scopeVersionId: scope.id,
             entityType: 'scope_asset',
             entityId: asset.id,
             title: `${asset.direction} ${asset.kind}: ${asset.value}`,
             body: [asset.value, asset.kind, asset.direction, asset.sensitivity, JSON.stringify(asset.attributes), scope.workspaceName, scope.descriptionMarkdown].join('\n'),
-            sourcePath: isAbsolute(asset.value) ? asset.value : null,
+            sourcePath,
             metadata: { direction: asset.direction, kind: asset.kind, sensitivity: asset.sensitivity, attributes: asset.attributes },
             createdAt: asset.createdAt,
             updatedAt: asset.createdAt
@@ -6470,6 +6472,67 @@ export class WorkspaceDatabase {
             UPDATE scope_versions SET rules_markdown = '' WHERE rules_markdown <> '';
           `);
         }
+      },
+      {
+        version: 26,
+        name: 'first_class_scope_resources',
+        up: (database) => {
+          const repositoryRows = rows(
+            database.prepare("SELECT id, scope_version_id, value, attributes_json, created_at FROM scope_assets WHERE kind = 'repo'").all()
+          );
+          const repositorySources = new Map<string, SqlRow>();
+          const repositoryKey = (row: SqlRow): string | null => {
+            const attributes = parseJson(row.attributes_json);
+            const repositoryUrl = typeof attributes.repositoryUrl === 'string' && attributes.repositoryUrl.trim()
+              ? attributes.repositoryUrl.trim()
+              : !isAbsolute(text(row, 'value')) ? text(row, 'value').trim() : '';
+            return repositoryUrl ? `${text(row, 'scope_version_id')}\n${repositoryUrl.toLowerCase()}` : null;
+          };
+          for (const row of repositoryRows) {
+            if (isAbsolute(text(row, 'value'))) continue;
+            const key = repositoryKey(row);
+            if (key) repositorySources.set(key, row);
+          }
+          const updateRepository = database.prepare('UPDATE scope_assets SET attributes_json = ? WHERE id = ?');
+          for (const checkout of repositoryRows) {
+            const clonedDirectory = text(checkout, 'value');
+            if (!isAbsolute(clonedDirectory)) continue;
+            const key = repositoryKey(checkout);
+            const source = key ? repositorySources.get(key) : null;
+            if (!source) continue;
+            const sourceAttributes = parseJson(source.attributes_json);
+            if (typeof sourceAttributes.clonedDirectory === 'string' && sourceAttributes.clonedDirectory.trim()) continue;
+            const checkoutAttributes = parseJson(checkout.attributes_json);
+            sourceAttributes.clonedDirectory = clonedDirectory;
+            sourceAttributes.cloneRecordedAt = text(checkout, 'created_at');
+            for (const attribute of [
+              'sourceStorage',
+              'sourceReferenceVersion',
+              'head',
+              'materializedRef',
+              'cloned',
+              'headRefName',
+              'headDescribe',
+              'requestedRefHead',
+              'requestedRefMatchesHead'
+            ]) {
+              if (checkoutAttributes[attribute] !== undefined) sourceAttributes[attribute] = checkoutAttributes[attribute];
+            }
+            updateRepository.run(toJson(sourceAttributes), text(source, 'id'));
+          }
+
+          const legacyRows = rows(
+            database.prepare("SELECT id, kind, attributes_json FROM scope_assets WHERE kind IN ('path', 'host', 'ip_range', 'account', 'credential_ref')").all()
+          );
+          const updateLegacy = database.prepare("UPDATE scope_assets SET kind = 'other', attributes_json = ? WHERE id = ?");
+          for (const row of legacyRows) {
+            const attributes = parseJson(row.attributes_json);
+            if (typeof attributes.legacyKind !== 'string' || !attributes.legacyKind.trim()) {
+              attributes.legacyKind = text(row, 'kind');
+            }
+            updateLegacy.run(toJson(attributes), text(row, 'id'));
+          }
+        }
       }
     ]);
   }
@@ -6596,7 +6659,9 @@ export class WorkspaceDatabase {
     const scope = this.getScopeVersion(scopeVersionId);
     const indexedAt = nowIso();
     const state: ProjectInventoryScanState = { indexedAt, scannedFiles: 0, skippedCount: 0, truncated: false };
-    const localAssets = scope.assets.filter((asset) => asset.direction === 'in_scope' && isAbsolute(asset.value) && !looksLikeProjectUrl(asset.value));
+    const localAssets = scope.assets
+      .map((asset) => ({ asset, path: repositoryClonedDirectory(asset) ?? asset.value }))
+      .filter(({ asset, path }) => asset.direction === 'in_scope' && isAbsolute(path) && !looksLikeProjectUrl(path));
 
     this.transaction(() => {
       this.db.prepare('DELETE FROM project_inventory_items WHERE scope_version_id = ?').run(scopeVersionId);
@@ -6604,8 +6669,8 @@ export class WorkspaceDatabase {
       this.db.prepare('DELETE FROM project_structure_entities WHERE scope_version_id = ?').run(scopeVersionId);
       this.deleteProjectSearchDocuments("scope_version_id = ? AND entity_type IN ('inventory_item', 'structure_entity')", [scopeVersionId]);
 
-      for (const asset of localAssets) {
-        this.scanProjectInventoryPath(normalizedProjectPath(asset.value), asset, state);
+      for (const { asset, path } of localAssets) {
+        this.scanProjectInventoryPath(normalizedProjectPath(path), asset, state);
       }
       this.resolveProjectStructureRelationTargets(scopeVersionId);
     });

@@ -385,7 +385,10 @@ describe('workspace dashboard', () => {
         kind: 'repo' as const,
         value: 'https://github.com/example/parser',
         sensitivity: 'public',
-        attributes: { displayName: 'Parser' },
+        attributes: {
+          displayName: 'Parser',
+          clonedDirectory: 'C:\\Users\\research\\repositories\\parser'
+        },
         createdAt: '2026-08-12T00:00:00.000Z'
       }]
     };
@@ -404,7 +407,10 @@ describe('workspace dashboard', () => {
         kind: 'repo',
         value: 'https://github.com/example/parser',
         sensitivity: 'public',
-        attributes: { displayName: 'Parser' }
+        attributes: {
+          displayName: 'Parser',
+          clonedDirectory: 'C:\\Users\\research\\repositories\\parser'
+        }
       }]
     });
   });
@@ -719,7 +725,10 @@ describe('workspace dashboard', () => {
         kind: 'repo',
         value: 'https://github.com/example/parser.git',
         sensitivity: 'restricted',
-        attributes: { displayName: 'Parser' },
+        attributes: {
+          displayName: 'Parser',
+          clonedDirectory: 'C:\\Users\\research\\repositories\\parser'
+        },
         createdAt: '2026-08-12T00:00:00.000Z'
       },
       kind: 'repo',
@@ -731,6 +740,8 @@ describe('workspace dashboard', () => {
     expect(html).toContain('>Edit Repository</h2>');
     expect(html).toContain('value="https://github.com/example/parser.git"');
     expect(html).toContain('value="Parser"');
+    expect(html).toContain('>Cloned directory<input');
+    expect(html).toContain('value="C:\\Users\\research\\repositories\\parser"');
     expect(html).toContain('<option value="out_of_scope" selected="">Out of scope</option>');
     expect(html).toContain('<option value="restricted" selected="">Restricted</option>');
     expect(html).toContain('workspace-resource-remove-button modal-footer-leading');
@@ -751,7 +762,10 @@ describe('workspace dashboard', () => {
       kind: 'repo',
       value: 'https://gitlab.com/gitlab-org/gitlab',
       sensitivity: 'public',
-      attributes: { repositoryUrl: 'https://gitlab.com/gitlab-org/gitlab' },
+      attributes: {
+        repositoryUrl: 'https://gitlab.com/gitlab-org/gitlab',
+        clonedDirectory: 'C:\\Users\\research\\.beale\\repositories\\gitlab.com_gitlab-org_gitlab\\default'
+      },
       createdAt: '2026-08-12T00:00:00.000Z'
     }, {
       id: 'asset_gitlab_disk',
