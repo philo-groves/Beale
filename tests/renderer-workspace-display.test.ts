@@ -310,6 +310,7 @@ function workspace(id: string, workspacePath: string): WorkspaceRegistryEntry {
     workspaceName: id,
     scopeOwner: '',
     researchProfileId: 'security-research',
+    researchKitId: 'general',
     descriptionMarkdown: '',
     rulesMarkdown: '',
     expiresAt: null,

@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceDejunkSummary, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
+import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchKitId, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceDejunkSummary, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
@@ -31,6 +31,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   activeScope = null,
   workspaceRules = [],
   researchProfile,
+  researchKitId = 'general',
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   sessionEndingSuggestionsEnabled = true,
   responseSuggestionsEnabled = true,
@@ -96,6 +97,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   activeScope?: WorkspaceScopeVersion | null;
   workspaceRules?: WorkspaceRule[];
   researchProfile: ResearchProfile | null;
+  researchKitId?: ResearchKitId;
   sessionHeatPreferences?: SessionHeatPreferences;
   sessionEndingSuggestionsEnabled?: boolean;
   responseSuggestionsEnabled?: boolean;
@@ -318,6 +320,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           memoryDreamingProgress={memoryDreamingProgress}
           honeycrispMemory={honeycrispMemory}
           researchProfile={researchProfile}
+          researchKitId={researchKitId}
           sessionHeatPreferences={sessionHeatPreferences}
           researchSubjectName={researchSubjectName}
           workspacePath={workspacePath}

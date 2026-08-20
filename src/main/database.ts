@@ -10,7 +10,7 @@ import { decodeResearchProfileJson, decodeResolvedResearchProfile, serializeRese
 import { normalizeShellSafetyMode } from '../shared/shellSafety';
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { normalizeResearchCollaboration } from '../shared/collaboration';
-import { repositoryClonedDirectory } from '../shared/types';
+import { isResearchKitId, repositoryClonedDirectory } from '../shared/types';
 import type {
   ApprovalRecord,
   ArtifactRecord,
@@ -38,6 +38,7 @@ import type {
   ProjectSearchResult,
   ProjectStructureSummary,
   ResearchModelSelection,
+  ResearchKitId,
   ResearchProfileSnapshot,
   ResearchSubject,
   ResearchSubjectInput,
@@ -2765,7 +2766,7 @@ export class WorkspaceDatabase {
   public constructor(
     private readonly databasePath: string,
     private readonly artifactRoot: string,
-    private readonly workspaceIdentity: { workspacePath: string; workspaceId?: string } = {
+    private readonly workspaceIdentity: { workspacePath: string; workspaceId?: string; researchKitId?: ResearchKitId } = {
       workspacePath: dirname(databasePath)
     }
   ) {
@@ -2796,6 +2797,11 @@ export class WorkspaceDatabase {
 
   public getWorkspaceId(): string {
     return this.workspaceId;
+  }
+
+  public getResearchKitId(): ResearchKitId {
+    const value = this.getMetaValue('research_kit_id');
+    return isResearchKitId(value) ? value : 'general';
   }
 
   public getDatabasePath(): string {
@@ -6564,6 +6570,8 @@ export class WorkspaceDatabase {
   private ensureWorkspaceMeta(): void {
     const createdAt = nowIso();
     this.db.prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)').run(this.metaKey('created_at'), createdAt, createdAt);
+    this.db.prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)')
+      .run(this.metaKey('research_kit_id'), this.workspaceIdentity.researchKitId ?? 'general', createdAt);
   }
 
   private ensureDefaultScope(): void {

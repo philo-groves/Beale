@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, JSX } from 'react';
 import { Activity, Binary, BookOpen, Boxes, Brain, Download, GitBranch, Globe2, Info, Layers3, LayoutDashboard, ListChecks, MoonStar, Plus, Server, Sparkles, Trash2, Wrench } from 'lucide-react';
 import { isLiveResearchRunStatus, repositoryClonedDirectory } from '../../../shared/types';
+import { researchKitLabel } from '../../../shared/researchKits';
 import type {
   HoneycrispMemorySummary,
   MemoryDreamingProgressPhase,
   MemoryDreamingProgressUpdate,
   ResearchProfile,
+  ResearchKitId,
   RunRow,
   ScopeAsset,
   ScopeAssetInput,
@@ -168,6 +170,7 @@ export function WorkspaceUnderstandingView({
   activeScope = null,
   workspaceRules = [],
   researchProfile = null,
+  researchKitId = 'general',
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   researchSubjectName = '',
   workspacePath = '',
@@ -203,6 +206,7 @@ export function WorkspaceUnderstandingView({
   activeScope?: WorkspaceScopeVersion | null;
   workspaceRules?: readonly WorkspaceRule[];
   researchProfile?: ResearchProfile | null;
+  researchKitId?: ResearchKitId;
   sessionHeatPreferences?: SessionHeatPreferences;
   researchSubjectName?: string;
   workspacePath?: string;
@@ -323,6 +327,7 @@ export function WorkspaceUnderstandingView({
         onSave={onSaveConfiguration}
         onChangeDirectories={onChangeWorkspaceDirectories}
         researchProfile={researchProfile}
+        researchKitId={researchKitId}
         researchSubjectName={researchSubjectName}
         workspaceName={workspaceName}
         workspacePath={workspacePath}
@@ -589,6 +594,7 @@ function WorkspaceOverviewPanel({
   onChangeDirectories,
   onSave,
   researchProfile,
+  researchKitId,
   researchSubjectName,
   workspaceName,
   workspacePath,
@@ -600,6 +606,7 @@ function WorkspaceOverviewPanel({
   onChangeDirectories: (directories: string[]) => Promise<void>;
   onSave: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   researchProfile: ResearchProfile | null;
+  researchKitId: ResearchKitId;
   researchSubjectName: string;
   workspaceName: string;
   workspacePath: string;
@@ -703,6 +710,18 @@ function WorkspaceOverviewPanel({
                   className="workspace-overview-input"
                   disabled
                   value={workspaceResearchProfileLabel(researchProfile)}
+                />
+              </label>
+              <label className="settings-form-control-row workspace-overview-control-row">
+                <span className="settings-form-control-copy">
+                  <strong>Research Kit</strong>
+                  <small>The fixed resource, scope, and rule acquisition kit selected when this workspace was created.</small>
+                </span>
+                <input
+                  aria-label="Research Kit"
+                  className="workspace-overview-input"
+                  disabled
+                  value={researchKitLabel(researchKitId)}
                 />
               </label>
               <label className="settings-form-control-row workspace-overview-control-row">

@@ -99,7 +99,7 @@ describe('renderer dialog surfaces', () => {
         onChange: () => undefined,
         onCancel: () => undefined,
         onLookupHackerOne: async () => undefined,
-        onTemplate: () => undefined,
+        onResearchKit: () => undefined,
         onSubmit: () => undefined
       })
     );
@@ -113,10 +113,10 @@ describe('renderer dialog surfaces', () => {
       onChange: () => undefined,
       onCancel: () => undefined,
       onLookupHackerOne: async () => undefined,
-      onTemplate: () => undefined,
+      onResearchKit: () => undefined,
       onSubmit: () => undefined
     }));
-    expect(securityHtml).toContain('aria-label="Workspace template"');
+    expect(securityHtml).toContain('aria-label="Research Kit"');
     expect(securityHtml).toContain('aria-label="Workspace directories"');
     expect(securityHtml).toContain('aria-label="Add workspace directory"');
     expect(emptyHtml).toContain('Select at least one directory.');
@@ -132,12 +132,14 @@ describe('renderer dialog surfaces', () => {
     expect(securityHtml).not.toContain('>Repositories<');
     expect(securityHtml).not.toContain('>Cancel</button>');
     expect(securityHtml).toContain('>HackerOne</button>');
-    expect(securityHtml).toContain('>Apple</button>');
+    expect(securityHtml).toContain('>Apple Security Bounty</button>');
     expect(securityHtml).toContain('>MSRC</button>');
-    expect(mathematicsHtml).not.toContain('aria-label="Workspace template"');
+    expect(mathematicsHtml).toContain('aria-label="Research Kit"');
+    expect(mathematicsHtml).toContain('>General</button>');
+    expect(mathematicsHtml).not.toContain('>HackerOne</button>');
     expect(mathematicsHtml).toContain('<option value="mathematics" selected="">Mathematics</option>');
     expect(mathematicsHtml).not.toContain('>HackerOne</button>');
-    expect(mathematicsHtml).not.toContain('>Apple</button>');
+    expect(mathematicsHtml).not.toContain('>Apple Security Bounty</button>');
     expect(mathematicsHtml).not.toContain('>MSRC</button>');
   });
 

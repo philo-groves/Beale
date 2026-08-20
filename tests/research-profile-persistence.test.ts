@@ -395,6 +395,7 @@ describe('research profile persistence', () => {
     });
     const created = service.createScopedWorkspace({
       workspacePath,
+      researchKitId: 'apple-security-bounty',
       workspaceName: 'Removable Workspace',
       researchSubjectName: 'Removable Workspace',
       scopeOwner: 'Authorization Owner',
@@ -412,9 +413,22 @@ describe('research profile persistence', () => {
     const registryEntry = service.getWorkspaceRegistryState().workspaces[0];
 
     expect(registryEntry).toBeTruthy();
+    expect(registryEntry?.researchKitId).toBe('apple-security-bounty');
+    expect(created.workspace.researchKitId).toBe('apple-security-bounty');
     expect(created.activeScope.assets).toEqual([
       expect.objectContaining({ kind: 'other', value: 'retained-resource' })
     ]);
+    expect(() => service.createScopedWorkspace({
+      workspacePath,
+      researchKitId: 'general',
+      workspaceName: 'Changed Kit',
+      researchSubjectName: 'Changed Kit',
+      scopeOwner: 'Authorization Owner',
+      descriptionMarkdown: '',
+      rules: [],
+      expiresAt: null,
+      assets: []
+    })).toThrow('A workspace Research Kit cannot be changed after workspace creation.');
     expect(service.removeRegisteredWorkspace(registryEntry!.id)).toBeNull();
     expect(service.getWorkspaceRegistryState().workspaces).toHaveLength(0);
     expect(service.getSnapshot()).toBeNull();
@@ -423,6 +437,7 @@ describe('research profile persistence', () => {
 
     const retainedDatabase = new WorkspaceDatabase(databasePath, artifactRoot, { workspacePath });
     retainedDatabase.initialize();
+    expect(retainedDatabase.getResearchKitId()).toBe('apple-security-bounty');
     expect(retainedDatabase.getActiveScope().assets).toEqual([
       expect.objectContaining({ kind: 'other', value: 'retained-resource' })
     ]);

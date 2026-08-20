@@ -42,6 +42,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 ## Key Concepts
 
 - **Workspaces**: Local authorized research contexts with explicit ownership in Honeycrisp's global SQLite database, Beale artifacts, and references to relevant source material
+- **Research Kits**: Immutable workspace-creation configurations that acquire initial resources, scope, and rules for specialized research programs
 - **Runs / Sessions**: Research sessions with steering and agent forking
 - **Trace, Memory & Runbooks**: Timeline of model and tool activity beside durable research knowledge and revisioned executable procedures
 - **Tools**: Honeycrisp tools, skills, MCP servers, and Beale-owned disclosure/export affordances
@@ -99,6 +100,10 @@ Beale uses Honeycrisp's bundled Cybersecurity profile by default. Each workspace
 The Mathematics profile supplies problem, definition, conjecture, lemma, theorem, counterexample, construction, technique, proof-attempt, obstruction, formalization, computation, reference, and trajectory memory types. Its workflows cover open exploration, proof development, verification, and literature synthesis. Its collaboration recipes use mathematical construction, counterexample, proof, assumption-audit, formal-checking, independent-derivation, and provenance-review roles; the Cybersecurity profile separately uses surface, dataflow, exploitability, mitigation, reproduction, and evidence-review roles.
 
 Before each new run, Beale asks Honeycrisp to resolve and normalize the selected bundled profile, verifies its content hash, and stores the exact snapshot in that profile's database. The run references that snapshot, and continuations, capture import, historical rendering, and memory interpretation reuse it.
+
+### Research Kits
+
+Each workspace also selects a Research Kit during creation. General leaves resource and authorization entry manual; HackerOne imports and normalizes a public program scope; Apple Security Bounty supplies program guidance and an optional Apple OSS repository catalog; and MSRC supplies program guidance and rules. Kit definitions declare their compatible Research Profiles and acquisition capabilities in one shared catalog. The selection is persisted with the workspace and shown read-only in Workspace Overview because changing it after creation could invalidate the recorded scope, resources, and rules.
 
 A profile describes requested defaults; it does not grant authority. Beale remains the trusted host for provider credentials, enabled tool families, side effects, skills, MCP servers, shell policy, and recorded authorization. Workspace profile defaults are constrained by those host-owned settings. In particular, Beale always supplies its own Auto-Review model map and reasoning effort; a profile's `modelJobs.shellReview` route cannot influence shell authorization.
 

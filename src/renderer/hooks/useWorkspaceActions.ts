@@ -1,15 +1,15 @@
 import { useCallback } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { WorkspaceOnboardingProgressUpdate, WorkspaceRegistryEntry, ResearchSessionSummary, WorkspaceSnapshot } from '@shared/types';
+import type { ResearchKitId, WorkspaceOnboardingProgressUpdate, WorkspaceRegistryEntry, ResearchSessionSummary, WorkspaceSnapshot } from '@shared/types';
+import { researchKitDefinition, researchKitSupportsProfile } from '../../shared/researchKits';
 import {
   applyGitHubRepositoryCatalog,
-  applyWorkspaceTemplate,
+  applyResearchKit,
   emptyWorkspaceOnboardingForm,
   onboardingFormFromHackerOneLookup,
   workspaceOnboardingFormForProfile,
   onboardingInputFromForm,
-  type WorkspaceOnboardingFormState,
-  type WorkspaceTemplateKind
+  type WorkspaceOnboardingFormState
 } from '../view-models/workspaceOnboarding';
 import { errorMessage } from '../lib/errors';
 
@@ -19,7 +19,7 @@ export interface WorkspaceActions {
   openResearchSession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
   removeRegisteredWorkspace: (workspace: WorkspaceRegistryEntry) => Promise<void>;
   submitWorkspaceOnboarding: () => void;
-  applyOnboardingTemplate: (templateKind: WorkspaceTemplateKind) => void;
+  applyOnboardingResearchKit: (researchKitId: ResearchKitId) => void;
   lookupHackerOneScope: (identifier: string) => Promise<void>;
 }
 
@@ -109,20 +109,21 @@ export function useWorkspaceActions({
     });
   }, [applySnapshot, clearRunDetail, workspaceDraft, runWorkspaceAction, setWorkspaceDraft, setWorkspaceOnboardingProgress, setSelectedRunId]);
 
-  const applyOnboardingTemplate = useCallback(
-    (templateKind: WorkspaceTemplateKind): void => {
-      if (workspaceDraft?.researchProfileId === 'mathematics' && templateKind !== 'manual') return;
-      setWorkspaceDraft((current) => (current ? applyWorkspaceTemplate(current, templateKind) : current));
-      if (templateKind !== 'apple') return;
-      void window.beale.listGitHubOrganizationRepositories('apple-oss-distributions')
+  const applyOnboardingResearchKit = useCallback(
+    (researchKitId: ResearchKitId): void => {
+      if (workspaceDraft && !researchKitSupportsProfile(researchKitId, workspaceDraft.researchProfileId)) return;
+      const kit = researchKitDefinition(researchKitId);
+      setWorkspaceDraft((current) => (current ? applyResearchKit(current, researchKitId) : current));
+      if (!kit.repositoryCatalog || kit.repositoryCatalog.provider !== 'github-organization') return;
+      void window.beale.listGitHubOrganizationRepositories(kit.repositoryCatalog.organization)
         .then((repositories) => {
           setWorkspaceDraft((current) => (
-            current?.templateKind === 'apple' ? applyGitHubRepositoryCatalog(current, repositories) : current
+            current?.researchKitId === researchKitId ? applyGitHubRepositoryCatalog(current, repositories) : current
           ));
         })
         .catch((caught: unknown) => {
           setWorkspaceDraft((current) => (
-            current?.templateKind === 'apple'
+            current?.researchKitId === researchKitId
               ? { ...current, repositoryCatalogLoading: false, repositoryCatalogError: errorMessage(caught) }
               : current
           ));
@@ -148,7 +149,7 @@ export function useWorkspaceActions({
     openResearchSession,
     removeRegisteredWorkspace,
     submitWorkspaceOnboarding,
-    applyOnboardingTemplate,
+    applyOnboardingResearchKit,
     lookupHackerOneScope
   };
 }

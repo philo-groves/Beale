@@ -289,6 +289,7 @@ describe('workspace dashboard', () => {
       providerModelCatalog: [],
       honeycrispMemory: memory,
       researchProfile: testResearchProfile(),
+      researchKitId: 'apple-security-bounty',
       researchSubjectName: 'Parser',
       workspacePath: '/workspaces/parser',
       workspaceDirectories: ['/workspaces/parser', 'C:\\Users\\alice\\shared'],
@@ -363,9 +364,12 @@ describe('workspace dashboard', () => {
     expect(html).toContain('aria-label="Add workspace directory"');
     expect(html).not.toContain('aria-label="Working Directory"');
     expect(html).toMatch(/aria-label="Research Profile"[^>]*disabled=""[^>]*value="Security"/u);
+    expect(html).toMatch(/aria-label="Research Kit"[^>]*disabled=""[^>]*value="Apple Security Bounty"/u);
     expect(html).toMatch(/aria-label="Research Subject"[^>]*disabled=""[^>]*value="Parser"/u);
     expect(html).toMatch(/aria-label="Workspace Name"[^>]*required=""[^>]*value="Parser Workspace"/u);
     expect(html.indexOf('aria-label="Research Profile"')).toBeLessThan(html.indexOf('aria-label="Research Subject"'));
+    expect(html.indexOf('aria-label="Research Profile"')).toBeLessThan(html.indexOf('aria-label="Research Kit"'));
+    expect(html.indexOf('aria-label="Research Kit"')).toBeLessThan(html.indexOf('aria-label="Research Subject"'));
     expect(html.indexOf('aria-label="Research Subject"')).toBeLessThan(html.indexOf('aria-label="Workspace Name"'));
     expect(html.indexOf('aria-label="Workspace Name"')).toBeLessThan(html.indexOf('aria-label="Workspace directories"'));
     expect(html.indexOf('aria-label="Workspace directories"')).toBeLessThan(html.indexOf('aria-label="Workspace Guidance"'));

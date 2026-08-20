@@ -25,6 +25,7 @@ describe('workspace registry synchronization', () => {
     try {
       registry.syncWorkspace(snapshot);
       expect(registry.getState().workspaces[0]?.descriptionMarkdown).toBe('');
+      expect(registry.getState().workspaces[0]?.researchKitId).toBe('general');
     } finally {
       registry.close();
     }

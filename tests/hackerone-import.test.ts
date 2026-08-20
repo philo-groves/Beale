@@ -82,6 +82,7 @@ describe('HackerOne workspace import', () => {
 
       const snapshot = service.createScopedWorkspace({
         workspacePath,
+        researchKitId: 'hackerone',
         workspaceName: imported.workspaceName,
         researchSubjectName: imported.researchSubjectName,
         scopeOwner: imported.scopeOwner,
@@ -91,6 +92,7 @@ describe('HackerOne workspace import', () => {
         assets: imported.assets
       });
       expect(snapshot.activeScope.rulesMarkdown).toBe('');
+      expect(snapshot.workspace.researchKitId).toBe('hackerone');
       expect(snapshot.workspaceRules.map((rule) => rule.text)).toEqual(imported.rules);
       expect(snapshot.activeScope.assets).toEqual([
         expect.objectContaining({ direction: 'in_scope', kind: 'domain', value: 'api.example.test' })

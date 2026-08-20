@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Research Kits formalize General, HackerOne, Apple Security Bounty, and MSRC workspace creation behind typed resource, scope, rule, and repository-catalog acquisition metadata. The selected kit is immutable workspace metadata, survives registry removal and re-import, and appears read-only beneath Research Profile in Workspace Overview; registry migration 10 records it for known workspaces.
+
 ### Changed
 
 - Workspace rows in the left sidebar now expose a direct New Research action that switches to the owning workspace before opening the research dialog.

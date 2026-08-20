@@ -29,7 +29,7 @@ import type {
 } from '@shared/types';
 import type { HoneycrispSessionSummary } from './honeycrispCliClient';
 import type { ResearchProfileId } from '@shared/types';
-import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, isResearchProfileId, MEMORY_NODE_TYPES } from '../shared/types';
+import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, isResearchKitId, isResearchProfileId, MEMORY_NODE_TYPES } from '../shared/types';
 import { isOptionalProviderModel, isOptionalProviderModelEnabled } from '../shared/optionalProviderModels';
 import { readWorkspaceDescription } from './workspaceDescription';
 
@@ -666,6 +666,15 @@ export class WorkspaceRegistry {
           WHERE workspace_directories_json = '[]';
         `);
       }
+    }, {
+      version: 10,
+      name: 'workspace_research_kits',
+      up: (database) => {
+        const workspaceColumns = database.prepare('PRAGMA table_info(workspaces)').all() as Array<{ name?: unknown }>;
+        if (!workspaceColumns.some((column) => column.name === 'research_kit_id')) {
+          database.exec("ALTER TABLE workspaces ADD COLUMN research_kit_id TEXT NOT NULL DEFAULT 'general';");
+        }
+      }
     }]);
   }
 
@@ -717,6 +726,7 @@ export class WorkspaceRegistry {
     const now = nowIso();
     const scope = snapshot.activeScope;
     const workspacePath = resolve(snapshot.workspace.workspacePath);
+    const researchKitId = isResearchKitId(snapshot.workspace.researchKitId) ? snapshot.workspace.researchKitId : 'general';
     const existing = this.getWorkspaceByPath(workspacePath);
     if (existing) {
       this.db
@@ -726,6 +736,7 @@ export class WorkspaceRegistry {
             workspace_directories_json = ?,
             workspace_name = ?,
             research_profile_id = ?,
+            research_kit_id = ?,
             scope_owner = ?,
             description_markdown = ?,
             rules_markdown = ?,
@@ -739,6 +750,7 @@ export class WorkspaceRegistry {
           JSON.stringify(normalizeWorkspaceDirectories(workspacePath, snapshot.workspace.workspaceDirectories)),
           scope.workspaceName,
           researchProfileId,
+          researchKitId,
           scope.scopeOwner,
           '',
           '',
@@ -756,9 +768,9 @@ export class WorkspaceRegistry {
     this.db
       .prepare(
         `INSERT INTO workspaces (
-          id, workspace_path, workspace_directories_json, workspace_id, workspace_name, research_profile_id, scope_owner,
+          id, workspace_path, workspace_directories_json, workspace_id, workspace_name, research_profile_id, research_kit_id, scope_owner,
           description_markdown, rules_markdown, expires_at, created_at, updated_at, last_opened_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -767,6 +779,7 @@ export class WorkspaceRegistry {
         snapshot.workspace.workspaceId,
         scope.workspaceName,
         researchProfileId,
+        researchKitId,
         scope.scopeOwner,
         '',
         '',
@@ -874,6 +887,7 @@ export class WorkspaceRegistry {
       workspaceName: text(row, 'workspace_name'),
       scopeOwner: text(row, 'scope_owner'),
       researchProfileId: isResearchProfileId(row.research_profile_id) ? row.research_profile_id : DEFAULT_RESEARCH_PROFILE_ID,
+      researchKitId: isResearchKitId(row.research_kit_id) ? row.research_kit_id : 'general',
       descriptionMarkdown: text(row, 'description_markdown'),
       rulesMarkdown: text(row, 'rules_markdown'),
       expiresAt: nullableText(row, 'expires_at'),

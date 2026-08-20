@@ -97,11 +97,13 @@ import {
 import { resolveGoalObjective } from '../shared/goalObjective';
 import { normalizeResearchCollaboration } from '../shared/collaboration';
 import { isResearchProfileId, RESEARCH_PROFILE_IDS } from '../shared/researchProfile';
+import { researchKitSupportsProfile } from '../shared/researchKits';
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { DEFAULT_SHELL_SAFETY_MODE, normalizeShellSafetyMode } from '../shared/shellSafety';
 import { isProviderModelEnabled } from '../shared/optionalProviderModels';
 import {
   isCredentialReferenceResource,
+  isResearchKitId,
   isLiveResearchRunStatus,
   repositoryClonedDirectory,
   SCOPE_ASSET_KINDS,
@@ -161,6 +163,7 @@ import type {
   ResearchGoalSuggestionInput,
   ResearchGoalSuggestionSelectionInput,
   ResearchPromptGenerationInput,
+  ResearchKitId,
   RunDetail,
   RunDetailProjection,
   RunDetailUpdate,
@@ -1157,7 +1160,11 @@ export class WorkspaceService {
         const rawDatabase = new WorkspaceDatabase(
           this.globalHoneycrispDatabasePath(profileId),
           join(firstWorkspace.workspacePath, '.beale', 'artifacts'),
-          { workspacePath: firstWorkspace.workspacePath, workspaceId: firstWorkspace.workspaceId }
+          {
+            workspacePath: firstWorkspace.workspacePath,
+            workspaceId: firstWorkspace.workspaceId,
+            researchKitId: firstWorkspace.researchKitId
+          }
         );
         rawDatabase.initialize();
         db = createHoneycrispSessionBoundary(rawDatabase);
@@ -1741,8 +1748,18 @@ export class WorkspaceService {
     if (!isResearchProfileId(profileId)) {
       throw new Error(`Unsupported research profile: ${String(profileId)}`);
     }
-    this.open(workspacePath, true, false, profileId);
+    const researchKitId = input.researchKitId ?? 'general';
+    if (!isResearchKitId(researchKitId)) {
+      throw new Error(`Unsupported research kit: ${String(researchKitId)}`);
+    }
+    if (!researchKitSupportsProfile(researchKitId, profileId)) {
+      throw new Error(`Research kit ${researchKitId} does not support research profile ${profileId}.`);
+    }
+    this.open(workspacePath, true, false, profileId, researchKitId);
     const db = this.requireDb();
+    if (db.getResearchKitId() !== researchKitId) {
+      throw new Error('A workspace Research Kit cannot be changed after workspace creation.');
+    }
     writeWorkspaceDescription(workspacePath, input.descriptionMarkdown);
     db.saveScope({
       workspaceName,
@@ -3160,7 +3177,8 @@ export class WorkspaceService {
           this.globalHoneycrispDatabasePath(profileId),
           join(resolvedPath, '.beale', 'artifacts'), {
           workspacePath: resolvedPath,
-          workspaceId: firstWorkspace.workspaceId
+          workspaceId: firstWorkspace.workspaceId,
+          researchKitId: firstWorkspace.researchKitId
         });
         rawDatabase.initialize();
         db = createHoneycrispSessionBoundary(rawDatabase);
@@ -3768,7 +3786,13 @@ export class WorkspaceService {
     this.researchProviderAuth.dispose();
   }
 
-  private open(path: string, create: boolean, emitChange = true, requestedProfileId?: ResearchProfileId): WorkspaceSnapshot {
+  private open(
+    path: string,
+    create: boolean,
+    emitChange = true,
+    requestedProfileId?: ResearchProfileId,
+    requestedResearchKitId?: ResearchKitId
+  ): WorkspaceSnapshot {
     const workspacePath = resolve(path);
     if (create) {
       mkdirSync(workspacePath, { recursive: true });
@@ -3810,7 +3834,7 @@ export class WorkspaceService {
       return this.requireSnapshot();
     }
 
-    const runtime = this.createRuntime(workspacePath, bealeDir, artifactRoot, requestedProfileId);
+    const runtime = this.createRuntime(workspacePath, bealeDir, artifactRoot, requestedProfileId, requestedResearchKitId);
     this.setForegroundRuntime(runtime);
     this.getWorkspaceRegistry();
     this.scheduleWorkspaceMemorySummaryLoad(runtime);
@@ -3864,7 +3888,13 @@ export class WorkspaceService {
     timer.unref?.();
   }
 
-  private createRuntime(workspacePath: string, bealeDir: string, artifactRoot: string, requestedProfileId?: ResearchProfileId): WorkspaceRuntime {
+  private createRuntime(
+    workspacePath: string,
+    bealeDir: string,
+    artifactRoot: string,
+    requestedProfileId?: ResearchProfileId,
+    requestedResearchKitId?: ResearchKitId
+  ): WorkspaceRuntime {
     const registry = this.getWorkspaceRegistry();
     const registryWorkspace = registry.getWorkspaceByPath(workspacePath);
     const profileId = requestedProfileId ?? registryWorkspace?.researchProfileId ?? 'security-research';
@@ -3872,7 +3902,8 @@ export class WorkspaceService {
     mkdirSync(this.globalHoneycrispArtifactDirectory(profileId), { recursive: true });
     const db = new WorkspaceDatabase(databasePath, artifactRoot, {
       workspacePath,
-      ...(registryWorkspace?.workspaceId ? { workspaceId: registryWorkspace.workspaceId } : {})
+      ...(registryWorkspace?.workspaceId ? { workspaceId: registryWorkspace.workspaceId } : {}),
+      researchKitId: requestedResearchKitId ?? registryWorkspace?.researchKitId ?? 'general'
     });
     db.initialize();
     migrateWorkspaceDescription(workspacePath, db.getActiveScope().descriptionMarkdown);
@@ -4235,6 +4266,7 @@ export class WorkspaceService {
       workspaceId: runtime.db.getWorkspaceId(),
       workspacePath: runtime.workspacePath,
       workspaceDirectories: registryWorkspace?.workspaceDirectories ?? [runtime.workspacePath],
+      researchKitId: runtime.db.getResearchKitId(),
       databasePath: runtime.db.getDatabasePath(),
       artifactRoot: runtime.db.getArtifactRoot(),
       openedAt: runtime.openedAt,

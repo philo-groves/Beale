@@ -1249,7 +1249,7 @@ export function App(): JSX.Element {
     openResearchSession,
     removeRegisteredWorkspace,
     submitWorkspaceOnboarding,
-    applyOnboardingTemplate,
+    applyOnboardingResearchKit,
     lookupHackerOneScope
   } = useWorkspaceActions({
     snapshot,
@@ -1892,6 +1892,7 @@ export function App(): JSX.Element {
               activeScope={snapshot?.activeScope ?? null}
               workspaceRules={selectedRunId ? [] : snapshot?.workspaceRules ?? []}
               researchProfile={selectedRunId ? activeRunDetail?.researchProfile?.profile ?? null : snapshot?.researchProfile.profile ?? null}
+              researchKitId={snapshot.workspace.researchKitId}
               researchSubjectName={selectedRunId ? '' : snapshot?.researchSubject.name ?? ''}
               sessionHeatPreferences={sessionHeatPreferences}
               sessionEndingSuggestionsEnabled={suggestionPreferences.sessionEndingSuggestionsEnabled}
@@ -2000,7 +2001,7 @@ export function App(): JSX.Element {
         onCloseNotification={() => setActiveNotification(null)}
         onCloseProfiling={closeProfiling}
         onLookupHackerOne={lookupHackerOneScope}
-        onWorkspaceTemplate={applyOnboardingTemplate}
+        onWorkspaceResearchKit={applyOnboardingResearchKit}
         onFlushProfilingReport={flushProfilingReport}
         onLoadResearchGoalSuggestions={researchGoalSuggestionState.load}
         onSelectResearchGoalSuggestion={researchGoalSuggestionState.consume}

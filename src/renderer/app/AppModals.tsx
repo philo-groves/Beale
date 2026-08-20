@@ -21,7 +21,8 @@ import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboar
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import type { ResearchGoalSeed } from '../features/sessions/SessionNextSteps';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
-import type { WorkspaceOnboardingFormState, WorkspaceTemplateKind } from '../view-models/workspaceOnboarding';
+import type { ResearchKitId } from '@shared/types';
+import type { WorkspaceOnboardingFormState } from '../view-models/workspaceOnboarding';
 
 export function AppModals({
   activeNotification,
@@ -52,7 +53,7 @@ export function AppModals({
   onCloseNotification,
   onCloseProfiling,
   onLookupHackerOne,
-  onWorkspaceTemplate,
+  onWorkspaceResearchKit,
   onFlushProfilingReport,
   onLoadResearchGoalSuggestions,
   onSelectResearchGoalSuggestion,
@@ -90,7 +91,7 @@ export function AppModals({
   onCloseNotification: () => void;
   onCloseProfiling: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
-  onWorkspaceTemplate: (templateKind: WorkspaceTemplateKind) => void;
+  onWorkspaceResearchKit: (researchKitId: ResearchKitId) => void;
   onFlushProfilingReport: () => void;
   onLoadResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onSelectResearchGoalSuggestion: (phase: ResearchGoalPhase, suggestion: string) => void;
@@ -110,7 +111,7 @@ export function AppModals({
           onCancel={onCancelWorkspaceOnboarding}
           onChange={onChangeWorkspaceDraft}
           onLookupHackerOne={onLookupHackerOne}
-          onTemplate={onWorkspaceTemplate}
+          onResearchKit={onWorkspaceResearchKit}
           onSubmit={onSubmitWorkspaceOnboarding}
         />
       ) : null}

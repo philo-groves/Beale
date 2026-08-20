@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { JSX } from 'react';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
-import type { WorkspaceOnboardingProgressUpdate } from '@shared/types';
+import type { ResearchKitId, WorkspaceOnboardingProgressUpdate } from '@shared/types';
+import { researchKitsForProfile } from '../../../shared/researchKits';
 import { Modal } from '../../app/Modal';
 import { errorMessage } from '../../lib/errors';
 import { WorkspaceDirectoriesWidget } from './WorkspaceDirectoriesWidget';
@@ -13,10 +14,8 @@ import {
   removeRepositoryFromOnboardingForm,
   removeDirectoryFromOnboardingForm,
   setOnboardingRepositorySelected,
-  templateLabel,
   type OnboardingRepository,
-  type WorkspaceOnboardingFormState,
-  type WorkspaceTemplateKind
+  type WorkspaceOnboardingFormState
 } from '../../view-models/workspaceOnboarding';
 
 export function WorkspaceOnboardingModal({
@@ -26,7 +25,7 @@ export function WorkspaceOnboardingModal({
   onChange,
   onCancel,
   onLookupHackerOne,
-  onTemplate,
+  onResearchKit,
   onSubmit
 }: {
   form: WorkspaceOnboardingFormState;
@@ -35,7 +34,7 @@ export function WorkspaceOnboardingModal({
   onChange: (next: WorkspaceOnboardingFormState) => void;
   onCancel: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
-  onTemplate: (templateKind: WorkspaceTemplateKind) => void;
+  onResearchKit: (researchKitId: ResearchKitId) => void;
   onSubmit: () => void;
 }): JSX.Element {
   const [hackerOneIdentifier, setHackerOneIdentifier] = useState('');
@@ -112,22 +111,24 @@ export function WorkspaceOnboardingModal({
             }}
             onRemove={(directory) => onChange(removeDirectoryFromOnboardingForm(form, directory))}
           />
-          {form.researchProfileId === 'security-research' ? (
-            <div className="template-toggle-row" role="group" aria-label="Workspace template">
-              {(['manual', 'hackerone', 'apple', 'msrc'] as WorkspaceTemplateKind[]).map((templateKind) => (
+          <label>
+            Research Kit
+            <div className="research-kit-toggle-row" role="group" aria-label="Research Kit">
+              {researchKitsForProfile(form.researchProfileId).map((kit) => (
                 <button
                   type="button"
-                  className={`template-toggle ${form.templateKind === templateKind ? 'active' : ''}`}
-                  key={templateKind}
+                  className={`research-kit-toggle ${form.researchKitId === kit.id ? 'active' : ''}`}
+                  key={kit.id}
                   disabled={submitting}
-                  onClick={() => onTemplate(templateKind)}
+                  title={kit.description}
+                  onClick={() => onResearchKit(kit.id)}
                 >
-                  {templateLabel(templateKind)}
+                  {kit.label}
                 </button>
               ))}
             </div>
-          ) : null}
-          {form.templateKind === 'hackerone' ? (
+          </label>
+          {form.researchKitId === 'hackerone' ? (
             <div className="hackerone-lookup">
               <label>
                 HackerOne handle or URL

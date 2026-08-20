@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkspaceOnboardingDefaults } from '@shared/types';
+import { researchKitDefinition, researchKitsForProfile } from '../src/shared/researchKits';
 import {
   addDirectoryToOnboardingForm,
   addRepositoryToOnboardingForm,
   applyGitHubRepositoryCatalog,
-  applyWorkspaceTemplate,
+  applyResearchKit,
   emptyWorkspaceOnboardingForm,
   onboardingFormFromDefaults,
   onboardingFormFromHackerOneLookup,
@@ -16,10 +17,26 @@ import {
 } from '../src/renderer/view-models/workspaceOnboarding';
 
 describe('renderer workspace onboarding view model', () => {
+  it('defines profile-compatible Research Kits and their acquisition capabilities', () => {
+    expect(researchKitsForProfile('security-research').map((kit) => kit.id)).toEqual([
+      'general',
+      'hackerone',
+      'apple-security-bounty',
+      'msrc'
+    ]);
+    expect(researchKitsForProfile('mathematics').map((kit) => kit.id)).toEqual(['general']);
+    expect(researchKitDefinition('hackerone').scopeLookup).toBe('hackerone');
+    expect(researchKitDefinition('apple-security-bounty').repositoryCatalog).toMatchObject({
+      provider: 'github-organization',
+      organization: 'apple-oss-distributions',
+      resourceSource: 'apple-oss'
+    });
+  });
+
   it('converts host defaults into an editable onboarding form', () => {
     const form = onboardingFormFromDefaults(defaults());
 
-    expect(form.templateKind).toBe('manual');
+    expect(form.researchKitId).toBe('general');
     expect(form.workspacePath).toBe('/bounty/example');
     expect(form.workspaceDirectories).toEqual(['/bounty/example']);
     expect(form.researchProfileId).toBe('security-research');
@@ -31,6 +48,7 @@ describe('renderer workspace onboarding view model', () => {
 
     expect(input.expiresAt).toBeNull();
     expect(input.researchProfileId).toBe('security-research');
+    expect(input.researchKitId).toBe('general');
     expect(input.scopeOwner).toBe('Example');
     expect(input.workspaceDirectories).toEqual(['/bounty/example']);
   });
@@ -74,8 +92,8 @@ describe('renderer workspace onboarding view model', () => {
 
   it('applies global Apple and MSRC template defaults', () => {
     const base = onboardingFormFromDefaults(defaults());
-    const apple = applyWorkspaceTemplate(base, 'apple');
-    const msrc = applyWorkspaceTemplate(base, 'msrc');
+    const apple = applyResearchKit(base, 'apple-security-bounty');
+    const msrc = applyResearchKit(base, 'msrc');
 
     expect(apple.workspaceName).toBe('Apple Security Bounty');
     expect(apple.rules).toEqual(expect.arrayContaining([expect.stringContaining('Target Flags')]));
@@ -85,7 +103,7 @@ describe('renderer workspace onboarding view model', () => {
 
   it('keeps Apple OSS repositories unchecked until explicitly selected', () => {
     const apple = applyGitHubRepositoryCatalog(
-      applyWorkspaceTemplate(onboardingFormFromDefaults(defaults()), 'apple'),
+      applyResearchKit(onboardingFormFromDefaults(defaults()), 'apple-security-bounty'),
       [
         { name: 'Security', url: 'https://github.com/apple-oss-distributions/Security', archived: false },
         { name: 'xnu', url: 'https://github.com/apple-oss-distributions/xnu', archived: false }
@@ -110,9 +128,9 @@ describe('renderer workspace onboarding view model', () => {
   });
 
   it('forces mathematics workspaces back to the manual template', () => {
-    const apple = applyWorkspaceTemplate(onboardingFormFromDefaults(defaults()), 'apple');
+    const apple = applyResearchKit(onboardingFormFromDefaults(defaults()), 'apple-security-bounty');
 
-    expect(workspaceOnboardingFormForProfile(apple, 'mathematics').templateKind).toBe('manual');
+    expect(workspaceOnboardingFormForProfile(apple, 'mathematics').researchKitId).toBe('general');
     expect(workspaceOnboardingFormForProfile(apple, 'security-research')).toBe(apple);
   });
 
@@ -137,7 +155,7 @@ describe('renderer workspace onboarding view model', () => {
       importedScopeCount: 1
     });
 
-    expect(form.templateKind).toBe('hackerone');
+    expect(form.researchKitId).toBe('hackerone');
     expect(form.workspacePath).toBe('/bounty/example');
     expect(form.workspaceName).toBe('Example Bounty');
     expect(form.rules).toEqual(['Verify current HackerOne scope.']);

@@ -13711,13 +13711,13 @@ button.research-goal-choice:focus-visible {
   font-size: 0.78rem;
 }
 
-.template-toggle-row {
+.research-kit-toggle-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
 }
 
-.template-toggle {
+.research-kit-toggle {
   min-width: 0;
   border-color: transparent;
   background: var(--gray-18);
@@ -13725,7 +13725,7 @@ button.research-goal-choice:focus-visible {
   padding: 0 8px;
 }
 
-.template-toggle.active {
+.research-kit-toggle.active {
   background: var(--panel-raised);
   color: var(--text);
 }

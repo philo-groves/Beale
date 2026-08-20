@@ -13,6 +13,7 @@ const workspace: WorkspaceRegistryEntry = {
   workspaceId: 'workspace_one',
   workspaceName: 'Parser',
   researchProfileId: 'security-research',
+  researchKitId: 'general',
   scopeOwner: 'Parser',
   descriptionMarkdown: '',
   rulesMarkdown: '',

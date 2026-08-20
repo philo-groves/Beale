@@ -1,6 +1,8 @@
 import type { ResearchProfileId, ResearchProfileSnapshot, ResolvedResearchProfile } from './researchProfile';
+import type { ResearchKitId } from './researchKits';
 
 export * from './researchProfile';
+export * from './researchKits';
 
 export type ScopeAssetDirection = 'in_scope' | 'out_of_scope';
 
@@ -206,6 +208,7 @@ export interface WorkspaceSummary {
   workspaceId: string;
   workspacePath: string;
   workspaceDirectories?: string[];
+  researchKitId: ResearchKitId;
   databasePath: string;
   artifactRoot: string;
   openedAt: string;
@@ -354,6 +357,7 @@ export interface WorkspaceRegistryEntry {
   workspaceId: string;
   workspaceName: string;
   researchProfileId: ResearchProfileId;
+  researchKitId: ResearchKitId;
   scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
@@ -1076,6 +1080,7 @@ export interface WorkspaceOnboardingDefaults {
 
 export interface WorkspaceOnboardingInput extends Omit<WorkspaceOnboardingDefaults, 'assets'> {
   researchProfileId?: ResearchProfileId;
+  researchKitId?: ResearchKitId;
   assets?: ScopeAssetInput[];
   onboardingRequestId?: string;
 }
