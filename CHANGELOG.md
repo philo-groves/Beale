@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Loading session summaries now reserve duration, token, cache-hit, context, and memory rows with animated placeholders instead of briefly reporting zero memories.
 - The workspace Rules tab now sits beside Utilities, uses the workspace name in its heading, and has balanced composer and Add Rule spacing.
 - Workspace Guidance now opens as a vertically resizable Markdown preview and switches to an equally sized editor with an explicit Show Markdown action.
 - Workspace directory management now appears as an inline field below Workspace Name, with a primary-directory indicator and compact controls for adding or removing secondary directories.

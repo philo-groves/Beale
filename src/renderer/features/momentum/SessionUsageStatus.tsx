@@ -50,3 +50,31 @@ export const SessionUsageSummary = memo(function SessionUsageSummary({ detail }:
     </div>
   );
 });
+
+export function SessionUsageSummaryLoading(): JSX.Element {
+  const rows = [
+    { Icon: Coins, label: 'token count' },
+    { Icon: BadgePercent, label: 'cache hit rate' },
+    { Icon: Gauge, label: 'context usage' }
+  ] as const;
+  return (
+    <div
+      aria-label="Loading session usage"
+      aria-busy="true"
+      className="session-summary-items session-usage-summary session-usage-summary-loading"
+      role="list"
+    >
+      {rows.map(({ Icon, label }) => (
+        <div
+          aria-label={`Loading ${label}`}
+          className="session-summary-item session-usage-item session-summary-loading-item"
+          key={label}
+          role="listitem"
+        >
+          <Icon aria-hidden="true" size={15} />
+          <span aria-hidden="true" className="session-summary-loading-line" />
+        </div>
+      ))}
+    </div>
+  );
+}

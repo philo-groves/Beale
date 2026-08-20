@@ -38,9 +38,9 @@ import type { SessionHeatPreferences } from '../../view-models/sessionHeat';
 import { researchProfileFeatureAvailability } from '../../view-models/researchProfileFeatures';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { CommentaryView } from '../commentary/CommentaryView';
-import { SessionUsageSummary } from '../momentum/SessionUsageStatus';
+import { SessionUsageSummary, SessionUsageSummaryLoading } from '../momentum/SessionUsageStatus';
 import { BreakoutRoomView } from '../sessions/BreakoutRoomView';
-import { SessionDurationMetric } from '../sessions/SessionMetrics';
+import { SessionDurationMetric, SessionDurationMetricLoading } from '../sessions/SessionMetrics';
 import { MemoryTypeIcon, MemoryTypeLabel, memoryTypeClassName, memoryTypeDefinition, memoryTypeLabel, memoryTypeStyle } from './MemoryTypeLabel';
 import { MemoryStatusDot } from './MemoryStatusDot';
 import { RunbookView } from './RunbookView';
@@ -625,6 +625,30 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 </>
               ) : null}
             </section>
+          </section>
+        </aside>
+      );
+    }
+    if (!detail) {
+      return (
+        <aside className="main-session-side session-summary-panel" aria-label="Session summary" aria-busy="true">
+          <section className="session-summary-card">
+            <header className="session-summary-heading">
+              <h2 className="session-summary-title">Session</h2>
+              <SessionDurationMetricLoading className="session-summary-duration" />
+            </header>
+            <section className="session-summary-section session-summary-metadata" aria-label="Session metadata">
+              <SessionUsageSummaryLoading />
+            </section>
+            {hasSessionMemories ? <hr className="session-summary-divider" /> : null}
+            {hasSessionMemories ? (
+              <section className="session-summary-items session-summary-memories" aria-label="Session memories">
+                <div aria-label="Loading session memories" className="session-summary-item session-summary-loading-item">
+                  <Database aria-hidden="true" size={15} />
+                  <span aria-hidden="true" className="session-summary-loading-line" />
+                </div>
+              </section>
+            ) : null}
           </section>
         </aside>
       );

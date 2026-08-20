@@ -29,3 +29,16 @@ export function SessionDurationMetric({ detail, className = '' }: { detail: RunD
     </span>
   );
 }
+
+export function SessionDurationMetricLoading({ className = '' }: { className?: string }): JSX.Element {
+  return (
+    <span
+      aria-label="Loading session duration"
+      aria-busy="true"
+      className={`session-summary-duration-loading ${className}`.trim()}
+    >
+      <Clock aria-hidden="true" size={13} />
+      <span aria-hidden="true" className="session-summary-loading-line" />
+    </span>
+  );
+}

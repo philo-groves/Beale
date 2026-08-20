@@ -713,6 +713,42 @@ describe('renderer memory catalog', () => {
     expect(html.indexOf('>1 Sink</span>')).toBeGreaterThan(secondDividerIndex);
   });
 
+  it('reserves session summary rows with animated placeholders while detail is loading', () => {
+    const html = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      detail: null,
+      events: [],
+      memory: {
+        contextWorkspaceId: 'workspace_zsh',
+        contextSubjectId: 'subject_apple',
+        nodes: [],
+        edges: [],
+        runbooks: [],
+        reports: [],
+        lastError: null
+      } as unknown as HoneycrispMemorySummary
+    })));
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const loadingLineStyles = styles.match(/^\.session-summary-loading-line\s*\{([^}]*)\}/mu)?.[1] ?? '';
+
+    expect(html).toContain('aria-label="Session summary" aria-busy="true"');
+    expect(html).toContain('aria-label="Loading session duration" aria-busy="true"');
+    expect(html).toContain('aria-label="Loading session usage" aria-busy="true"');
+    expect(html).toContain('aria-label="Loading token count"');
+    expect(html).toContain('aria-label="Loading cache hit rate"');
+    expect(html).toContain('aria-label="Loading context usage"');
+    expect(html).toContain('aria-label="Loading session memories"');
+    expect(html.match(/session-summary-loading-line/g)).toHaveLength(5);
+    expect(html).toContain('lucide-clock');
+    expect(html).toContain('lucide-coins');
+    expect(html).toContain('lucide-badge-percent');
+    expect(html).toContain('lucide-gauge');
+    expect(html).toContain('lucide-database');
+    expect(html).not.toContain('0 Memories');
+    expect(html.indexOf('aria-label="Loading context usage"')).toBeLessThan(html.indexOf('aria-label="Loading session memories"'));
+    expect(loadingLineStyles).toContain('background: linear-gradient(90deg, var(--panel) 0%, var(--chrome-soft) 50%, var(--panel) 100%)');
+    expect(loadingLineStyles).toContain('animation: session-next-step-loading 1.25s ease-in-out infinite');
+  });
+
   it('shows non-empty session resource rows in the compact summary', () => {
     const html = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
       detail: {
