@@ -1,0 +1,102 @@
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { WorkspaceService } from '../src/main/workspaceService';
+import { resolvedTestResearchProfile } from './researchProfileFixture';
+
+const createdDirectories: string[] = [];
+
+afterEach(() => {
+  for (const directory of createdDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+describe('HackerOne workspace import', () => {
+  it('uses the default provider model and persists reviewed rules separately from resource scope', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'beale-hackerone-import-'));
+    createdDirectories.push(root);
+    const workspacePath = join(root, 'workspace');
+    mkdirSync(workspacePath, { recursive: true });
+    const completionCalls: Array<{ provider: string; model: string; prompt: string }> = [];
+    const service = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: join(root, 'registry'),
+      honeycrispDatabasePath: join(root, 'memory.sqlite'),
+      honeycrispArtifactDirectory: join(root, 'artifacts'),
+      researchProfileResolver: () => resolvedTestResearchProfile(),
+      hackerOneFetch: async () => new Response(JSON.stringify({
+        data: {
+          team: {
+            handle: 'example',
+            name: 'Example Security',
+            url: 'https://hackerone.com/example',
+            policy: 'Stop immediately if customer data is encountered.',
+            submission_state: 'open',
+            structured_scopes: {
+              total_count: 1,
+              nodes: [{
+                asset_type: 'URL',
+                asset_identifier: 'api.example.test',
+                instruction: 'Production API.',
+                eligible_for_bounty: true,
+                eligible_for_submission: true,
+                max_severity: 'critical'
+              }]
+            }
+          }
+        }
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+      providerTextCompletion: async (request) => {
+        completionCalls.push(request);
+        return JSON.stringify({
+          workspaceName: 'Example Security',
+          scopeOwner: 'Example Security',
+          rules: [
+            'Stop immediately if customer data is encountered.',
+            'Report findings privately through HackerOne.'
+          ]
+        });
+      }
+    });
+
+    try {
+      service.setDefaultProviderId('xai');
+      service.setProviderModelDefaults('xai', {
+        largeModel: 'grok-4.6',
+        smallModel: 'grok-4.3',
+        reasoningEffort: 'high'
+      });
+
+      const imported = await service.lookupHackerOneScope('example');
+      expect(completionCalls).toHaveLength(1);
+      expect(completionCalls[0]).toMatchObject({ provider: 'xai', model: 'grok-4.6' });
+      expect(completionCalls[0]?.prompt).toContain('"normalizedAssets"');
+      expect(imported.rules).toEqual([
+        'Stop immediately if customer data is encountered.',
+        'Report findings privately through HackerOne.'
+      ]);
+      expect(imported.assets).toEqual([
+        expect.objectContaining({ direction: 'in_scope', kind: 'domain', value: 'api.example.test' })
+      ]);
+
+      const snapshot = service.createScopedWorkspace({
+        workspacePath,
+        workspaceName: imported.workspaceName,
+        researchSubjectName: imported.researchSubjectName,
+        scopeOwner: imported.scopeOwner,
+        descriptionMarkdown: imported.descriptionMarkdown,
+        rules: imported.rules,
+        expiresAt: imported.expiresAt,
+        assets: imported.assets
+      });
+      expect(snapshot.activeScope.rulesMarkdown).toBe('');
+      expect(snapshot.workspaceRules.map((rule) => rule.text)).toEqual(imported.rules);
+      expect(snapshot.activeScope.assets).toEqual([
+        expect.objectContaining({ direction: 'in_scope', kind: 'domain', value: 'api.example.test' })
+      ]);
+    } finally {
+      service.close();
+    }
+  }, 15_000);
+});

@@ -43,6 +43,7 @@ import type {
   ResolvedResearchProfile,
   WorkspaceScopeDraft,
   WorkspaceScopeVersion,
+  WorkspaceRule,
   RunDetail,
   RunDetailUpdate,
   RunDetailUpdateCursor,
@@ -3234,7 +3235,7 @@ export class WorkspaceDatabase {
           draft.workspaceName.trim() || 'Untitled Workspace',
           draft.scopeOwner.trim(),
           draft.descriptionMarkdown.trim(),
-          draft.rulesMarkdown.trim(),
+          '',
           createdAt,
           optionalDateOrNever(draft.expiresAt),
           createdAt,
@@ -3251,6 +3252,42 @@ export class WorkspaceDatabase {
       this.refreshProjectInventory(scope.id);
     }
     return scope;
+  }
+
+  public listWorkspaceRules(): WorkspaceRule[] {
+    return rows(this.db.prepare(
+      'SELECT id, workspace_id, text, created_at, created_by FROM workspace_rules WHERE workspace_id = ? ORDER BY created_at ASC, rowid ASC'
+    ).all(this.workspaceId)).map((row) => ({
+      id: text(row, 'id'),
+      workspaceId: text(row, 'workspace_id'),
+      text: text(row, 'text'),
+      createdAt: text(row, 'created_at'),
+      createdBy: text(row, 'created_by')
+    }));
+  }
+
+  public addWorkspaceRules(values: readonly string[], createdBy = 'local_user'): WorkspaceRule[] {
+    const normalized = [...new Set(values.map(normalizeWorkspaceRuleText).filter(Boolean))];
+    if (normalized.some((value) => value.length > 2_000)) {
+      throw new Error('Workspace rules must be at most 2,000 characters.');
+    }
+    const now = nowIso();
+    this.transaction(() => {
+      const insert = this.db.prepare(
+        'INSERT OR IGNORE INTO workspace_rules (id, workspace_id, text, created_at, created_by) VALUES (?, ?, ?, ?, ?)'
+      );
+      for (const value of normalized) insert.run(createId('rule'), this.workspaceId, value, now, createdBy);
+    });
+    return this.listWorkspaceRules();
+  }
+
+  public addWorkspaceRule(value: string, createdBy = 'local_user'): WorkspaceRule {
+    const normalized = normalizeWorkspaceRuleText(value);
+    if (!normalized) throw new Error('Workspace rule text is required.');
+    const rules = this.addWorkspaceRules([normalized], createdBy);
+    const rule = rules.find((candidate) => candidate.text === normalized);
+    if (!rule) throw new Error('Workspace rule could not be saved.');
+    return rule;
   }
 
   public createRun(input: StartRunRecordInput): CreatedRunContext {
@@ -3982,7 +4019,11 @@ export class WorkspaceDatabase {
         )
         .get(scopeId, this.workspaceId)
     );
-    return row ? `${text(row, 'ended_at')}::${text(row, 'id')}` : 'initial';
+    const ruleRevision = rowOrUndefined(this.db.prepare(
+      'SELECT COUNT(*) AS count, MAX(created_at) AS latest FROM workspace_rules WHERE workspace_id = ?'
+    ).get(this.workspaceId));
+    const sessionRevision = row ? `${text(row, 'ended_at')}::${text(row, 'id')}` : 'initial';
+    return `${sessionRevision}::rules:${ruleRevision ? numberValue(ruleRevision, 'count') : 0}:${ruleRevision ? nullableText(ruleRevision, 'latest') ?? '' : ''}`;
   }
 
   public getResearchGoalSuggestionCache(
@@ -5540,7 +5581,7 @@ export class WorkspaceDatabase {
             entityType: 'scope_asset',
             entityId: asset.id,
             title: `${asset.direction} ${asset.kind}: ${asset.value}`,
-            body: [asset.value, asset.kind, asset.direction, asset.sensitivity, JSON.stringify(asset.attributes), scope.workspaceName, scope.descriptionMarkdown, scope.rulesMarkdown].join('\n'),
+            body: [asset.value, asset.kind, asset.direction, asset.sensitivity, JSON.stringify(asset.attributes), scope.workspaceName, scope.descriptionMarkdown].join('\n'),
             sourcePath: isAbsolute(asset.value) ? asset.value : null,
             metadata: { direction: asset.direction, kind: asset.kind, sensitivity: asset.sensitivity, attributes: asset.attributes },
             createdAt: asset.createdAt,
@@ -6409,6 +6450,24 @@ export class WorkspaceDatabase {
                    cache.generated_at, cache.generated_at, NULL, 1, 0
             FROM research_goal_suggestion_cache cache, json_each(cache.suggestions_json) suggestion
             WHERE typeof(suggestion.value) = 'text' AND trim(CAST(suggestion.value AS TEXT)) <> '';
+          `);
+        }
+      },
+      {
+        version: 25,
+        name: 'formal_workspace_rules',
+        up: (database) => {
+          database.exec(WORKSPACE_RULES_SCHEMA_SQL);
+          database.exec(`
+            INSERT OR IGNORE INTO workspace_rules (id, workspace_id, text, created_at, created_by)
+            SELECT 'rule_' || lower(hex(randomblob(16))), workspace_id,
+                   trim(replace(replace(rules_markdown, char(13), ' '), char(10), ' ')),
+                   created_at, 'legacy_migration'
+            FROM scope_versions AS candidate
+            WHERE candidate.workspace_id IS NOT NULL
+              AND trim(candidate.rules_markdown) <> ''
+              AND candidate.status = 'active';
+            UPDATE scope_versions SET rules_markdown = '' WHERE rules_markdown <> '';
           `);
         }
       }
@@ -7750,6 +7809,10 @@ export class WorkspaceDatabase {
   }
 }
 
+function normalizeWorkspaceRuleText(value: string): string {
+  return value.replace(/\s+/gu, ' ').trim();
+}
+
 function totalTokensFromUsage(usage: Record<string, unknown>): number {
   const direct = numericUsageValue(usage.totalTokens) ?? numericUsageValue(usage.total_tokens);
   if (direct !== null) return direct;
@@ -8044,6 +8107,20 @@ CREATE INDEX IF NOT EXISTS idx_research_goal_suggestion_history_recent
 ON research_goal_suggestion_history(workspace_id, scope_version_id, profile_hash, phase, last_generated_at DESC);
 `;
 
+const WORKSPACE_RULES_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS workspace_rules (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  text TEXT NOT NULL CHECK (trim(text) <> ''),
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  UNIQUE(workspace_id, text)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_rules_workspace_created
+ON workspace_rules(workspace_id, created_at, id);
+`;
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workspaces (
   id TEXT PRIMARY KEY,
@@ -8069,6 +8146,8 @@ CREATE TABLE IF NOT EXISTS workspace_research_subjects (
 
 CREATE INDEX IF NOT EXISTS idx_workspace_research_subjects_subject
 ON workspace_research_subjects(subject_id, workspace_id);
+
+${WORKSPACE_RULES_SCHEMA_SQL}
 
 CREATE TABLE IF NOT EXISTS research_profile_snapshots (
   id TEXT PRIMARY KEY,

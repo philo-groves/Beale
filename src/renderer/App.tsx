@@ -415,7 +415,7 @@ export function App(): JSX.Element {
         workspaceName: activeScope.workspaceName,
         scopeOwner: activeScope.scopeOwner,
         descriptionMarkdown: activeScope.descriptionMarkdown,
-        rulesMarkdown: activeScope.rulesMarkdown,
+        rulesMarkdown: '',
         expiresAt: activeScope.expiresAt,
         assets: asset ? [...assets, asset] : assets
       }));
@@ -436,6 +436,16 @@ export function App(): JSX.Element {
     setError(null);
     try {
       applySnapshot(await window.beale.cloneWorkspaceRepository(assetId));
+    } catch (caught) {
+      setError(errorMessage(caught));
+      throw caught;
+    }
+  }, [applySnapshot]);
+
+  const addWorkspaceRule = useCallback(async (text: string): Promise<void> => {
+    setError(null);
+    try {
+      applySnapshot(await window.beale.addWorkspaceRule(text));
     } catch (caught) {
       setError(errorMessage(caught));
       throw caught;
@@ -1868,6 +1878,7 @@ export function App(): JSX.Element {
               providerModelCatalog={enabledResearchProviderModelCatalog}
               honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
               activeScope={snapshot?.activeScope ?? null}
+              workspaceRules={selectedRunId ? [] : snapshot?.workspaceRules ?? []}
               researchProfile={selectedRunId ? activeRunDetail?.researchProfile?.profile ?? null : snapshot?.researchProfile.profile ?? null}
               researchSubjectName={selectedRunId ? '' : snapshot?.researchSubject.name ?? ''}
               sessionHeatPreferences={sessionHeatPreferences}
@@ -1905,6 +1916,7 @@ export function App(): JSX.Element {
               onAddWorkspaceResource={addWorkspaceResource}
               onChangeWorkspaceResource={changeWorkspaceResource}
               onCloneWorkspaceRepository={cloneWorkspaceRepository}
+              onAddWorkspaceRule={addWorkspaceRule}
               onSaveWorkspaceConfiguration={saveWorkspaceConfiguration}
               onChangeWorkspaceDirectories={changeWorkspaceDirectories}
               onOpenSession={openWorkspaceDashboardSession}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, JSX } from 'react';
-import { Binary, BookOpen, Download, Folder, GitBranch, Globe2, Info, Layers3, MoonStar, Plus, Server, Sparkles, Trash2 } from 'lucide-react';
+import type { CSSProperties, FormEvent, JSX } from 'react';
+import { Activity, Binary, BookOpen, Boxes, Brain, Download, Folder, GitBranch, Globe2, Info, Layers3, LayoutDashboard, ListChecks, MoonStar, Plus, Server, Sparkles, Trash2, Wrench } from 'lucide-react';
 import { isLiveResearchRunStatus } from '../../../shared/types';
 import type {
   HoneycrispMemorySummary,
@@ -13,7 +13,8 @@ import type {
   ScopeAssetKind,
   WorkspaceDejunkSummary,
   WorkspaceScopeDraft,
-  WorkspaceScopeVersion
+  WorkspaceScopeVersion,
+  WorkspaceRule
 } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { memoryTypeClassName, memoryTypeDefinition, memoryTypeLabel, memoryTypeStyle } from '../research/MemoryTypeLabel';
@@ -33,14 +34,23 @@ const TIMELINE_WINDOW_HOURS = 4;
 const TIMELINE_TICK_HOURS = [0, 1, 2, 3, 4] as const;
 const WORKSPACE_ACTIVITY_DAY_COUNT = 365;
 const DAY_DURATION_MS = 24 * 60 * 60 * 1_000;
-const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources', 'memory', 'runbooks', 'utilities'] as const;
+const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources', 'rules', 'memory', 'runbooks', 'utilities'] as const;
 
 export type WorkspaceDashboardView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
+
+const WORKSPACE_DASHBOARD_VIEW_ICONS: Record<WorkspaceDashboardView, typeof Info> = {
+  overview: LayoutDashboard,
+  activity: Activity,
+  resources: Boxes,
+  rules: ListChecks,
+  memory: Brain,
+  runbooks: BookOpen,
+  utilities: Wrench
+};
 
 export interface WorkspaceConfigurationInput {
   workspaceName: string;
   descriptionMarkdown: string;
-  rulesMarkdown: string;
 }
 
 export interface WorkspaceHeatmapDay {
@@ -139,7 +149,7 @@ export function workspaceScopeDraftForConfigurationUpdate(
     workspaceName: configuration.workspaceName,
     scopeOwner: scope.scopeOwner,
     descriptionMarkdown: configuration.descriptionMarkdown,
-    rulesMarkdown: configuration.rulesMarkdown,
+    rulesMarkdown: '',
     expiresAt: scope.expiresAt,
     assets: scope.assets.map((asset) => ({
       direction: asset.direction,
@@ -155,6 +165,7 @@ export function WorkspaceUnderstandingView({
   busy,
   honeycrispMemory,
   activeScope = null,
+  workspaceRules = [],
   researchProfile = null,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   researchSubjectName = '',
@@ -169,6 +180,7 @@ export function WorkspaceUnderstandingView({
   onAddResource = async () => undefined,
   onChangeResource = async () => undefined,
   onCloneRepository = async () => undefined,
+  onAddRule = async () => undefined,
   onSaveConfiguration = async () => undefined,
   onChangeWorkspaceDirectories = async () => undefined,
   onOpenSession = () => undefined,
@@ -187,6 +199,7 @@ export function WorkspaceUnderstandingView({
   memoryDreamingProgress?: MemoryDreamingProgressUpdate | null;
   honeycrispMemory: HoneycrispMemorySummary | null;
   activeScope?: WorkspaceScopeVersion | null;
+  workspaceRules?: readonly WorkspaceRule[];
   researchProfile?: ResearchProfile | null;
   sessionHeatPreferences?: SessionHeatPreferences;
   researchSubjectName?: string;
@@ -200,6 +213,7 @@ export function WorkspaceUnderstandingView({
   onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onCloneRepository?: (assetId: string) => Promise<void>;
+  onAddRule?: (text: string) => Promise<void>;
   onSaveConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onChangeWorkspaceDirectories?: (directories: string[]) => Promise<void>;
   onOpenSession?: (runId: string) => void;
@@ -280,6 +294,7 @@ export function WorkspaceUnderstandingView({
       <div className="workspace-dashboard-tabs research-side-view-tabs" role="tablist" aria-label="Workspace dashboard views">
         {WORKSPACE_DASHBOARD_VIEWS.map((view) => {
           const selected = activeView === view;
+          const ViewIcon = WORKSPACE_DASHBOARD_VIEW_ICONS[view];
           return (
             <div className={`research-side-view-tab provider-settings-tab workspace-dashboard-tab ${selected ? 'active' : ''}`.trim()} key={view}>
               <button
@@ -290,6 +305,7 @@ export function WorkspaceUnderstandingView({
                 role="tab"
                 type="button"
               >
+                <ViewIcon aria-hidden="true" className="workspace-dashboard-tab-icon" size={14} />
                 <span>{workspaceDashboardViewLabel(view)}</span>
               </button>
             </div>
@@ -444,6 +460,13 @@ export function WorkspaceUnderstandingView({
         workspaceName={activeScope?.workspaceName || workspaceName}
       /> : null}
 
+      {activeView === 'rules' ? <WorkspaceRulesPanel
+        busy={busy}
+        onAddRule={onAddRule}
+        rules={workspaceRules}
+        workspaceName={activeScope?.workspaceName || workspaceName}
+      /> : null}
+
       {activeView === 'memory' ? <WorkspaceMemoryPanel
         hidden={false}
         loading={honeycrispMemory === null || honeycrispMemory.loading === true}
@@ -487,6 +510,74 @@ function workspaceDashboardViewLabel(view: WorkspaceDashboardView): string {
   return view.charAt(0).toUpperCase() + view.slice(1);
 }
 
+function WorkspaceRulesPanel({
+  busy,
+  onAddRule,
+  rules,
+  workspaceName
+}: {
+  busy: boolean;
+  onAddRule: (text: string) => Promise<void>;
+  rules: readonly WorkspaceRule[];
+  workspaceName: string;
+}): JSX.Element {
+  const [draft, setDraft] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || busy || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onAddRule(text);
+      setDraft('');
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <section
+      aria-label={`${workspaceName} rules`}
+      className="workspace-dashboard-panel workspace-rules"
+      id="workspace-dashboard-rules-panel"
+      role="tabpanel"
+    >
+      <div className="workspace-rules-layout settings-form">
+        <header className="settings-form-heading">
+          <h2>Rules</h2>
+          <p>Append concise operating constraints for every research session in this workspace.</p>
+        </header>
+        <div className="settings-form-squircle workspace-rules-surface">
+          <form className="workspace-rule-composer" onSubmit={(event) => void submit(event)}>
+            <input
+              aria-label="New workspace rule"
+              disabled={busy || submitting}
+              maxLength={2000}
+              placeholder="Add a rule"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <button disabled={busy || submitting || !draft.trim()} type="submit">
+              <Plus aria-hidden="true" size={14} />
+              Add Rule
+            </button>
+          </form>
+          {error ? <p className="workspace-rules-error" role="alert">{error}</p> : null}
+          {rules.length > 0 ? (
+            <ol aria-label="Workspace rules" className="workspace-rule-list">
+              {rules.map((rule) => <li key={rule.id}>{rule.text}</li>)}
+            </ol>
+          ) : <p className="workspace-rules-empty">No workspace rules recorded.</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function WorkspaceOverviewPanel({
   activeScope,
   busy,
@@ -512,16 +603,13 @@ function WorkspaceOverviewPanel({
 }): JSX.Element {
   const resolvedWorkspaceName = activeScope?.workspaceName || workspaceName;
   const resolvedDescription = activeScope?.descriptionMarkdown ?? '';
-  const resolvedRules = activeScope?.rulesMarkdown ?? '';
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState(resolvedWorkspaceName);
   const [descriptionDraft, setDescriptionDraft] = useState(resolvedDescription);
-  const [rulesDraft, setRulesDraft] = useState(resolvedRules);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const resolvedConfigurationRef = useRef({
     workspaceName: resolvedWorkspaceName,
-    descriptionMarkdown: resolvedDescription,
-    rulesMarkdown: resolvedRules
+    descriptionMarkdown: resolvedDescription
   });
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingSaveCountRef = useRef(0);
@@ -530,27 +618,23 @@ function WorkspaceOverviewPanel({
     const previous = resolvedConfigurationRef.current;
     setWorkspaceNameDraft((current) => current === previous.workspaceName ? resolvedWorkspaceName : current);
     setDescriptionDraft((current) => current === previous.descriptionMarkdown ? resolvedDescription : current);
-    setRulesDraft((current) => current === previous.rulesMarkdown ? resolvedRules : current);
     resolvedConfigurationRef.current = {
       workspaceName: resolvedWorkspaceName,
-      descriptionMarkdown: resolvedDescription,
-      rulesMarkdown: resolvedRules
+      descriptionMarkdown: resolvedDescription
     };
     if (lastQueuedConfigurationRef.current === JSON.stringify(resolvedConfigurationRef.current)) {
       lastQueuedConfigurationRef.current = null;
     }
     setSaveError(null);
-  }, [activeScope?.id, resolvedDescription, resolvedRules, resolvedWorkspaceName]);
+  }, [activeScope?.id, resolvedDescription, resolvedWorkspaceName]);
   const saveInPlace = (): void => {
     const configuration = {
       workspaceName: workspaceNameDraft,
-      descriptionMarkdown: descriptionDraft,
-      rulesMarkdown: rulesDraft
+      descriptionMarkdown: descriptionDraft
     };
     const configurationKey = JSON.stringify(configuration);
     const dirty = configuration.workspaceName !== resolvedWorkspaceName
-      || configuration.descriptionMarkdown !== resolvedDescription
-      || configuration.rulesMarkdown !== resolvedRules;
+      || configuration.descriptionMarkdown !== resolvedDescription;
     if (!configuration.workspaceName.trim()) {
       setSaveError('Workspace name is required.');
       return;
@@ -582,12 +666,36 @@ function WorkspaceOverviewPanel({
     >
       <div className="workspace-overview-layout settings-form">
         <header className="settings-form-heading workspace-overview-heading">
-          <h2 id="workspace-overview-heading">{workspaceNameDraft.trim() || resolvedWorkspaceName} Overview</h2>
+          <h2 id="workspace-overview-heading">{workspaceNameDraft.trim() || resolvedWorkspaceName}</h2>
           <p>Review the workspace context and authorized research boundary.</p>
         </header>
         <div className="workspace-overview-form">
           <div className="settings-form-squircle" aria-labelledby="workspace-overview-heading">
             <div className="settings-form-control-list">
+              <label className="settings-form-control-row workspace-overview-control-row">
+                <span className="settings-form-control-copy">
+                  <strong>Research Profile</strong>
+                  <small>The research profile that defines this workspace.</small>
+                </span>
+                <input
+                  aria-label="Research Profile"
+                  className="workspace-overview-input"
+                  disabled
+                  value={workspaceResearchProfileLabel(researchProfile)}
+                />
+              </label>
+              <label className="settings-form-control-row workspace-overview-control-row">
+                <span className="settings-form-control-copy">
+                  <strong>Research Subject</strong>
+                  <small>The research subject shared across related workspaces.</small>
+                </span>
+                <input
+                  aria-label="Research Subject"
+                  className="workspace-overview-input"
+                  disabled
+                  value={researchSubjectName}
+                />
+              </label>
               <label className="settings-form-control-row workspace-overview-control-row">
                 <span className="settings-form-control-copy">
                   <strong>Workspace Name</strong>
@@ -606,30 +714,6 @@ function WorkspaceOverviewPanel({
                   }}
                 />
               </label>
-              <label className="settings-form-control-row workspace-overview-control-row">
-                <span className="settings-form-control-copy">
-                  <strong>Subject</strong>
-                  <small>The research subject shared across related workspaces.</small>
-                </span>
-                <input
-                  aria-label="Subject"
-                  className="workspace-overview-input"
-                  disabled
-                  value={researchSubjectName}
-                />
-              </label>
-              <label className="settings-form-control-row workspace-overview-control-row">
-                <span className="settings-form-control-copy">
-                  <strong>Profile</strong>
-                  <small>The research profile that defines this workspace.</small>
-                </span>
-                <input
-                  aria-label="Profile"
-                  className="workspace-overview-input"
-                  disabled
-                  value={workspaceResearchProfileLabel(researchProfile)}
-                />
-              </label>
               <label className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
                 <span className="settings-form-control-copy">
                   <strong>Workspace Description</strong>
@@ -641,20 +725,6 @@ function WorkspaceOverviewPanel({
                   rows={5}
                   value={descriptionDraft}
                   onChange={(event) => setDescriptionDraft(event.target.value)}
-                  onBlur={saveInPlace}
-                />
-              </label>
-              <label className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
-                <span className="settings-form-control-copy">
-                  <strong>Scope &amp; Rules</strong>
-                  <small>Record the authorized scope, exclusions, constraints, and operating rules.</small>
-                </span>
-                <textarea
-                  aria-label="Scope & Rules"
-                  disabled={busy}
-                  rows={8}
-                  value={rulesDraft}
-                  onChange={(event) => setRulesDraft(event.target.value)}
                   onBlur={saveInPlace}
                 />
               </label>

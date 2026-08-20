@@ -78,9 +78,9 @@ describe('renderer workspace onboarding view model', () => {
     const msrc = applyWorkspaceTemplate(base, 'msrc');
 
     expect(apple.workspaceName).toBe('Apple Security Bounty');
-    expect(apple.rulesMarkdown).toContain('Target Flags');
+    expect(apple.rules).toEqual(expect.arrayContaining([expect.stringContaining('Target Flags')]));
     expect(msrc.workspaceName).toBe('Microsoft Security Response Center');
-    expect(msrc.rulesMarkdown).toContain('Researcher Portal');
+    expect(msrc.rules).toEqual(expect.arrayContaining([expect.stringContaining('Researcher Portal')]));
   });
 
   it('keeps Apple OSS repositories unchecked until explicitly selected', () => {
@@ -123,7 +123,7 @@ describe('renderer workspace onboarding view model', () => {
       workspaceName: 'Example Bounty',
       scopeOwner: 'Example Inc.',
       descriptionMarkdown: 'Authorized research under Example.',
-      rulesMarkdown: 'Verify current HackerOne scope.',
+      rules: ['Verify current HackerOne scope.'],
       expiresAt: null,
       assets: [
         {
@@ -140,6 +140,7 @@ describe('renderer workspace onboarding view model', () => {
     expect(form.templateKind).toBe('hackerone');
     expect(form.workspacePath).toBe('/bounty/example');
     expect(form.workspaceName).toBe('Example Bounty');
+    expect(form.rules).toEqual(['Verify current HackerOne scope.']);
     expect(form).not.toHaveProperty('expiresAt');
     expect(form.assets).toHaveLength(1);
     expect(form.assets[0]?.attributes).toMatchObject({ hackerOneHandle: 'example', hackerOneSourceUrl: 'https://hackerone.com/example' });
@@ -154,7 +155,7 @@ function defaults(): WorkspaceOnboardingDefaults {
     workspaceName: 'Example',
     scopeOwner: '',
     descriptionMarkdown: '',
-    rulesMarkdown: '',
+    rules: [],
     expiresAt: '2026-05-30T00:00:00.000Z',
     assets: []
   };

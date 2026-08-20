@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Workspace Overview now uses the workspace name as its heading and orders its metadata as Research Profile, Research Subject, Workspace Name, Description, then Directories.
+- Workspace view tabs now show distinct left-side icons for Overview, Activity, Resources, Rules, Memory, Runbooks, and Utilities.
+- Workspace rules now use a durable append-only text list in a dedicated Rules view, while Resources define formal scope. Migration 25 moves legacy active Scope & Rules text into the rule list and clears the retired scope field; HackerOne imports use the configured default provider model to extract formal rules separately from imported scope resources.
 - Workspace Description now reads from and writes to the primary workspace's `AGENTS.md`. New-workspace onboarding imports existing instructions, legacy stored descriptions migrate when the file is missing, and Honeycrisp receives them only through its standard workspace-instruction discovery instead of a duplicate stored scope-description context.
 - End-of-session suggestions now come from three structured follow-up prompts captured with the session's final disposition and are persisted without a second model request. Ended sessions without captured prompts receive deterministic local continuations, and selecting a suggestion opens its complete prompt directly; suggestion loading no longer touches memory, artifacts, run history, or provider transport.
 - Right-sidenav catalog rows now use compact elapsed-time labels for subagents, memories, runbooks, reports, and breakout rooms while retaining the full timestamp in a hover tooltip. Memory rows allow titles to wrap around their time and status, and replace description previews with heat-colored type and model-author metadata.

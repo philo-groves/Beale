@@ -250,7 +250,7 @@ describe('workspace dashboard', () => {
     expect(html).toContain('disabled=""');
   });
 
-  it('shows six workspace tabs while mounting only the initial overview panel', () => {
+  it('shows seven workspace tabs while mounting only the initial overview panel', () => {
     const memory = memorySummary();
     const html = renderToStaticMarkup(createElement(MainSessionWorkspace, {
       detail: null,
@@ -293,16 +293,26 @@ describe('workspace dashboard', () => {
     expect(html).toContain('<span>Overview</span>');
     expect(html).toContain('<span>Activity</span>');
     expect(html).toContain('<span>Resources</span>');
+    expect(html).toContain('<span>Rules</span>');
     expect(html).toContain('<span>Memory</span>');
     expect(html).toContain('<span>Runbooks</span>');
     expect(html).toContain('<span>Utilities</span>');
+    expect(html).toContain('lucide-layout-dashboard');
+    expect(html).toContain('lucide-activity');
+    expect(html).toContain('lucide-boxes');
+    expect(html).toContain('lucide-list-checks');
+    expect(html).toContain('lucide-brain');
+    expect(html).toContain('lucide-book-open');
+    expect(html).toContain('lucide-wrench');
+    expect(html.match(/workspace-dashboard-tab-icon/g)).toHaveLength(7);
     expect(html).toContain('aria-controls="workspace-dashboard-overview-panel" aria-selected="true"');
     expect(html).not.toContain('id="workspace-dashboard-activity-panel"');
     expect(html).not.toContain('id="workspace-dashboard-resources-panel"');
+    expect(html).not.toContain('id="workspace-dashboard-rules-panel"');
     expect(html).not.toContain('id="workspace-dashboard-memory-panel"');
     expect(html).not.toContain('id="workspace-dashboard-runbooks-panel"');
     expect(html).not.toContain('id="workspace-dashboard-utilities-panel"');
-    expect(html).toContain('<h2 id="workspace-overview-heading">Parser Workspace Overview</h2>');
+    expect(html).toContain('<h2 id="workspace-overview-heading">Parser Workspace</h2>');
     expect(html).toContain('class="settings-form-squircle" aria-labelledby="workspace-overview-heading"');
     expect(html).toContain('aria-label="Workspace directories"');
     expect(html).toContain('title="/workspaces/parser"');
@@ -316,14 +326,17 @@ describe('workspace dashboard', () => {
     expect(html).toContain('aria-label="Add workspace directory"');
     expect(html).not.toContain('Local folders included in this workspace.');
     expect(html).not.toContain('aria-label="Working Directory"');
+    expect(html).toMatch(/aria-label="Research Profile"[^>]*disabled=""[^>]*value="Security"/u);
+    expect(html).toMatch(/aria-label="Research Subject"[^>]*disabled=""[^>]*value="Parser"/u);
     expect(html).toMatch(/aria-label="Workspace Name"[^>]*required=""[^>]*value="Parser Workspace"/u);
-    expect(html).toMatch(/aria-label="Subject"[^>]*disabled=""[^>]*value="Parser"/u);
-    expect(html).toMatch(/aria-label="Profile"[^>]*disabled=""[^>]*value="Security"/u);
+    expect(html.indexOf('aria-label="Research Profile"')).toBeLessThan(html.indexOf('aria-label="Research Subject"'));
+    expect(html.indexOf('aria-label="Research Subject"')).toBeLessThan(html.indexOf('aria-label="Workspace Name"'));
+    expect(html.indexOf('aria-label="Workspace Name"')).toBeLessThan(html.indexOf('aria-label="Workspace Description"'));
     expect(html).toContain('<strong>Workspace Description</strong>');
     expect(html).toContain('aria-label="Workspace Description"');
     expect(html).toContain('AGENTS.md instructions.');
-    expect(html).toContain('<strong>Scope &amp; Rules</strong>');
-    expect(html).toContain('aria-label="Scope &amp; Rules"');
+    expect(html).not.toContain('<strong>Scope &amp; Rules</strong>');
+    expect(html).not.toContain('aria-label="Scope &amp; Rules"');
     expect(html).not.toContain('Save changes');
     expect(html).not.toContain('workspace-overview-actions');
     expect(html).not.toContain('>Surface</span>');
@@ -374,13 +387,12 @@ describe('workspace dashboard', () => {
 
     expect(workspaceScopeDraftForConfigurationUpdate(scope, {
       workspaceName: 'Parser Lab',
-      descriptionMarkdown: 'New description',
-      rulesMarkdown: 'New rules'
+      descriptionMarkdown: 'New description'
     })).toEqual({
       workspaceName: 'Parser Lab',
       scopeOwner: 'Parser Team',
       descriptionMarkdown: 'New description',
-      rulesMarkdown: 'New rules',
+      rulesMarkdown: '',
       expiresAt: '2026-12-31T00:00:00.000Z',
       assets: [{
         direction: 'in_scope',
@@ -390,6 +402,32 @@ describe('workspace dashboard', () => {
         attributes: { displayName: 'Parser' }
       }]
     });
+  });
+
+  it('renders formal workspace rules as an append-only list', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: false,
+      initialView: 'rules',
+      memoryDreamingInProgress: false,
+      honeycrispMemory: memorySummary(),
+      workspaceName: 'Parser Workspace',
+      workspaceRules: [{
+        id: 'rule_one',
+        workspaceId: 'workspace_parser',
+        text: 'Do not test production accounts.',
+        createdAt: '2026-08-12T00:00:00.000Z',
+        createdBy: 'local_user'
+      }],
+      runs: [],
+      onRunMemoryDreaming: () => undefined
+    }));
+
+    expect(html).toContain('id="workspace-dashboard-rules-panel"');
+    expect(html).toContain('aria-label="New workspace rule"');
+    expect(html).toContain('>Add Rule</button>');
+    expect(html).toContain('<li>Do not test production accounts.</li>');
+    expect(html).not.toContain('Delete');
+    expect(html).not.toContain('Remove rule');
   });
 
   it('aggregates one year of daily session token usage into logarithmic heat levels', () => {

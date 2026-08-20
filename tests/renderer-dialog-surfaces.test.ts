@@ -87,7 +87,7 @@ describe('renderer dialog surfaces', () => {
       workspaceName: 'Erdos-Straus Conjecture',
       scopeOwner: '',
       descriptionMarkdown: '',
-      rulesMarkdown: '',
+      rules: [],
       expiresAt: null,
       assets: []
     });

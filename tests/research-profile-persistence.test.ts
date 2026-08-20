@@ -300,7 +300,7 @@ describe('research profile persistence', () => {
       researchSubjectName: 'Parser Runtime',
       scopeOwner: 'Authorization Owner',
       descriptionMarkdown: 'Authorized local parser research.',
-      rulesMarkdown: 'Stay within the recorded workspace.',
+      rules: ['Stay within the recorded workspace.'],
       expiresAt: null,
       assets: []
     });
@@ -310,6 +310,14 @@ describe('research profile persistence', () => {
       name: 'Parser Runtime',
       source: 'explicit'
     });
+    expect(onboarded.workspaceRules).toEqual([
+      expect.objectContaining({ text: 'Stay within the recorded workspace.', createdBy: 'workspace_onboarding' })
+    ]);
+    expect(service.addWorkspaceRule('  Never modify\nproduction data.  ').workspaceRules.map((rule) => rule.text)).toEqual([
+      'Stay within the recorded workspace.',
+      'Never modify production data.'
+    ]);
+    expect(service.addWorkspaceRule('Never modify production data.').workspaceRules).toHaveLength(2);
     expect(onboarded.honeycrispMemory.nodes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -342,7 +350,7 @@ describe('research profile persistence', () => {
       researchSubjectName: 'Multi Root',
       scopeOwner: 'Multi Root',
       descriptionMarkdown: '',
-      rulesMarkdown: '',
+      rules: [],
       expiresAt: null,
       assets: []
     });
@@ -402,7 +410,7 @@ describe('research profile persistence', () => {
         researchSubjectName: 'Repository Resources',
         scopeOwner: 'Repository Resources',
         descriptionMarkdown: '',
-        rulesMarkdown: '',
+        rules: [],
         expiresAt: null,
         assets: [{
           direction: 'in_scope',
@@ -465,6 +473,30 @@ describe('research profile persistence', () => {
       name: 'Acme Corporation',
       source: 'legacy_adopted'
     });
+    migrated.close();
+  });
+
+  it('migrates legacy active scope rules into the formal workspace rule list', () => {
+    const fixture = createDatabaseFixture();
+    fixture.database.close();
+
+    const legacy = new DatabaseSync(fixture.databasePath);
+    legacy.prepare("UPDATE scope_versions SET rules_markdown = ? WHERE status = 'active'").run(
+      'Stay within the recorded targets.\nReport through the authorized channel.'
+    );
+    legacy.exec('DROP TABLE workspace_rules;');
+    legacy.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 25").run();
+    legacy.close();
+
+    const migrated = new WorkspaceDatabase(fixture.databasePath, fixture.artifactRoot, { workspacePath: fixture.workspacePath });
+    migrated.initialize();
+    expect(migrated.listWorkspaceRules()).toEqual([
+      expect.objectContaining({
+        text: 'Stay within the recorded targets. Report through the authorized channel.',
+        createdBy: 'legacy_migration'
+      })
+    ]);
+    expect(migrated.getActiveScope().rulesMarkdown).toBe('');
     migrated.close();
   });
 });

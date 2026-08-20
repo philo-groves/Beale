@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
+import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceDejunkSummary, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
@@ -29,6 +29,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   providerModelCatalog,
   honeycrispMemory,
   activeScope = null,
+  workspaceRules = [],
   researchProfile,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   sessionEndingSuggestionsEnabled = true,
@@ -66,6 +67,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onAddWorkspaceResource = async () => undefined,
   onChangeWorkspaceResource = async () => undefined,
   onCloneWorkspaceRepository = async () => undefined,
+  onAddWorkspaceRule = async () => undefined,
   onSaveWorkspaceConfiguration = async () => undefined,
   onChangeWorkspaceDirectories = async () => undefined,
   onOpenSession = () => undefined,
@@ -91,6 +93,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   providerModelCatalog: ResearchProviderModelCatalog[];
   honeycrispMemory: HoneycrispMemorySummary | null;
   activeScope?: WorkspaceScopeVersion | null;
+  workspaceRules?: WorkspaceRule[];
   researchProfile: ResearchProfile | null;
   sessionHeatPreferences?: SessionHeatPreferences;
   sessionEndingSuggestionsEnabled?: boolean;
@@ -128,6 +131,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onAddWorkspaceResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeWorkspaceResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onCloneWorkspaceRepository?: (assetId: string) => Promise<void>;
+  onAddWorkspaceRule?: (text: string) => Promise<void>;
   onSaveWorkspaceConfiguration?: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   onChangeWorkspaceDirectories?: (directories: string[]) => Promise<void>;
   onOpenSession?: (runId: string) => void;
@@ -305,6 +309,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           key={workspacePath}
           busy={busy}
           activeScope={activeScope}
+          workspaceRules={workspaceRules}
           workspaceDejunk={workspaceDejunk}
           workspaceDejunkInProgress={workspaceDejunkInProgress}
           memoryDreamingInProgress={memoryDreamingInProgress}
@@ -322,6 +327,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onAddResource={onAddWorkspaceResource}
           onChangeResource={onChangeWorkspaceResource}
           onCloneRepository={onCloneWorkspaceRepository}
+          onAddRule={onAddWorkspaceRule}
           onSaveConfiguration={onSaveWorkspaceConfiguration}
           onChangeWorkspaceDirectories={onChangeWorkspaceDirectories}
           onOpenSession={onOpenSession}

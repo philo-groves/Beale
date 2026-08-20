@@ -167,10 +167,6 @@ export function WorkspaceOnboardingModal({
             Description (AGENTS.md)
             <textarea rows={3} value={form.descriptionMarkdown} disabled={submitting} onChange={(event) => update('descriptionMarkdown', event.target.value)} />
           </label>
-          <label>
-            Scope and Rules
-            <textarea rows={3} value={form.rulesMarkdown} disabled={submitting} onChange={(event) => update('rulesMarkdown', event.target.value)} />
-          </label>
         </form>
         <RepositoryOnboardingPanel
           repositories={repositories}

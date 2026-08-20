@@ -741,7 +741,7 @@ export class WorkspaceRegistry {
           researchProfileId,
           scope.scopeOwner,
           '',
-          scope.rulesMarkdown,
+          '',
           scope.expiresAt,
           now,
           now,
@@ -769,7 +769,7 @@ export class WorkspaceRegistry {
         researchProfileId,
         scope.scopeOwner,
         '',
-        scope.rulesMarkdown,
+        '',
         scope.expiresAt,
         now,
         now,
@@ -985,7 +985,7 @@ export function defaultsForWorkspaceDirectory(workspacePath: string): WorkspaceO
     workspaceName: titleFromDirectoryName(basename(resolvedWorkspacePath)),
     scopeOwner: '',
     descriptionMarkdown: readWorkspaceDescription(resolvedWorkspacePath),
-    rulesMarkdown: '',
+    rules: [],
     expiresAt: null,
     assets: []
   };

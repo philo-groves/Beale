@@ -400,6 +400,9 @@ const api: BealeApi = {
   saveScope(scope: WorkspaceScopeDraft) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveScope, scope);
   },
+  addWorkspaceRule(text: string) {
+    return ipcRenderer.invoke(IPC_CHANNELS.addWorkspaceRule, text);
+  },
   startRun(input: StartRunInput) {
     return ipcRenderer.invoke(IPC_CHANNELS.startRun, input);
   },

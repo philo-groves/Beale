@@ -203,6 +203,14 @@ export interface HostEnvironment {
   remoteName: string | null;
 }
 
+export interface WorkspaceRule {
+  id: string;
+  workspaceId: string;
+  text: string;
+  createdAt: string;
+  createdBy: string;
+}
+
 export type WorkspaceEditorId =
   | 'vscode'
   | 'vscode-insiders'
@@ -1022,7 +1030,7 @@ export interface WorkspaceOnboardingDefaults {
   researchSubjectName?: string;
   scopeOwner: string;
   descriptionMarkdown: string;
-  rulesMarkdown: string;
+  rules: string[];
   expiresAt: string | null;
   assets: ScopeAssetInput[];
 }
@@ -1073,7 +1081,7 @@ export interface HackerOneScopeLookupResult {
   researchSubjectName?: string;
   scopeOwner: string;
   descriptionMarkdown: string;
-  rulesMarkdown: string;
+  rules: string[];
   expiresAt: string | null;
   assets: ScopeAssetInput[];
   importedScopeCount: number;
@@ -1756,6 +1764,7 @@ export interface WorkspaceSnapshot {
   openAi: OpenAiAccountStatus;
   executor: ExecutorStatus;
   activeScope: WorkspaceScopeVersion;
+  workspaceRules: WorkspaceRule[];
   researchSubject: ResearchSubject;
   researchProfile: ResearchProfileSnapshot;
   honeycrispMemory: HoneycrispMemorySummary;
@@ -1924,6 +1933,7 @@ export interface BealeApi {
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;
   saveScope(scope: WorkspaceScopeDraft): Promise<WorkspaceSnapshot>;
+  addWorkspaceRule(text: string): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
   exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
   getRunDetail(runId: string, projection?: RunDetailProjection): Promise<RunDetail>;

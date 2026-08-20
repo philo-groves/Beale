@@ -22,6 +22,7 @@ import type {
   ShellSafetyMode,
   TranscriptMessageRecord,
   WorkspaceScopeVersion,
+  WorkspaceRule,
   ScopeAsset,
   SessionBlockerDependency,
   SessionBlockerDependencyKind,
@@ -322,7 +323,8 @@ export class HoneycrispRunEngine {
     private readonly getProviderSettings?: () => ProviderSettings,
     private readonly getAgentPluginHoneycrispRuntime?: () => AgentPluginHoneycrispRuntime,
     private readonly getWorkspaceDirectories?: () => readonly string[],
-    private readonly getComputerUseSettings?: () => ComputerUseSettings
+    private readonly getComputerUseSettings?: () => ComputerUseSettings,
+    private readonly getWorkspaceRules?: () => readonly WorkspaceRule[]
   ) {}
 
   public startRun(input: StartRunInput, researchProfile: ResearchProfileSnapshot): HoneycrispRunHandle {
@@ -533,6 +535,7 @@ export class HoneycrispRunEngine {
       researchProfile,
       workflowId,
       this.getResearchSubject?.() ?? null,
+      this.getWorkspaceRules?.() ?? [],
       input.resourceContext
     );
     if (resumeFallbackPromptPath && resume) {
@@ -3288,6 +3291,7 @@ function writeHoneycrispWorkspaceContext(
   researchProfile: ResearchProfileSnapshot | null,
   workflowId: string | null,
   researchSubject: ResearchSubjectInput | null,
+  workspaceRules: readonly WorkspaceRule[],
   resourceContext?: ReportResourceContext
 ): HoneycrispWorkspaceContextFile {
   const context = honeycrispWorkspaceContext(
@@ -3299,6 +3303,7 @@ function writeHoneycrispWorkspaceContext(
     researchProfile,
     workflowId,
     researchSubject,
+    workspaceRules,
     resourceContext
   );
   mkdirSync(dirname(contextPath), { recursive: true });
@@ -3315,6 +3320,7 @@ function honeycrispWorkspaceContext(
   researchProfile: ResearchProfileSnapshot | null,
   workflowId: string | null,
   researchSubject: ResearchSubjectInput | null,
+  workspaceRules: readonly WorkspaceRule[],
   resourceContext?: ReportResourceContext
 ): HoneycrispWorkspaceContextFile {
   const materializedSourcePaths: string[] = [];
@@ -3382,7 +3388,7 @@ function honeycrispWorkspaceContext(
     knownRepositories,
     materializedSourcePaths,
     projectNotes: [
-      ...honeycrispScopeNotes(scope, researchProfile, workflowId, subject, knownRepositories),
+      ...honeycrispScopeNotes(scope, researchProfile, workflowId, subject, workspaceRules, knownRepositories),
       ...reportResourceProjectNotes(resourceContext)
     ]
   };
@@ -3458,9 +3464,10 @@ function honeycrispScopeNotes(
   researchProfile: ResearchProfileSnapshot | null,
   workflowId: string | null,
   researchSubject: { id: string; name: string },
+  workspaceRules: readonly WorkspaceRule[],
   knownRepositories: readonly HoneycrispWorkspaceRepositoryContext[] = []
 ): string[] {
-  if (!researchProfile) return legacyHoneycrispScopeNotes(scope, knownRepositories);
+  if (!researchProfile) return legacyHoneycrispScopeNotes(scope, workspaceRules, knownRepositories);
   const profile = researchProfile.profile;
   const workspaceContract = profile.workspace;
   const workflow = profile.workflows.find((candidate) => candidate.id === workflowId)
@@ -3468,7 +3475,7 @@ function honeycrispScopeNotes(
     ?? profile.workflows[0];
   const recordedBoundary = isRecordedWorkspaceScope(scope);
   const authorizationRequired = workspaceContract.authorizationMode === 'required_for_live_network';
-  const modelVisibleRules = scope.rulesMarkdown.trim() ? boundedContextText(scope.rulesMarkdown) : '';
+  const modelVisibleRules = workspaceRules.slice(0, 200).map((rule) => rule.text).join('\n');
   const notes = [
     `Research profile: ${boundedContextText(`${profile.id}@${profile.version}`)}`,
     workflow
@@ -3493,7 +3500,7 @@ function honeycrispScopeNotes(
     ...workspaceContract.boundaryInstructions
       .slice(0, 16)
       .map((instruction) => `${boundedContextText(workspaceContract.boundaryNoun)} instruction: ${boundedContextText(instruction, 1_000)}`),
-    modelVisibleRules ? `Rules and constraints: ${modelVisibleRules}` : '',
+    ...workspaceRules.slice(0, 200).map((rule) => `Workspace rule: ${boundedContextText(rule.text, 2_000)}`),
     scope.expiresAt
       ? `${boundedContextText(workspaceContract.boundaryNoun)} expiry or review date: ${scope.expiresAt}`
       : `${boundedContextText(workspaceContract.boundaryNoun)} expiry or review date: no expiry recorded.`
@@ -3510,14 +3517,15 @@ function honeycrispScopeNotes(
 
 function legacyHoneycrispScopeNotes(
   scope: WorkspaceScopeVersion,
+  workspaceRules: readonly WorkspaceRule[],
   knownRepositories: readonly HoneycrispWorkspaceRepositoryContext[] = []
 ): string[] {
-  const modelVisibleRules = scope.rulesMarkdown.trim() ? boundedContextText(scope.rulesMarkdown) : '';
+  const modelVisibleRules = workspaceRules.slice(0, 200).map((rule) => rule.text).join('\n');
   const notes = [
     'Authorization: This is an operator-recorded authorized security research scope. Treat only explicitly in-scope assets as authorized; exclusions and constraints override research objectives.',
     scope.workspaceName.trim() ? `Scope: ${boundedContextText(scope.workspaceName)}` : '',
     scope.scopeOwner.trim() ? `Scope owner or subject: ${boundedContextText(scope.scopeOwner)}` : '',
-    modelVisibleRules ? `Rules and constraints: ${modelVisibleRules}` : '',
+    ...workspaceRules.slice(0, 200).map((rule) => `Workspace rule: ${boundedContextText(rule.text, 2_000)}`),
     scope.expiresAt ? `Authorization expiry or review date: ${scope.expiresAt}` : 'Authorization expiry or review date: no expiry recorded.'
   ];
   appendHoneycrispScopeAssetNotes(notes, scope, 'scope', modelVisibleRules, knownRepositories);
@@ -3591,13 +3599,7 @@ function scopeAssetRepresentedInRules(
 }
 
 function isRecordedWorkspaceScope(scope: WorkspaceScopeVersion): boolean {
-  return (
-    scope.workspaceName.trim() !== '' && scope.workspaceName !== 'Untitled Workspace'
-  ) || Boolean(
-    scope.scopeOwner.trim() ||
-      scope.rulesMarkdown.trim() ||
-      scope.assets.length > 0
-  );
+  return scope.assets.some((asset) => asset.direction === 'in_scope');
 }
 
 function honeycrispScopeAssetValue(asset: ScopeAsset): string {

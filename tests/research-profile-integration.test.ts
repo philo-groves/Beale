@@ -444,10 +444,17 @@ describe('research profile host integration', () => {
         workspaceName: 'Climate Literature Library',
         scopeOwner: 'Boundary Administrator',
         descriptionMarkdown: 'A collection of local literature and model outputs.',
-        rulesMarkdown: 'Use the recorded collection only.',
+        rulesMarkdown: '',
         expiresAt: null,
-        assets: []
+        assets: [{
+          direction: 'in_scope',
+          kind: 'path',
+          value: workspace,
+          sensitivity: 'internal',
+          attributes: { source: 'local-library' }
+        }]
       });
+      service.addWorkspaceRule('Stay within the recorded collection.');
 
       expect(() => service.startRun(runInput('missing-workflow'))).toThrow(/not defined by profile general-research@1\.0\.0/);
 
@@ -502,6 +509,7 @@ describe('research profile host integration', () => {
       });
       expect(promptPayload.workspace).toMatchObject({
         researchSubject: { id: 'climate-model', name: 'Regional Climate Model' },
+        rules: ['Stay within the recorded collection.'],
         hostDiscoveredAgentInstructions: {
           sourceFile: 'AGENTS.md',
           content: 'A collection of local literature and model outputs.'
@@ -658,14 +666,7 @@ describe('research profile host integration', () => {
         workspaceName: 'Climate Literature Library',
         scopeOwner: 'Boundary Administrator',
         descriptionMarkdown: 'A collection of local literature and model outputs.',
-        rulesMarkdown: [
-          '## In scope',
-          '- data.example.test',
-          '- misplaced.example.test',
-          '',
-          '## Out of scope',
-          '- excluded.example.test'
-        ].join('\n'),
+        rulesMarkdown: '',
         expiresAt: null,
         assets: [
           { direction: 'in_scope', kind: 'domain', value: 'data.example.test', sensitivity: 'public' },
@@ -694,9 +695,9 @@ describe('research profile host integration', () => {
       const networkProjectNotes = (
         networkEnabledInvocation?.workspaceContext.projectNotes as string[] | undefined
       )?.join('\n') ?? '';
-      expect(networkProjectNotes).toContain('Rules and constraints: ## In scope - data.example.test - misplaced.example.test ## Out of scope - excluded.example.test');
-      expect(networkProjectNotes).not.toContain('Included in Collection boundary (domain, public): data.example.test');
-      expect(networkProjectNotes).not.toContain('Excluded from Collection boundary (domain, public): excluded.example.test');
+      expect(networkProjectNotes).toContain('Workspace rule: Stay within the recorded collection.');
+      expect(networkProjectNotes).toContain('Included in Collection boundary (domain, public): data.example.test');
+      expect(networkProjectNotes).toContain('Excluded from Collection boundary (domain, public): excluded.example.test');
       expect(networkProjectNotes).not.toContain(`Included in Collection boundary (repo, internal): ${workspace}`);
       expect(networkProjectNotes).toContain(
         `Included in Collection boundary (path, internal): ${workspace} — Preserve the recorded collection during analysis.`

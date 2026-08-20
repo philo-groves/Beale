@@ -15,7 +15,7 @@ export interface WorkspaceOnboardingFormState {
   workspaceName: string;
   researchSubjectName: string;
   descriptionMarkdown: string;
-  rulesMarkdown: string;
+  rules: string[];
   assets: ScopeAssetInput[];
   repositoryCandidates: OnboardingRepositoryCandidate[];
   repositoryCatalogLoading: boolean;
@@ -131,7 +131,7 @@ export function onboardingFormFromDefaults(defaults: WorkspaceOnboardingDefaults
     workspaceName: defaults.workspaceName,
     researchSubjectName: defaults.researchSubjectName ?? (defaults.scopeOwner || defaults.workspaceName),
     descriptionMarkdown: defaults.descriptionMarkdown,
-    rulesMarkdown: defaults.rulesMarkdown,
+    rules: [...defaults.rules],
     assets: defaults.assets,
     repositoryCandidates: [],
     repositoryCatalogLoading: false,
@@ -148,7 +148,7 @@ export function onboardingInputFromForm(form: WorkspaceOnboardingFormState): Wor
     researchSubjectName: form.researchSubjectName,
     scopeOwner: form.researchSubjectName.trim() || form.workspaceName.trim(),
     descriptionMarkdown: form.descriptionMarkdown,
-    rulesMarkdown: form.rulesMarkdown,
+    rules: [...form.rules],
     expiresAt: null,
     assets: selectedOnboardingAssets(form)
   };
@@ -161,7 +161,7 @@ export function emptyWorkspaceOnboardingForm(): WorkspaceOnboardingFormState {
     workspaceName: '',
     scopeOwner: '',
     descriptionMarkdown: '',
-    rulesMarkdown: '',
+    rules: [],
     expiresAt: null,
     assets: []
   });
@@ -185,7 +185,7 @@ export function addDirectoryToOnboardingForm(
     descriptionMarkdown: firstDirectory && !form.descriptionMarkdown.trim()
       ? defaults?.descriptionMarkdown ?? form.descriptionMarkdown
       : form.descriptionMarkdown,
-    rulesMarkdown: firstDirectory && !form.rulesMarkdown.trim() ? defaults?.rulesMarkdown ?? form.rulesMarkdown : form.rulesMarkdown
+    rules: firstDirectory && form.rules.length === 0 ? [...(defaults?.rules ?? form.rules)] : form.rules
   };
 }
 
@@ -320,7 +320,7 @@ export function onboardingFormFromHackerOneLookup(
     workspaceName: lookup.workspaceName,
     researchSubjectName: lookup.researchSubjectName ?? lookup.workspaceName,
     descriptionMarkdown: lookup.descriptionMarkdown,
-    rulesMarkdown: lookup.rulesMarkdown,
+    rules: [...lookup.rules],
     assets: lookup.assets,
     repositoryCandidates: [],
     repositoryCatalogLoading: false,
@@ -358,7 +358,7 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
       workspaceName: 'Apple Security Bounty',
       researchSubjectName: 'Apple',
       descriptionMarkdown: APPLE_SCOPE_DESCRIPTION,
-      rulesMarkdown: APPLE_SCOPE_AND_RULES,
+      rules: formalRulesFromProgramMarkdown(APPLE_SCOPE_AND_RULES),
       assets: [],
       repositoryCandidates: [],
       repositoryCatalogLoading: true,
@@ -371,12 +371,28 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
     workspaceName: 'Microsoft Security Response Center',
     researchSubjectName: 'Microsoft',
     descriptionMarkdown: MSRC_SCOPE_DESCRIPTION,
-    rulesMarkdown: MSRC_SCOPE_AND_RULES,
+    rules: formalRulesFromProgramMarkdown(MSRC_SCOPE_AND_RULES),
     assets: [],
     repositoryCandidates: [],
     repositoryCatalogLoading: false,
     repositoryCatalogError: null
   };
+}
+
+function formalRulesFromProgramMarkdown(markdown: string): string[] {
+  let includeSection = true;
+  const rules: string[] = [];
+  for (const rawLine of markdown.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith('## ')) {
+      includeSection = line.toLowerCase() !== '## authorized scope';
+      continue;
+    }
+    if (!includeSection || /^- [^:]+:\s*https?:\/\//u.test(line)) continue;
+    rules.push(line.replace(/^[-*]\s+/u, '').trim());
+  }
+  return [...new Set(rules)].filter(Boolean);
 }
 
 function selectedOnboardingAssets(form: WorkspaceOnboardingFormState): ScopeAssetInput[] {

@@ -95,6 +95,7 @@ export const IPC_CHANNELS = {
   cancelResearchPromptGeneration: 'beale:cancel-research-prompt-generation',
   researchPromptGenerationUpdated: 'beale:research-prompt-generation-updated',
   saveScope: 'beale:save-scope',
+  addWorkspaceRule: 'beale:add-workspace-rule',
   startRun: 'beale:start-run',
   exportWorkspaceBackup: 'beale:export-workspace-backup',
   getRunDetail: 'beale:get-run-detail',
