@@ -886,7 +886,10 @@ if (!hasSingleInstanceLock) {
       broadcastIosDeviceCaptureState,
       broadcastIosDeviceCaptureFrame
     );
-    bealeRemoteServer = new BealeRemoteServer(() => workspaceService.getCachedWorkspaceRegistryState());
+    bealeRemoteServer = new BealeRemoteServer(
+      () => workspaceService.getCachedWorkspaceRegistryState(),
+      (registryWorkspaceId) => workspaceService.getRegisteredWorkspaceMemorySummary(registryWorkspaceId)
+    );
     bealeRemoteServer.start();
     workspaceTerminalService = new WorkspaceTerminalService();
     registerIpc();

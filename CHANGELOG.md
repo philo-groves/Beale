@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added a Tailscale-bound, read-only remote protocol on TCP port `59728` for Beale-iOS to verify a Mac connection and list path-free workspace summaries. The listener is unavailable without a local Tailscale IPv4 address and exposes no mutation actions.
+- Added a Tailscale-bound, read-only remote protocol on TCP port `59728` for Beale-iOS to list path-free workspace summaries and explore workspace-scoped Honeycrisp memory. Remote memory omits global database, artifact-storage, evidence-path, and locator metadata; the listener is unavailable without a local Tailscale IPv4 address and exposes no mutation actions.
 - Specialized workspaces now expose an active-kit-only dashboard view with a shared refresh form. HackerOne re-imports current program resources, rules, and guidance; Apple refreshes selected repository metadata plus bundled rules and guidance; MSRC refreshes bundled rules and guidance while preserving manual resources and repository checkout metadata.
 - Research Kits formalize General, HackerOne, Apple Security Bounty, and MSRC workspace creation behind typed resource, scope, rule, and repository-catalog acquisition metadata. The selected kit is immutable workspace metadata, survives registry removal and re-import, and appears read-only beneath Research Profile in Workspace Overview; registry migration 10 records it for known workspaces.
 

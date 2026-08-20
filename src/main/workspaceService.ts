@@ -713,6 +713,13 @@ export class WorkspaceService {
     return this.getWorkspaceRegistry().getState();
   }
 
+  public async getRegisteredWorkspaceMemorySummary(registryWorkspaceId: string): Promise<HoneycrispMemorySummary> {
+    const normalizedId = registryWorkspaceId.trim();
+    if (!normalizedId) throw new Error('A registered workspace ID is required.');
+    const runtime = this.requireIntrospectionRuntime({ registryWorkspaceId: normalizedId });
+    return await this.memorySummaryForRuntimeAsync(runtime);
+  }
+
   public markResearchSessionViewed(sessionId: string): WorkspaceRegistryState {
     const registry = this.getWorkspaceRegistry();
     registry.markResearchSessionViewed(sessionId);

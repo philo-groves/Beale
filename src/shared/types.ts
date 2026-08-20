@@ -964,12 +964,51 @@ export interface BealeRemoteWorkspaceSummary {
   updatedAt: string;
 }
 
+export interface BealeRemoteMemoryEvidenceSummary {
+  kind: string;
+  summary: string;
+  createdAt: string;
+}
+
+export interface BealeRemoteMemoryNodeSummary {
+  id: string;
+  subjectName: string;
+  type: string;
+  title: string;
+  summary: string;
+  body: string;
+  status: string;
+  confidence: number;
+  tags: string[];
+  sessionCount: number;
+  evidence: BealeRemoteMemoryEvidenceSummary[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BealeRemoteMemorySummary {
+  status: HoneycrispMemoryStatus;
+  nodeCount: number;
+  latestNodeUpdatedAt: string | null;
+  nodeTypeCounts: Record<string, number>;
+  nodes: BealeRemoteMemoryNodeSummary[];
+  lastError: string | null;
+}
+
 export type BealeRemoteResponse =
   | {
       ok: true;
       version: 1;
+      action: 'list_workspaces';
       host: BealeRemoteHostSummary;
       workspaces: BealeRemoteWorkspaceSummary[];
+    }
+  | {
+      ok: true;
+      version: 1;
+      action: 'get_workspace_memory';
+      workspace: BealeRemoteWorkspaceSummary;
+      memory: BealeRemoteMemorySummary;
     }
   | {
       ok: false;

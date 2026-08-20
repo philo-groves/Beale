@@ -2,8 +2,10 @@ import { createServer, type Server, type Socket } from 'node:net';
 import { hostname, networkInterfaces } from 'node:os';
 import type {
   BealeRemoteHostSummary,
+  BealeRemoteMemorySummary,
   BealeRemoteResponse,
   BealeRemoteWorkspaceSummary,
+  HoneycrispMemorySummary,
   WorkspaceRegistryState
 } from '@shared/types';
 
@@ -11,17 +13,21 @@ export const BEALE_REMOTE_PORT = 59_728;
 const MAX_REQUEST_BYTES = 16 * 1024;
 const RETRY_INTERVAL_MS = 5_000;
 
-interface BealeRemoteRequest {
-  version: 1;
-  action: 'list_workspaces';
-}
+type BealeRemoteRequest =
+  | { version: 1; action: 'list_workspaces' }
+  | { version: 1; action: 'get_workspace_memory'; registryWorkspaceId: string };
+
+type WorkspaceMemoryResolver = (registryWorkspaceId: string) => Promise<HoneycrispMemorySummary>;
 
 export class BealeRemoteServer {
   private server: Server | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
 
-  public constructor(private readonly getRegistry: () => WorkspaceRegistryState) {}
+  public constructor(
+    private readonly getRegistry: () => WorkspaceRegistryState,
+    private readonly getWorkspaceMemory: WorkspaceMemoryResolver
+  ) {}
 
   public start(): void {
     this.stopped = false;
@@ -88,25 +94,27 @@ export class BealeRemoteServer {
       }
       const newline = requestText.indexOf('\n');
       if (newline < 0) return;
-      try {
-        respond(handleBealeRemoteRequest(requestText.slice(0, newline), this.getRegistry(), {
-          name: hostname(),
-          address,
-          port: BEALE_REMOTE_PORT
-        }));
-      } catch {
-        respond({ ok: false, version: 1, error: 'Beale could not load the workspace catalog.' });
-      }
+      socket.removeAllListeners('data');
+      void handleBealeRemoteRequest(requestText.slice(0, newline), this.getRegistry(), {
+        name: hostname(),
+        address,
+        port: BEALE_REMOTE_PORT
+      }, this.getWorkspaceMemory)
+        .then(respond)
+        .catch(() => respond({ ok: false, version: 1, error: 'Beale could not load the requested workspace data.' }));
     });
     socket.on('error', () => undefined);
   }
 }
 
-export function handleBealeRemoteRequest(
+export async function handleBealeRemoteRequest(
   requestText: string,
   registry: WorkspaceRegistryState,
-  host: BealeRemoteHostSummary
-): BealeRemoteResponse {
+  host: BealeRemoteHostSummary,
+  getWorkspaceMemory: WorkspaceMemoryResolver = async () => {
+    throw new Error('Workspace memory is unavailable.');
+  }
+): Promise<BealeRemoteResponse> {
   let request: unknown;
   try {
     request = JSON.parse(requestText);
@@ -116,9 +124,22 @@ export function handleBealeRemoteRequest(
   if (!isRemoteRequest(request)) {
     return { ok: false, version: 1, error: 'Unsupported Beale remote request.' };
   }
+  if (request.action === 'get_workspace_memory') {
+    const workspace = registry.workspaces.find((candidate) => candidate.id === request.registryWorkspaceId);
+    if (!workspace) return { ok: false, version: 1, error: 'The requested workspace is not registered.' };
+    const memory = await getWorkspaceMemory(workspace.id);
+    return {
+      ok: true,
+      version: 1,
+      action: 'get_workspace_memory',
+      workspace: remoteWorkspaceSummary(workspace),
+      memory: remoteMemorySummary(memory)
+    };
+  }
   return {
     ok: true,
     version: 1,
+    action: 'list_workspaces',
     host,
     workspaces: registry.workspaces.map(remoteWorkspaceSummary)
   };
@@ -152,9 +173,17 @@ function normalizeRemoteAddress(address: string | undefined): string | undefined
 function isRemoteRequest(value: unknown): value is BealeRemoteRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const request = value as Record<string, unknown>;
-  return request.version === 1
-    && request.action === 'list_workspaces'
-    && Object.keys(request).every((key) => key === 'version' || key === 'action');
+  if (request.version !== 1) return false;
+  if (request.action === 'list_workspaces') {
+    return Object.keys(request).every((key) => key === 'version' || key === 'action');
+  }
+  if (request.action === 'get_workspace_memory') {
+    return typeof request.registryWorkspaceId === 'string'
+      && request.registryWorkspaceId.trim().length > 0
+      && request.registryWorkspaceId.length <= 256
+      && Object.keys(request).every((key) => key === 'version' || key === 'action' || key === 'registryWorkspaceId');
+  }
+  return false;
 }
 
 function remoteWorkspaceSummary(workspace: WorkspaceRegistryState['workspaces'][number]): BealeRemoteWorkspaceSummary {
@@ -166,6 +195,35 @@ function remoteWorkspaceSummary(workspace: WorkspaceRegistryState['workspaces'][
     runCount: workspace.runCount,
     lastRunAt: workspace.lastRunAt,
     updatedAt: workspace.updatedAt
+  };
+}
+
+export function remoteMemorySummary(memory: HoneycrispMemorySummary): BealeRemoteMemorySummary {
+  return {
+    status: memory.status,
+    nodeCount: memory.nodeCount,
+    latestNodeUpdatedAt: memory.latestNodeUpdatedAt,
+    nodeTypeCounts: memory.nodeTypeCounts,
+    nodes: memory.nodes.map((node) => ({
+      id: node.id,
+      subjectName: node.subjectName,
+      type: node.type,
+      title: node.title,
+      summary: node.summary,
+      body: node.body,
+      status: node.status,
+      confidence: node.confidence,
+      tags: node.tags,
+      sessionCount: node.sessionIds.length,
+      evidence: node.evidenceRefs.map((evidence) => ({
+        kind: evidence.kind,
+        summary: evidence.summary,
+        createdAt: evidence.createdAt
+      })),
+      createdAt: node.createdAt,
+      updatedAt: node.updatedAt
+    })),
+    lastError: memory.lastError
   };
 }
 
