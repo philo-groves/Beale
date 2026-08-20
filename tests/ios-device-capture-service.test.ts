@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { IosFrameProtocolParser, parseConnectedIosDevice } from '../src/main/iosDeviceCaptureService';
+import {
+  IosFrameProtocolParser,
+  iosCaptureSessionCopyArgs,
+  iosCaptureSessionDocument,
+  parseConnectedIosDevice
+} from '../src/main/iosDeviceCaptureService';
 
 describe('iOS device capture service boundaries', () => {
   it('selects a wired, connected, physical iOS 27 iPhone', () => {
@@ -98,5 +103,32 @@ describe('iOS device capture service boundaries', () => {
     const invalid = Buffer.alloc(4);
     invalid.writeUInt32BE(9 * 1024 * 1024);
     expect(() => new IosFrameProtocolParser().push(Buffer.concat([Buffer.from('BEALE/1 OK\n'), invalid]))).toThrow('invalid frame');
+  });
+
+  it('stages a short-lived session token without launching the companion', () => {
+    const device = {
+      id: 'core-device-id',
+      udid: 'device-udid',
+      name: 'Research iPhone',
+      model: 'iPhone 15 Pro Max',
+      osVersion: '27.0'
+    };
+    const document = JSON.parse(iosCaptureSessionDocument('a'.repeat(64), 1_000)) as {
+      version: number;
+      token: string;
+      expiresAt: number;
+    };
+    const args = iosCaptureSessionCopyArgs(device, '/private/tmp/beale-capture-session.json');
+
+    expect(document).toEqual({ version: 1, token: 'a'.repeat(64), expiresAt: 901 });
+    expect(args).toEqual([
+      'devicectl', 'device', 'copy', 'to',
+      '--device', 'device-udid',
+      '--source', '/private/tmp/beale-capture-session.json',
+      '--destination', 'Library/Caches/beale-capture-session.json',
+      '--domain-type', 'appDataContainer',
+      '--domain-identifier', 'com.phillipgroves.BealeCaptureCompanion'
+    ]);
+    expect(args).not.toContain('launch');
   });
 });
