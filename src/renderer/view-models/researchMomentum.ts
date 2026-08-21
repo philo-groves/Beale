@@ -19,6 +19,11 @@ export function researchMomentumForDetail(detail: RunDetail | null, heat: Sessio
   if (detail.run.status === 'queued') return momentumState('waiting', 'The research session is queued.');
   if (detail.run.status !== 'active') return momentumState('idle', `The research session is ${traceLabel(detail.run.status)}.`);
 
+  const campaignMomentum = detail.honeycrispMemory?.campaign?.momentum;
+  if (campaignMomentum && campaignMomentum.state !== 'empty') {
+    return momentumState(campaignMomentumState(campaignMomentum.state), campaignMomentum.reason);
+  }
+
   const recent = recentMomentumTraceEvents(detail.traceEvents);
   const latest = recent.at(-1) ?? null;
   if (recent.length === 0) return momentumState('waiting', 'Waiting for the first trace event.');
@@ -54,6 +59,20 @@ export function researchMomentumForDetail(detail: RunDetail | null, heat: Sessio
   }
 
   return momentumState('exploring', momentumReasonFromEvent('Active session is producing trace events', latest), recent.slice(-3));
+}
+
+function campaignMomentumState(state: NonNullable<RunDetail['honeycrispMemory']>['campaign']['momentum']['state']): ResearchMomentumState {
+  switch (state) {
+    case 'blocked': return 'stuck';
+    case 'building': return 'building';
+    case 'observed':
+    case 'reproducing':
+    case 'verifying': return 'verifying';
+    case 'reporting':
+    case 'complete': return 'hot';
+    case 'exploring': return 'exploring';
+    case 'empty': return 'idle';
+  }
 }
 
 function recentMomentumTraceEvents(events: TraceEventRecord[]): TraceEventRecord[] {

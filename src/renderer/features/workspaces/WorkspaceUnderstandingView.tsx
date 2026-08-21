@@ -34,17 +34,20 @@ import type { SessionHeat, SessionHeatPreferences } from '../../view-models/sess
 import { errorMessage } from '../../lib/errors';
 import { renderTraceProseText } from '../traces/traceMarkup';
 import { WorkspaceDirectoriesField } from './WorkspaceDirectoriesWidget';
+import { CampaignGraphView } from './CampaignGraphView';
+import type { ResearchGoalSeed } from '../sessions/SessionNextSteps';
 
 const TIMELINE_WINDOW_HOURS = 4;
 const TIMELINE_TICK_HOURS = [0, 1, 2, 3, 4] as const;
 const WORKSPACE_ACTIVITY_DAY_COUNT = 365;
 const DAY_DURATION_MS = 24 * 60 * 60 * 1_000;
-const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'activity', 'resources', 'kit', 'memory', 'runbooks', 'rules', 'utilities'] as const;
+const WORKSPACE_DASHBOARD_VIEWS = ['overview', 'campaign', 'activity', 'resources', 'kit', 'memory', 'runbooks', 'rules', 'utilities'] as const;
 
 export type WorkspaceDashboardView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
 
 const WORKSPACE_DASHBOARD_VIEW_ICONS: Record<WorkspaceDashboardView, typeof Info> = {
   overview: LayoutDashboard,
+  campaign: GitBranch,
   activity: Activity,
   resources: Boxes,
   kit: RefreshCw,
@@ -195,6 +198,7 @@ export function WorkspaceUnderstandingView({
   onOpenSession = () => undefined,
   onOpenMemory = () => undefined,
   onOpenRunbook = () => undefined,
+  onPursueCampaignGap = () => undefined,
   onActiveViewChange,
   onRunWorkspaceDejunk = () => undefined,
   onRunMemoryDreaming,
@@ -231,6 +235,7 @@ export function WorkspaceUnderstandingView({
   onOpenSession?: (runId: string) => void;
   onOpenMemory?: (nodeId: string) => void;
   onOpenRunbook?: (runbookId: string) => void;
+  onPursueCampaignGap?: (goal: ResearchGoalSeed) => void;
   onActiveViewChange?: (viewName: string) => void;
   nowMs?: number;
 }): JSX.Element {
@@ -475,6 +480,14 @@ export function WorkspaceUnderstandingView({
         onChangeResource={onChangeResource}
         onCloneRepository={onCloneRepository}
         workspaceName={activeScope?.workspaceName || workspaceName}
+      /> : null}
+
+      {activeView === 'campaign' ? <CampaignGraphView
+        activeScope={activeScope}
+        memory={honeycrispMemory}
+        onOpenMemory={onOpenMemory}
+        onOpenRunbook={onOpenRunbook}
+        onPursue={onPursueCampaignGap}
       /> : null}
 
       {activeView === 'kit' && researchKit.refresh ? <WorkspaceResearchKitPanel

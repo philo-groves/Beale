@@ -11,6 +11,7 @@ import type {
   HoneycrispReportSummary,
   HoneycrispRunbookDocument,
   HoneycrispRunbookSummary,
+  RunbookExecutionSelection,
   RunbookProofTargetSelection,
   ResearchProfile,
   ResearchProfileMemoryStatus,
@@ -259,7 +260,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedMemoryNodeId?: string | null;
   searchHighlightQuery: string;
   onOpenRunbook: (runbookId: string) => void;
-  onRunbookExecute?: (runbookId: string, cellId: string | undefined, target: RunbookProofTargetSelection) => Promise<void>;
+  onRunbookExecute?: (runbookId: string, selection: RunbookExecutionSelection, target: RunbookProofTargetSelection) => Promise<void>;
   onOpenReport?: (reportId: string) => void;
   onOpenBreakoutRoom?: (roomId: string) => void;
   onSelectSubagent: (path: string) => void;
@@ -343,16 +344,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     ),
     [memoryProfile, researchProfile?.id, sessionHeatPreferences.heatOverrides, sessionMemoryNodes]
   );
-  const sessionRunbooks = useMemo(
-    () => runbooks.filter((runbook) => runbook.sessionId === runId).length,
+  const sessionRunbookItems = useMemo(
+    () => runbooks.filter((runbook) => runbook.sessionId === runId),
     [runbooks, runId]
   );
-  const sessionRunbookRevisions = useMemo(
-    () => runbooks
-      .filter((runbook) => runbook.sessionId === runId)
-      .reduce((count, runbook) => count + runbook.revision, 0),
-    [runbooks, runId]
-  );
+  const sessionRunbooks = sessionRunbookItems.length;
+  const sessionRunbookMetrics = useMemo(() => summarizeRunbookMetrics(sessionRunbookItems), [sessionRunbookItems]);
   const sessionReports = useMemo(() => reports.filter((report) => report.sessionId === runId), [reports, runId]);
   const sessionReportRevisions = useMemo(() => sessionReports.reduce((count, report) => count + report.revision, 0), [sessionReports]);
   const breakoutRooms = detail?.breakoutRooms ?? [];
@@ -390,10 +387,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => runbooks.filter((runbook) => workspaceId !== null && runbook.workspaceId === workspaceId),
     [runbooks, workspaceId]
   );
-  const workspaceRunbookRevisions = useMemo(
-    () => workspaceRunbooks.reduce((count, runbook) => count + runbook.revision, 0),
-    [workspaceRunbooks]
-  );
+  const workspaceRunbookMetrics = useMemo(() => summarizeRunbookMetrics(workspaceRunbooks), [workspaceRunbooks]);
   const workspaceReports = useMemo(
     () => reports.filter((report) => workspaceId !== null && report.workspaceId === workspaceId),
     [reports, workspaceId]
@@ -598,7 +592,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
                   <BookOpen size={15} aria-hidden="true" />
                   <span>{workspaceRunbooks.length} {workspaceRunbooks.length === 1 ? 'Runbook' : runbookLabel}</span>
-                  <span className="session-summary-meta">{workspaceRunbookRevisions} Updates</span>
+                  <span className="session-summary-meta">{runbookMetricsText(workspaceRunbookMetrics)}</span>
                   <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                 </button>
               ) : null}
@@ -669,7 +663,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
                 <BookOpen size={15} aria-hidden="true" />
                 <span>{sessionRunbooks} {sessionRunbooks === 1 ? 'Runbook' : runbookLabel}</span>
-                <span className="session-summary-meta">{sessionRunbookRevisions} Updates</span>
+                <span className="session-summary-meta">{runbookMetricsText(sessionRunbookMetrics)}</span>
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
             ) : null}
@@ -832,7 +826,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               runbook={visibleSelectedRunbook}
               showBackButton={false}
               onBackToMain={onBackToRunbooks}
-              onRun={onRunbookExecute ? (cellId, target) => onRunbookExecute(visibleSelectedRunbook.id, cellId, target) : undefined}
+              onRun={onRunbookExecute ? (selection, target) => onRunbookExecute(visibleSelectedRunbook.id, selection, target) : undefined}
             />
           </div>
         ) : visibleSelectedRunbookId ? (
@@ -1481,8 +1475,33 @@ export function RunbookCatalogItem({
         </span>
       </span>
       {runbook.purpose ? <span className="runbook-catalog-purpose">{runbookDescriptionText(runbook.purpose)}</span> : null}
+      <span className="runbook-catalog-metrics">{runbookMetricsText(summarizeRunbookMetrics([runbook]))}</span>
     </button>
   );
+}
+
+interface RunbookMetricsPresentation {
+  contentRevisions: number;
+  completedRuns: number;
+  executedCells: number;
+  latestStatus: 'running' | 'succeeded' | 'failed' | 'blocked' | null;
+}
+
+function summarizeRunbookMetrics(runbooks: readonly HoneycrispRunbookSummary[]): RunbookMetricsPresentation {
+  const latest = runbooks
+    .flatMap((runbook) => runbook.execution.latest ? [runbook.execution.latest] : [])
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0] ?? null;
+  return {
+    contentRevisions: runbooks.reduce((count, runbook) => count + runbook.contentRevision, 0),
+    completedRuns: runbooks.reduce((count, runbook) => count + runbook.execution.completedRunCount, 0),
+    executedCells: runbooks.reduce((count, runbook) => count + runbook.execution.executedCellCount, 0),
+    latestStatus: latest?.status ?? null
+  };
+}
+
+function runbookMetricsText(metrics: RunbookMetricsPresentation): string {
+  const latest = metrics.latestStatus ? traceLabel(metrics.latestStatus) : 'Not run';
+  return `${metrics.contentRevisions} rev · ${metrics.completedRuns} ${metrics.completedRuns === 1 ? 'run' : 'runs'} · ${metrics.executedCells} ${metrics.executedCells === 1 ? 'cell' : 'cells'} · ${latest}`;
 }
 
 function RunbookCatalogSection({

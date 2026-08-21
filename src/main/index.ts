@@ -100,7 +100,7 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
   mainWindow = window;
@@ -115,6 +115,7 @@ function createWindow(): void {
   registerRoundedWindowStartupShow(window, needsNativeWindowShape);
   registerWindowChromeStateEvents(window);
   registerRendererDevToolsControls(window);
+  registerRendererNavigationPolicy(window);
 
   if (process.env.ELECTRON_RENDERER_URL) {
     window.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -122,6 +123,25 @@ function createWindow(): void {
     window.loadFile(join(__dirname, '../renderer/index.html'));
   }
   installApplicationMenu();
+}
+
+function registerRendererNavigationPolicy(window: BrowserWindow): void {
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+  const allowedOrigin = rendererUrl ? new URL(rendererUrl).origin : null;
+  const allowedFile = join(__dirname, '../renderer/index.html').replaceAll('\\', '/');
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, target) => {
+    let allowed = false;
+    try {
+      const url = new URL(target);
+      allowed = allowedOrigin !== null
+        ? url.origin === allowedOrigin
+        : url.protocol === 'file:' && decodeURIComponent(url.pathname).replaceAll('\\', '/').endsWith(allowedFile);
+    } catch {
+      allowed = false;
+    }
+    if (!allowed) event.preventDefault();
+  });
 }
 
 function reopenMainWindow(): void {

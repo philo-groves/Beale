@@ -16,6 +16,13 @@ const summary: HoneycrispRunbookSummary = {
   status: 'active',
   artifactId: 'artifact-1',
   revision: 4,
+  contentRevision: 2,
+  execution: {
+    runCount: 3,
+    completedRunCount: 3,
+    executedCellCount: 5,
+    latest: { status: 'succeeded', startedAt: '2026-07-23T10:59:58.750Z' }
+  },
   revisions: [],
   authors: [
     { provider: 'openai', model: 'gpt-5.6' },
@@ -99,6 +106,9 @@ describe('RunbookView', () => {
     expect(html).toContain('Keep this note visible.');
     expect(html).toContain('Succeeded · 1.3s');
     expect(html).toContain('Device · iOS 27.0');
+    expect(html).toContain('Content revision 2');
+    expect(html).toContain('3 completed runs');
+    expect(html).toContain('5 cells executed');
     expect(html).toContain('aria-label="Run cell 2"');
     expect((html.match(/class="runbook-cell /g) ?? []).length).toBe(3);
   });
@@ -108,9 +118,18 @@ describe('RunbookView', () => {
       ...document,
       language: 'sh',
       latestRun: null,
-      cells: document.cells.map((cell) => cell.id === 'code'
-        ? { ...cell, language: 'sh', latestRun: null }
-        : cell)
+      cells: [
+        ...document.cells.map((cell) => cell.id === 'code'
+          ? { ...cell, language: 'sh', latestRun: null }
+          : cell),
+        {
+          ...document.cells[1],
+          id: 'code-2',
+          source: 'printf "done\\n"',
+          language: 'sh',
+          latestRun: null
+        }
+      ]
     };
     const html = renderToStaticMarkup(createElement(RunbookView, {
       runbook: summary,
@@ -125,6 +144,8 @@ describe('RunbookView', () => {
     expect(html).toContain('Healthy runbook: run cells are bounded and repeatable');
     expect(html).toContain('class="runbook-run-button"');
     expect(html).toContain('aria-label="Proof target"');
+    expect(html).toContain('aria-label="Runbook range start"');
+    expect(html).toContain('aria-label="Runbook range end"');
     expect(html).toContain('<option value="localhost" selected="">Localhost</option>');
     expect(html).toContain('aria-label="Run cell 2"');
     expect(html).not.toContain('class="runbook-run-button" disabled=""');

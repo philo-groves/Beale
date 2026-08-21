@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { resolveHoneycrispProtocolInvocation } from './honeycrispInvocation';
@@ -17,6 +17,7 @@ import type {
 } from '@shared/types';
 import type { ResolvedResearchProfile } from '../shared/researchProfile';
 import {
+  decodeHoneycrispProtocolDescriptor,
   decodeHoneycrispProtocolEnvelope,
   type HoneycrispProtocolDescriptor,
   type HoneycrispProtocolEnvelope,
@@ -222,6 +223,7 @@ export interface HoneycrispProviderSemantics {
 }
 
 let providerSemanticsCache: HoneycrispProviderSemantics | null = null;
+let compatibleProtocolCache: { invocationKey: string; descriptor: HoneycrispProtocolDescriptor } | null = null;
 const HONEYCRISP_PROTOCOL_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
 const HONEYCRISP_PROTOCOL_MAX_STDERR_CHARS = 2_000_000;
 
@@ -268,12 +270,20 @@ export function getHoneycrispProtocolDescriptor(): HoneycrispProtocolDescriptor 
     'protocol.describe',
     ['protocol', 'describe', '--json']
   );
-  return envelope.result;
+  return decodeHoneycrispProtocolDescriptor(envelope.result);
+}
+
+export function assertHoneycrispProtocolCompatibility(): HoneycrispProtocolDescriptor {
+  const invocationKey = honeycrispInvocationKey();
+  if (compatibleProtocolCache?.invocationKey === invocationKey) return compatibleProtocolCache.descriptor;
+  const descriptor = getHoneycrispProtocolDescriptor();
+  compatibleProtocolCache = { invocationKey, descriptor };
+  return descriptor;
 }
 
 export function honeycrispOwnsSessions(): boolean {
   try {
-    const descriptor = getHoneycrispProtocolDescriptor();
+    const descriptor = assertHoneycrispProtocolCompatibility();
     return [
       'session.create',
       'session.begin_attempt',
@@ -499,10 +509,15 @@ export function getHoneycrispMemorySummary(
     sessionId?: string;
     researchProfile?: ResearchProfileSnapshot | null;
     includeForeignCatalogs?: boolean;
+    sourceRevision?: string | null;
+    environmentFingerprint?: string | null;
+    assetIds?: string[];
   },
   storage: HoneycrispSessionStorage
 ): HoneycrispMemorySummary {
-  return invokeWithJsonInput<HoneycrispMemorySummary>('memory.summary', ['knowledge', 'summary'], input, storage).result;
+  return decodeHoneycrispMemorySummary(
+    invokeWithJsonInput<unknown>('memory.summary', ['knowledge', 'summary'], input, storage).result
+  );
 }
 
 export async function getHoneycrispMemorySummaryAsync(
@@ -512,18 +527,21 @@ export async function getHoneycrispMemorySummaryAsync(
     sessionId?: string;
     researchProfile?: ResearchProfileSnapshot | null;
     includeForeignCatalogs?: boolean;
+    sourceRevision?: string | null;
+    environmentFingerprint?: string | null;
+    assetIds?: string[];
   },
   storage: HoneycrispSessionStorage,
   signal?: AbortSignal
 ): Promise<HoneycrispMemorySummary> {
-  return (await invokeWithJsonInputAsync<HoneycrispMemorySummary>(
+  return decodeHoneycrispMemorySummary((await invokeWithJsonInputAsync<unknown>(
     'memory.summary',
     ['knowledge', 'summary'],
     input,
     storage,
     signal,
     10_000
-  )).result;
+  )).result);
 }
 
 export function prepareHoneycrispMemoryDreaming(
@@ -938,4 +956,97 @@ function storageEnvironment(storage: HoneycrispSessionStorage): NodeJS.ProcessEn
     HONEYCRISP_DATABASE_PATH: storage.databasePath,
     HONEYCRISP_ARTIFACT_DIRECTORY: storage.artifactDirectoryPath
   };
+}
+
+function honeycrispInvocationKey(): string {
+  const invocation = resolveHoneycrispProtocolInvocation();
+  const executablePath = invocation.prefixArgs.find((argument) => /(?:^|[\\/])cli\.js$/u.test(argument));
+  let executableFingerprint = '';
+  if (executablePath) {
+    try {
+      const stats = statSync(executablePath);
+      executableFingerprint = `${stats.size}:${stats.mtimeMs}`;
+    } catch {
+      executableFingerprint = 'missing';
+    }
+  }
+  return [invocation.command, invocation.cwd, ...invocation.prefixArgs, executableFingerprint].join('\0');
+}
+
+export function decodeHoneycrispMemorySummary(value: unknown): HoneycrispMemorySummary {
+  if (!isPlainRecord(value)
+    || !nonNegativeNumber(value.nodeCount)
+    || !nonNegativeNumber(value.edgeCount)
+    || !Array.isArray(value.nodes)
+    || !Array.isArray(value.edges)
+    || !Array.isArray(value.runbooks)
+    || !value.runbooks.every(validRunbookSummary)
+    || !Array.isArray(value.findings)
+    || !value.findings.every(validFindingSummary)
+    || !validCampaignGraph(value.campaign)) {
+    throw new Error('Honeycrisp returned an invalid memory summary v3 payload.');
+  }
+  return value as unknown as HoneycrispMemorySummary;
+}
+
+function validRunbookSummary(value: unknown): boolean {
+  if (!isPlainRecord(value)
+    || !nonEmptyText(value.id)
+    || !nonEmptyText(value.workspaceId)
+    || !nonEmptyText(value.title)
+    || !nonNegativeNumber(value.revision)
+    || !nonNegativeNumber(value.contentRevision)
+    || !isPlainRecord(value.execution)
+    || !nonNegativeNumber(value.execution.runCount)
+    || !nonNegativeNumber(value.execution.completedRunCount)
+    || !nonNegativeNumber(value.execution.executedCellCount)) return false;
+  const latest = value.execution.latest;
+  return latest === null || (isPlainRecord(latest)
+    && (latest.status === 'running' || latest.status === 'succeeded'
+      || latest.status === 'failed' || latest.status === 'blocked')
+    && nonEmptyText(latest.startedAt));
+}
+
+function validFindingSummary(value: unknown): boolean {
+  return isPlainRecord(value)
+    && nonEmptyText(value.id)
+    && nonEmptyText(value.workspaceId)
+    && nonEmptyText(value.memoryNodeId)
+    && nonEmptyText(value.title)
+    && nonEmptyText(value.status)
+    && nonNegativeNumber(value.revision)
+    && Array.isArray(value.evidence)
+    && Array.isArray(value.transitions)
+    && Array.isArray(value.authors)
+    && value.authors.every((author) => isPlainRecord(author)
+      && nonEmptyText(author.provider)
+      && nonEmptyText(author.model));
+}
+
+function validCampaignGraph(value: unknown): boolean {
+  return isPlainRecord(value)
+    && Array.isArray(value.nodes)
+    && Array.isArray(value.edges)
+    && Array.isArray(value.coverageGaps)
+    && Array.isArray(value.contradictions)
+    && Array.isArray(value.nextActions)
+    && isPlainRecord(value.momentum)
+    && nonEmptyText(value.momentum.state)
+    && nonEmptyText(value.momentum.reason)
+    && Array.isArray(value.momentum.supportingNodeIds)
+    && isPlainRecord(value.counts)
+    && nonNegativeNumber(value.counts.findings)
+    && nonNegativeNumber(value.counts.coverageGaps);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function nonEmptyText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function nonNegativeNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }

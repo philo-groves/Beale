@@ -199,6 +199,7 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('class="runbook-catalog-heading-trailing"><span class="runbook-catalog-status">Active</span><time');
     expect(html).toMatch(/<time class="catalog-time-since" dateTime="2026-07-19T15:00:00\.000Z" title="[^"]+">1d<\/time>/u);
     expect(html).toContain('class="runbook-catalog-purpose">Runbook purpose</span>');
+    expect(html).toContain('class="runbook-catalog-metrics">1 rev · 0 runs · 0 cells · Not run</span>');
     expect(html).not.toContain('runbook-catalog-type');
     expect(html).not.toContain('memory-catalog-status');
   });
@@ -643,9 +644,31 @@ describe('renderer memory catalog', () => {
         ],
         edges: [],
         runbooks: [
-          runbook({ id: 'runbook_one', sessionId: 'run_current', revision: 2 }),
-          runbook({ id: 'runbook_two', sessionId: 'run_current', revision: 3 }),
-          runbook({ id: 'runbook_archived', sessionId: 'run_current', status: 'archived', revision: 7 }),
+          runbook({
+            id: 'runbook_one',
+            sessionId: 'run_current',
+            revision: 22,
+            contentRevision: 1,
+            execution: {
+              runCount: 2,
+              completedRunCount: 2,
+              executedCellCount: 8,
+              latest: { status: 'succeeded', startedAt: '2026-07-19T12:04:00.000Z' }
+            }
+          }),
+          runbook({
+            id: 'runbook_two',
+            sessionId: 'run_current',
+            revision: 33,
+            contentRevision: 2,
+            execution: {
+              runCount: 1,
+              completedRunCount: 1,
+              executedCellCount: 4,
+              latest: { status: 'failed', startedAt: '2026-07-19T12:05:00.000Z' }
+            }
+          }),
+          runbook({ id: 'runbook_archived', sessionId: 'run_current', status: 'archived', revision: 77, contentRevision: 1 }),
           runbook({ id: 'runbook_workspace', sessionId: null, revision: 11 })
         ],
         lastError: null
@@ -696,7 +719,7 @@ describe('renderer memory catalog', () => {
     expect(html.indexOf('>1 Chain</span>')).toBeLessThan(html.indexOf('>1 Sink</span>'));
     expect(html.match(/session-memory-type-item/g)).toHaveLength(4);
     expect(html).toContain('<span>3 Runbooks</span>');
-    expect(html).toContain('class="session-summary-meta">12 Updates</span>');
+    expect(html).toContain('class="session-summary-meta">4 rev · 3 runs · 12 cells · Failed</span>');
     expect(html).not.toContain('<span>0 Subagents</span>');
     expect(html).not.toContain('<span>0 Rooms</span>');
     expect(html).not.toContain('0 Active');
@@ -810,8 +833,19 @@ describe('renderer memory catalog', () => {
         ],
         edges: [],
         runbooks: [
-          runbook({ id: 'workspace_current', sessionId: 'run_current', revision: 2 }),
-          runbook({ id: 'workspace_prior', sessionId: 'run_prior', revision: 5 }),
+          runbook({
+            id: 'workspace_current',
+            sessionId: 'run_current',
+            revision: 20,
+            contentRevision: 2,
+            execution: {
+              runCount: 1,
+              completedRunCount: 1,
+              executedCellCount: 5,
+              latest: { status: 'succeeded', startedAt: '2026-07-19T12:00:00.000Z' }
+            }
+          }),
+          runbook({ id: 'workspace_prior', sessionId: 'run_prior', revision: 50, contentRevision: 1 }),
           runbook({ id: 'other_workspace_runbook', workspaceId: 'workspace_mdns', revision: 11 })
         ],
         reports: [report({ id: 'workspace_report', revision: 3 })],
@@ -825,7 +859,7 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('aria-label="Workspace summary"');
     expect(html).toContain('class="session-summary-title">Workspace</h2>');
     expect(html).toContain('<span>2 Runbooks</span>');
-    expect(html).toContain('class="session-summary-meta">7 Updates</span>');
+    expect(html).toContain('class="session-summary-meta">3 rev · 1 run · 5 cells · Succeeded</span>');
     expect(html).toContain('<span>1 Report</span>');
     expect(html).toContain('class="session-summary-meta">3 Updates</span>');
     expect(html).toContain('<span>2 Memories</span>');
@@ -1270,6 +1304,8 @@ function runbook(overrides: Partial<HoneycrispRunbookSummary> = {}): HoneycrispR
     status: 'active',
     artifactId: 'artifact_one',
     revision: 1,
+    contentRevision: 1,
+    execution: { runCount: 0, completedRunCount: 0, executedCellCount: 0, latest: null },
     revisions: [],
     createdAt: '2026-07-19T12:00:00.000Z',
     updatedAt: '2026-07-19T12:00:00.000Z',

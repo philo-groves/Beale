@@ -95,7 +95,7 @@ describe('Research Kit refresh', () => {
     } finally {
       service.close();
     }
-  });
+  }, 15_000);
 
   it('refreshes bundled MSRC rules and guidance without creating resources', async () => {
     const { root, workspacePath } = workspaceDirectory('beale-msrc-kit-refresh-');

@@ -6,6 +6,7 @@ import type {
   HoneycrispRunbookDocument,
   HoneycrispRunbookOutput,
   HoneycrispRunbookSummary,
+  RunbookExecutionSelection,
   RunbookProofTarget,
   RunbookProofTargetSelection
 } from '@shared/types';
@@ -31,7 +32,7 @@ export const RunbookView = memo(function RunbookView({
   loading: boolean;
   error: string | null;
   onBackToMain: () => void;
-  onRun?: (cellId: string | undefined, target: RunbookProofTargetSelection) => Promise<void>;
+  onRun?: (selection: RunbookExecutionSelection, target: RunbookProofTargetSelection) => Promise<void>;
   executionAvailable?: boolean;
   connectedDeviceOs?: string | null;
   showBackButton?: boolean;
@@ -43,11 +44,27 @@ export const RunbookView = memo(function RunbookView({
   const [requestedCellId, setRequestedCellId] = useState<string | null | undefined>(undefined);
   const [proofTarget, setProofTarget] = useState<RunbookProofTarget>('localhost');
   const [deviceOs, setDeviceOs] = useState('');
+  const [rangeStartCellId, setRangeStartCellId] = useState('');
+  const [rangeEndCellId, setRangeEndCellId] = useState('');
   const executionRunning = document?.latestRun?.status === 'running';
-  const executableCells = document?.cells.filter((cell) => cell.type === 'code') ?? [];
+  const executableCellOptions = document?.cells
+    .map((cell, index) => ({ cell, index }))
+    .filter(({ cell }) => cell.type === 'code') ?? [];
+  const executableCells = executableCellOptions.map(({ cell }) => cell);
   const unhealthyCells = executableCells.filter((cell) => !isSupportedRunbookLanguage(cell.language));
+  const rangeStartIndex = rangeStartCellId
+    ? executableCells.findIndex((cell) => cell.id === rangeStartCellId)
+    : 0;
+  const rangeEndIndex = rangeEndCellId
+    ? executableCells.findIndex((cell) => cell.id === rangeEndCellId)
+    : executableCells.length - 1;
+  const rangeValid = executableCells.length > 0 && rangeStartIndex >= 0
+    && rangeEndIndex >= 0 && rangeStartIndex <= rangeEndIndex;
+  const selectedRangeCells = rangeValid ? executableCells.slice(rangeStartIndex, rangeEndIndex + 1) : [];
+  const selectedRangeHealthy = selectedRangeCells.every((cell) => isSupportedRunbookLanguage(cell.language));
   const targetValid = proofTarget !== 'device' || deviceOs.trim().length > 0;
-  const canRun = executionAvailable && Boolean(onRun) && executableCells.length > 0 && unhealthyCells.length === 0 && targetValid && !executionRunning && requestedCellId === undefined;
+  const canRun = executionAvailable && Boolean(onRun) && rangeValid && selectedRangeHealthy
+    && targetValid && !executionRunning && requestedCellId === undefined;
   const updateKey = useMemo(
     () => runbookViewUpdateKey(runbook, document, loading, error),
     [document, error, loading, runbook]
@@ -61,11 +78,16 @@ export const RunbookView = memo(function RunbookView({
     if (proofTarget === 'device' && !deviceOs.trim() && connectedDeviceOs) setDeviceOs(connectedDeviceOs);
   }, [connectedDeviceOs, deviceOs, proofTarget]);
 
-  const requestExecution = useCallback(async (cellId?: string): Promise<void> => {
+  useEffect(() => {
+    setRangeStartCellId('');
+    setRangeEndCellId('');
+  }, [runbook.id]);
+
+  const requestExecution = useCallback(async (selection: RunbookExecutionSelection = {}): Promise<void> => {
     if (!onRun) return;
-    setRequestedCellId(cellId ?? null);
+    setRequestedCellId(selection.cellId ?? null);
     try {
-      await onRun(cellId, {
+      await onRun(selection, {
         proofTarget,
         ...(proofTarget === 'device' ? { deviceOs: deviceOs.trim() } : {})
       });
@@ -152,15 +174,50 @@ export const RunbookView = memo(function RunbookView({
                   />
                 </label>
               ) : null}
+              {executableCellOptions.length > 1 ? (
+                <>
+                  <label className="runbook-target-field runbook-range-field">
+                    <span>Start</span>
+                    <select
+                      aria-label="Runbook range start"
+                      disabled={executionRunning || requestedCellId !== undefined}
+                      value={rangeStartCellId}
+                      onChange={(event) => setRangeStartCellId(event.currentTarget.value)}
+                    >
+                      <option value="">First code cell</option>
+                      {executableCellOptions.map(({ cell, index }) => (
+                        <option key={`start-${cell.id}`} value={cell.id}>Cell {index + 1}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="runbook-target-field runbook-range-field">
+                    <span>End</span>
+                    <select
+                      aria-label="Runbook range end"
+                      disabled={executionRunning || requestedCellId !== undefined}
+                      value={rangeEndCellId}
+                      onChange={(event) => setRangeEndCellId(event.currentTarget.value)}
+                    >
+                      <option value="">Last code cell</option>
+                      {executableCellOptions.map(({ cell, index }) => (
+                        <option key={`end-${cell.id}`} value={cell.id}>Cell {index + 1}</option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              ) : null}
               <button
                 type="button"
                 className="runbook-run-button"
                 disabled={!canRun}
-                title={!executionAvailable ? 'Runbooks execute only in their active Honeycrisp session.' : unhealthyCells.length > 0 ? 'Every code cell needs a supported language.' : !targetValid ? 'Enter the target device OS.' : undefined}
-                onClick={() => void requestExecution()}
+                title={!executionAvailable ? 'Runbooks execute only in their active Honeycrisp session.' : !rangeValid ? 'Choose a start cell that precedes the end cell.' : !selectedRangeHealthy ? 'Every selected code cell needs a supported language.' : !targetValid ? 'Enter the target device OS.' : undefined}
+                onClick={() => void requestExecution({
+                  ...(rangeStartCellId ? { startCellId: rangeStartCellId } : {}),
+                  ...(rangeEndCellId ? { endCellId: rangeEndCellId } : {})
+                })}
               >
                 {executionRunning || requestedCellId === null ? <LoaderCircle className="runbook-view-spinner" size={13} aria-hidden="true" /> : <Play size={13} aria-hidden="true" />}
-                {executionRunning || requestedCellId === null ? 'Running' : 'Run'}
+                {executionRunning || requestedCellId === null ? 'Running' : rangeStartCellId || rangeEndCellId ? 'Run range' : 'Run'}
               </button>
             </div>
           </div>
@@ -169,7 +226,10 @@ export const RunbookView = memo(function RunbookView({
           {runbook.purpose ? <p>{runbookDescriptionText(runbook.purpose)}</p> : null}
           <div className="runbook-view-meta">
             <span>{traceLabel(runbook.status)}</span>
-            <span>Update {document?.revision ?? runbook.revision}</span>
+            <span>Content revision {runbook.contentRevision}</span>
+            <span>{runbook.execution.completedRunCount} completed {runbook.execution.completedRunCount === 1 ? 'run' : 'runs'}</span>
+            <span>{runbook.execution.executedCellCount} {runbook.execution.executedCellCount === 1 ? 'cell' : 'cells'} executed</span>
+            {runbook.execution.latest ? <span>Latest {traceLabel(runbook.execution.latest.status)}</span> : null}
             {document?.language ? <span>{document.language}</span> : null}
             {document?.latestRun ? <RunStatus state={document.latestRun} /> : null}
           </div>
@@ -193,7 +253,7 @@ export const RunbookView = memo(function RunbookView({
                 index={index}
                 key={`${cell.id}:${index}`}
                 requested={requestedCellId === cell.id}
-                onRun={onRun ? () => requestExecution(cell.id) : undefined}
+                onRun={onRun ? () => requestExecution({ cellId: cell.id }) : undefined}
               />
             ))}
           </div>

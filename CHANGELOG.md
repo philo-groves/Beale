@@ -4,11 +4,17 @@
 
 ### Added
 
+- Workspace Campaign view now visualizes authorized assets, durable memory, canonical findings, runbooks, and reports; ranks uncovered assets, unsupported claims, lifecycle gaps, staleness, and contradictions; and opens the highest-value gap as a prefilled research run.
+- Runbook views now support inclusive start/end cell selection in addition to whole-run and single-cell execution, allowing a repaired late failure to continue without replaying successful prefix cells.
+- Honeycrisp-backed findings now expose an evidence-gated lifecycle from hypothesis through observation, reproduction, independent verification, report readiness, disclosure, rejection, and source/environment staleness.
 - Specialized workspaces now expose an active-kit-only dashboard view with a shared refresh form. HackerOne re-imports current program resources, rules, and guidance; Apple refreshes selected repository metadata plus bundled rules and guidance; MSRC refreshes bundled rules and guidance while preserving manual resources and repository checkout metadata.
 - Research Kits formalize General, HackerOne, Apple Security Bounty, and MSRC workspace creation behind typed resource, scope, rule, and repository-catalog acquisition metadata. The selected kit is immutable workspace metadata, survives registry removal and re-import, and appears read-only beneath Research Profile in Workspace Overview; registry migration 10 records it for known workspaces.
 
 ### Changed
 
+- Beale now supplies stable source-revision, execution-environment, and authorized-asset identities to Honeycrisp; campaign state is injected into agent context and drives typed research momentum before trace-text heuristics.
+- Honeycrisp feature calls now require contract v3 runtime identity, schema versions, and capabilities, and Beale validates memory-summary v3 runbook content/execution metrics instead of trusting compile-time casts.
+- Runbook summaries and catalog rows now separate content revisions, completed runs, executed cells, and latest execution status instead of presenting execution persistence churn as content updates.
 - Session Heat defaults now use revised Security palettes for Light and Dark plus revised shared Cream and Midnight variants.
 - New Research now opens with the live-session commentary and steering composer instead of a modal, appears as a temporary active session in the workspace sidenav, and includes a centered profile-workflow suggestion chooser, Repeat, Goal, and Add Context controls above the shared input plus a hierarchical Collaboration control and aligned, stackable collaborator-model pickers below it.
 - Session views now remain full-width while their commentary is empty and slide the right summary sidenav into view only after session content becomes available.
@@ -68,6 +74,10 @@
 ### Fixed
 
 - Session Heat palette selections, memory previews, workspace housekeeping cards, and active window surfaces now render the configured color directly instead of tinting it through a panel-border blend.
+
+### Security
+
+- Enabled Electron renderer sandboxing, added a restrictive content security policy, denied popup creation, and blocked navigation away from the configured renderer origin or packaged application file.
 - Newly started research sessions now render their submitted prompt immediately and show a setup-phase status while Honeycrisp initializes, retaining the usable session view instead of surfacing initial detail-fetch timeouts.
 - Workspace removal confirmation now tolerates invisible and compatibility Unicode differences in otherwise identical workspace names while remaining case- and punctuation-sensitive.
 

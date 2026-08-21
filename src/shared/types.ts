@@ -568,10 +568,159 @@ export interface HoneycrispRunbookSummary {
   status: 'draft' | 'active' | 'completed' | 'archived';
   artifactId: string;
   revision: number;
+  contentRevision: number;
+  execution: {
+    runCount: number;
+    completedRunCount: number;
+    executedCellCount: number;
+    latest: {
+      status: 'running' | 'succeeded' | 'failed' | 'blocked';
+      startedAt: string;
+    } | null;
+  };
   revisions: HoneycrispArtifactRevisionSummary[];
   createdAt: string;
   updatedAt: string;
   authors?: HoneycrispModelAuthor[];
+}
+
+export type HoneycrispFindingStatus =
+  | 'hypothesis'
+  | 'observed'
+  | 'reproduced'
+  | 'verified'
+  | 'report_ready'
+  | 'disclosed'
+  | 'stale'
+  | 'rejected';
+
+export type HoneycrispFindingEvidenceKind =
+  | 'code'
+  | 'artifact'
+  | 'command'
+  | 'url'
+  | 'runbook_execution'
+  | 'independent_verification'
+  | 'report'
+  | 'disclosure';
+
+export interface HoneycrispFindingEvidenceSummary {
+  id: string;
+  kind: HoneycrispFindingEvidenceKind;
+  referenceId: string | null;
+  contentHash: string | null;
+  summary: string;
+  sessionId: string | null;
+  actorId: string | null;
+  independent: boolean;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface HoneycrispFindingTransitionSummary {
+  id: string;
+  revision: number;
+  fromStatus: HoneycrispFindingStatus | null;
+  toStatus: HoneycrispFindingStatus;
+  reason: string;
+  actorId: string | null;
+  evidenceIds: string[];
+  createdAt: string;
+}
+
+export interface HoneycrispFindingSummary {
+  id: string;
+  workspaceId: string;
+  subjectId: string;
+  memoryNodeId: string;
+  originSessionId: string | null;
+  title: string;
+  summary: string;
+  impact: string;
+  status: HoneycrispFindingStatus;
+  staleFromStatus: HoneycrispFindingStatus | null;
+  confidence: number;
+  sourceRevision: string | null;
+  environmentFingerprint: string | null;
+  reproductionRunbookId: string | null;
+  reportId: string | null;
+  disclosureReference: string | null;
+  staleReason: string | null;
+  evidence: HoneycrispFindingEvidenceSummary[];
+  transitions: HoneycrispFindingTransitionSummary[];
+  authors: HoneycrispModelAuthor[];
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+}
+
+export type HoneycrispCampaignNodeKind = 'memory' | 'finding' | 'runbook' | 'report' | 'asset';
+export type HoneycrispCampaignGapKind =
+  | 'unexplored_asset'
+  | 'unsupported_memory'
+  | 'unobserved_hypothesis'
+  | 'missing_reproduction'
+  | 'missing_independent_verification'
+  | 'missing_report'
+  | 'stale_finding'
+  | 'contradiction';
+export type HoneycrispCampaignMomentumState = 'empty' | 'exploring' | 'building' | 'observed' | 'reproducing' | 'verifying' | 'reporting' | 'complete' | 'blocked';
+
+export interface HoneycrispCampaignGraphNodeSummary {
+  id: string;
+  kind: HoneycrispCampaignNodeKind;
+  label: string;
+  status: string;
+  memoryNodeId: string | null;
+  findingId: string | null;
+  assetId: string | null;
+  evidenceCount: number;
+  updatedAt: string;
+}
+
+export interface HoneycrispCampaignGraphEdgeSummary {
+  fromId: string;
+  toId: string;
+  relation: string;
+  contradictory: boolean;
+}
+
+export interface HoneycrispCampaignCoverageGapSummary {
+  id: string;
+  kind: HoneycrispCampaignGapKind;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  title: string;
+  rationale: string;
+  relatedNodeIds: string[];
+  suggestedPrompt: string;
+}
+
+export interface HoneycrispCampaignContradictionSummary {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  relation: string;
+  summary: string;
+}
+
+export interface HoneycrispCampaignGraphSummary {
+  nodes: HoneycrispCampaignGraphNodeSummary[];
+  edges: HoneycrispCampaignGraphEdgeSummary[];
+  coverageGaps: HoneycrispCampaignCoverageGapSummary[];
+  contradictions: HoneycrispCampaignContradictionSummary[];
+  momentum: {
+    state: HoneycrispCampaignMomentumState;
+    reason: string;
+    supportingNodeIds: string[];
+  };
+  nextActions: HoneycrispCampaignCoverageGapSummary[];
+  counts: {
+    findings: number;
+    verifiedFindings: number;
+    disclosedFindings: number;
+    coverageGaps: number;
+    contradictions: number;
+  };
 }
 
 export interface HoneycrispModelAuthor {
@@ -642,6 +791,12 @@ export interface HoneycrispReportSummary {
   createdAt: string;
   updatedAt: string;
   authors?: HoneycrispModelAuthor[];
+}
+
+export interface RunbookExecutionSelection {
+  cellId?: string;
+  startCellId?: string;
+  endCellId?: string;
 }
 
 export interface HoneycrispReportDocument {
@@ -812,6 +967,8 @@ export interface HoneycrispMemorySummary {
   edges: HoneycrispMemoryEdgeSummary[];
   runbooks: HoneycrispRunbookSummary[];
   reports: HoneycrispReportSummary[];
+  findings: HoneycrispFindingSummary[];
+  campaign: HoneycrispCampaignGraphSummary;
   dreaming: MemoryDreamingSummary;
   directories: HoneycrispMemoryDirectorySummary[];
   lastError: string | null;
@@ -1848,7 +2005,16 @@ export type SteeringAction =
   | { type: 'stop'; runId: string; note?: string }
   | { type: 'steer'; runId: string; instruction: string; modelSelection?: ResearchModelSelection }
   | { type: 'set_shell_safety_mode'; runId: string; shellSafetyMode: ShellSafetyMode }
-  | { type: 'run_runbook'; runId: string; runbookId: string; cellId?: string; proofTarget: RunbookProofTarget; deviceOs?: string }
+  | {
+      type: 'run_runbook';
+      runId: string;
+      runbookId: string;
+      cellId?: string;
+      startCellId?: string;
+      endCellId?: string;
+      proofTarget: RunbookProofTarget;
+      deviceOs?: string;
+    }
   | {
       type: 'review_shell_command';
       workspacePath: string;

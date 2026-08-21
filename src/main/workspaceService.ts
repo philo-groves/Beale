@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
+import { findingRevisionContext } from './findingRevisionContext';
 import {
   WorkspaceDatabase,
   type ProjectSourceCoveragePathRecord,
@@ -3487,10 +3488,17 @@ export class WorkspaceService {
       case 'run_runbook': {
         const runbookId = action.runbookId.trim();
         const cellId = action.cellId?.trim();
+        const startCellId = action.startCellId?.trim();
+        const endCellId = action.endCellId?.trim();
         if (!runbookId) throw new Error('Runbook execution requires a runbook ID.');
         if (runbookId.length > 200) throw new Error('Runbook execution ID exceeds 200 characters.');
         if (action.cellId !== undefined && !cellId) throw new Error('Runbook cell execution requires a cell ID.');
         if (cellId && cellId.length > 200) throw new Error('Runbook cell ID exceeds 200 characters.');
+        if (action.startCellId !== undefined && !startCellId) throw new Error('Runbook range execution requires a start cell ID when provided.');
+        if (action.endCellId !== undefined && !endCellId) throw new Error('Runbook range execution requires an end cell ID when provided.');
+        if (startCellId && startCellId.length > 200) throw new Error('Runbook start cell ID exceeds 200 characters.');
+        if (endCellId && endCellId.length > 200) throw new Error('Runbook end cell ID exceeds 200 characters.');
+        if (cellId && (startCellId || endCellId)) throw new Error('Runbook cellId cannot be combined with a cell range.');
         if (!isRunbookProofTarget(action.proofTarget)) throw new Error(`Unsupported runbook proof target: ${String(action.proofTarget)}`);
         const deviceOs = action.deviceOs?.trim();
         if (action.proofTarget === 'device' && !deviceOs) throw new Error('Device proof runs require a target device OS.');
@@ -3502,17 +3510,25 @@ export class WorkspaceService {
         if (!runbook || runbook.sessionId !== action.runId) {
           throw new Error('Runbook execution must use the live Honeycrisp session that owns the runbook.');
         }
-        const dispatch = this.honeycrispEngine?.executeRunbook(action.runId, runbookId, action.proofTarget, cellId, deviceOs) ?? null;
+        const dispatch = this.honeycrispEngine?.executeRunbook(action.runId, runbookId, action.proofTarget, {
+          ...(cellId ? { cellId } : {}),
+          ...(startCellId ? { startCellId } : {}),
+          ...(endCellId ? { endCellId } : {})
+        }, deviceOs) ?? null;
         if (!dispatch) throw new Error(`Active Honeycrisp process not found for run ${action.runId}.`);
         db.appendTraceEvent({
           runId: action.runId,
           attemptId: attempt?.id ?? null,
           type: 'user_note',
           source: 'user',
-          summary: cellId ? 'Runbook cell execution requested.' : 'Runbook execution requested.',
+          summary: cellId
+            ? 'Runbook cell execution requested.'
+            : startCellId || endCellId ? 'Runbook cell range execution requested.' : 'Runbook execution requested.',
           payload: {
             runbookId,
             cellId: cellId ?? null,
+            startCellId: startCellId ?? null,
+            endCellId: endCellId ?? null,
             controlRequestId: dispatch.requestId,
             deliveryStatus: dispatch.deliveryStatus,
             proofTarget: action.proofTarget,
@@ -4388,13 +4404,16 @@ export class WorkspaceService {
     }
     this.workspaceMemorySummaryErrors.delete(runtime.workspacePath);
     const storage = this.honeycrispStorage(runtime);
+    const revisionContext = findingRevisionContext(scope);
     const cacheKey = [
       storage.databasePath,
       storage.artifactDirectoryPath,
       runtime.db.getWorkspaceId(),
       runtime.db.getResearchSubject().id,
       sessionId ?? '',
-      researchProfile?.profileHash ?? ''
+      researchProfile?.profileHash ?? '',
+      revisionContext.sourceRevision,
+      revisionContext.environmentFingerprint
     ].join('\0');
     const fingerprint = honeycrispStorageFingerprint(storage);
     const cached = this.honeycrispMemorySummaryCache.get(cacheKey);
@@ -4403,7 +4422,10 @@ export class WorkspaceService {
       ...(sessionId ? { sessionId } : {}),
       workspaceId: runtime.db.getWorkspaceId(),
       subjectId: runtime.db.getResearchSubject().id,
-      researchProfile
+      researchProfile,
+      sourceRevision: revisionContext.sourceRevision,
+      environmentFingerprint: revisionContext.environmentFingerprint,
+      assetIds: revisionContext.assetIds
     }, storage);
     if (this.honeycrispMemorySummaryCache.size >= 64) this.honeycrispMemorySummaryCache.clear();
     this.honeycrispMemorySummaryCache.set(cacheKey, { fingerprint: honeycrispStorageFingerprint(storage), summary });
@@ -4412,17 +4434,21 @@ export class WorkspaceService {
 
   private cachedMemorySummaryForRuntime(
     runtime: WorkspaceRuntime,
+    scope = runtime.db.getActiveScope(),
     sessionId?: string,
     researchProfile: ResearchProfileSnapshot | null = runtime.researchProfile
   ): HoneycrispMemorySummary | null {
     const storage = this.honeycrispStorage(runtime);
+    const revisionContext = findingRevisionContext(scope);
     const cacheKey = [
       storage.databasePath,
       storage.artifactDirectoryPath,
       runtime.db.getWorkspaceId(),
       runtime.db.getResearchSubject().id,
       sessionId ?? '',
-      researchProfile?.profileHash ?? ''
+      researchProfile?.profileHash ?? '',
+      revisionContext.sourceRevision,
+      revisionContext.environmentFingerprint
     ].join('\0');
     const cached = this.honeycrispMemorySummaryCache.get(cacheKey);
     return cached?.fingerprint === honeycrispStorageFingerprint(storage) ? cached.summary : null;
@@ -4456,6 +4482,16 @@ export class WorkspaceService {
       edges: [],
       runbooks: [],
       reports: [],
+      findings: [],
+      campaign: {
+        nodes: [],
+        edges: [],
+        coverageGaps: [],
+        contradictions: [],
+        momentum: { state: 'empty', reason: 'Campaign context has not loaded.', supportingNodeIds: [] },
+        nextActions: [],
+        counts: { findings: 0, verifiedFindings: 0, disclosedFindings: 0, coverageGaps: 0, contradictions: 0 }
+      },
       dreaming: {
         available: false,
         scope: 'workspace',
@@ -4476,13 +4512,16 @@ export class WorkspaceService {
     researchProfile: ResearchProfileSnapshot | null = runtime.researchProfile
   ): Promise<HoneycrispMemorySummary> {
     const storage = this.honeycrispStorage(runtime);
+    const revisionContext = findingRevisionContext(scope);
     const cacheKey = [
       storage.databasePath,
       storage.artifactDirectoryPath,
       runtime.db.getWorkspaceId(),
       runtime.db.getResearchSubject().id,
       sessionId ?? '',
-      researchProfile?.profileHash ?? ''
+      researchProfile?.profileHash ?? '',
+      revisionContext.sourceRevision,
+      revisionContext.environmentFingerprint
     ].join('\0');
     const fingerprint = honeycrispStorageFingerprint(storage);
     const cached = this.honeycrispMemorySummaryCache.get(cacheKey);
@@ -4493,7 +4532,10 @@ export class WorkspaceService {
       ...(sessionId ? { sessionId } : {}),
       workspaceId: runtime.db.getWorkspaceId(),
       subjectId: runtime.db.getResearchSubject().id,
-      researchProfile
+      researchProfile,
+      sourceRevision: revisionContext.sourceRevision,
+      environmentFingerprint: revisionContext.environmentFingerprint,
+      assetIds: revisionContext.assetIds
     }, storage).then((summary) => {
       if (this.honeycrispMemorySummaryCache.size >= 64) this.honeycrispMemorySummaryCache.clear();
       this.honeycrispMemorySummaryCache.set(cacheKey, {

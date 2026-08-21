@@ -344,7 +344,7 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('<span>HackerOne</span>');
     expect(html).not.toContain('<span>MSRC</span>');
     expect(html).toContain('lucide-refresh-cw');
-    expect(html.match(/workspace-dashboard-tab-icon/g)).toHaveLength(8);
+    expect(html.match(/workspace-dashboard-tab-icon/g)).toHaveLength(9);
     expect(html).toContain('aria-controls="workspace-dashboard-overview-panel" aria-selected="true"');
     expect(html).not.toContain('id="workspace-dashboard-activity-panel"');
     expect(html).not.toContain('id="workspace-dashboard-resources-panel"');
@@ -1350,6 +1350,8 @@ function memorySummary(input: {
       status: 'active',
       artifactId: 'runbook',
       revision: 1,
+      contentRevision: 1,
+      execution: { runCount: 0, completedRunCount: 0, executedCellCount: 0, latest: null },
       revisions: [],
       createdAt: new Date(NOW).toISOString(),
       updatedAt: new Date(NOW).toISOString(),
@@ -1373,6 +1375,16 @@ function memorySummary(input: {
       ...report,
       submissionPacket: report.submissionPacket ?? null
     })),
+    findings: [],
+    campaign: {
+      nodes: [],
+      edges: [],
+      coverageGaps: [],
+      contradictions: [],
+      momentum: { state: 'empty', reason: 'No campaign work yet.', supportingNodeIds: [] },
+      nextActions: [],
+      counts: { findings: 0, verifiedFindings: 0, disclosedFindings: 0, coverageGaps: 0, contradictions: 0 }
+    },
     directories: [],
     lastError: null,
     dreaming: {

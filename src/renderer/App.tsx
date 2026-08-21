@@ -32,6 +32,7 @@ import type {
   ResearchProviderStatus,
   RunRecord,
   RunStatus,
+  RunbookExecutionSelection,
   RunbookProofTargetSelection,
   ScopeAssetInput,
   WorkspaceOnboardingProgressUpdate,
@@ -1438,7 +1439,7 @@ export function App(): JSX.Element {
 
   const runHoneycrispRunbook = useCallback(async (
     runbookId: string,
-    cellId: string | undefined,
+    selection: RunbookExecutionSelection,
     target: RunbookProofTargetSelection
   ): Promise<void> => {
     const runbook = researchPanelMemory?.runbooks.find((candidate) => candidate.id === runbookId);
@@ -1456,7 +1457,9 @@ export function App(): JSX.Element {
         runbookId,
         proofTarget: target.proofTarget,
         ...(target.deviceOs ? { deviceOs: target.deviceOs } : {}),
-        ...(cellId ? { cellId } : {})
+        ...(selection.cellId ? { cellId: selection.cellId } : {}),
+        ...(selection.startCellId ? { startCellId: selection.startCellId } : {}),
+        ...(selection.endCellId ? { endCellId: selection.endCellId } : {})
       });
       applySnapshot(next);
       let observedNewRun = false;

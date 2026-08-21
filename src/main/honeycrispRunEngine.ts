@@ -18,6 +18,7 @@ import type {
   ResearchProfileSnapshot,
   ResearchSubjectInput,
   RunRecord,
+  RunbookExecutionSelection,
   RunbookProofTarget,
   ShellSafetyMode,
   TranscriptMessageRecord,
@@ -53,6 +54,7 @@ import {
 } from './honeycrispWebSocketClient';
 import { resolveHoneycrispInvocation, type HoneycrispInvocation } from './honeycrispInvocation';
 import { isHoneycrispSessionBoundary, markHoneycrispSessionInterrupted } from './honeycrispSessionBoundary';
+import { findingRevisionContext } from './findingRevisionContext';
 export { resolveHoneycrispInvocation } from './honeycrispInvocation';
 export type { HoneycrispInvocation } from './honeycrispInvocation';
 
@@ -69,6 +71,9 @@ interface HoneycrispWorkspaceContextFile {
   memoryContext: HoneycrispMemoryContext;
   knownRepositories: HoneycrispWorkspaceRepositoryContext[];
   materializedSourcePaths: string[];
+  sourceRevision: string;
+  environmentFingerprint: string;
+  authorizedAssetIds: string[];
   projectNotes: string[];
 }
 
@@ -844,7 +849,7 @@ export class HoneycrispRunEngine {
     runId: string,
     runbookId: string,
     proofTarget: RunbookProofTarget,
-    cellId?: string,
+    selection: RunbookExecutionSelection,
     deviceOs?: string
   ): HoneycrispControlDispatch | null {
     const active = this.activeRuns.get(runId);
@@ -854,7 +859,9 @@ export class HoneycrispRunEngine {
       schemaVersion: 1,
       type: 'runbook_execute',
       runbookId,
-      ...(cellId ? { cellId } : {}),
+      ...(selection.cellId ? { cellId: selection.cellId } : {}),
+      ...(selection.startCellId ? { startCellId: selection.startCellId } : {}),
+      ...(selection.endCellId ? { endCellId: selection.endCellId } : {}),
       proofTarget,
       ...(deviceOs ? { deviceOs } : {})
     });
@@ -3328,6 +3335,7 @@ function honeycrispWorkspaceContext(
   workspaceRules: readonly WorkspaceRule[],
   resourceContext?: ReportResourceContext
 ): HoneycrispWorkspaceContextFile {
+  const revisionContext = findingRevisionContext(scope);
   const materializedSourcePaths: string[] = [];
   const knownRepositories: HoneycrispWorkspaceRepositoryContext[] = [];
   for (const directory of workspaceDirectories) {
@@ -3392,6 +3400,9 @@ function honeycrispWorkspaceContext(
       : {}),
     knownRepositories,
     materializedSourcePaths,
+    sourceRevision: revisionContext.sourceRevision,
+    environmentFingerprint: revisionContext.environmentFingerprint,
+    authorizedAssetIds: revisionContext.assetIds,
     projectNotes: [
       ...honeycrispScopeNotes(scope, researchProfile, workflowId, subject, workspaceRules, knownRepositories),
       ...reportResourceProjectNotes(resourceContext)

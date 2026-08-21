@@ -1,5 +1,6 @@
 export const HONEYCRISP_PROTOCOL_NAME = 'honeycrisp' as const;
 export const HONEYCRISP_PROTOCOL_VERSION = 1 as const;
+export const HONEYCRISP_CONTRACT_VERSION = 3 as const;
 export const HONEYCRISP_PROTOCOL_WEBSOCKET_PATH = '/v1/session' as const;
 export const HONEYCRISP_PROTOCOL_BOOTSTRAP_PREFIX = 'HONEYCRISP_TRANSPORT ' as const;
 export const HONEYCRISP_PROTOCOL_WEBSOCKET_CAPABILITIES = [
@@ -7,6 +8,14 @@ export const HONEYCRISP_PROTOCOL_WEBSOCKET_CAPABILITIES = [
   'session.controls'
 ] as const;
 export const HONEYCRISP_PROTOCOL_MAX_REQUEST_ID_LENGTH = 200 as const;
+export const HONEYCRISP_REQUIRED_CAPABILITIES = [
+  'knowledge.findings',
+  'knowledge.finding_staleness',
+  'knowledge.campaign_graph',
+  'knowledge.evidence_gates',
+  'session.append_only',
+  'session.controls'
+] as const;
 
 export interface HoneycrispProtocolErrorDetail {
   code: string;
@@ -18,6 +27,21 @@ export interface HoneycrispProtocolDescriptor {
   protocol: typeof HONEYCRISP_PROTOCOL_NAME;
   protocolVersion: typeof HONEYCRISP_PROTOCOL_VERSION;
   operations: string[];
+  contractVersion: typeof HONEYCRISP_CONTRACT_VERSION;
+  runtime: {
+    name: typeof HONEYCRISP_PROTOCOL_NAME;
+    version: string;
+    buildId: string;
+    nodeVersion: string;
+  };
+  schemas: {
+    protocol: 1;
+    session: 1;
+    memorySummary: 3;
+    finding: 1;
+    campaignGraph: 1;
+  };
+  capabilities: string[];
   transports: {
     cli: {
       framing: 'single-json-envelope';
@@ -81,7 +105,9 @@ export interface HoneycrispServerHello {
   protocolVersion: typeof HONEYCRISP_PROTOCOL_VERSION;
   type: 'server.hello';
   sessionId: string;
-  server: { name: typeof HONEYCRISP_PROTOCOL_NAME; version: string };
+  server: { name: typeof HONEYCRISP_PROTOCOL_NAME; version: string; buildId: string };
+  contractVersion: typeof HONEYCRISP_CONTRACT_VERSION;
+  schemas: HoneycrispProtocolDescriptor['schemas'];
   capabilities: typeof HONEYCRISP_PROTOCOL_WEBSOCKET_CAPABILITIES;
 }
 
@@ -120,6 +146,24 @@ export function decodeHoneycrispProtocolEnvelope<T>(json: string): HoneycrispPro
   }
   if (!isErrorDetail(value.error)) throw new Error('Honeycrisp protocol failure is missing a valid error.');
   return value as unknown as HoneycrispProtocolFailure;
+}
+
+export function decodeHoneycrispProtocolDescriptor(value: unknown): HoneycrispProtocolDescriptor {
+  const capabilities = isRecord(value) && Array.isArray(value.capabilities) ? value.capabilities : null;
+  if (!isRecord(value)
+    || value.protocol !== HONEYCRISP_PROTOCOL_NAME
+    || value.protocolVersion !== HONEYCRISP_PROTOCOL_VERSION
+    || value.contractVersion !== HONEYCRISP_CONTRACT_VERSION
+    || !Array.isArray(value.operations) || !value.operations.every(nonEmptyString)
+    || !isRecord(value.runtime) || value.runtime.name !== HONEYCRISP_PROTOCOL_NAME
+    || !nonEmptyString(value.runtime.version) || !nonEmptyString(value.runtime.buildId) || !nonEmptyString(value.runtime.nodeVersion)
+    || !validSchemaDescriptor(value.schemas)
+    || !capabilities || !capabilities.every(nonEmptyString)
+    || !HONEYCRISP_REQUIRED_CAPABILITIES.every((capability) => capabilities.includes(capability))
+    || !isRecord(value.transports)) {
+    throw new Error('Honeycrisp runtime is incompatible with Beale contract v3. Rebuild or update the configured Honeycrisp CLI.');
+  }
+  return value as unknown as HoneycrispProtocolDescriptor;
 }
 
 export function parseHoneycrispTransportBootstrap(
@@ -172,7 +216,9 @@ export function decodeHoneycrispServerMessage(value: unknown): HoneycrispServerM
   validateMessageBase(value);
   if (value.type === 'server.hello') {
     if (!isRecord(value.server) || value.server.name !== HONEYCRISP_PROTOCOL_NAME
-      || !nonEmptyString(value.server.version) || !sameCapabilities(value.capabilities)) {
+      || !nonEmptyString(value.server.version) || !nonEmptyString(value.server.buildId)
+      || value.contractVersion !== HONEYCRISP_CONTRACT_VERSION
+      || !validSchemaDescriptor(value.schemas) || !sameCapabilities(value.capabilities)) {
       throw new Error('The server.hello message has invalid server metadata or capabilities.');
     }
     return value as unknown as HoneycrispServerHello;
@@ -198,6 +244,11 @@ export function decodeHoneycrispServerMessage(value: unknown): HoneycrispServerM
     };
   }
   throw new Error('Unsupported Honeycrisp server message type.');
+}
+
+function validSchemaDescriptor(value: unknown): value is HoneycrispProtocolDescriptor['schemas'] {
+  return isRecord(value) && value.protocol === 1 && value.session === 1
+    && value.memorySummary === 3 && value.finding === 1 && value.campaignGraph === 1;
 }
 
 function validateMessageBase(value: unknown): asserts value is Record<string, unknown> & { sessionId: string; type: string } {

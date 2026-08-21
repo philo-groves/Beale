@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchKitId, ResearchKitRefreshInput, ResearchKitRefreshResult, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceDejunkSummary, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
+import type { ApprovalRecord, HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, MemoryDreamingProgressUpdate, PolicyReviewDecision, ResearchKitId, ResearchKitRefreshInput, ResearchKitRefreshResult, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookExecutionSelection, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceDejunkSummary, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
@@ -146,7 +146,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onWorkspaceViewChange?: (viewName: string) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
-  onRunHoneycrispRunbook?: (runbookId: string, cellId: string | undefined, target: RunbookProofTargetSelection) => Promise<void>;
+  onRunHoneycrispRunbook?: (runbookId: string, selection: RunbookExecutionSelection, target: RunbookProofTargetSelection) => Promise<void>;
   onBackToRunbooks: () => void;
   onOpenHoneycrispReport?: (reportId: string) => void;
   onBackToReports?: () => void;
@@ -346,6 +346,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onActiveViewChange={onWorkspaceViewChange}
           onOpenMemory={openWorkspaceMemory}
           onOpenRunbook={openWorkspaceRunbook}
+          onPursueCampaignGap={onSelectNextStep}
         />
       ) : (
         <CommentaryView

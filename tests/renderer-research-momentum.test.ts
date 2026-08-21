@@ -102,6 +102,19 @@ describe('renderer research momentum view model', () => {
 
     expect(momentum.state).toBe('hot');
   });
+
+  it('prefers typed campaign momentum over contradictory trace wording', () => {
+    const detail = runDetail({ traceEvents: [traceEvent({ summary: 'No local source found. Retrying.' })] });
+    detail.honeycrispMemory = {
+      campaign: { momentum: { state: 'verifying', reason: 'Independent verification is the next evidence gate.', supportingNodeIds: ['finding:one'] } }
+    } as unknown as RunDetail['honeycrispMemory'];
+
+    const momentum = researchMomentumForDetail(detail, 'none');
+
+    expect(momentum.state).toBe('verifying');
+    expect(momentum.reason).toBe('Independent verification is the next evidence gate.');
+    expect(momentum.supportingTraceEventIds).toEqual([]);
+  });
 });
 
 function runDetail(input: { traceEvents?: TraceEventRecord[]; status?: string } = {}): RunDetail {
