@@ -3,6 +3,7 @@ import {
   IosFrameProtocolParser,
   iosCaptureSessionCopyArgs,
   iosCaptureSessionDocument,
+  isHumanDrivenIosDeviceCommand,
   parseConnectedIosDevice
 } from '../src/main/iosDeviceCaptureService';
 
@@ -130,5 +131,18 @@ describe('iOS device capture service boundaries', () => {
       '--domain-identifier', 'com.phillipgroves.BealeCaptureCompanion'
     ]);
     expect(args).not.toContain('launch');
+  });
+
+  it('blocks device commands that could launch or terminate the companion', () => {
+    expect(isHumanDrivenIosDeviceCommand([
+      'devicectl', 'list', 'devices', '--quiet', '--json-output', '-'
+    ])).toBe(true);
+    expect(isHumanDrivenIosDeviceCommand([
+      'devicectl', 'device', 'copy', 'to', '--device', 'device-udid'
+    ])).toBe(true);
+    expect(isHumanDrivenIosDeviceCommand([
+      'devicectl', 'device', 'process', 'launch', '--terminate-existing',
+      'com.phillipgroves.BealeCaptureCompanion'
+    ])).toBe(false);
   });
 });

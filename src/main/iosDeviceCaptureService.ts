@@ -54,6 +54,19 @@ export function iosCaptureSessionCopyArgs(device: IosDeviceCaptureDevice, source
   ];
 }
 
+export function isHumanDrivenIosDeviceCommand(args: readonly string[]): boolean {
+  return (
+    args[0] === 'devicectl'
+    && args[1] === 'list'
+    && args[2] === 'devices'
+  ) || (
+    args[0] === 'devicectl'
+    && args[1] === 'device'
+    && args[2] === 'copy'
+    && args[3] === 'to'
+  );
+}
+
 export function parseConnectedIosDevice(stdout: string): IosDeviceCaptureDevice | null {
   const jsonStart = stdout.indexOf('{');
   if (jsonStart < 0) return null;
@@ -295,6 +308,9 @@ function findIproxy(): string | null {
 }
 
 function runXcrun(args: string[], timeout: number): Promise<{ stdout: string; stderr: string }> {
+  if (!isHumanDrivenIosDeviceCommand(args)) {
+    return Promise.reject(new Error('Beale blocked a device command that could control or launch the iOS companion.'));
+  }
   return new Promise((resolve, reject) => {
     execFile('/usr/bin/xcrun', args, {
       encoding: 'utf8',

@@ -48,6 +48,7 @@ import { IosDeviceCaptureService } from './iosDeviceCaptureService';
 import { getWorkspaceEditorCatalogForHost, openWorkspaceInEditor } from './workspaceEditors';
 import { WorkspaceTerminalService } from './workspaceTerminalService';
 import { TicketingService } from './ticketingService';
+import { BealeRemoteServer } from './bealeRemoteServer';
 
 const APP_NAME = 'Beale';
 let mainWindow: BrowserWindow | null = null;
@@ -55,6 +56,7 @@ let workspaceService: WorkspaceService;
 let iosDeviceCaptureService: IosDeviceCaptureService;
 let workspaceTerminalService: WorkspaceTerminalService;
 let ticketingService: TicketingService;
+let bealeRemoteServer: BealeRemoteServer;
 const runDetailRequestControllers = new Map<number, AbortController>();
 const smokeTestMode = process.argv.includes('--smoke-test');
 const NATIVE_WINDOW_SHAPE_RADIUS_PX = 8;
@@ -904,6 +906,11 @@ if (!hasSingleInstanceLock) {
       broadcastIosDeviceCaptureState,
       broadcastIosDeviceCaptureFrame
     );
+    bealeRemoteServer = new BealeRemoteServer(
+      () => workspaceService.getCachedWorkspaceRegistryState(),
+      (registryWorkspaceId) => workspaceService.getRegisteredWorkspaceMemorySummary(registryWorkspaceId)
+    );
+    bealeRemoteServer.start();
     workspaceTerminalService = new WorkspaceTerminalService();
     registerIpc();
     createWindow();
@@ -921,6 +928,7 @@ if (!hasSingleInstanceLock) {
   });
 
   app.on('before-quit', () => {
+    bealeRemoteServer?.stop();
     workspaceTerminalService?.dispose();
     iosDeviceCaptureService?.dispose();
     workspaceService?.dispose();
