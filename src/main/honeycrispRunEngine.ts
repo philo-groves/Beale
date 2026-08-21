@@ -685,8 +685,16 @@ export class HoneycrispRunEngine {
         this.clearTimeLimit(active);
         this.clearForceStopTimer(active);
         if (!this.disposed) {
-          this.db.interruptActiveBreakoutRooms(context.run.id, context.attempt.id);
-          this.failRun(context, 'Honeycrisp host process failed to start.', { error: errorMessage(error), capturePath });
+          try {
+            this.db.interruptActiveBreakoutRooms(context.run.id, context.attempt.id);
+          } catch (cleanupError) {
+            active.lastProcessDiagnostic = `Breakout-room cleanup failed: ${errorMessage(cleanupError)}`;
+          }
+          try {
+            this.failRun(context, 'Honeycrisp host process failed to start.', { error: errorMessage(error), capturePath });
+          } catch (failureError) {
+            active.lastProcessDiagnostic = `Run failure finalization failed: ${errorMessage(failureError)}`;
+          }
         }
         resolveCompletion();
       });
@@ -701,10 +709,34 @@ export class HoneycrispRunEngine {
         webSocketClient?.close();
         this.activeRuns.delete(context.run.id);
         if (!this.disposed) {
-          this.finalizePendingControls(active, 'process_closed');
-          this.db.interruptActiveBreakoutRooms(context.run.id, context.attempt.id);
-          this.finishClosedProcess(context, capturePath, code, signal, active);
-          this.launchQueuedContinuation(active);
+          try {
+            this.finalizePendingControls(active, 'process_closed');
+          } catch (cleanupError) {
+            active.lastProcessDiagnostic = `Pending-control cleanup failed: ${errorMessage(cleanupError)}`;
+          }
+          try {
+            this.db.interruptActiveBreakoutRooms(context.run.id, context.attempt.id);
+          } catch (cleanupError) {
+            active.lastProcessDiagnostic = `Breakout-room cleanup failed: ${errorMessage(cleanupError)}`;
+          }
+          try {
+            this.finishClosedProcess(context, capturePath, code, signal, active);
+          } catch (finalizationError) {
+            active.lastProcessDiagnostic = `Run finalization failed: ${errorMessage(finalizationError)}`;
+            try {
+              this.failRun(context, 'Honeycrisp host process finalization failed.', {
+                error: errorMessage(finalizationError),
+                capturePath
+              });
+            } catch {
+              // A lifecycle cleanup failure must not escape Electron's child-process callback.
+            }
+          }
+          try {
+            this.launchQueuedContinuation(active);
+          } catch (continuationError) {
+            active.lastProcessDiagnostic = `Queued continuation failed: ${errorMessage(continuationError)}`;
+          }
         }
         resolveCompletion();
       });
@@ -1471,7 +1503,6 @@ export class HoneycrispRunEngine {
       if (honeycrispEvent.id && active?.liveHoneycrispEventIds.has(honeycrispEvent.id)) return;
       if (honeycrispEvent.id) active?.liveHoneycrispEventIds.add(honeycrispEvent.id);
       if (active) this.markReportRevisionCompleted(active, honeycrispEvent);
-      this.appendHoneycrispTimelineEvent(context, honeycrispEvent);
       this.recordLiveResearchSummary(context, honeycrispEvent);
       this.onChange();
       return;

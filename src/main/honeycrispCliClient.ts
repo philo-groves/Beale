@@ -97,6 +97,36 @@ export interface HoneycrispSessionUpdate {
   finalResponse: string | null;
   events: HoneycrispSessionEvent[];
   eventOffset: number;
+  nextAfterEventId: string | null;
+  hasEarlier: boolean;
+  hasMore: boolean;
+}
+
+export interface HoneycrispSessionEventPage {
+  sessionId: string;
+  stream: 'all' | 'transcript' | 'trace';
+  events: HoneycrispSessionEvent[];
+  eventOffset: number;
+  nextAfterEventId: string | null;
+  hasEarlier: boolean;
+  hasMore: boolean;
+}
+
+export interface HoneycrispSessionCollaborationState {
+  sessionId: string;
+  revision: number;
+  rooms: HoneycrispSessionEvent[];
+  members: HoneycrispSessionEvent[];
+  messages: HoneycrispSessionEvent[];
+}
+
+export interface HoneycrispSessionCaptureSummary {
+  attemptId: string;
+  capturedAt: string;
+  schemaVersion: number;
+  sizeBytes: number;
+  contentHash: string;
+  eventStreams: Record<string, unknown>;
 }
 
 export interface HoneycrispSessionMutationReceipt {
@@ -294,6 +324,11 @@ export function honeycrispOwnsSessions(): boolean {
       'session.import_capture',
       'session.get',
       'session.get_update',
+      'session.events',
+      'session.event_details',
+      'session.collaboration',
+      'session.captures',
+      'session.capture',
       'session.list',
       'session.list_summaries'
     ].every((operation) => descriptor.operations.includes(operation));
@@ -397,8 +432,8 @@ export function importHoneycrispSessionCapture(
   attemptId: string,
   capturePath: string,
   storage: HoneycrispSessionStorage
-): HoneycrispSessionRecord {
-  return invokeHoneycrispCliProtocol<HoneycrispSessionRecord>(
+): HoneycrispSessionMutationReceipt {
+  return invokeHoneycrispCliProtocol<HoneycrispSessionMutationReceipt>(
     'session.import_capture',
     ['session', 'import-capture', '--session-id', sessionId, '--attempt-id', attemptId, '--capture', capturePath, '--json'],
     { env: storageEnvironment(storage), timeoutMs: 30_000 }
@@ -406,11 +441,12 @@ export function importHoneycrispSessionCapture(
 }
 
 export function getHoneycrispSession(sessionId: string, storage: HoneycrispSessionStorage): HoneycrispSessionRecord {
-  return invokeHoneycrispCliProtocol<HoneycrispSessionRecord>(
+  const summary = invokeHoneycrispCliProtocol<HoneycrispSessionSummary>(
     'session.get',
     ['session', 'get', '--session-id', sessionId, '--json'],
     { env: storageEnvironment(storage) }
   ).result;
+  return sessionRecordFromSummary(summary);
 }
 
 export async function getHoneycrispSessionAsync(
@@ -418,29 +454,101 @@ export async function getHoneycrispSessionAsync(
   storage: HoneycrispSessionStorage,
   signal?: AbortSignal
 ): Promise<HoneycrispSessionRecord> {
-  return (await invokeHoneycrispCliProtocolAsync<HoneycrispSessionRecord>(
+  const summary = (await invokeHoneycrispCliProtocolAsync<HoneycrispSessionSummary>(
     'session.get',
     ['session', 'get', '--session-id', sessionId, '--json'],
     { env: storageEnvironment(storage), timeoutMs: 30_000, ...(signal ? { signal } : {}) }
   )).result;
+  return sessionRecordFromSummary(summary);
+}
+
+export function getHoneycrispSessionUpdate(
+  sessionId: string,
+  afterEventId: string | null,
+  storage: HoneycrispSessionStorage,
+  options: { tail?: boolean; limit?: number; maxBytes?: number } = {}
+): HoneycrispSessionUpdate {
+  return invokeHoneycrispCliProtocol<HoneycrispSessionUpdate>(
+    'session.get_update',
+    sessionUpdateArguments(sessionId, afterEventId, options),
+    { env: storageEnvironment(storage) }
+  ).result;
 }
 
 export async function getHoneycrispSessionUpdateAsync(
   sessionId: string,
   afterEventId: string | null,
   storage: HoneycrispSessionStorage,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options: { tail?: boolean; limit?: number; maxBytes?: number } = {}
 ): Promise<HoneycrispSessionUpdate> {
   return (await invokeHoneycrispCliProtocolAsync<HoneycrispSessionUpdate>(
     'session.get_update',
+    sessionUpdateArguments(sessionId, afterEventId, options),
+    { env: storageEnvironment(storage), timeoutMs: 30_000, ...(signal ? { signal } : {}) }
+  )).result;
+}
+
+export function getHoneycrispSessionCollaborationState(
+  sessionId: string,
+  storage: HoneycrispSessionStorage,
+  messageLimit = 200
+): HoneycrispSessionCollaborationState {
+  return invokeHoneycrispCliProtocol<HoneycrispSessionCollaborationState>(
+    'session.collaboration',
+    ['session', 'collaboration', '--session-id', sessionId, '--message-limit', String(messageLimit), '--json'],
+    { env: storageEnvironment(storage) }
+  ).result;
+}
+
+export function getHoneycrispSessionEventPage(
+  sessionId: string,
+  storage: HoneycrispSessionStorage,
+  options: {
+    stream?: 'all' | 'transcript' | 'trace';
+    afterEventId?: string;
+    tail?: boolean;
+    limit?: number;
+    maxBytes?: number;
+  } = {}
+): HoneycrispSessionEventPage {
+  return invokeHoneycrispCliProtocol<HoneycrispSessionEventPage>(
+    'session.events',
     [
-      'session',
-      'get-update',
-      '--session-id',
-      sessionId,
-      ...(afterEventId ? ['--after-event-id', afterEventId] : []),
+      'session', 'events', '--session-id', sessionId,
+      ...(options.stream ? ['--stream', options.stream] : []),
+      ...(options.afterEventId ? ['--after-event-id', options.afterEventId] : []),
+      ...(options.tail ? ['--tail'] : []),
+      ...(options.limit ? ['--limit', String(options.limit)] : []),
+      ...(options.maxBytes ? ['--max-bytes', String(options.maxBytes)] : []),
       '--json'
     ],
+    { env: storageEnvironment(storage) }
+  ).result;
+}
+
+export async function getHoneycrispSessionEventDetailsAsync(
+  sessionId: string,
+  eventIds: readonly string[],
+  storage: HoneycrispSessionStorage,
+  signal?: AbortSignal
+): Promise<HoneycrispSessionEvent[]> {
+  if (eventIds.length === 0) return [];
+  return (await invokeHoneycrispCliProtocolAsync<HoneycrispSessionEvent[]>(
+    'session.event_details',
+    ['session', 'event-details', '--session-id', sessionId, ...eventIds.flatMap((id) => ['--event-id', id]), '--json'],
+    { env: storageEnvironment(storage), timeoutMs: 30_000, ...(signal ? { signal } : {}) }
+  )).result;
+}
+
+export async function listHoneycrispSessionCaptureSummariesAsync(
+  sessionId: string,
+  storage: HoneycrispSessionStorage,
+  signal?: AbortSignal
+): Promise<HoneycrispSessionCaptureSummary[]> {
+  return (await invokeHoneycrispCliProtocolAsync<HoneycrispSessionCaptureSummary[]>(
+    'session.captures',
+    ['session', 'captures', '--session-id', sessionId, '--json'],
     { env: storageEnvironment(storage), timeoutMs: 30_000, ...(signal ? { signal } : {}) }
   )).result;
 }
@@ -450,11 +558,11 @@ export function listHoneycrispSessions(
   storage: HoneycrispSessionStorage,
   limit = 100
 ): HoneycrispSessionRecord[] {
-  return invokeHoneycrispCliProtocol<HoneycrispSessionRecord[]>(
+  return invokeHoneycrispCliProtocol<HoneycrispSessionSummary[]>(
     'session.list',
     ['session', 'list', '--workspace-id', workspaceId, '--limit', String(limit), '--json'],
     { env: storageEnvironment(storage) }
-  ).result;
+  ).result.map(sessionRecordFromSummary);
 }
 
 export function listHoneycrispSessionSummaries(
@@ -949,6 +1057,33 @@ function asyncProtocolProcessDetail(code: number | null, stdout: string, stderr:
   const stdoutBytes = Buffer.byteLength(stdout, 'utf8');
   if (stdoutBytes > 0) details.push(`invalid stdout bytes: ${stdoutBytes}`);
   return details.length > 0 ? `(${details.join('; ')})` : '';
+}
+
+function sessionRecordFromSummary(summary: HoneycrispSessionSummary): HoneycrispSessionRecord {
+  return {
+    ...summary,
+    attempts: summary.attempts.map((attempt) => ({ ...attempt, capture: null })),
+    finalResponse: null,
+    events: []
+  };
+}
+
+function sessionUpdateArguments(
+  sessionId: string,
+  afterEventId: string | null,
+  options: { tail?: boolean; limit?: number; maxBytes?: number }
+): string[] {
+  return [
+    'session',
+    'get-update',
+    '--session-id',
+    sessionId,
+    ...(afterEventId ? ['--after-event-id', afterEventId] : []),
+    ...(options.tail ? ['--tail'] : []),
+    ...(options.limit ? ['--limit', String(options.limit)] : []),
+    ...(options.maxBytes ? ['--max-bytes', String(options.maxBytes)] : []),
+    '--json'
+  ];
 }
 
 function storageEnvironment(storage: HoneycrispSessionStorage): NodeJS.ProcessEnv {

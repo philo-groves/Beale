@@ -44,6 +44,7 @@ import {
   getHoneycrispRunDetailForClient,
   getHoneycrispRunDetailUpdateForClient,
   getHoneycrispRunDetailVersionForClient,
+  getHoneycrispRunTraceEventDetailsForClient,
   listHoneycrispNotificationsForRuns,
   listHoneycrispPendingApprovalsForRuns,
   usesHoneycrispSessionOwnership
@@ -3192,6 +3193,17 @@ export class WorkspaceService {
     const cachedEvents = this.cachedRunDetailEvents(input.runId, traceEventIds);
     if (cachedEvents) return { runId: input.runId, traceEvents: cachedEvents };
     const database = this.requireDb();
+    const honeycrispEvents = await getHoneycrispRunTraceEventDetailsForClient(
+      database,
+      input.runId,
+      traceEventIds,
+      signal
+    );
+    if (honeycrispEvents) {
+      signal?.throwIfAborted();
+      this.cacheRunDetailEvents(input.runId, honeycrispEvents, false);
+      return { runId: input.runId, traceEvents: honeycrispEvents };
+    }
     const detail = await getHoneycrispRunDetailForClient(database, input.runId, signal)
       ?? database.getRunDetail(input.runId);
     signal?.throwIfAborted();

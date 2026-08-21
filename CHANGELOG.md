@@ -13,8 +13,12 @@
 
 ### Changed
 
+- The no-workspace launch screen now displays the Beale app icon above its heading, matching the New Research welcome view from the first rendered frame.
+- Honeycrisp-backed session catalogs and lifecycle reads now use metadata-only contract-v4 queries. Initial display and polling use bounded event pages, collaboration cleanup uses current collaboration state, capture rows use metadata until detail is requested, and tool-event cache misses use targeted trace-detail reads.
+- Live Honeycrisp research events are no longer copied into a second Beale trace payload; concise transcript projections remain durable while the canonical Honeycrisp event supplies on-demand detail.
+- Renderer-facing Honeycrisp detail is capped by event count and serialized bytes before it crosses the process boundary; oversized individual events are projected to requestable summaries.
 - Beale now supplies stable source-revision, execution-environment, and authorized-asset identities to Honeycrisp; campaign state is injected into agent context and drives typed research momentum before trace-text heuristics.
-- Honeycrisp feature calls now require contract v3 runtime identity, schema versions, and capabilities, and Beale validates memory-summary v3 runbook content/execution metrics instead of trusting compile-time casts.
+- Honeycrisp feature calls now require contract v4 runtime identity, schema versions, bounded-read and targeted-detail capabilities, and Beale validates memory-summary v3 runbook content/execution metrics instead of trusting compile-time casts.
 - Runbook summaries and catalog rows now separate content revisions, completed runs, executed cells, and latest execution status instead of presenting execution persistence churn as content updates.
 - Session Heat defaults now use revised Security palettes for Light and Dark plus revised shared Cream and Midnight variants.
 - New Research now opens with the live-session commentary and steering composer instead of a modal, appears as a temporary active session in the workspace sidenav, and includes a centered profile-workflow suggestion chooser, Repeat, Goal, and Add Context controls above the shared input plus a hierarchical Collaboration control and aligned, stackable collaborator-model pickers below it.
@@ -74,6 +78,7 @@
 
 ### Fixed
 
+- Honeycrisp child-process shutdown and failure callbacks now isolate cleanup and finalization errors so a session-boundary read failure cannot escape into Electron's main process.
 - Desktop iPhone integration now enforces a device-command allowlist that rejects companion process launches or termination, preventing reconnect loops from repeatedly foregrounding the iOS app.
 - Session Heat palette selections, memory previews, workspace housekeeping cards, and active window surfaces now render the configured color directly instead of tinting it through a panel-border blend.
 

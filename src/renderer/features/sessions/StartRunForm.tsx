@@ -32,6 +32,7 @@ import {
   normalizeResearchCollaboration
 } from '../../../shared/collaboration';
 import { Modal } from '../../app/Modal';
+import { BealeWelcomeIcon } from '../../app/BealeWelcomeIcon';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { ModelSelectionPicker } from '../../app/ModelSelectionPicker';
@@ -48,7 +49,6 @@ import {
 import type { ResearchGoalSeed } from './SessionNextSteps';
 import { MainSteerArea } from './SessionComposer';
 import { SessionNextStepsWidget } from './SessionNextSteps';
-import bealeAppIcon from '../../../../resources/app-icon.png';
 
 const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
 const MAX_RENDERED_GOAL_SUGGESTIONS = 12;
@@ -1554,7 +1554,7 @@ function NewResearchWelcome({
 
   return (
     <section className="new-research-welcome" aria-label={`New research for ${workspaceName}`}>
-      <img className="new-research-welcome-icon" src={bealeAppIcon} alt="Beale" />
+      <BealeWelcomeIcon />
       <h2>Let&apos;s research {workspaceName}</h2>
       {visible ? (
         selectedWorkflow ? (

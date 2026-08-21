@@ -1,6 +1,6 @@
 export const HONEYCRISP_PROTOCOL_NAME = 'honeycrisp' as const;
 export const HONEYCRISP_PROTOCOL_VERSION = 1 as const;
-export const HONEYCRISP_CONTRACT_VERSION = 3 as const;
+export const HONEYCRISP_CONTRACT_VERSION = 4 as const;
 export const HONEYCRISP_PROTOCOL_WEBSOCKET_PATH = '/v1/session' as const;
 export const HONEYCRISP_PROTOCOL_BOOTSTRAP_PREFIX = 'HONEYCRISP_TRANSPORT ' as const;
 export const HONEYCRISP_PROTOCOL_WEBSOCKET_CAPABILITIES = [
@@ -14,7 +14,9 @@ export const HONEYCRISP_REQUIRED_CAPABILITIES = [
   'knowledge.campaign_graph',
   'knowledge.evidence_gates',
   'session.append_only',
-  'session.controls'
+  'session.controls',
+  'session.bounded_reads',
+  'session.targeted_details'
 ] as const;
 
 export interface HoneycrispProtocolErrorDetail {
@@ -161,7 +163,7 @@ export function decodeHoneycrispProtocolDescriptor(value: unknown): HoneycrispPr
     || !capabilities || !capabilities.every(nonEmptyString)
     || !HONEYCRISP_REQUIRED_CAPABILITIES.every((capability) => capabilities.includes(capability))
     || !isRecord(value.transports)) {
-    throw new Error('Honeycrisp runtime is incompatible with Beale contract v3. Rebuild or update the configured Honeycrisp CLI.');
+    throw new Error('Honeycrisp runtime is incompatible with Beale contract v4. Rebuild or update the configured Honeycrisp CLI.');
   }
   return value as unknown as HoneycrispProtocolDescriptor;
 }

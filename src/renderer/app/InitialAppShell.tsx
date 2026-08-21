@@ -1,4 +1,5 @@
 import type { JSX } from 'react';
+import { BealeWelcomeIcon } from './BealeWelcomeIcon';
 
 export function InitialAppShell(): JSX.Element {
   return (
@@ -13,6 +14,7 @@ export function InitialAppShell(): JSX.Element {
         <span className="initial-app-line short" />
       </aside>
       <main className="initial-app-workspace" aria-label="No workspace selected">
+        <BealeWelcomeIcon />
         <strong>No Workspace Selected</strong>
         <span>Choose a known workspace from the sidebar or add one to begin.</span>
       </main>

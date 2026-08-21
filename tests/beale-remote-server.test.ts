@@ -139,6 +139,16 @@ function memoryFixture(): HoneycrispMemorySummary {
     edges: [],
     runbooks: [],
     reports: [],
+    findings: [],
+    campaign: {
+      nodes: [],
+      edges: [],
+      coverageGaps: [],
+      contradictions: [],
+      momentum: { state: 'empty', reason: 'No campaign work yet.', supportingNodeIds: [] },
+      nextActions: [],
+      counts: { findings: 0, verifiedFindings: 0, disclosedFindings: 0, coverageGaps: 0, contradictions: 0 }
+    },
     dreaming: {
       available: false,
       scope: 'workspace',

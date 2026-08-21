@@ -36,12 +36,18 @@ import {
   createHoneycrispSession,
   getHoneycrispSession,
   getHoneycrispSessionAsync,
+  getHoneycrispSessionCollaborationState,
+  getHoneycrispSessionEventPage,
+  getHoneycrispSessionEventDetailsAsync,
+  getHoneycrispSessionUpdate,
   getHoneycrispSessionUpdateAsync,
   honeycrispOwnsSessions,
   listHoneycrispSessionSummaries,
+  listHoneycrispSessionCaptureSummariesAsync,
   listHoneycrispSessions,
   transitionHoneycrispSession,
   type HoneycrispSessionEvent,
+  type HoneycrispSessionCaptureSummary,
   type HoneycrispSessionRecord,
   type HoneycrispSessionSummary,
   type HoneycrispSessionStorage
@@ -210,6 +216,27 @@ function sessionWithQueuedEvents(
   return overlay.length > 0 ? { ...session, events: [...session.events, ...overlay] } : session;
 }
 
+function sessionRecordFromUpdate(update: ReturnType<typeof getHoneycrispSessionUpdate>): HoneycrispSessionRecord {
+  return {
+    ...update.session,
+    finalResponse: update.finalResponse,
+    attempts: update.session.attempts.map((attempt) => ({ ...attempt, capture: null })),
+    events: update.events
+  };
+}
+
+function boundedSessionWithQueuedEvents(
+  context: HoneycrispSessionBoundaryContext,
+  runId: string
+): HoneycrispSessionRecord {
+  return sessionWithQueuedEvents(sessionRecordFromUpdate(getHoneycrispSessionUpdate(
+    runId,
+    null,
+    context.storage,
+    { tail: true, limit: 1_000, maxBytes: 2 * 1024 * 1024 }
+  )), context.sessionWrites);
+}
+
 export function createHoneycrispSessionBoundary(
   database: WorkspaceDatabase,
   ownershipEnabled = usesHoneycrispSessionOwnership(),
@@ -228,9 +255,27 @@ export function createHoneycrispSessionBoundary(
   const sessionWrites = new HoneycrispSessionWriteQueue(storage);
   let boundary!: WorkspaceDatabase;
 
+  const getSessionMetadata = (runId: string): HoneycrispSessionRecord | null => {
+    return ownedRunIds.has(runId) ? getHoneycrispSession(runId, storage) : null;
+  };
+
   const getSession = (runId: string): HoneycrispSessionRecord | null => {
     if (!ownedRunIds.has(runId)) return null;
-    return sessionWithQueuedEvents(getHoneycrispSession(runId, storage), sessionWrites);
+    return sessionWithQueuedEvents(sessionRecordFromUpdate(getHoneycrispSessionUpdate(
+      runId,
+      null,
+      storage,
+      { tail: true, limit: 1_000, maxBytes: 2 * 1024 * 1024 }
+    )), sessionWrites);
+  };
+  const getCollaborationSession = (runId: string): HoneycrispSessionRecord | null => {
+    const session = getSessionMetadata(runId);
+    if (!session) return null;
+    const collaboration = getHoneycrispSessionCollaborationState(runId, storage);
+    return sessionWithQueuedEvents({
+      ...session,
+      events: [...collaboration.rooms, ...collaboration.members, ...collaboration.messages]
+    }, sessionWrites);
   };
   const appendRecordEvent = (runId: string, kind: string, record: Record<string, unknown>): void => {
     sessionWrites.enqueueEvent(runId, {
@@ -337,7 +382,7 @@ export function createHoneycrispSessionBoundary(
     }) as WorkspaceDatabase['createAttempt'],
 
     getRun: ((runId: string): RunRecord | null => {
-      const session = getSession(runId);
+      const session = getSessionMetadata(runId);
       return session ? sessionRun(session) : database.getRun(runId);
     }) as WorkspaceDatabase['getRun'],
 
@@ -366,7 +411,7 @@ export function createHoneycrispSessionBoundary(
 
     saveSessionNextStepSuggestions: ((runId: string, value: GeneratedResearchGoalSuggestions): GeneratedResearchGoalSuggestions => {
       if (!ownedRunIds.has(runId)) return database.saveSessionNextStepSuggestions(runId, value);
-      const session = getSession(runId);
+      const session = getSessionMetadata(runId);
       if (!session || !['blocked', 'completed', 'failed', 'stopped'].includes(sessionStatus(session.status))) {
         throw new Error(`Ended run not found for next-step suggestions: ${runId}`);
       }
@@ -385,7 +430,7 @@ export function createHoneycrispSessionBoundary(
     }) as WorkspaceDatabase['saveSessionNextStepSuggestions'],
 
     getRunDetailVersion: ((runId: string): RunDetailVersion => {
-      const session = getSession(runId);
+      const session = getSessionMetadata(runId);
       return session
         ? { runId, version: `honeycrisp:${session.revision}`, generatedAt: new Date().toISOString(), databaseMs: 0 }
         : database.getRunDetailVersion(runId);
@@ -503,7 +548,7 @@ export function createHoneycrispSessionBoundary(
         summary: 'Session title updated.',
         payload: { status: 'generated', title }
       });
-      const current = getSession(runId);
+      const current = getSessionMetadata(runId);
       if (!current) throw new Error(`Session not found after title update: ${runId}`);
       return { ...sessionRun(current), title };
     }) as WorkspaceDatabase['updateRunTitle'],
@@ -581,7 +626,7 @@ export function createHoneycrispSessionBoundary(
     }) as WorkspaceDatabase['updateRunBudget'],
 
     getRunResearchProfileSnapshot: ((runId: string) => {
-      const session = getSession(runId);
+      const session = getSessionMetadata(runId);
       if (!session) return database.getRunResearchProfileSnapshot(runId);
       const run = sessionRun(session);
       return run.researchProfileSnapshotId
@@ -677,7 +722,7 @@ export function createHoneycrispSessionBoundary(
 
     findBreakoutRoomMember: ((runId: string, attemptId: string | null, agentPath: string): BreakoutRoomMemberRecord | null => {
       if (!ownedRunIds.has(runId)) return database.findBreakoutRoomMember(runId, attemptId, agentPath);
-      const session = getSession(runId);
+      const session = getCollaborationSession(runId);
       return (session ? sessionDetail(session, database).breakoutRoomMembers : [])
         ?.filter((member) => member.attemptId === attemptId && member.agentPath === agentPath)
         .at(-1) ?? null;
@@ -685,7 +730,7 @@ export function createHoneycrispSessionBoundary(
 
     refreshBreakoutRoomStatus: ((roomId: string): BreakoutRoomRecord | null => {
       for (const runId of ownedRunIds) {
-        const session = getSession(runId);
+        const session = getCollaborationSession(runId);
         const room = session ? sessionDetail(session, database).breakoutRooms?.find((candidate) => candidate.id === roomId) : null;
         if (room) return room;
       }
@@ -765,7 +810,7 @@ export function createHoneycrispSessionBoundary(
 
     getFirstAttempt: ((runId: string): AttemptRecord | null => {
       if (!ownedRunIds.has(runId)) return database.getFirstAttempt(runId);
-      const session = getSession(runId);
+      const session = getSessionMetadata(runId);
       return session ? sessionDetail(session, database).attempts[0] ?? null : null;
     }) as WorkspaceDatabase['getFirstAttempt'],
 
@@ -854,7 +899,7 @@ export function listHoneycrispPendingApprovalsForRuns(
   const canonical = runIds
     .filter((runId) => context.ownedRunIds.has(runId))
     .flatMap((runId) => sessionDetail(
-      sessionWithQueuedEvents(getHoneycrispSession(runId, context.storage), context.sessionWrites),
+      boundedSessionWithQueuedEvents(context, runId),
       context.database
     ).policyEvents)
     .filter((approval) => ['shell_command', 'computer_use'].includes(approval.requestKind) && approval.decision === 'pending');
@@ -871,7 +916,7 @@ export function listHoneycrispNotificationsForRuns(
   const canonical = runIds
     .filter((runId) => context.ownedRunIds.has(runId))
     .flatMap((runId) => sessionNotifications(
-      sessionWithQueuedEvents(getHoneycrispSession(runId, context.storage), context.sessionWrites)
+      boundedSessionWithQueuedEvents(context, runId)
     ))
     .filter((notification) => notification.status === status);
   return [...canonical, ...context.database.listNotifications(status)];
@@ -919,7 +964,12 @@ function queueInterruptedHoneycrispBreakoutRooms(
   attemptId: string | null | undefined,
   endedAt: string
 ): void {
-  const session = sessionWithQueuedEvents(getHoneycrispSession(runId, context.storage), context.sessionWrites);
+  const summary = getHoneycrispSession(runId, context.storage);
+  const collaboration = getHoneycrispSessionCollaborationState(runId, context.storage);
+  const session = sessionWithQueuedEvents({
+    ...summary,
+    events: [...collaboration.rooms, ...collaboration.members, ...collaboration.messages]
+  }, context.sessionWrites);
   const detail = sessionDetail(session, context.database);
   const interruptedMembers = (detail.breakoutRoomMembers ?? []).filter((member) =>
     (attemptId == null || member.attemptId === attemptId)
@@ -969,8 +1019,18 @@ export async function getHoneycrispRunDetailForClient(
 ): Promise<RunDetail | null> {
   const context = BOUNDARY_CONTEXTS.get(database);
   if (!context?.ownedRunIds.has(runId)) return null;
-  const session = await getHoneycrispSessionAsync(runId, context.storage, signal);
-  return sessionDetail(sessionWithQueuedEvents(session, context.sessionWrites), context.database);
+  const [update, captures] = await Promise.all([
+    getHoneycrispSessionUpdateAsync(
+      runId,
+      null,
+      context.storage,
+      signal,
+      { tail: true, limit: 1_000, maxBytes: 2 * 1024 * 1024 }
+    ),
+    listHoneycrispSessionCaptureSummariesAsync(runId, context.storage, signal)
+  ]);
+  const session = sessionWithQueuedEvents(sessionRecordFromUpdate(update), context.sessionWrites);
+  return sessionDetail(session, context.database, update.eventOffset, captures);
 }
 
 export async function getHoneycrispRunDetailVersionForClient(
@@ -1001,32 +1061,44 @@ export async function getHoneycrispRunDetailUpdateForClient(
     runId,
     _cursor.afterTraceEventId ?? null,
     context.storage,
-    signal
+    signal,
+    { limit: 1_000, maxBytes: 2 * 1024 * 1024 }
   );
-  if (update.session.status !== 'active') {
-    const session = await getHoneycrispSessionAsync(runId, context.storage, signal);
-    return runDetailUpdateFromSession(
-      sessionWithQueuedEvents(session, context.sessionWrites),
-      context.database,
-      _cursor
-    );
+  const session = sessionRecordFromUpdate(update);
+  if (!_cursor.afterTraceEventId) {
+    return runDetailUpdateFromSession(session, context.database, _cursor, update.eventOffset);
   }
-  const session: HoneycrispSessionRecord = {
-    ...update.session,
-    finalResponse: update.finalResponse,
-    attempts: update.session.attempts.map((attempt) => ({ ...attempt, capture: null })),
-    events: update.events
-  };
   const detail = sessionDetail(session, context.database, update.eventOffset);
   return runDetailUpdateFromDetail(detail, update.session.revision);
+}
+
+export async function getHoneycrispRunTraceEventDetailsForClient(
+  database: WorkspaceDatabase,
+  runId: string,
+  traceEventIds: readonly string[],
+  signal?: AbortSignal
+): Promise<TraceEventRecord[] | null> {
+  const context = BOUNDARY_CONTEXTS.get(database);
+  if (!context?.ownedRunIds.has(runId)) return null;
+  const sessionEvents = await getHoneycrispSessionEventDetailsAsync(
+    runId,
+    traceEventIds,
+    context.storage,
+    signal
+  );
+  const requested = new Set(traceEventIds);
+  return sessionEvents
+    .flatMap((event, index) => traceFromSessionEvent(runId, event, index + 1))
+    .filter((event) => requested.has(event.id));
 }
 
 function runDetailUpdateFromSession(
   session: HoneycrispSessionRecord,
   database: WorkspaceDatabase,
-  cursor: RunDetailUpdateCursor
+  cursor: RunDetailUpdateCursor,
+  eventSequenceOffset = 0
 ): RunDetailUpdate {
-  const detail = sessionDetail(session, database);
+  const detail = sessionDetail(session, database, eventSequenceOffset);
   const afterTraceSequence = Number.isFinite(cursor.afterTraceSequence)
     ? Math.max(-1, cursor.afterTraceSequence)
     : -1;
@@ -1108,7 +1180,8 @@ function isRootFinalResponse(message: TranscriptMessageRecord, attemptId: string
 function sessionDetail(
   session: HoneycrispSessionRecord,
   database: WorkspaceDatabase,
-  eventSequenceOffset = 0
+  eventSequenceOffset = 0,
+  captureSummaries: readonly HoneycrispSessionCaptureSummary[] = []
 ): RunDetail {
   const run = sessionRun(session);
   const events = session.events;
@@ -1194,22 +1267,29 @@ function sessionDetail(
       };
     });
   const captureArtifacts: ArtifactRecord[] = session.attempts.flatMap((attempt) => {
-    if (!attempt.capture) return [];
-    const serialized = JSON.stringify(attempt.capture.raw);
-    const sha256 = createHash('sha256').update(serialized).digest('hex');
-    const capturedAt = stringValue(attempt.capture.capturedAt) ?? session.updatedAt;
+    const summary = captureSummaries.find((candidate) => candidate.attemptId === attempt.id);
+    if (!attempt.capture && !summary) return [];
+    const capturedAt = summary?.capturedAt
+      ?? stringValue(attempt.capture?.capturedAt)
+      ?? session.updatedAt;
+    const serialized = attempt.capture ? JSON.stringify(attempt.capture.raw) : null;
     return [{
       id: `capture_${session.id}_${attempt.id}`,
-      sha256,
+      sha256: summary?.contentHash ?? createHash('sha256').update(serialized ?? '').digest('hex'),
       relativePath: join('.beale', 'honeycrisp-runs', `${session.id}.${attempt.id}.capture.json`),
       kind: 'honeycrisp_flow_capture',
-      sizeBytes: Buffer.byteLength(serialized),
+      sizeBytes: summary?.sizeBytes ?? Buffer.byteLength(serialized ?? ''),
       mimeType: 'application/json',
       sensitivity: 'internal',
       modelVisible: false,
       provenanceTraceEventId: null,
       source: 'honeycrisp',
-      metadata: { capturedAt, attemptId: attempt.id },
+      metadata: {
+        capturedAt,
+        attemptId: attempt.id,
+        detailAvailableOnRequest: true,
+        ...(summary ? { eventStreams: summary.eventStreams } : {})
+      },
       createdAt: capturedAt
     }];
   });
@@ -1431,7 +1511,14 @@ function mergeTranscriptSearch(
   if (!query) return legacy;
   const limit = Math.max(1, Math.floor(input.limit ?? 24));
   const canonicalResults = contexts.flatMap((context) => listHoneycrispSessions(context.databaseWorkspaceId, storage, 500)
-    .flatMap((session) => sessionDetail(session, database).transcriptMessages
+    .flatMap((session) => {
+      const page = getHoneycrispSessionEventPage(session.id, storage, {
+        stream: 'transcript',
+        tail: true,
+        limit: 2_000,
+        maxBytes: 8 * 1024 * 1024
+      });
+      return sessionDetail({ ...session, events: page.events }, database, page.eventOffset).transcriptMessages
       .filter((message) => message.contentMarkdown.toLowerCase().includes(query))
       .map((message) => ({
         registryWorkspaceId: context.registryWorkspaceId,
@@ -1445,7 +1532,8 @@ function mergeTranscriptSearch(
         workspaceName: context.workspaceName,
         contentPreview: message.contentMarkdown.slice(0, 500),
         createdAt: message.createdAt
-      }))));
+      }));
+    }));
   const canonicalCounts = new Map<string, number>();
   for (const result of canonicalResults) {
     canonicalCounts.set(result.registryWorkspaceId, (canonicalCounts.get(result.registryWorkspaceId) ?? 0) + 1);

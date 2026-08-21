@@ -15,10 +15,10 @@ const createdDirectories: string[] = [];
 const compatibleDescriptor = {
   protocol: 'honeycrisp',
   protocolVersion: 1,
-  contractVersion: 3,
+  contractVersion: 4,
   runtime: { name: 'honeycrisp', version: '0.1.0', buildId: 'fixture-build', nodeVersion: process.version },
   schemas: { protocol: 1, session: 1, memorySummary: 3, finding: 1, campaignGraph: 1 },
-  capabilities: ['knowledge.findings', 'knowledge.finding_staleness', 'knowledge.campaign_graph', 'knowledge.evidence_gates', 'session.append_only', 'session.controls'],
+  capabilities: ['knowledge.findings', 'knowledge.finding_staleness', 'knowledge.campaign_graph', 'knowledge.evidence_gates', 'session.append_only', 'session.controls', 'session.bounded_reads', 'session.targeted_details'],
   operations: ['protocol.describe'],
   transports: {
     cli: { framing: 'single-json-envelope', errors: 'envelope-and-nonzero-exit', correlation: 'request-id' },
@@ -73,7 +73,7 @@ describe('Honeycrisp CLI protocol client', () => {
       protocol: 'honeycrisp',
       protocolVersion: 1,
       operations: ['protocol.describe'],
-      contractVersion: 3,
+      contractVersion: 4,
       transports: { websocket: { path: '/v1/session' } }
     });
   });
@@ -156,7 +156,7 @@ describe('Honeycrisp CLI protocol client', () => {
     chmodSync(fixture, 0o700);
     process.env.BEALE_HONEYCRISP_PROTOCOL_COMMAND = process.execPath;
     process.env.BEALE_HONEYCRISP_PROTOCOL_ARGS_JSON = JSON.stringify([fixture]);
-    expect(() => getHoneycrispProtocolDescriptor()).toThrow(/incompatible with Beale contract v3/);
+    expect(() => getHoneycrispProtocolDescriptor()).toThrow(/incompatible with Beale contract v4/);
     expect(() => decodeHoneycrispMemorySummary({ nodes: [], edges: [], runbooks: [], findings: [], campaign: {} })).toThrow(/memory summary v3/);
   });
 
