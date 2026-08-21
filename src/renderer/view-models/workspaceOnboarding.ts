@@ -24,6 +24,55 @@ export interface WorkspaceOnboardingFormState {
   repositoryCatalogError: string | null;
 }
 
+export type WorkspaceCreationView = 'overview' | 'kit' | 'resources' | 'rules';
+
+export function workspaceCreationViews(form: WorkspaceOnboardingFormState): WorkspaceCreationView[] {
+  return form.researchKitId === 'general'
+    ? ['overview', 'resources', 'rules']
+    : ['overview', 'kit', 'resources', 'rules'];
+}
+
+export function workspaceCreationViewError(
+  form: WorkspaceOnboardingFormState,
+  view: WorkspaceCreationView
+): string | null {
+  if (view === 'overview') {
+    if (form.workspaceDirectories.length === 0) return 'Select at least one workspace directory.';
+    if (!form.workspaceName.trim()) return 'Workspace name is required.';
+    if (!form.researchSubjectName.trim()) return 'Research subject is required.';
+    if (!researchKitSupportsProfile(form.researchKitId, form.researchProfileId)) {
+      return 'The selected Research Kit is not compatible with this Research Profile.';
+    }
+    return null;
+  }
+  if (view === 'kit') {
+    if (form.researchKitId === 'general') return null;
+    if (form.repositoryCatalogLoading) return 'Wait for the Research Kit repository catalog to finish loading.';
+    if (form.repositoryCatalogError) return form.repositoryCatalogError;
+    if (form.researchKitId === 'hackerone') {
+      const imported = form.assets.some((asset) => asset.attributes?.researchKitId === 'hackerone'
+        || asset.attributes?.source === 'hackerone');
+      if (!imported) return 'Import the HackerOne program before continuing.';
+    }
+    if (!form.descriptionMarkdown.trim()) return 'Workspace guidance is required for this Research Kit.';
+    if (form.rules.every((rule) => !rule.trim())) return 'At least one Research Kit rule is required.';
+    return null;
+  }
+  if (view === 'resources') {
+    const assets = onboardingInputFromForm(form).assets ?? [];
+    if (form.researchProfileId === 'security-research' && !assets.some((asset) => asset.direction === 'in_scope')) {
+      return 'Add at least one in-scope resource for security research.';
+    }
+    return null;
+  }
+  const rules = form.rules.map((rule) => rule.trim()).filter(Boolean);
+  if (rules.some((rule) => rule.length > 2_000)) return 'Workspace rules must be at most 2,000 characters.';
+  if (form.researchProfileId === 'security-research' && rules.length === 0) {
+    return 'Add at least one workspace rule for security research.';
+  }
+  return null;
+}
+
 export function workspaceOnboardingFormForProfile(
   form: WorkspaceOnboardingFormState,
   profileId: ResearchProfileId
@@ -257,8 +306,6 @@ export function onboardingFormFromHackerOneLookup(
   return {
     ...form,
     researchKitId: 'hackerone',
-    workspaceName: lookup.workspaceName,
-    researchSubjectName: lookup.researchSubjectName ?? lookup.workspaceName,
     descriptionMarkdown: lookup.descriptionMarkdown,
     rules: [...lookup.rules],
     assets: lookup.assets,
@@ -283,8 +330,6 @@ export function applyResearchKit(form: WorkspaceOnboardingFormState, researchKit
   return {
     ...form,
     researchKitId,
-    workspaceName: kit.onboardingDefaults.workspaceName,
-    researchSubjectName: kit.onboardingDefaults.researchSubjectName,
     descriptionMarkdown: kit.onboardingDefaults.descriptionMarkdown,
     rules: [...kit.onboardingDefaults.rules],
     assets: [],

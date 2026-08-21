@@ -225,12 +225,63 @@ describe('renderer workspace display view models', () => {
     expect(html).not.toContain('aria-haspopup="menu"');
   });
 
+  it('shows New Research as the active placeholder session for the loaded workspace', () => {
+    const profile = testResearchProfile();
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const registeredWorkspace = { ...workspace('workspace_test', '/workspace/test'), workspaceName: 'Snapchat' };
+    const registry: WorkspaceRegistryState = {
+      registryPath: '/home/user/.beale/workspaces.json',
+      workspaces: [registeredWorkspace],
+      researchSessions: [session({
+        id: 'session_old',
+        runId: 'run_old',
+        title: 'Old Session',
+        registryWorkspaceId: registeredWorkspace.id
+      })]
+    };
+    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
+      busy: false,
+      collapsed: false,
+      error: null,
+      workspaceRegistry: registry,
+      selectedRunId: 'run_old',
+      newResearchActive: true,
+      snapshot: {
+        workspace: { workspacePath: registeredWorkspace.workspacePath },
+        researchProfile: {
+          profile: {
+            ...profile,
+            presentation: { ...profile.presentation, newResearchLabel: 'New Research' }
+          }
+        },
+        runs: []
+      } as unknown as WorkspaceSnapshot,
+      onAddWorkspace: () => undefined,
+      onOpenWorkspace: () => undefined,
+      onOpenResearchSession: () => undefined,
+      onResizePointerDown: () => undefined,
+      onStartNewResearch: () => undefined,
+      onStartNewResearchForWorkspace: () => undefined
+    }));
+
+    expect(html).toContain('class="workspace-session-item workspace-new-research-session-item active" aria-current="page"');
+    expect(html).toContain('class="workspace-new-research-session-indent"');
+    expect(html).toContain('<span class="workspace-session-title">New Research</span>');
+    expect(html).toContain('Old Session');
+    expect(html).not.toContain('class="workspace-session-item active"');
+    expect(styles).toMatch(/\.workspace-new-research-session-item \.workspace-session-title\s*\{[^}]*font-style: italic;/u);
+  });
+
   it('switches workspaces before opening New Research from a workspace row', () => {
     const appSource = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
+    const startActionSource = appSource.match(
+      /const startNewResearch = useCallback[\s\S]*?const startNewResearchForWorkspace/u
+    )?.[0] ?? '';
     const actionSource = appSource.match(
       /const startNewResearchForWorkspace = useCallback[\s\S]*?const startNewResearchFromSuggestion/u
     )?.[0] ?? '';
 
+    expect(startActionSource).toContain('closeWorkspaceOnboarding();');
     expect(actionSource).toContain('snapshot?.workspace.workspacePath === workspace.workspacePath');
     expect(actionSource).toContain('applySnapshot(await window.beale.openRegisteredWorkspace(workspace.id));');
     expect(actionSource.indexOf('applySnapshot(await window.beale.openRegisteredWorkspace(workspace.id));'))

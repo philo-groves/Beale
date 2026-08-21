@@ -10,6 +10,10 @@
 
 ### Changed
 
+- Session Heat defaults now use revised Security palettes for Light and Dark plus revised shared Cream and Midnight variants.
+- New Research now opens with the live-session commentary and steering composer instead of a modal, appears as a temporary active session in the workspace sidenav, and includes a centered profile-workflow suggestion chooser, Repeat, Goal, and Add Context controls above the shared input plus a hierarchical Collaboration control and aligned, stackable collaborator-model pickers below it.
+- Session views now remain full-width while their commentary is empty and slide the right summary sidenav into view only after session content becomes available.
+- New Workspace now reuses the main workspace Overview, active Research Kit, Resources, and Rules views instead of a separate onboarding dialog. Creation advances through explicitly unlocked steps with per-view validation, kit imports preserve the entered workspace identity, and the final Rules header creates the workspace.
 - Connected-iPhone capture now stages a short-lived authentication token in the companion's app-data container and waits for the operator to open the iOS app, instead of launching or foregrounding it through `devicectl` when a session opens.
 - Moved the iOS capture companion's Xcode project, Swift sources, metadata validation, and documentation into the dedicated Beale-iOS repository; Beale retains the desktop-side USB capture integration.
 - Workspace rows in the left sidebar now expose a direct New Research action that switches to the owning workspace before opening the research dialog.
@@ -65,6 +69,10 @@
 ### Fixed
 
 - Desktop iPhone integration now enforces a device-command allowlist that rejects companion process launches or termination, preventing reconnect loops from repeatedly foregrounding the iOS app.
+- Session Heat palette selections, memory previews, workspace housekeeping cards, and active window surfaces now render the configured color directly instead of tinting it through a panel-border blend.
+- Newly started research sessions now render their submitted prompt immediately and show a setup-phase status while Honeycrisp initializes, retaining the usable session view instead of surfacing initial detail-fetch timeouts.
+- Workspace removal confirmation now tolerates invisible and compatibility Unicode differences in otherwise identical workspace names while remaining case- and punctuation-sensitive.
+
 - Auto-Review failures now retain bounded timeout, authentication, quota, model, provider, and response-shape diagnostics from Honeycrisp without exposing raw provider errors; malformed reviewer output receives one bounded repair attempt before remaining fail-closed.
 
 - End-of-session next-step suggestions now read captured prompts and persist results through Honeycrisp's canonical session boundary instead of failing when the session has no legacy workbench run row.

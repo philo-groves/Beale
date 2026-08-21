@@ -30,6 +30,7 @@ import type {
   ResearchKitRefreshResult,
   ResolvedResearchProfile,
   ResearchProviderStatus,
+  RunRecord,
   RunStatus,
   RunbookProofTargetSelection,
   ScopeAssetInput,
@@ -55,7 +56,9 @@ import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { WorkspaceStartupView } from './features/workspaces/WorkspaceStartupView';
+import { WorkspaceCreationView } from './features/workspaces/WorkspaceCreationView';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
+import { StartRunForm } from './features/sessions/StartRunForm';
 import { workspaceScopeDraftForConfigurationUpdate } from './features/workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput } from './features/workspaces/WorkspaceUnderstandingView';
 import { ReportsIndex, ReportSessionWorkspace } from './features/reports/ReportsWorkspace';
@@ -213,6 +216,10 @@ export function App(): JSX.Element {
   const [workspaceDashboardViewName, setWorkspaceDashboardViewName] = useState('Overview');
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [newResearchInitialGoal, setNewResearchInitialGoal] = useState<ResearchGoalSeed | null>(null);
+  const closeNewResearch = useCallback((): void => {
+    setNewResearchInitialGoal(null);
+    setNewResearchOpen(false);
+  }, []);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [automationsOpen, setAutomationsOpen] = useState(false);
   const [automationScopeWorkspaceId, setAutomationScopeWorkspaceId] = useState<string | null>(null);
@@ -282,7 +289,7 @@ export function App(): JSX.Element {
     return `${selected.status}:${selected.shellSafetyMode}:${pendingApprovalIds}:${reportsOpen ? reportSessionRefreshVersion : 0}`;
   }, [reportSessionRefreshVersion, reportsOpen, selectedRunId, snapshot?.pendingShellApprovals, snapshot?.runs]);
   const handleRunDetailError = useCallback((message: string) => setError(message), []);
-  const { runDetail, clearRunDetail } = useRunDetailPolling({
+  const { runDetail, sessionSetupPending, clearRunDetail, primeRunDetail } = useRunDetailPolling({
     selectedRunId,
     selectedRunState,
     projection: runDetailProjection,
@@ -625,6 +632,7 @@ export function App(): JSX.Element {
   }, []);
 
   const openPlugins = useCallback((): void => {
+    closeNewResearch();
     clearRunDetail();
     setSelectedRunId(null);
     setSelectedBreakoutRoomId(null);
@@ -632,7 +640,7 @@ export function App(): JSX.Element {
     setAutomationsOpen(false);
     setPluginsOpen(true);
     void loadAgentPlugins();
-  }, [clearRunDetail, loadAgentPlugins, setSelectedRunId]);
+  }, [clearRunDetail, closeNewResearch, loadAgentPlugins, setSelectedRunId]);
 
   const runAgentPluginAction = useCallback(async (action: () => Promise<AgentPluginRegistryState>): Promise<void> => {
     setAgentPluginsBusy(true);
@@ -707,6 +715,7 @@ export function App(): JSX.Element {
   const closeWorkspaceOnboarding = useCallback((): void => {
     setWorkspaceDraft(null);
     setWorkspaceOnboardingProgress(null);
+    setError(null);
   }, []);
 
   const openWorkspaceAlert = useCallback((_alert: WorkspaceAlert) => undefined, []);
@@ -774,6 +783,7 @@ export function App(): JSX.Element {
   }, [snapshot?.workspace.workspaceId]);
 
   const openReports = useCallback((): void => {
+    closeNewResearch();
     clearRunDetail();
     setSelectedRunId(null);
     setSelectedBreakoutRoomId(null);
@@ -788,7 +798,7 @@ export function App(): JSX.Element {
     setAutomationsOpen(false);
     setPluginsOpen(false);
     setReportsOpen(true);
-  }, [clearRunDetail, setSelectedRunId, snapshot?.workspace.workspaceId]);
+  }, [clearRunDetail, closeNewResearch, setSelectedRunId, snapshot?.workspace.workspaceId]);
 
   const reportingWorkspaceCatalogKey = workspaceRegistry?.workspaces
     .map((workspace) => `${workspace.id}:${workspace.workspaceId}:${workspace.updatedAt}`)
@@ -1276,6 +1286,11 @@ export function App(): JSX.Element {
     setWorkspaceDraft,
     setWorkspaceOnboardingProgress
   });
+  const beginWorkspaceCreation = useCallback((): void => {
+    setError(null);
+    closeNewResearch();
+    addWorkspace();
+  }, [addWorkspace, closeNewResearch]);
   const removeActiveWorkspace = useCallback(async (): Promise<void> => {
     const workspaceId = snapshot?.workspace.workspaceId;
     const workspace = workspaceRegistry?.workspaces.find((candidate) => candidate.workspaceId === workspaceId);
@@ -1283,7 +1298,7 @@ export function App(): JSX.Element {
     await removeRegisteredWorkspace(workspace);
   }, [removeRegisteredWorkspace, snapshot?.workspace.workspaceId, workspaceRegistry?.workspaces]);
 
-  useEffect(() => window.beale.onNativeMenuAction(() => addWorkspace()), [addWorkspace]);
+  useEffect(() => window.beale.onNativeMenuAction(() => beginWorkspaceCreation()), [beginWorkspaceCreation]);
 
   const handleSessionAction = useCallback(
     (action: SteeringAction): void => {
@@ -1527,14 +1542,16 @@ export function App(): JSX.Element {
     setSelectedSubagentPath(null);
   }, [activeSubagents, selectedSubagentPath]);
   const [sessionHeatDisplay, setSessionHeatDisplay] = useState(EMPTY_SESSION_HEAT_DISPLAY_STATE);
+  const sessionHeatRunId = newResearchOpen ? null : selectedRunId;
+  const sessionHeatRunDetail = newResearchOpen ? null : activeRunDetail;
   useLayoutEffect(() => {
     setSessionHeatDisplay((previous) => sessionHeatDisplayStateForSelection(
       previous,
-      selectedRunId,
-      activeRunDetail,
+      sessionHeatRunId,
+      sessionHeatRunDetail,
       sessionHeatPreferences
     ));
-  }, [activeRunDetail, selectedRunId, sessionHeatPreferences]);
+  }, [sessionHeatPreferences, sessionHeatRunDetail, sessionHeatRunId]);
   const sessionHeat = sessionHeatDisplay.heat;
   const sessionHeatProfile = sessionHeatDisplay.profile ?? snapshot?.researchProfile.profile ?? null;
   const shellStyle = {
@@ -1580,13 +1597,17 @@ export function App(): JSX.Element {
   const activeBreakoutRoomTitle = selectedBreakoutRoomId
     ? activeRunDetail?.breakoutRooms?.find((room) => room.id === selectedBreakoutRoomId)?.title ?? null
     : null;
-  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const openSettings = useCallback(() => {
+    closeNewResearch();
+    setSettingsOpen(true);
+  }, [closeNewResearch]);
   const openProfiling = useCallback(() => {
     flushProfilingReport();
     setProfilingOpen(true);
   }, [flushProfilingReport]);
   const closeProfiling = useCallback(() => setProfilingOpen(false), []);
   const startNewResearch = useCallback(() => {
+    closeWorkspaceOnboarding();
     if (reportsOpen) {
       clearRunDetail();
       setSelectedRunId(null);
@@ -1600,7 +1621,7 @@ export function App(): JSX.Element {
     setPluginsOpen(false);
     setNewResearchInitialGoal(null);
     setNewResearchOpen(true);
-  }, [clearRunDetail, reportsOpen, setSelectedRunId]);
+  }, [clearRunDetail, closeWorkspaceOnboarding, reportsOpen, setSelectedRunId]);
   const startNewResearchForWorkspace = useCallback((workspace: WorkspaceRegistryEntry): void => {
     if (snapshot?.workspace.workspacePath === workspace.workspacePath) {
       startNewResearch();
@@ -1619,16 +1640,17 @@ export function App(): JSX.Element {
     setNewResearchOpen(true);
   }, []);
   const handleResearchStarted = useCallback(
-    (runId: string): void => {
-      clearRunDetail();
-      setSelectedRunId(runId);
+    (run: RunRecord): void => {
+      primeRunDetail(run);
+      setSelectedRunId(run.id);
       setNewResearchInitialGoal(null);
       setNewResearchOpen(false);
     },
-    [clearRunDetail, setSelectedRunId]
+    [primeRunDetail, setSelectedRunId]
   );
   const openWorkspaceDashboardSession = useCallback(
     (runId: string): void => {
+      closeNewResearch();
       setReportsOpen(false);
       setAutomationsOpen(false);
       setPluginsOpen(false);
@@ -1636,9 +1658,10 @@ export function App(): JSX.Element {
       setSelectedBreakoutRoomId(null);
       setSelectedRunId(runId);
     },
-    [clearRunDetail, setSelectedRunId]
+    [clearRunDetail, closeNewResearch, setSelectedRunId]
   );
   const openAutomations = useCallback((): void => {
+    closeNewResearch();
     clearRunDetail();
     setSelectedRunId(null);
     setSelectedBreakoutRoomId(null);
@@ -1649,7 +1672,7 @@ export function App(): JSX.Element {
     setReportsOpen(false);
     setPluginsOpen(false);
     setAutomationsOpen(true);
-  }, [clearRunDetail, setSelectedRunId, snapshot?.workspace.workspaceId]);
+  }, [clearRunDetail, closeNewResearch, setSelectedRunId, snapshot?.workspace.workspaceId]);
   const saveAutomation = useCallback(async (input: AutomationUpdateInput): Promise<AutomationSummary> => {
     const updated = await window.beale.updateAutomation(input);
     setAutomations((current) => current.map((automation) => (
@@ -1675,8 +1698,10 @@ export function App(): JSX.Element {
                 ? { primary: 'Plugins', secondary: 'Installed Plugins', icon: 'plugins' }
               : null}
         platform={windowControlPlatform}
-        workspaceName={currentWorkspaceName}
-        workspaceViewTitle={snapshot && !selectedRunId ? workspaceDashboardViewName : null}
+        workspaceName={workspaceDraft && !newResearchOpen ? 'New Workspace' : currentWorkspaceName}
+        workspaceViewTitle={newResearchOpen
+          ? snapshot?.researchProfile.profile.presentation?.newResearchLabel ?? 'New Research'
+          : workspaceDraft ? workspaceDashboardViewName : (snapshot && !selectedRunId ? workspaceDashboardViewName : null)}
         activeRunDetail={activeRunDetail}
         activeBreakoutRoomTitle={activeBreakoutRoomTitle}
         profilingEnabled={profilingState?.enabled ?? false}
@@ -1686,7 +1711,7 @@ export function App(): JSX.Element {
         onToggleBottomPanel={() => setBottomPanelOpen((current) => !current)}
         onOpenWorkspaceInEditor={openWorkspaceInEditor}
         onAddWorkspace={() => {
-          addWorkspace();
+          beginWorkspaceCreation();
         }}
         onToggleRightSidenav={() => setRightSidenavExpanded((current) => !current)}
         onToggleSidebar={toggleSidebar}
@@ -1708,20 +1733,23 @@ export function App(): JSX.Element {
           workspaceRegistry={workspaceRegistry}
           workspaceRegistryLoading={startupPhase === 'shell' || startupPhase === 'registry'}
           selectedRunId={reportsOpen || automationsOpen || pluginsOpen ? null : selectedRunId}
+          newResearchActive={newResearchOpen}
           automationsActive={automationsOpen}
           reportsActive={reportsOpen}
           pluginsActive={pluginsOpen}
           snapshot={snapshot}
           onAddWorkspace={() => {
-            addWorkspace();
+            beginWorkspaceCreation();
           }}
           onOpenWorkspace={(workspace) => {
+            closeNewResearch();
             setReportsOpen(false);
             setAutomationsOpen(false);
             setPluginsOpen(false);
             openRegisteredWorkspace(workspace);
           }}
           onOpenResearchSession={(workspace, session) => {
+            closeNewResearch();
             setReportsOpen(false);
             setAutomationsOpen(false);
             setPluginsOpen(false);
@@ -1798,7 +1826,45 @@ export function App(): JSX.Element {
           />
         ) : (
           <div className="workspace-page">
-            {pluginsOpen ? (
+            {newResearchOpen && snapshot ? (
+              <StartRunForm
+                presentation="session"
+                snapshot={snapshot}
+                openAiStatus={snapshot.openAi ?? openAiStatus}
+                defaultProviderId={providerSettings?.defaultProviderId}
+                dangerModeEnabled={permissionSettings.dangerModeEnabled}
+                defaultShellSafetyMode={permissionSettings.defaultShellSafetyMode}
+                providerModelDefaults={providerSettings?.modelDefaults}
+                providerPolicyRiskAcknowledgements={providerSettings?.cyberPolicyRiskAcknowledgements}
+                researchProviderStatuses={researchProviderStatuses}
+                providerModelCatalog={enabledResearchProviderModelCatalog}
+                researchGoalSuggestions={researchGoalSuggestionState.suggestions}
+                researchGoalSuggestionsLoading={researchGoalSuggestionState.loading}
+                researchGoalSuggestionErrors={researchGoalSuggestionState.errors}
+                initialGoal={newResearchInitialGoal}
+                showSuggestions={suggestionPreferences.newResearchPromptSuggestionsEnabled}
+                busy={busy}
+                runAction={runAction}
+                onCancel={closeNewResearch}
+                onLoadResearchGoalSuggestions={researchGoalSuggestionState.load}
+                onSelectResearchGoalSuggestion={researchGoalSuggestionState.consume}
+                onRetryResearchGoalSuggestions={researchGoalSuggestionState.retry}
+                onStarted={handleResearchStarted}
+              />
+            ) : workspaceDraft ? (
+              <WorkspaceCreationView
+                busy={busy}
+                form={workspaceDraft}
+                progress={workspaceOnboardingProgress}
+                submissionError={error}
+                onCancel={closeWorkspaceOnboarding}
+                onChange={setWorkspaceDraft}
+                onLookupHackerOne={lookupHackerOneScope}
+                onResearchKit={applyOnboardingResearchKit}
+                onSubmit={submitWorkspaceOnboarding}
+                onViewChange={setWorkspaceDashboardViewName}
+              />
+            ) : pluginsOpen ? (
               <PluginManagerWorkspace
                 state={agentPluginState}
                 loading={agentPluginsLoading}
@@ -1899,6 +1965,7 @@ export function App(): JSX.Element {
               )
             ) : snapshot ? <MainSessionWorkspace
               detail={activeRunDetail}
+              sessionSetupPending={sessionSetupPending}
               events={mainSessionTraceEvents}
               allEvents={activeTraceEvents}
               providerModelCatalog={enabledResearchProviderModelCatalog}
@@ -1966,7 +2033,7 @@ export function App(): JSX.Element {
               }}
               onSessionAction={handleSessionAction}
               onSteerInstruction={handleSteerInstruction}
-            /> : <WorkspaceStartupView onAddWorkspace={addWorkspace} />}
+            /> : <WorkspaceStartupView onAddWorkspace={beginWorkspaceCreation} />}
           </div>
         )}
       </main>
@@ -1987,47 +2054,16 @@ export function App(): JSX.Element {
       <AppModals
         activeNotification={activeNotification}
         busy={busy}
-        newResearchOpen={newResearchOpen}
-        newResearchInitialGoal={newResearchInitialGoal}
-        openAiStatus={snapshot?.openAi ?? openAiStatus}
-        defaultProviderId={providerSettings?.defaultProviderId}
-        dangerModeEnabled={permissionSettings.dangerModeEnabled}
-        defaultShellSafetyMode={permissionSettings.defaultShellSafetyMode}
-        providerModelDefaults={providerSettings?.modelDefaults}
-        providerPolicyRiskAcknowledgements={providerSettings?.cyberPolicyRiskAcknowledgements}
-        researchProviderModelCatalog={enabledResearchProviderModelCatalog}
-        researchProviderStatuses={researchProviderStatuses}
-        researchGoalSuggestions={researchGoalSuggestionState.suggestions}
-        researchGoalSuggestionsLoading={researchGoalSuggestionState.loading}
-        researchGoalSuggestionErrors={researchGoalSuggestionState.errors}
-        newResearchPromptSuggestionsEnabled={suggestionPreferences.newResearchPromptSuggestionsEnabled}
         profilingOpen={profilingOpen}
         profilingState={profilingState}
         lastProfilingReport={lastProfilingReport}
-        workspaceDraft={workspaceDraft}
-        workspaceOnboardingProgress={workspaceOnboardingProgress}
-        snapshot={snapshot}
-        onCancelNewResearch={() => {
-          setNewResearchInitialGoal(null);
-          setNewResearchOpen(false);
-        }}
-        onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
-        onChangeWorkspaceDraft={setWorkspaceDraft}
         onCloseNotification={() => setActiveNotification(null)}
         onCloseProfiling={closeProfiling}
-        onLookupHackerOne={lookupHackerOneScope}
-        onWorkspaceResearchKit={applyOnboardingResearchKit}
         onFlushProfilingReport={flushProfilingReport}
-        onLoadResearchGoalSuggestions={researchGoalSuggestionState.load}
-        onSelectResearchGoalSuggestion={researchGoalSuggestionState.consume}
-        onRetryResearchGoalSuggestions={researchGoalSuggestionState.retry}
-        onStartedNewResearch={handleResearchStarted}
         onSteerNotification={(notification, instruction) => {
           void runAction(() => window.beale.steerRun({ type: 'steer', runId: notification.runId, instruction }));
           setActiveNotification(null);
         }}
-        onSubmitWorkspaceOnboarding={submitWorkspaceOnboarding}
-        runAction={runAction}
       />
       {activeManualShellApproval ? (
         <ShellApprovalModal

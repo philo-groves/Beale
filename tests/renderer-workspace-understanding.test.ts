@@ -13,6 +13,7 @@ import {
   workspaceDejunkHeat,
   workspaceResearchSurfaceKinds,
   workspaceResearchSurfaceItems,
+  workspaceRemovalConfirmationMatches,
   workspaceScopeDraftForConfigurationUpdate,
   workspaceCreationActivity,
   workspaceMemoryTypeGroups,
@@ -151,8 +152,9 @@ describe('workspace dashboard', () => {
     expect(cleaningFormStyles).toContain('margin-inline: auto');
     expect(removalFormStyles).toContain('grid-template-columns: minmax(0, 1fr)');
     expect(removalFormStyles).toContain('gap: 9px');
-    expect(removalControlsStyles).toContain('grid-template-columns: minmax(180px, 220px) auto');
+    expect(removalControlsStyles).toContain('grid-template-columns: minmax(180px, 1fr) minmax(130px, 160px)');
     expect(removalActionStyles).toContain('border: 0');
+    expect(removalActionStyles).toContain('max-width: 160px');
     expect(removalActionStyles).toContain('color: var(--red)');
     expect(chartStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
     expect(chartStyles).toContain('max-width: var(--session-content-max-width)');
@@ -220,8 +222,9 @@ describe('workspace dashboard', () => {
     expect(housekeepingCardStyles).not.toContain('--workspace-card-glass');
     expect(housekeepingCardStyles).not.toContain('outline');
     expect(mediumHeatCardStyles).toContain(
-      '--session-heat-edge: color-mix(in srgb, var(--session-heat-medium-color) 48%, var(--panel-border))'
+      '--session-heat-edge: var(--session-heat-medium-color)'
     );
+    expect(mediumHeatCardStyles).not.toContain('color-mix');
     expect(mediumHeatCardStyles).toContain(
       '--workspace-card-surface: var(--session-heat-edge)'
     );
@@ -457,8 +460,23 @@ describe('workspace dashboard', () => {
     expect(html).toContain('Unregisters this workspace from Beale only.');
     expect(html).toContain('Directories, .beale metadata, repository clones, scoped resources, and Honeycrisp memory remain on disk.');
     expect(html).toContain('aria-label="Type Parser Workspace to confirm workspace removal"');
-    expect(html).toContain('placeholder="Type Parser Workspace to confirm"');
+    expect(html).toContain('placeholder="Type &quot;Parser Workspace&quot; to confirm"');
     expect(html).toMatch(/<button class="workspace-removal-action" disabled="" type="submit">Remove from Beale<\/button>/u);
+  });
+
+  it('matches visible workspace names for removal despite invisible Unicode differences', () => {
+    expect(workspaceRemovalConfirmationMatches(
+      'Superhuman (formerly Grammarly)',
+      'Superhuman\u00a0(formerly Grammarly)\u200b'
+    )).toBe(true);
+    expect(workspaceRemovalConfirmationMatches(
+      'Superhuman (formerly Grammarly)',
+      'Superhuman (formerly Grammarly Pro)'
+    )).toBe(false);
+    expect(workspaceRemovalConfirmationMatches(
+      'superhuman (formerly Grammarly)',
+      'Superhuman (formerly Grammarly)'
+    )).toBe(false);
   });
 
   it('uses the blank workspace directories field as the initial directory chooser', () => {

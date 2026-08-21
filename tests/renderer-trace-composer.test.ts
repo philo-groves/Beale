@@ -127,12 +127,27 @@ describe('renderer session composer', () => {
     }));
 
     expect(html).toContain('placeholder="Review this report."');
-    expect(html).toContain('aria-label="Shell safety mode" aria-haspopup="listbox" aria-expanded="false"><span');
+    expect(html).toMatch(/aria-label="Shell safety mode" aria-haspopup="listbox" aria-expanded="false"><svg[^>]*main-steer-safety-mode-icon/u);
     expect(steeringInputTabAction({
       instruction: '',
       suggestion: 'Review this report.',
       suggestionShowing: true
     })).toBe('accept_suggestion');
+  });
+
+  it('supports a view-specific input placeholder', () => {
+    const html = renderToStaticMarkup(createElement(MainSteerArea, {
+      runId: null,
+      detail: null,
+      providerModelCatalog: providerModelCatalog(),
+      busy: false,
+      inputPlaceholder: 'Write a full research prompt',
+      onInitialInstruction: () => undefined,
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+
+    expect(html).toContain('placeholder="Write a full research prompt"');
   });
 
   it('keeps steering suggestions under fifteen words', () => {
@@ -248,10 +263,12 @@ describe('renderer session composer', () => {
   it('places the persisted shell safety picker before model settings', () => {
     const html = renderTraceComposer('stopped');
     const safetyIndex = html.indexOf('aria-label="Shell safety mode"');
+    const shieldIndex = html.indexOf('main-steer-safety-mode-icon', safetyIndex);
     const modelIndex = html.indexOf('aria-label="Model settings for the next agent turn"');
 
     expect(html).toContain('Auto-Review');
     expect(safetyIndex).toBeGreaterThanOrEqual(0);
+    expect(shieldIndex).toBeGreaterThan(safetyIndex);
     expect(modelIndex).toBeGreaterThan(safetyIndex);
     expect(SHELL_SAFETY_MODE_OPTIONS).toEqual([
       { value: 'manual_approval', label: 'Manual Approval' },

@@ -1284,7 +1284,7 @@ function WorkspaceRemovalForm({
   const [confirmation, setConfirmation] = useState('');
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const confirmed = confirmation.trim() === workspaceName.trim();
+  const confirmed = workspaceRemovalConfirmationMatches(confirmation, workspaceName);
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (!confirmed || busy || removing) return;
@@ -1310,7 +1310,7 @@ function WorkspaceRemovalForm({
           aria-label={`Type ${workspaceName} to confirm workspace removal`}
           autoComplete="off"
           disabled={busy || removing}
-          placeholder={`Type ${workspaceName} to confirm`}
+          placeholder={`Type "${workspaceName}" to confirm`}
           spellCheck={false}
           value={confirmation}
           onChange={(event) => setConfirmation(event.target.value)}
@@ -1326,6 +1326,18 @@ function WorkspaceRemovalForm({
       </div>
     </form>
   );
+}
+
+export function workspaceRemovalConfirmationMatches(confirmation: string, workspaceName: string): boolean {
+  return normalizedWorkspaceRemovalName(confirmation) === normalizedWorkspaceRemovalName(workspaceName);
+}
+
+function normalizedWorkspaceRemovalName(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
 }
 
 function WorkspaceCleaningStatus({ label }: { label: string }): JSX.Element {
@@ -1550,7 +1562,7 @@ function preferredWorkspaceSurfaceAsset(assets: ScopeAsset[]): ScopeAsset {
     ?? assets[0];
 }
 
-const WORKSPACE_ASSET_KINDS: ScopeAssetKind[] = [
+export const WORKSPACE_ASSET_KINDS: ScopeAssetKind[] = [
   'repo',
   'documentation',
   'binary',
@@ -1974,7 +1986,7 @@ function workspaceAssetPlaceholder(kind: ScopeAssetKind): string {
   return `Enter ${workspaceAssetKindLabel(kind).toLowerCase()} reference`;
 }
 
-function WorkspaceAssetIcon({ kind, size = 16 }: { kind: ScopeAssetKind; size?: number }): JSX.Element {
+export function WorkspaceAssetIcon({ kind, size = 16 }: { kind: ScopeAssetKind; size?: number }): JSX.Element {
   if (kind === 'repo') return <GitBranch size={size} />;
   if (kind === 'documentation') return <BookOpen size={size} />;
   if (kind === 'binary') return <Binary size={size} />;
@@ -2068,7 +2080,7 @@ function workspaceAssetKindOrder(kind: ScopeAssetKind): number {
   return order.indexOf(kind);
 }
 
-function workspaceAssetKindLabel(kind: ScopeAssetKind): string {
+export function workspaceAssetKindLabel(kind: ScopeAssetKind): string {
   if (kind === 'repo') return 'Repository';
   return `${kind.slice(0, 1).toUpperCase()}${kind.slice(1)}`;
 }

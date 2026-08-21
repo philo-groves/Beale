@@ -46,6 +46,7 @@ const INLINE_SINGULAR_TOOL_NAMES = new Set(['file.read', 'shell.run']);
 export const CommentaryView = memo(function CommentaryView({
   busy,
   detail,
+  sessionSetupPending = false,
   events,
   activeScope = null,
   providerModelCatalog,
@@ -68,6 +69,7 @@ export const CommentaryView = memo(function CommentaryView({
 }: {
   busy: boolean;
   detail: RunDetail | null;
+  sessionSetupPending?: boolean;
   events: TraceDisplayEvent[];
   activeScope?: WorkspaceScopeVersion | null;
   providerModelCatalog: ResearchProviderModelCatalog[];
@@ -93,13 +95,21 @@ export const CommentaryView = memo(function CommentaryView({
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
   const repositoryMetadata = useMemo(() => commentaryRepositoryMetadataForScope(activeScope), [activeScope]);
-  const messages = useMemo(
-    () => commentaryMessagesForSession(detail, events, {
+  const messages = useMemo(() => {
+    const projected = commentaryMessagesForSession(detail, events, {
       includeInitialPrompt: !showBackToMain,
       repositoryMetadata
-    }),
-    [detail, events, repositoryMetadata, showBackToMain]
-  );
+    });
+    if (!sessionSetupPending || !detail) return projected;
+    return [...projected, {
+      id: `session-setup:${detail.run.id}`,
+      traceEventId: null,
+      kind: 'progress',
+      contentMarkdown: 'The session is in a setup phase. Please wait…',
+      reasoningTraceLines: ['The session is in a setup phase. Please wait…'],
+      createdAt: detail.run.startedAt ?? detail.run.createdAt
+    } satisfies CommentaryMessage];
+  }, [detail, events, repositoryMetadata, sessionSetupPending, showBackToMain]);
   const messageSections = useMemo(
     () => commentaryMessageSections(messages, Boolean(detail && !isRunWorkingStatus(detail.run.status)), !showBackToMain),
     [detail, messages, showBackToMain]

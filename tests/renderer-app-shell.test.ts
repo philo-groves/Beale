@@ -27,6 +27,16 @@ describe('renderer app shell view model', () => {
     expect(workspaceHeader).toContain('aria-label="Parser, Memory"');
     expect(workspaceHeader).toContain('title="Memory"><span>Memory</span>');
 
+    const newResearchHeader = renderToStaticMarkup(createElement(AppHeaderTitle, {
+      workspaceName: 'Parser',
+      workspaceViewTitle: 'New Research',
+      detail: { run: { id: 'run_old', title: 'Old Session', promptMarkdown: 'Old prompt' } } as RunDetail,
+      breakoutRoomTitle: 'Old Room'
+    }));
+    expect(newResearchHeader).toContain('aria-label="Parser, New Research"');
+    expect(newResearchHeader).not.toContain('Old Session');
+    expect(newResearchHeader).not.toContain('Old Room');
+
     const viewIcons: Array<[AppHeaderViewIcon, string]> = [
       ['settings', 'lucide-settings'],
       ['automations', 'lucide-calendar-clock'],

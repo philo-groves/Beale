@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
-import type { CSSProperties, JSX } from 'react';
+import type { CSSProperties, JSX, ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 export interface FloatingTextPickerOption {
@@ -15,6 +15,7 @@ export function FloatingTextPicker({
   value,
   options,
   disabled = false,
+  leadingIcon,
   selectedLabelPrefix = '',
   title,
   ariaLabel,
@@ -24,6 +25,7 @@ export function FloatingTextPicker({
   value: string;
   options: FloatingTextPickerOption[];
   disabled?: boolean;
+  leadingIcon?: ReactNode;
   selectedLabelPrefix?: string;
   title: string;
   ariaLabel: string;
@@ -81,6 +83,7 @@ export function FloatingTextPicker({
           setOpen(true);
         }}
       >
+        {leadingIcon}
         <span className="floating-text-picker-label">{selectedLabelPrefix}{selectedOption?.label ?? ''}</span>
         <ChevronDown className="floating-text-picker-chevron" size={13} aria-hidden="true" />
       </button>

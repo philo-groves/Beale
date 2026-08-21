@@ -24,6 +24,7 @@ const CONNECTED_DEVICE_CAPTURE_VERTICAL_INSET = 22;
 
 export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
+  sessionSetupPending = false,
   events,
   allEvents,
   providerModelCatalog,
@@ -91,6 +92,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSteerInstruction
 }: {
   detail: RunDetail | null;
+  sessionSetupPending?: boolean;
   events: TraceDisplayEvent[];
   allEvents: TraceDisplayEvent[];
   providerModelCatalog: ResearchProviderModelCatalog[];
@@ -167,10 +169,11 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   const workspaceView = selectedRunId === null;
   const [workspaceSidePanelMounted, setWorkspaceSidePanelMounted] = useState(workspaceView && researchDetailsOpen);
   const [workspaceSidePanelVisible, setWorkspaceSidePanelVisible] = useState(workspaceView && researchDetailsOpen);
-  const showResearchSidePanel = selectedRunId !== null || workspaceSidePanelMounted;
-  const visibleResearchDetails = selectedRunId !== null ? researchDetailsOpen : workspaceSidePanelVisible;
-  const expandedResearchSidePanel = selectedRunId !== null ? researchDetailsOpen : workspaceSidePanelMounted;
-  const researchSideResizeEnabled = selectedRunId !== null && !visibleResearchDetails && !connectedDeviceCaptureExpanded;
+  const sessionHasContent = selectedRunId !== null && sessionContentAvailable(detail, events);
+  const showResearchSidePanel = sessionHasContent || workspaceSidePanelMounted;
+  const visibleResearchDetails = selectedRunId !== null ? sessionHasContent && researchDetailsOpen : workspaceSidePanelVisible;
+  const expandedResearchSidePanel = selectedRunId !== null ? sessionHasContent && researchDetailsOpen : workspaceSidePanelMounted;
+  const researchSideResizeEnabled = sessionHasContent && !visibleResearchDetails && !connectedDeviceCaptureExpanded;
   const {
     containerRef,
     panelWidth,
@@ -302,7 +305,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   return (
     <div
       ref={containerRef}
-      className={`main-session-grid${workspaceView ? ' workspace-context' : ''}${visibleResearchDetails || connectedDeviceCaptureExpanded ? ' research-details-open' : ''}${workspaceView && !visibleResearchDetails ? ' workspace-main-only' : ''}`}
+      className={`main-session-grid${workspaceView ? ' workspace-context' : ''}${visibleResearchDetails || connectedDeviceCaptureExpanded ? ' research-details-open' : ''}${workspaceView && !visibleResearchDetails ? ' workspace-main-only' : ''}${selectedRunId !== null && !sessionHasContent ? ' session-main-only' : ''}`}
       style={{
         '--research-side-panel-width': `${panelWidth}px`,
         ...(expandedDeviceCaptureWidth !== null && expandedDeviceCaptureWidth > 0
@@ -348,6 +351,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         <CommentaryView
           busy={busy}
           detail={detail}
+          sessionSetupPending={sessionSetupPending}
           events={events}
           activeScope={activeScope}
           providerModelCatalog={providerModelCatalog}
@@ -472,6 +476,13 @@ export function latestOverallRunbookExecution(events: readonly TraceEventRecord[
 
 export function isIosDeviceOs(deviceOs: string | null): boolean {
   return Boolean(deviceOs && /^(?:ios|iphone os)(?:\s|\d|$)/i.test(deviceOs.trim()));
+}
+
+export function sessionContentAvailable(
+  detail: RunDetail | null,
+  events: readonly TraceDisplayEvent[]
+): boolean {
+  return Boolean(detail && (detail.run.promptMarkdown.trim() || events.length > 0));
 }
 
 function isRunbookProofTarget(value: unknown): value is RunbookProofTarget {

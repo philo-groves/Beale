@@ -50,6 +50,35 @@ describe('renderer commentary projection', () => {
     expect(html).not.toContain('class="main-trace-footer"');
   });
 
+  it('shows a new session prompt and setup phase immediately', () => {
+    const detail = runDetail('Inspect the parser boundary.');
+    detail.run.status = 'active';
+    detail.run.startedAt = '2026-08-03T09:59:00.000Z';
+    detail.run.budget = {};
+    detail.run.model = 'gpt-5.6-sol';
+    detail.run.reasoningEffort = 'high';
+    detail.run.shellSafetyMode = 'auto_review';
+    const html = renderToStaticMarkup(
+      createElement(CommentaryView, {
+        busy: true,
+        detail,
+        sessionSetupPending: true,
+        events: [],
+        providerModelCatalog: [],
+        selectedRunId: detail.run.id,
+        showBackToMain: false,
+        searchHighlightQuery: '',
+        onBackToMain: () => undefined,
+        onSessionAction: () => undefined,
+        onSteerInstruction: () => undefined
+      })
+    );
+
+    expect(html).toContain('Inspect the parser boundary.');
+    expect(html).toContain('The session is in a setup phase. Please wait…');
+    expect(html).not.toContain('Loading session');
+  });
+
   it('keeps the working disclosure aligned to the commentary text width', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const messageStyles = styles.match(/\.main-commentary-message\s*\{([^}]*)\}/)?.[1] ?? '';

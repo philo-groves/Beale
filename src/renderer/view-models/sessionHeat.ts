@@ -37,23 +37,29 @@ export const DEFAULT_SESSION_HEAT_PALETTE: ResearchProfileSessionHeatPalette = {
   high: '#7768e8',
   critical: '#b14ee8'
 };
+export const SECURITY_RESEARCH_LIGHT_SESSION_HEAT_PALETTE: ResearchProfileSessionHeatPalette = {
+  low: '#e6ce7f',
+  medium: '#ce9564',
+  high: '#d37e83',
+  critical: '#d2565e'
+};
 export const SECURITY_RESEARCH_DARK_SESSION_HEAT_PALETTE: ResearchProfileSessionHeatPalette = {
-  low: '#b5a017',
-  medium: '#703400',
-  high: '#7f1a1f',
-  critical: '#610006'
+  low: '#857300',
+  medium: '#612d00',
+  high: '#7e1117',
+  critical: '#5c0006'
 };
 export const CREAM_SESSION_HEAT_PALETTE: ResearchProfileSessionHeatPalette = {
-  low: '#b58a3c',
-  medium: '#bf6b32',
-  high: '#ad4638',
-  critical: '#812f3b'
+  low: '#dbb061',
+  medium: '#d0793e',
+  high: '#e66565',
+  critical: '#c24747'
 };
 export const MIDNIGHT_SESSION_HEAT_PALETTE: ResearchProfileSessionHeatPalette = {
-  low: '#3e8aaa',
-  medium: '#4771c4',
-  high: '#6b5fc7',
-  critical: '#a34fa6'
+  low: '#657be6',
+  medium: '#4b5baa',
+  high: '#31296a',
+  critical: '#181433'
 };
 
 export const EMPTY_SESSION_HEAT_PREFERENCES: SessionHeatPreferences = {
@@ -136,6 +142,7 @@ export function sessionHeatPaletteForProfile(
   return {
     ...DEFAULT_SESSION_HEAT_PALETTE,
     ...profile?.presentation.sessionHeatPalette,
+    ...(profile?.id === 'security-research' && theme === 'light' ? SECURITY_RESEARCH_LIGHT_SESSION_HEAT_PALETTE : {}),
     ...(profile?.id === 'security-research' && theme === 'dark' ? SECURITY_RESEARCH_DARK_SESSION_HEAT_PALETTE : {}),
     ...(theme === 'cream' ? CREAM_SESSION_HEAT_PALETTE : {}),
     ...(theme === 'midnight' ? MIDNIGHT_SESSION_HEAT_PALETTE : {}),

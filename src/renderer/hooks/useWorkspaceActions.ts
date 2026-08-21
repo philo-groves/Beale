@@ -50,11 +50,14 @@ export function useWorkspaceActions({
   setWorkspaceOnboardingProgress: Dispatch<SetStateAction<WorkspaceOnboardingProgressUpdate | null>>;
 }): WorkspaceActions {
   const addWorkspace = useCallback((): void => {
+    setWorkspaceOnboardingProgress(null);
     setWorkspaceDraft(emptyWorkspaceOnboardingForm());
-  }, [setWorkspaceDraft]);
+  }, [setWorkspaceDraft, setWorkspaceOnboardingProgress]);
 
   const openRegisteredWorkspace = useCallback(
     (workspace: WorkspaceRegistryEntry): void => {
+      setWorkspaceDraft(null);
+      setWorkspaceOnboardingProgress(null);
       void runWorkspaceAction(async () => {
         clearRunDetail();
         setSelectedRunId(null);
@@ -63,12 +66,14 @@ export function useWorkspaceActions({
         setSelectedRunId(null);
       }, { reloadRegistry: false });
     },
-    [applySnapshot, clearRunDetail, runWorkspaceAction, setSelectedRunId]
+    [applySnapshot, clearRunDetail, runWorkspaceAction, setSelectedRunId, setWorkspaceDraft, setWorkspaceOnboardingProgress]
   );
 
   const openResearchSession = useCallback(
     (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary): void => {
       if (!researchSessionNeedsLoading(snapshot, selectedRunId, workspace, session)) return;
+      setWorkspaceDraft(null);
+      setWorkspaceOnboardingProgress(null);
       void runWorkspaceAction(async () => {
         clearRunDetail();
         const activeWorkspace = snapshot?.workspace.workspacePath === workspace.workspacePath;
@@ -78,7 +83,7 @@ export function useWorkspaceActions({
         setSelectedRunId(session.runId);
       }, { markBusy: false, reloadRegistry: false });
     },
-    [applySnapshot, clearRunDetail, runWorkspaceAction, selectedRunId, setSelectedRunId, snapshot]
+    [applySnapshot, clearRunDetail, runWorkspaceAction, selectedRunId, setSelectedRunId, setWorkspaceDraft, setWorkspaceOnboardingProgress, snapshot]
   );
 
   const removeRegisteredWorkspace = useCallback(

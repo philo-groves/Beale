@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ChevronDown, Play, Plus, RefreshCw, Repeat, ShieldAlert, Sparkles, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, Compass, FileText, Handshake, Lightbulb, Minus, Play, Plus, RefreshCw, Repeat, ShieldAlert, Sparkles, Telescope, Waypoints, X } from 'lucide-react';
 import type {
   OpenAiAccountStatus,
   ResearchGoalPhase,
@@ -8,16 +8,19 @@ import type {
   ResearchGoalSuggestionStateByPhase,
   ResearchModelEffortLevel,
   ResearchModelProviderId,
+  ResearchModelSelection,
   ProviderModelDefaults,
   ProviderSettings,
   ResearchCollaborationIntensity,
   ResearchCollaborationMode,
+  ResearchCollaborationProviderPreference,
   ResearchProfileSnapshot,
   ResearchProfileWorkflow,
   ResearchProviderModel,
   ResearchProviderModelCatalog,
   ResearchProviderStatus,
   RepeatSchedule,
+  RunRecord,
   ShellSafetyMode,
   StartRunInput,
   WorkspaceSnapshot
@@ -32,6 +35,7 @@ import { Modal } from '../../app/Modal';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { ModelSelectionPicker } from '../../app/ModelSelectionPicker';
+import { NestedSelectionPicker } from '../../app/NestedSelectionPicker';
 import { userFacingErrorMessage } from '../../lib/errors';
 import { researchModelNameLabel } from '../../lib/formatting';
 import { DEFAULT_RESEARCH_MODEL } from '../../../shared/modelDefaults';
@@ -42,9 +46,29 @@ import {
   defaultRunInput
 } from '../../view-models/runSettings';
 import type { ResearchGoalSeed } from './SessionNextSteps';
+import { MainSteerArea } from './SessionComposer';
+import { SessionNextStepsWidget } from './SessionNextSteps';
+import bealeAppIcon from '../../../../resources/app-icon.png';
 
 const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
 const MAX_RENDERED_GOAL_SUGGESTIONS = 12;
+
+export function newResearchPromptPlaceholder(addContext: boolean): string {
+  return addContext ? 'Write a sentence or two' : 'Write a full research prompt';
+}
+
+export function enableCollaboratorAtTop(
+  providers: ResearchCollaborationProviderPreference[],
+  collaborator: ResearchCollaborationProviderPreference | null
+): ResearchCollaborationProviderPreference[] {
+  if (!collaborator) return providers;
+  return [
+    { ...collaborator, enabled: true },
+    ...providers.filter((provider) => (
+      provider.provider !== collaborator.provider || provider.model !== collaborator.model
+    ))
+  ];
+}
 const REPEAT_SCHEDULE_TYPES: RepeatSchedule['type'][] = ['none', 'minutely', 'hourly', 'daily', 'weekly', 'monthly'];
 type RepeatScheduleUnit = 'minute' | 'hour' | 'day' | 'week' | 'month';
 
@@ -101,7 +125,7 @@ const LEGACY_RESEARCH_GOAL_WORKFLOWS: readonly ResearchProfileWorkflow[] = [
   {
     id: 'longshot',
     name: 'Longshot',
-    description: 'Hunt for ambitious, reportable high- or critical-severity vulnerabilities in underexplored attack surfaces.',
+    description: 'Hunt for ambitious, reportable high- or critical-severity vulnerabilities.',
     goalSuggestionCount: 4,
     goalSuggestionInstructions: [],
     promptInstructions: [],
@@ -124,18 +148,20 @@ interface StartRunFormProps {
   researchGoalSuggestionErrors: ResearchGoalSuggestionStateByPhase<string | null>;
   initialGoal?: ResearchGoalSeed | null;
   showSuggestions?: boolean;
+  presentation?: 'dialog' | 'session';
   busy: boolean;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
   onCancel: () => void;
   onLoadResearchGoalSuggestions?: (phase: ResearchGoalPhase) => void;
   onSelectResearchGoalSuggestion?: (phase: ResearchGoalPhase, suggestion: string) => void;
   onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
-  onStarted: (runId: string) => void;
+  onStarted: (run: RunRecord) => void;
 }
 
 export interface ResearchSettingsFormProps {
   researchProfile: ResearchProfileSnapshot | null;
   formIdentity: string;
+  workspaceName?: string;
   openAiStatus: OpenAiAccountStatus | null;
   defaultProviderId: ResearchModelProviderId | null | undefined;
   dangerModeEnabled?: boolean;
@@ -152,7 +178,7 @@ export interface ResearchSettingsFormProps {
   showSuggestions?: boolean;
   showAddContext?: boolean;
   disableNoRepeat?: boolean;
-  presentation?: 'dialog' | 'embedded';
+  presentation?: 'dialog' | 'embedded' | 'session';
   title?: string;
   submitLabel?: string;
   busy: boolean;
@@ -168,6 +194,7 @@ export function StartRunForm(props: StartRunFormProps): JSX.Element {
     snapshot,
     runAction,
     onStarted,
+    presentation = 'dialog',
     ...settingsProps
   } = props;
   return (
@@ -175,14 +202,18 @@ export function StartRunForm(props: StartRunFormProps): JSX.Element {
       {...settingsProps}
       researchProfile={snapshot.researchProfile ?? null}
       formIdentity={`${snapshot.workspace.workspaceId}:${snapshot.activeScope.id}:${snapshot.researchProfile?.profileHash ?? 'default'}`}
+      workspaceName={snapshot.activeScope.workspaceName ?? 'Workspace'}
       showSuggestions={props.showSuggestions ?? true}
-      presentation="dialog"
-      onSubmit={(input) => runAction(async () => {
-        const next = await window.beale.startRun(input);
-        const latestRunId = next.runs[0]?.run.id;
-        if (latestRunId) onStarted(latestRunId);
-        return next;
-      })}
+      presentation={presentation}
+      onSubmit={async (input) => {
+        let latestRun: RunRecord | undefined;
+        await runAction(async () => {
+          const next = await window.beale.startRun(input);
+          latestRun = next.runs[0]?.run;
+          return next;
+        });
+        if (latestRun) onStarted(latestRun);
+      }}
     />
   );
 }
@@ -190,6 +221,7 @@ export function StartRunForm(props: StartRunFormProps): JSX.Element {
 export function ResearchSettingsForm({
   researchProfile,
   formIdentity,
+  workspaceName = 'Workspace',
   openAiStatus,
   defaultProviderId,
   dangerModeEnabled = false,
@@ -258,6 +290,12 @@ export function ResearchSettingsForm({
   );
   const selectedProvider = providerOptions.find((provider) => provider.id === selectedProviderId) ?? null;
   const selectedModel = selectedProvider?.models.find((model) => model.id === input.model) ?? null;
+  const configuredProviderModelCatalog = useMemo(
+    () => providerModelCatalog.filter((catalog) => (
+      providerOptions.some((provider) => provider.id === catalog.providerId && provider.configured)
+    )),
+    [providerModelCatalog, providerOptions]
+  );
   const initialProvider = useMemo(() => {
     if (defaultProviderId === undefined) return null;
     return providerOptions.find((provider) => provider.id === defaultProviderId && provider.configured && provider.models.length > 0)
@@ -305,22 +343,22 @@ export function ResearchSettingsForm({
     if (requestId) void window.beale.cancelResearchPromptGeneration(requestId).catch(() => undefined);
   };
 
-  const generateFullPrompt = (): Promise<string | null> => {
-    const draft = inputRef.current.promptMarkdown.trim();
+  const generateFullPrompt = (inputOverride?: StartRunInput): Promise<string | null> => {
+    const sessionInput = inputOverride ?? inputRef.current;
+    const draft = sessionInput.promptMarkdown.trim();
     if (!draft || generatingPrompt) return Promise.resolve(null);
     cancelPromptGeneration();
     const requestId = clientRequestId('research_prompt');
-    const sessionInput = inputRef.current;
     const workflowId = sessionInput.workflowId ?? defaultWorkflowId;
     const sourceStage = editorStage;
     generationRequestIdRef.current = requestId;
     generationSourceTextRef.current = draft;
     setGenerationError(null);
-    setInput((current) => {
+    setInput(() => {
       const next = {
-        ...current,
+        ...sessionInput,
         workflowId,
-        goalObjective: sourceStage === 'goal' ? draft : current.goalObjective,
+        goalObjective: sourceStage === 'goal' ? draft : sessionInput.goalObjective,
         promptMarkdown: ''
       };
       inputRef.current = next;
@@ -336,7 +374,7 @@ export function ResearchSettingsForm({
       draftPromptMarkdown: sourceStage === 'prompt' ? draft : null,
       mode: sessionInput.mode,
       attemptStrategy: sessionInput.attemptStrategy,
-      provider: selectedProviderId ?? undefined,
+      provider: researchProviderId(sessionInput.provider) ?? selectedProviderId ?? undefined,
       model: sessionInput.model,
       reasoningEffort: sessionInput.reasoningEffort,
       sandboxProfile: sessionInput.sandboxProfile,
@@ -659,7 +697,11 @@ export function ResearchSettingsForm({
   };
 
   const addCollaborator = (): void => {
-    if (nextCollaborator) updateCollaborator(nextCollaborator.provider, nextCollaborator.model, { enabled: true });
+    if (!nextCollaborator) return;
+    update('collaboration', {
+      ...collaboration,
+      providers: enableCollaboratorAtTop(collaboration.providers, nextCollaborator)
+    });
   };
 
   const removeCollaborator = (providerId: ResearchModelProviderId, modelId: string): void => {
@@ -728,6 +770,262 @@ export function ResearchSettingsForm({
     cancelPromptGeneration();
     onCancel();
   };
+
+  if (formPresentation === 'session') {
+    const initialModelSelection: ResearchModelSelection | undefined = selectedProviderId && selectedModel ? {
+      provider: selectedProviderId,
+      model: selectedModel.id,
+      reasoningEffort: selectedEffort
+    } : undefined;
+    const startFromSessionComposer = (
+      promptMarkdown: string,
+      modelSelection: ResearchModelSelection,
+      shellSafetyMode: ShellSafetyMode
+    ): void => {
+      const next: StartRunInput = {
+        ...inputRef.current,
+        promptMarkdown,
+        provider: modelSelection.provider,
+        model: modelSelection.model,
+        reasoningEffort: inputValueForEffort(modelSelection.reasoningEffort),
+        shellSafetyMode
+      };
+      inputRef.current = next;
+      setInput(next);
+      setSelectedProviderId(modelSelection.provider);
+      if (generateEnabled) generateAndStart();
+      else start();
+    };
+
+    return (
+      <section className="main-trace-view main-commentary-view new-research-session-view" aria-label={title ?? 'New Research'}>
+        <div className="main-commentary-scroll" aria-label="New research commentary">
+          <div className="main-commentary-list">
+            <NewResearchWelcome
+              key={formIdentity}
+              workspaceName={workspaceName}
+              workflows={workflows}
+              suggestions={researchGoalSuggestions}
+              loading={researchGoalSuggestionsLoading}
+              errors={researchGoalSuggestionErrors}
+              visible={showSuggestions}
+              onOpenWorkflow={(workflowId) => {
+                selectWorkflow(workflowId);
+                onLoadResearchGoalSuggestions(workflowId);
+              }}
+              onSelect={selectGoalSentence}
+            />
+          </div>
+        </div>
+        <MainSteerArea
+          runId={null}
+          detail={null}
+          providerModelCatalog={configuredProviderModelCatalog}
+          busy={busy || startingRun || generatingPrompt}
+          initialModelSelection={initialModelSelection}
+          initialSafetyMode={input.shellSafetyMode}
+          initialInstruction={input.promptMarkdown}
+          inputPlaceholder={newResearchPromptPlaceholder(generateEnabled)}
+          safetyModeOptions={shellSafetyModeOptions}
+          ariaLabel="Start new research"
+          preComposerContent={(
+            <div className="new-research-options-tray" aria-label="New research options">
+              <div className="new-research-options-tray-left">
+                <RepeatSchedulePicker
+                  value={repeatSchedule}
+                  disabled={generatingPrompt}
+                  disableNoRepeat={disableNoRepeat}
+                  onChange={selectRepeatSchedule}
+                />
+              </div>
+              <div className="new-research-options-tray-right">
+                <label
+                  className="new-research-goal-toggle"
+                  title="Keep working across turns until the objective is complete or genuinely blocked."
+                >
+                  <input
+                    type="checkbox"
+                    checked={input.goalEnabled}
+                    disabled={generatingPrompt}
+                    onChange={(event) => update('goalEnabled', event.target.checked)}
+                  />
+                  <span>Goal</span>
+                </label>
+                {showAddContext ? (
+                  <label
+                    className="new-research-generate-toggle"
+                    title="Add relevant workspace context to the objective before starting."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={generateEnabled}
+                      disabled={generatingPrompt}
+                      onChange={(event) => setGenerateEnabled(event.target.checked)}
+                    />
+                    <span>Add Context</span>
+                  </label>
+                ) : null}
+              </div>
+            </div>
+          )}
+          postComposerContent={(
+            <div className="new-research-collaboration-tray" aria-label="Collaboration settings">
+              <div className="new-research-collaboration-dropdowns">
+                <NestedSelectionPicker
+                  className="new-research-collaboration-picker"
+                  sections={[
+                    {
+                      id: 'collaboration-mode',
+                      label: 'Mode',
+                      value: collaboration.mode,
+                      options: [
+                        { value: 'solo', label: 'Solo' },
+                        { value: 'adaptive', label: 'Adaptive' },
+                        { value: 'always', label: 'Always Use Team' }
+                      ],
+                      onSelect: (value) => selectCollaborationMode(value as ResearchCollaborationMode)
+                    },
+                    {
+                      id: 'collaboration-intensity',
+                      label: 'Intensity',
+                      value: collaboration.intensity,
+                      options: [
+                        { value: 'focused', label: 'Focused' },
+                        { value: 'balanced', label: 'Balanced' },
+                        { value: 'deep', label: 'Deep' }
+                      ],
+                      disabled: collaboration.mode === 'solo',
+                      onSelect: (value) => selectCollaborationIntensity(value as ResearchCollaborationIntensity)
+                    },
+                    {
+                      id: 'collaboration-rounds',
+                      label: 'Challenge Rounds',
+                      value: String(collaboration.peerChallengeRounds),
+                      options: [
+                        { value: '0', label: 'None' },
+                        { value: '1', label: 'One' },
+                        { value: '2', label: 'Two' },
+                        { value: '3', label: 'Three' }
+                      ],
+                      disabled: collaboration.mode === 'solo',
+                      onSelect: (value) => update('collaboration', {
+                        ...collaboration,
+                        peerChallengeRounds: Number(value)
+                      })
+                    }
+                  ]}
+                  triggerContent={(
+                    <>
+                      <Handshake className="new-research-collaboration-setting-icon" size={13} aria-hidden="true" />
+                      <span className="model-selection-picker-model">Collaboration</span>
+                      <ChevronDown className="model-selection-picker-trigger-chevron" size={13} aria-hidden="true" />
+                    </>
+                  )}
+                  title="Collaboration settings"
+                  ariaLabel="Collaboration settings"
+                  disabled={generatingPrompt}
+                />
+              </div>
+              <div className="new-research-collaborator-stack">
+                {enabledCollaborators.map((preference, index) => {
+                  const provider = providerOptions.find((candidate) => candidate.id === preference.provider);
+                  const model = provider?.models.find((candidate) => candidate.id === preference.model) ?? null;
+                  const oldest = index === enabledCollaborators.length - 1;
+                  return (
+                    <div className="new-research-collaborator-row" key={collaboratorKey(preference.provider, preference.model)}>
+                      <ModelSelectionPicker
+                        className="main-steer-model-selection-picker new-research-collaborator-picker"
+                        providerValue={preference.provider}
+                        modelValue={preference.model}
+                        effortValue={preference.reasoningEffort}
+                        title={`${provider?.label ?? preference.provider} collaborator settings`}
+                        ariaLabel={`${provider?.label ?? preference.provider} collaborator model settings`}
+                        disabled={generatingPrompt || collaboration.mode === 'solo'}
+                        providerOptions={providerOptions.map((candidate) => ({
+                          value: candidate.id,
+                          label: candidate.label,
+                          disabled: candidate.models.length === 0
+                            || !candidate.configured
+                            || providerPolicyRiskAcknowledgements?.[candidate.id] !== true
+                            || !collaboration.providers.some((available) => (
+                              available.provider === candidate.id
+                              && (candidate.id === preference.provider || !available.enabled)
+                            ))
+                        }))}
+                        modelOptions={(provider?.models ?? []).map((candidate) => ({
+                          value: candidate.id,
+                          label: researchModelNameLabel(preference.provider, candidate.name),
+                          disabled: candidate.id !== preference.model
+                            && enabledCollaborators.some((enabled) => (
+                              enabled.provider === preference.provider && enabled.model === candidate.id
+                            ))
+                        }))}
+                        effortOptions={(model?.effortLevels ?? []).map((effort) => ({ value: effort, label: effortLabel(effort) }))}
+                        onSelectProvider={(value) => selectCollaboratorProvider(
+                          preference.provider,
+                          preference.model,
+                          value as ResearchModelProviderId
+                        )}
+                        onSelectModel={(modelId) => selectCollaboratorModel(
+                          preference.provider,
+                          preference.model,
+                          modelId
+                        )}
+                        onSelectEffort={(effort) => updateCollaborator(preference.provider, preference.model, {
+                          reasoningEffort: effort as ResearchModelEffortLevel
+                        })}
+                      />
+                      {oldest ? (
+                        <button
+                          type="button"
+                          className="new-research-collaborator-add"
+                          title={nextCollaborator ? 'Add collaborator' : 'No additional acknowledged collaborators are available'}
+                          aria-label="Add collaborator"
+                          disabled={!nextCollaborator || generatingPrompt || collaboration.mode === 'solo'}
+                          onClick={addCollaborator}
+                        >
+                          <Plus size={16} />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="new-research-collaborator-remove"
+                          title={`Remove ${provider?.label ?? preference.provider} collaborator`}
+                          aria-label={`Remove ${provider?.label ?? preference.provider} collaborator`}
+                          disabled={generatingPrompt || collaboration.mode === 'solo'}
+                          onClick={() => removeCollaborator(preference.provider, preference.model)}
+                        >
+                          <Minus size={16} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {enabledCollaborators.length === 0 ? (
+                  <div className="new-research-collaborator-row is-empty">
+                    <button
+                      type="button"
+                      className="new-research-collaborator-add"
+                      title={nextCollaborator ? 'Add collaborator' : 'No acknowledged collaborators are available'}
+                      aria-label="Add collaborator"
+                      disabled={!nextCollaborator || generatingPrompt || collaboration.mode === 'solo'}
+                      onClick={addCollaborator}
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+          onInitialInstruction={startFromSessionComposer}
+          onCancel={closeForm}
+          onSessionAction={() => undefined}
+          onSteerInstruction={() => undefined}
+        />
+      </section>
+    );
+  }
 
   const primaryLabel = formPresentation === 'dialog' ? 'Start' : submitLabel;
   const actions = (
@@ -1062,7 +1360,7 @@ function RepeatSchedulePicker({
 
   return (
     <div
-      className={`new-research-repeat-picker ${open ? 'is-open' : ''}`.trim()}
+      className={`new-research-repeat-picker${schedule.type !== 'none' ? ' is-non-default' : ''}${open ? ' is-open' : ''}`}
       ref={pickerRef}
       onBlur={(event) => {
         if (event.currentTarget.contains(event.relatedTarget)) return;
@@ -1227,6 +1525,85 @@ export function ResearchGoalChooser({
       </MainSideScrollRegion>
     </section>
   );
+}
+
+function NewResearchWelcome({
+  workspaceName,
+  workflows,
+  suggestions,
+  loading,
+  errors,
+  visible,
+  onOpenWorkflow,
+  onSelect
+}: {
+  workspaceName: string;
+  workflows: readonly ResearchProfileWorkflow[];
+  suggestions: ResearchGoalSuggestionsByPhase;
+  loading: ResearchGoalSuggestionStateByPhase<boolean>;
+  errors: ResearchGoalSuggestionStateByPhase<string | null>;
+  visible: boolean;
+  onOpenWorkflow: (workflowId: ResearchGoalPhase) => void;
+  onSelect: (sentence: string, workflowId: ResearchGoalPhase) => void;
+}): JSX.Element {
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<ResearchGoalPhase | null>(null);
+  const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null;
+  const suggestionLimit = selectedWorkflow
+    ? Math.min(MAX_RENDERED_GOAL_SUGGESTIONS, Math.max(1, selectedWorkflow.goalSuggestionCount))
+    : 3;
+
+  return (
+    <section className="new-research-welcome" aria-label={`New research for ${workspaceName}`}>
+      <img className="new-research-welcome-icon" src={bealeAppIcon} alt="Beale" />
+      <h2>Let&apos;s research {workspaceName}</h2>
+      {visible ? (
+        selectedWorkflow ? (
+          <div className="new-research-suggestion-panel">
+            <SessionNextStepsWidget
+              loading={loading[selectedWorkflow.id] ?? false}
+              suggestions={suggestions[selectedWorkflow.id] ?? []}
+              error={errors[selectedWorkflow.id] ?? null}
+              title={null}
+              suggestionLimit={suggestionLimit}
+              onBack={() => setSelectedWorkflowId(null)}
+              onSelect={(sentence) => onSelect(sentence, selectedWorkflow.id)}
+            />
+          </div>
+        ) : (
+          <div className="new-research-workflow-list" aria-label="Research suggestion categories">
+            {workflows.map((workflow) => (
+              <button
+                type="button"
+                className="new-research-workflow-option"
+                aria-label={`${workflow.name}: ${workflow.description}`}
+                onClick={() => {
+                  setSelectedWorkflowId(workflow.id);
+                  onOpenWorkflow(workflow.id);
+                }}
+                key={workflow.id}
+              >
+                <ResearchWorkflowIcon workflow={workflow} />
+                <span>
+                  <strong>{workflow.name}</strong>
+                  <span>{workflow.description}</span>
+                </span>
+                <ArrowRight className="new-research-workflow-arrow" size={14} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )
+      ) : null}
+    </section>
+  );
+}
+
+function ResearchWorkflowIcon({ workflow }: { workflow: ResearchProfileWorkflow }): JSX.Element {
+  const identity = `${workflow.id} ${workflow.name}`.toLowerCase();
+  if (identity.includes('discover')) return <Compass size={19} aria-hidden="true" />;
+  if (identity.includes('chain')) return <Waypoints size={19} aria-hidden="true" />;
+  if (identity.includes('report')) return <FileText size={19} aria-hidden="true" />;
+  if (identity.includes('longshot')) return <Telescope size={19} aria-hidden="true" />;
+  return <Lightbulb size={19} aria-hidden="true" />;
 }
 
 export function defaultResearchWorkflowId(workflows: readonly ResearchProfileWorkflow[]): string {

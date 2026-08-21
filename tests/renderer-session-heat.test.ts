@@ -116,17 +116,23 @@ describe('renderer session heat view models', () => {
     expect(sessionHeatPaletteForProfile(profile, preferences, 'dark')).toEqual(profile.presentation.sessionHeatPalette);
   });
 
-  it('uses cyber-specific dark heat defaults without changing light or mathematics palettes', () => {
+  it('uses Security-specific Light and Dark heat defaults without changing Mathematics palettes', () => {
     const cyberProfile = heatProfile();
     const mathematicsProfile = mathematicsHeatProfile();
 
     expect(sessionHeatPaletteForProfile(cyberProfile, undefined, 'dark')).toEqual({
-      low: '#b5a017',
-      medium: '#703400',
-      high: '#7f1a1f',
-      critical: '#610006'
+      low: '#857300',
+      medium: '#612d00',
+      high: '#7e1117',
+      critical: '#5c0006'
     });
-    expect(sessionHeatPaletteForProfile(cyberProfile, undefined, 'light')).toEqual(cyberProfile.presentation.sessionHeatPalette);
+    expect(sessionHeatPaletteForProfile(cyberProfile, undefined, 'light')).toEqual({
+      low: '#e6ce7f',
+      medium: '#ce9564',
+      high: '#d37e83',
+      critical: '#d2565e'
+    });
+    expect(sessionHeatPaletteForProfile(mathematicsProfile, undefined, 'light')).toEqual(mathematicsProfile.presentation.sessionHeatPalette);
     expect(sessionHeatPaletteForProfile(mathematicsProfile, undefined, 'dark')).toEqual(mathematicsProfile.presentation.sessionHeatPalette);
   });
 
@@ -141,10 +147,10 @@ describe('renderer session heat view models', () => {
     );
 
     expect(sessionHeatPaletteForProfile(profile, undefined, 'cream')).toEqual({
-      low: '#b58a3c',
-      medium: '#bf6b32',
-      high: '#ad4638',
-      critical: '#812f3b'
+      low: '#dbb061',
+      medium: '#d0793e',
+      high: '#e66565',
+      critical: '#c24747'
     });
     expect(sessionHeatPaletteForProfile(profile, preferences, 'cream').high).toBe('#9f3d2f');
     expect(sessionHeatPaletteForProfile(profile, preferences, 'dark').high).toBe('#7768e8');
@@ -161,10 +167,10 @@ describe('renderer session heat view models', () => {
     );
 
     expect(sessionHeatPaletteForProfile(profile, undefined, 'midnight')).toEqual({
-      low: '#3e8aaa',
-      medium: '#4771c4',
-      high: '#6b5fc7',
-      critical: '#a34fa6'
+      low: '#657be6',
+      medium: '#4b5baa',
+      high: '#31296a',
+      critical: '#181433'
     });
     expect(sessionHeatPaletteForProfile(profile, preferences, 'midnight').critical).toBe('#bd58b8');
     expect(sessionHeatPaletteForProfile(profile, preferences, 'dark').critical).toBe('#b14ee8');

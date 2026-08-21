@@ -27,6 +27,8 @@ describe('renderer startup', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceStartupView, {
       onAddWorkspace: () => undefined
     }));
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const buttonStyles = styles.match(/\.workspace-startup-content button\s*\{([^}]*)\}/u)?.[1] ?? '';
 
     expect(html).toContain('No Workspace Selected');
     expect(html).toContain('Choose a known workspace');
@@ -35,6 +37,7 @@ describe('renderer startup', () => {
     expect(html).not.toContain('Loading workspaces');
     expect(html).not.toContain('Opening your last workspace');
     expect(html).not.toContain('role="status"');
+    expect(buttonStyles).toContain('border: 0');
   });
 
   it('loads registry state without restoring or snapshot-loading a workspace', () => {
